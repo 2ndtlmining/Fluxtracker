@@ -141,11 +141,6 @@
     border: 1px solid rgba(255, 68, 68, 0.3);
   }
   
-  .stat-change.neutral {
-    color: var(--text-dim);
-    background: rgba(139, 146, 176, 0.1);
-    border: 1px solid rgba(139, 146, 176, 0.3);
-  }
   
   .trend-arrow {
     font-size: 1rem;
