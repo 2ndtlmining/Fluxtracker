@@ -1,0 +1,55 @@
+# Dependencies
+node_modules
+npm-debug.log
+package-lock.json
+
+# Build outputs
+build
+.svelte-kit
+dist
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Development files
+.git
+.gitignore
+.github
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Testing
+coverage
+.nyc_output
+*.test.js
+*.spec.js
+__tests__
+
+# Documentation
+*.md
+!README.md
+docs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Database (if you want a fresh DB in container)
+# Uncomment if you don't want to copy existing DB
+# *.db
+# *.db-shm
+# *.db-wal
+
+# Temporary files
+tmp
+temp
+*.tmp

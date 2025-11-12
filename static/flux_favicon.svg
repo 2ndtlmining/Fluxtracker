@@ -1,0 +1,78 @@
+<svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Terminal glow effect -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="1" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Gradient for terminal screen -->
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0c1021;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#131829;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Flux blue gradient -->
+    <linearGradient id="fluxGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5c9ccc;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#7db3d9;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#9cc5e6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Terminal background -->
+  <rect width="32" height="32" rx="3" ry="3" fill="url(#screenGrad)" stroke="#2d5aa0" stroke-width="0.5"/>
+  
+  <!-- Terminal header bar -->
+  <rect x="1" y="1" width="30" height="6" rx="2" ry="2" fill="#2d5aa0" opacity="0.8"/>
+  
+  <!-- Terminal dots (close/minimize/maximize) -->
+  <circle cx="4" cy="4" r="0.8" fill="#ef4444" opacity="0.8"/>
+  <circle cx="7" cy="4" r="0.8" fill="#fbbf24" opacity="0.8"/>
+  <circle cx="10" cy="4" r="0.8" fill="#22c55e" opacity="0.8"/>
+  
+  <!-- Flux "F" symbol in terminal style -->
+  <g filter="url(#glow)">
+    <!-- Main F shape -->
+    <path d="M 8 10 L 8 24 M 8 10 L 18 10 M 8 16 L 15 16" 
+          stroke="url(#fluxGrad)" 
+          stroke-width="2" 
+          stroke-linecap="round" 
+          stroke-linejoin="round" 
+          fill="none"/>
+    
+    <!-- Terminal cursor/accent -->
+    <rect x="19" y="21" width="3" height="2" fill="#22c55e" opacity="0.9">
+      <animate attributeName="opacity" values="0.9;0.3;0.9" dur="1.5s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+  
+  <!-- Revenue graph line (simplified) -->
+  <g opacity="0.6">
+    <polyline points="8,26 12,24 16,22 20,20 24,19" 
+              stroke="#60a5fa" 
+              stroke-width="1" 
+              fill="none" 
+              stroke-linecap="round"/>
+    <!-- Data points -->
+    <circle cx="12" cy="24" r="0.5" fill="#60a5fa"/>
+    <circle cx="16" cy="22" r="0.5" fill="#60a5fa"/>
+    <circle cx="20" cy="20" r="0.5" fill="#60a5fa"/>
+    <circle cx="24" cy="19" r="0.5" fill="#60a5fa"/>
+  </g>
+  
+  <!-- Terminal scan lines effect -->
+  <g opacity="0.1">
+    <line x1="0" y1="9" x2="32" y2="9" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="12" x2="32" y2="12" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="15" x2="32" y2="15" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="18" x2="32" y2="18" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="21" x2="32" y2="21" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="24" x2="32" y2="24" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="27" x2="32" y2="27" stroke="#5c9ccc" stroke-width="0.2"/>
+    <line x1="0" y1="30" x2="32" y2="30" stroke="#5c9ccc" stroke-width="0.2"/>
+  </g>
+</svg>

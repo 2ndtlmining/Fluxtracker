@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  flux-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: flux-dashboard
+    restart: unless-stopped
+    
+    # Port configuration
+    ports:
+      - "3000:3000"  # API port
+      - "5173:5173"  # Frontend port
+    
+    # Environment variables
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - API_PORT=3000
+      - PORT=5173
+      - ORIGIN=http://localhost:5173
+    
+    # Or use env file
+    # env_file:
+    #   - .env.production
+    
+    # Volume mounts for data persistence
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: Named volumes
+volumes:
+  flux-data:
+    driver: local
+
+# Optional: Custom network
+networks:
+  flux-network:
+    driver: bridge
