@@ -34,6 +34,9 @@ import { fetchRevenueStats } from './lib/services/revenueService.js';
 import { startServiceTests, getServiceTestSchedulerStatus } from './lib/services/servicesScheduler.js';
 import { testAllServices } from './lib/services/test-allServices.js';
 
+// Import backfill functions
+import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -236,6 +239,47 @@ app.get('/api/admin/test-status', (req, res) => {
         res.json(status);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+
+// NEW: Backfill snapshots endpoint
+app.post('/api/admin/backfill', async (req, res) => {
+    try {
+        console.log('🔄 Backfill triggered via API');
+        
+        // Calculate dynamic date range
+        const toDate = new Date();
+        toDate.setDate(toDate.getDate() - 1); // Yesterday
+        const toDateStr = toDate.toISOString().split('T')[0];
+        
+        const fromDate = new Date();
+        fromDate.setDate(fromDate.getDate() - 365); // 365 days ago
+        const fromDateStr = fromDate.toISOString().split('T')[0];
+        
+        console.log(`📊 Backfilling from ${fromDateStr} to ${toDateStr}`);
+        
+        // Run the backfill
+        const result = backfillRevenueSnapshots(fromDateStr, toDateStr);
+        
+        console.log(`✅ Backfill complete: Created ${result.created}, Skipped ${result.skipped}`);
+        
+        res.json({
+            success: true,
+            message: 'Backfill completed successfully',
+            created: result.created,
+            skipped: result.skipped,
+            dateRange: {
+                from: fromDateStr,
+                to: toDateStr
+            }
+        });
+    } catch (error) {
+        console.error('❌ Backfill failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
