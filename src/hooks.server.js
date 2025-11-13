@@ -1,7 +1,7 @@
 // src/hooks.server.js
 // API Proxy - Routes /api/* requests to the Express backend on port 3000
 
-const API_BASE = 'http://localhost:3000';
+const API_BASE = 'http://127.0.0.1:3000';
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
