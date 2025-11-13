@@ -201,27 +201,56 @@ export function hoursForBlocks(blocks) {
     return (blocks * BLOCK_CONFIG.SECONDS_PER_BLOCK) / 3600;
 }
 
-// Configuration for API endpoints
-// This allows the frontend to connect to the backend in different environments
+// ============================================
+// DYNAMIC API URL CONFIGURATION
+// ============================================
 
-// IMPORTANT: Don't use this directly in components - use getApiUrl() instead
-export const API_BASE_URL = 'http://localhost:3000';  // Fallback only
-
-// For server-side rendering, use localhost
-export const API_BASE_URL_SSR = 'http://localhost:3000';
-
-// Helper to get the correct API URL based on context
+/**
+ * CRITICAL FIX: Get the correct API URL based on environment
+ * This function dynamically determines the backend API URL based on:
+ * 1. Environment variables (for explicit configuration)
+ * 2. Current hostname (for production deployment)
+ * 3. Fallback to localhost (for SSR/development)
+ * 
+ * IMPORTANT: This function MUST be called in onMount() or client-side only,
+ * NOT during module initialization or SSR.
+ */
 export function getApiUrl() {
-    // CRITICAL: Check if we're in browser AND if window.location is actually available
-    // During SSR, window might exist but not be properly initialized
-    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-        // We're in the browser - use the current hostname with API port 3000
-        const hostname = window.location.hostname;
-        console.log('[config] Browser mode - API URL:', `http://${hostname}:3000`);
-        return `http://${hostname}:3000`;
+    // CRITICAL: Only run this in the browser, never during SSR
+    if (typeof window === 'undefined') {
+        // During SSR, return empty string - components should handle this
+        return '';
     }
+
+    // Check for explicit environment variable override
+    // This can be set during build: VITE_API_URL=http://your-api-server:3000
+    if (import.meta.env.VITE_API_URL) {
+        console.log('[config] Using VITE_API_URL:', import.meta.env.VITE_API_URL);
+        return import.meta.env.VITE_API_URL;
+    }
+
+    // Get current browser location
+    const protocol = window.location.protocol; // 'http:' or 'https:'
+    const hostname = window.location.hostname; // e.g., 'localhost', '127.0.0.1', or '149.154.176.158'
     
-    // We're on the server (SSR) - use localhost for internal Docker communication
-    console.log('[config] SSR mode - API URL: http://localhost:3000');
+    // Determine API port (default 3000, but can be overridden)
+    const apiPort = import.meta.env.VITE_API_PORT || '3000';
+    
+    // Construct the API URL using the SAME protocol and hostname as the frontend
+    const apiUrl = `${protocol}//${hostname}:${apiPort}`;
+    
+    console.log('[config] Dynamic API URL:', apiUrl);
+    return apiUrl;
+}
+
+/**
+ * Alternative function for SSR contexts (server-side rendering)
+ * This always returns localhost for internal Docker communication
+ */
+export function getApiUrlSSR() {
     return 'http://localhost:3000';
 }
+
+// Fallback constants (do not use these directly - use getApiUrl() instead)
+export const API_BASE_URL = 'http://localhost:3000';  // Fallback only
+export const API_BASE_URL_SSR = 'http://localhost:3000'; // SSR only

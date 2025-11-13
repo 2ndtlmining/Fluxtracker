@@ -1,5 +1,9 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { getApiUrl } from '$lib/config.js';
+  
+  // IMPORTANT: API_URL must be set in onMount(), not here!
+  let API_URL = '';
   
   // System stats
   let uptime = '0 days, 0:00';
@@ -21,6 +25,10 @@
   let interval;
   
   onMount(async () => {
+    // Get API URL in browser context
+    API_URL = getApiUrl();
+    console.log('✅ Header using API URL:', API_URL);
+    
     await fetchSystemStats();
     
     // Update every 5 seconds
@@ -56,7 +64,7 @@
       cachePercent = '90.0%';
       
       // Try to fetch from API
-      const response = await fetch('http://localhost:3000/api/health');
+      const response = await fetch(`${API_URL}/api/health`);
       const data = await response.json();
       
       if (data.status === 'ok') {
@@ -72,7 +80,7 @@
       
       // Fetch database stats
       try {
-        const statsResponse = await fetch('http://localhost:3000/api/stats');
+        const statsResponse = await fetch(`${API_URL}/api/stats`);
         const stats = await statsResponse.json();
         
         if (stats) {

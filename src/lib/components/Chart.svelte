@@ -1,12 +1,16 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
+  import { getApiUrl } from '$lib/config.js';
 
   // Props
   export let title = 'Historical Data';
   export let height = 400;
   export let defaultCategory = 'revenue';
   export let defaultTimeframe = '30d';
+
+  // IMPORTANT: API_URL must be set in onMount(), not here!
+  let API_URL = '';
 
   // State
   let chartCanvas;
@@ -135,6 +139,10 @@
   }
 
   onMount(async () => {
+    // Get API URL in browser context
+    API_URL = getApiUrl();
+    console.log('✅ Chart component using API URL:', API_URL);
+    
     console.log('📊 Chart component mounted');
     await fetchAllData();
   });
@@ -157,7 +165,7 @@
       // For REVENUE category, use transaction-based endpoint for real-time data
       if (selectedCategory === 'revenue') {
         console.log('💰 Fetching revenue from transactions (real-time)');
-        const response = await fetch(`http://localhost:3000/api/history/revenue/daily?limit=${days}`);
+        const response = await fetch(`${API_URL}/api/history/revenue/daily?limit=${days}`);
         
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
@@ -176,7 +184,7 @@
       } else {
         // For other categories, use snapshot data
         console.log('📊 Fetching from snapshots');
-        const response = await fetch(`http://localhost:3000/api/history/snapshots/full?limit=${days}`);
+        const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${days}`);
         
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
@@ -480,7 +488,7 @@
           {categories[selectedCategory]?.icon} 
           {availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
         </span>
-      {/if}
+        {/if}
     </div>
 
     <div class="chart-controls">
@@ -521,9 +529,9 @@
           on:click={exportToCSV}
           title="Export chart data to CSV"
         >
-          <span class="export-icon">📥</span>
+        <span class="export-icon">📥</span>
           <span class="export-text">CSV</span>
-        </button>
+      </button>
       {/if}
     </div>
   </div>

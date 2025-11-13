@@ -1,8 +1,12 @@
 <script>
   import { onMount } from 'svelte';
+  import { getApiUrl } from '$lib/config.js';
 
   // Props
   export let title = 'Revenue Transaction Log';
+
+  // IMPORTANT: API_URL must be set in onMount(), not here!
+  let API_URL = '';
 
   // State
   let transactions = [];
@@ -27,6 +31,10 @@
   $: pageRange = getPageRange(currentPage, totalPages);
 
   onMount(() => {
+    // Get API URL in browser context
+    API_URL = getApiUrl();
+    console.log('✅ RevenueTransactions using API URL:', API_URL);
+    
     fetchTransactions();
   });
 
@@ -41,7 +49,7 @@
         search: searchQuery
       });
 
-      const response = await fetch(`http://localhost:3000/api/transactions/paginated?${params}`);
+      const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
       
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
@@ -156,7 +164,7 @@
       mode = 'EXPORTING...';
 
       // Fetch ALL transactions (not just current page)
-      const response = await fetch(`http://localhost:3000/api/transactions/paginated?page=1&limit=${totalTransactions}&search=${searchQuery}`);
+      const response = await fetch(`${API_URL}/api/transactions/paginated?page=1&limit=${totalTransactions}&search=${searchQuery}`);
       
       if (!response.ok) {
         throw new Error(`Export failed: ${response.status}`);
@@ -332,34 +340,34 @@
   </div>
 
   <!-- Navigation -->
-  <div class="navigation-section">
-    <div class="nav-info">
+    <div class="navigation-section">
+      <div class="nav-info">
       [{offset + 1}-{Math.min(offset + perPage, totalTransactions)}] of {totalTransactions.toLocaleString()} entries
-    </div>
-    
-    <div class="pagination">
+      </div>
+
+      <div class="pagination">
       <button 
         class="page-btn" 
         on:click={previousPage} 
         disabled={currentPage === 1 || loading}
       >
         ‹
-      </button>
+        </button>
 
-      {#each pageRange as page}
-        {#if page === '...'}
-          <span class="page-dots">...</span>
-        {:else}
-          <button 
-            class="page-btn" 
-            class:active={page === currentPage}
-            on:click={() => goToPage(page)}
+        {#each pageRange as page}
+          {#if page === '...'}
+            <span class="page-dots">...</span>
+          {:else}
+            <button 
+              class="page-btn" 
+              class:active={page === currentPage}
+              on:click={() => goToPage(page)}
             disabled={loading}
-          >
-            {page}
-          </button>
-        {/if}
-      {/each}
+            >
+              {page}
+            </button>
+          {/if}
+        {/each}
 
       <button 
         class="page-btn" 
@@ -367,19 +375,19 @@
         disabled={currentPage === totalPages || loading}
       >
         ›
-      </button>
-    </div>
+        </button>
+      </div>
 
-    <div class="per-page-selector">
+      <div class="per-page-selector">
       <label for="per-page">per-page:</label>
       <select id="per-page" bind:value={perPage} on:change={changePerPage} disabled={loading}>
-        <option value="25">25</option>
-        <option value="50">50</option>
-        <option value="100">100</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
         <option value="200">200</option>
-      </select>
+        </select>
+      </div>
     </div>
-  </div>
 </div>
 
 <style>
