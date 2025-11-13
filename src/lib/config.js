@@ -16,6 +16,30 @@ export const DONATION_ADDRESSES = [
 
 ];
 
+export const SYNC_INTERVALS = {
+    REVENUE: 5 * 60 * 1000,      // 5 minutes (for progressive transaction sync)
+    CLOUD: 10 * 60 * 1000,       // 10 minutes
+    SNAPSHOT: 24 * 60 * 60 * 1000, // 24 hours (daily)
+};
+
+// ============================================
+// RATE LIMITING
+// ============================================
+
+export const RATE_LIMITS = {
+    // Delay between individual transaction detail fetches (milliseconds)
+    TX_DETAIL_DELAY: 100,  // 100ms = max 10 tx/second
+    
+    // Delay between page fetches (milliseconds)
+    PAGE_FETCH_DELAY: 500,  // 500ms = max 2 pages/second
+    
+    // Max retries for failed API calls
+    MAX_RETRIES: 3,
+    
+    // Exponential backoff base (milliseconds)
+    RETRY_BASE_DELAY: 1000
+};
+
 // ============================================
 // BLOCKCHAIN CONFIGURATION
 // ============================================

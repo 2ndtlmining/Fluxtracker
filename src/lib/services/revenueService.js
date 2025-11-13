@@ -7,41 +7,130 @@ import {
     insertTransactionsBatch,
     getRevenueForDateRange,
     getAllTxids,
-    getTxidCount
+    getTxidCount,
+    getLastSyncedBlock
 } from '../db/database.js';
 
 // ============================================
-// TESTING CONFIGURATION
+// CONFIGURATION
 // ============================================
-const TESTING_MODE = true;              // Set to false for production
-const MAX_TRANSACTIONS_FOR_TESTING = 20; // Limit for testing (set to null for no limit)
+const TRANSACTIONS_PER_SYNC = 20;  // How many transactions to import per 5-minute cycle
+const PAGE_SIZE = 1000;             // How many txids to fetch per API call
 
 // ============================================
-// REVENUE SYNC STATE TRACKING (NEW)
+// STATE TRACKING
 // ============================================
-
-/**
- * State tracker for revenue sync operations
- * This allows the snapshot system to coordinate with revenue collection
- */
 let revenueSyncState = {
     isRunning: false,
     lastStarted: null,
     lastCompleted: null,
     currentBlock: null,
-    lastError: null
+    lastError: null,
+    // NEW: Track pagination progress
+    currentPage: 1,
+    totalPages: null,
+    processedTxids: new Set() // Track what we've already processed
 };
+
+// ============================================
+// FAILED TRANSACTION TRACKING
+// ============================================
+let failedTxids = new Map(); // txid -> { attempts: number, lastAttempt: timestamp, reason: string }
+
+/**
+ * Mark a transaction as failed
+ */
+function markTxidAsFailed(txid, reason = 'fetch_failed') {
+    const existing = failedTxids.get(txid);
+    
+    if (existing) {
+        failedTxids.set(txid, {
+            attempts: existing.attempts + 1,
+            lastAttempt: Date.now(),
+            reason: reason
+        });
+    } else {
+        failedTxids.set(txid, {
+            attempts: 1,
+            lastAttempt: Date.now(),
+            reason: reason
+        });
+    }
+}
+
+/**
+ * Check if a txid should be retried (not attempted recently)
+ */
+function shouldRetryTxid(txid) {
+    const failed = failedTxids.get(txid);
+    if (!failed) return true; // Never tried, should try
+    
+    // If failed more than 5 times, give up
+    if (failed.attempts >= 5) {
+        return false;
+    }
+    
+    // Only retry if it's been at least 5 minutes since last attempt
+    const timeSinceLastAttempt = Date.now() - failed.lastAttempt;
+    const fiveMinutes = 5 * 60 * 1000;
+    
+    return timeSinceLastAttempt >= fiveMinutes;
+}
+
+/**
+ * Get failed transaction statistics
+ */
+export function getFailedTxStats() {
+    const stats = {
+        totalFailed: failedTxids.size,
+        byAttempts: {},
+        recentlyFailed: []
+    };
+    
+    failedTxids.forEach((data, txid) => {
+        // Count by attempt number
+        if (!stats.byAttempts[data.attempts]) {
+            stats.byAttempts[data.attempts] = 0;
+        }
+        stats.byAttempts[data.attempts]++;
+        
+        // Track recent failures (last 10 minutes)
+        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+        if (data.lastAttempt > tenMinutesAgo) {
+            stats.recentlyFailed.push({
+                txid: txid.substring(0, 10) + '...',
+                attempts: data.attempts,
+                reason: data.reason
+            });
+        }
+    });
+    
+    return stats;
+}
+
+/**
+ * Clear permanently failed transactions (after 5 attempts)
+ */
+export function clearPermanentlyFailedTxids() {
+    let cleared = 0;
+    failedTxids.forEach((data, txid) => {
+        if (data.attempts >= 5) {
+            failedTxids.delete(txid);
+            cleared++;
+        }
+    });
+    return cleared;
+}
 
 /**
  * Get current revenue sync state
- * Used by snapshotManager to determine if it's safe to take snapshot
  */
 export function getRevenueSyncState() {
     return { ...revenueSyncState };
 }
 
 /**
- * Set revenue sync state (internal function)
+ * Set revenue sync state
  */
 function setRevenueSyncRunning(isRunning, currentBlock = null) {
     revenueSyncState.isRunning = isRunning;
@@ -88,7 +177,6 @@ export function getTimeSinceLastSync() {
 
 /**
  * Fetch FLUX price in USD
- * FIXED: Now includes last_update timestamp
  */
 export async function fetchFluxPrice() {
     try {
@@ -103,7 +191,6 @@ export async function fetchFluxPrice() {
             if (response.data && response.data.zelcash && response.data.zelcash.usd) {
                 const price = response.data.zelcash.usd;
                 console.log(`✅ FLUX Price: $${price}`);
-                // FIXED: Added last_update timestamp
                 updateCurrentMetrics({ 
                     last_update: Date.now(),
                     flux_price_usd: price 
@@ -151,9 +238,8 @@ export async function fetchCurrentBlockHeight() {
 
 /**
  * Fetch transaction IDs for a specific address using Blockbook
- * Returns array of txid strings
  */
-async function fetchAddressTransactionIds(address, page = 1, pageSize = 1000) {
+async function fetchAddressTransactionIds(address, page = 1, pageSize = PAGE_SIZE) {
     try {
         const url = `${API_ENDPOINTS.BLOCKBOOK}address/${address}?page=${page}&pageSize=${pageSize}`;
         
@@ -168,7 +254,7 @@ async function fetchAddressTransactionIds(address, page = 1, pageSize = 1000) {
         
         if (response.data) {
             return {
-                txids: response.data.txids || [],  // Array of txid strings
+                txids: response.data.txids || [],
                 totalTxs: response.data.txs || 0,
                 totalPages: response.data.totalPages || 0,
                 currentPage: response.data.page || page,
@@ -186,7 +272,6 @@ async function fetchAddressTransactionIds(address, page = 1, pageSize = 1000) {
 
 /**
  * Fetch full transaction details using Blockbook with retry logic
- * Returns the complete transaction with vout array
  */
 async function fetchTransactionDetails(txid, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -208,13 +293,11 @@ async function fetchTransactionDetails(txid, retries = 3) {
             
         } catch (error) {
             if (attempt < retries) {
-                // Retry with exponential backoff
-                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Max 5s
-                console.warn(`⚠️  Error fetching tx ${txid.substring(0, 10)}: ${error.message} - Retry ${attempt}/${retries} in ${delay}ms...`);
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                console.warn(`⚠️  Retry ${attempt}/${retries} for tx ${txid.substring(0, 10)} in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                // Final attempt failed
-                console.error(`❌ Failed to fetch tx ${txid.substring(0, 10)} after ${retries} attempts: ${error.message}`);
+                console.error(`❌ Failed to fetch tx ${txid.substring(0, 10)} after ${retries} attempts`);
                 return null;
             }
         }
@@ -228,7 +311,6 @@ async function fetchTransactionDetails(txid, retries = 3) {
 
 /**
  * Process transaction and extract revenue for our tracked addresses
- * This examines each vout and sums up values where addresses match
  */
 function processTransaction(tx, trackedAddresses) {
     const transactions = [];
@@ -237,29 +319,24 @@ function processTransaction(tx, trackedAddresses) {
         return transactions;
     }
     
-    // Get timestamp and date from the transaction
     const timestamp = tx.blockTime || Math.floor(Date.now() / 1000);
     const date = new Date(timestamp * 1000).toISOString().split('T')[0];
     const blockHeight = tx.blockHeight || 0;
     
-    // Get "from" address (sender) from first vin if available
     let fromAddress = 'Unknown';
     if (tx.vin && tx.vin.length > 0 && tx.vin[0].addresses && tx.vin[0].addresses.length > 0) {
         fromAddress = tx.vin[0].addresses[0];
     }
     
-    // Check each vout for our tracked addresses
     for (const vout of tx.vout) {
         if (!vout.addresses || vout.addresses.length === 0) {
             continue;
         }
         
-        // Check if any of the vout addresses match our tracked addresses
         for (const address of vout.addresses) {
             if (trackedAddresses.includes(address)) {
-                // Found a payment to one of our addresses!
                 const amountSatoshis = parseFloat(vout.value) || 0;
-                const amountFlux = amountSatoshis / 100000000; // Convert satoshis to FLUX
+                const amountFlux = amountSatoshis / 100000000;
                 
                 transactions.push({
                     txid: tx.txid,
@@ -270,8 +347,6 @@ function processTransaction(tx, trackedAddresses) {
                     timestamp: timestamp,
                     date: date
                 });
-                
-                // Don't break here - there might be multiple outputs to our addresses
             }
         }
     }
@@ -279,220 +354,100 @@ function processTransaction(tx, trackedAddresses) {
     return transactions;
 }
 
+// ============================================
+// PROGRESSIVE SYNC LOGIC (NEW)
+// ============================================
+
 /**
- * Fetch and process ALL transactions for ALL tracked addresses
- * This is the FULL SYNC that gets everything from the blockchain
+ * Progressive sync - imports TRANSACTIONS_PER_SYNC new transactions per run
+ * This ensures we gradually build up historical data without overwhelming the API
  */
-export async function syncAllAddressesBlockbook() {
-    console.log('\n📡 Starting FULL SYNC of all transactions...\n');
+export async function progressiveSync() {
+    console.log('\n📡 Starting PROGRESSIVE SYNC...\n');
+    console.log(`   Target: Import ${TRANSACTIONS_PER_SYNC} new transactions\n`);
     
     const startTime = Date.now();
-    let allTransactions = [];
-    let totalPages = 0;
-    let totalTxsProcessed = 0;
-    let totalPaymentsFound = 0;
     
     try {
+        // Get existing txids from database
+        const existingTxids = new Set(getAllTxids());
+        console.log(`   🗄️  Database has ${existingTxids.size} existing transactions`);
+        
+        let allNewTransactions = [];
+        let totalTxsChecked = 0;
+        let targetReached = false;
+        
+        // Process each tracked address
         for (const address of TARGET_ADDRESSES) {
-            console.log(`\n🔍 Processing address: ${address.substring(0, 20)}...`);
+            if (targetReached) break;
             
-            // Get first page to find total pages
-            const firstPage = await fetchAddressTransactionIds(address, 1, 1000);
+            console.log(`\n   🔍 Processing address: ${address.substring(0, 20)}...`);
+            
+            // Get first page to determine total pages
+            const firstPage = await fetchAddressTransactionIds(address, 1, PAGE_SIZE);
             
             if (!firstPage) {
-                console.error(`❌ Failed to fetch data for ${address}`);
+                console.error(`   ❌ Failed to fetch data for address`);
                 continue;
             }
             
-            totalPages = firstPage.totalPages;
-            const totalTxsForAddress = firstPage.totalTxs;
+            const totalPages = firstPage.totalPages;
+            const totalTxs = firstPage.totalTxs;
             
-            console.log(`   Total transactions: ${totalTxsForAddress}`);
-            console.log(`   Total pages: ${totalPages}`);
+            console.log(`   📊 Total transactions: ${totalTxs}`);
+            console.log(`   📊 Total pages: ${totalPages}`);
+            console.log(`   📊 Need to import: ${TRANSACTIONS_PER_SYNC} transactions`);
             
-            // Process each page
+            // Start from page 1 and work through pages until we find enough new transactions
             for (let page = 1; page <= totalPages; page++) {
-                console.log(`   📄 Processing page ${page}/${totalPages}...`);
+                if (targetReached) break;
                 
-                // Fetch page (or reuse first page if page 1)
-                const pageData = page === 1 ? firstPage : await fetchAddressTransactionIds(address, page, 1000);
+                console.log(`\n   📄 Checking page ${page}/${totalPages}...`);
                 
-                if (!pageData || !pageData.txids) {
-                    console.warn(`   ⚠️  Failed to fetch page ${page}`);
+                // Fetch page (reuse firstPage if page 1)
+                const pageData = page === 1 ? firstPage : await fetchAddressTransactionIds(address, page, PAGE_SIZE);
+                
+                if (!pageData || !pageData.txids || pageData.txids.length === 0) {
+                    console.warn(`   ⚠️  No data on page ${page}`);
                     continue;
                 }
                 
-                console.log(`   📥 Fetched ${pageData.txids.length} transaction IDs`);
+                console.log(`   📥 Found ${pageData.txids.length} transaction IDs on page`);
                 
-                // Process each transaction on this page
-                let paymentsOnPage = 0;
-                
+                // Check each txid on this page
+                let newTxidsOnPage = [];
                 for (const txid of pageData.txids) {
-                    // Testing mode limit
-                    if (TESTING_MODE && MAX_TRANSACTIONS_FOR_TESTING && totalTxsProcessed >= MAX_TRANSACTIONS_FOR_TESTING) {
-                        console.log(`\n⚠️  TESTING MODE: Reached limit of ${MAX_TRANSACTIONS_FOR_TESTING} transactions`);
+                    if (!existingTxids.has(txid)) {
+                        // Check if this txid should be retried (not failed too many times recently)
+                        if (shouldRetryTxid(txid)) {
+                            newTxidsOnPage.push(txid);
+                        }
+                    }
+                }
+                
+                console.log(`   🆕 ${newTxidsOnPage.length} are NEW (not in database)`);
+                
+                if (newTxidsOnPage.length === 0) {
+                    console.log(`   ⏭️  All transactions on this page already exist, moving to next page...`);
+                    continue;
+                }
+                
+                // Process the new txids until we reach our target
+                for (const txid of newTxidsOnPage) {
+                    if (allNewTransactions.length >= TRANSACTIONS_PER_SYNC) {
+                        console.log(`\n   ✅ Target reached! Collected ${TRANSACTIONS_PER_SYNC} new transactions`);
+                        targetReached = true;
                         break;
                     }
+                    
+                    totalTxsChecked++;
                     
                     // Fetch full transaction details
                     const txDetails = await fetchTransactionDetails(txid);
                     
                     if (!txDetails) {
                         console.warn(`   ⚠️  Failed to fetch details for ${txid.substring(0, 10)}`);
-                        continue;
-                    }
-                    
-                    // Process transaction to find payments to our addresses
-                    const payments = processTransaction(txDetails, TARGET_ADDRESSES);
-                    
-                    if (payments.length > 0) {
-                        allTransactions.push(...payments);
-                        paymentsOnPage += payments.length;
-                        totalPaymentsFound += payments.length;
-                    }
-                    
-                    totalTxsProcessed++;
-                }
-                
-                console.log(`   ✅ Page ${page} complete: ${paymentsOnPage} payment(s) found`);
-                
-                // Testing mode limit check
-                if (TESTING_MODE && MAX_TRANSACTIONS_FOR_TESTING && totalTxsProcessed >= MAX_TRANSACTIONS_FOR_TESTING) {
-                    break;
-                }
-            }
-            
-            console.log(`✅ Address complete: ${totalPaymentsFound} total payment(s) found\n`);
-            
-            // Testing mode limit check
-            if (TESTING_MODE && MAX_TRANSACTIONS_FOR_TESTING && totalTxsProcessed >= MAX_TRANSACTIONS_FOR_TESTING) {
-                break;
-            }
-        }
-        
-        // Save all transactions to database
-        if (allTransactions.length > 0) {
-            console.log(`\n💾 Saving ${allTransactions.length} transactions to database...`);
-            insertTransactionsBatch(allTransactions);
-            console.log(`✅ Transactions saved`);
-        }
-        
-        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        
-        console.log(`\n✅ FULL SYNC COMPLETE`);
-        console.log(`   Duration: ${duration}s`);
-        console.log(`   Transactions processed: ${totalTxsProcessed}`);
-        console.log(`   Payments found: ${totalPaymentsFound}`);
-        console.log(`   Saved to database: ${allTransactions.length}\n`);
-        
-        return {
-            success: true,
-            txsProcessed: totalTxsProcessed,
-            paymentsFound: totalPaymentsFound,
-            duration: duration
-        };
-        
-    } catch (error) {
-        console.error('❌ Full sync error:', error.message);
-        throw error;
-    }
-}
-
-/**
- * Initial sync - fetch all transactions from Blockbook
- */
-export async function initialSync() {
-    setRevenueSyncRunning(true);
-    
-    try {
-        console.log('🚀 Starting initial revenue sync with Blockbook API...');
-        
-        // Fetch FLUX price first
-        console.log('\n💰 Fetching FLUX price...');
-        await fetchFluxPrice();
-        console.log('');
-        
-        const result = await syncAllAddressesBlockbook();
-        
-        console.log('✅ Initial sync completed');
-        
-        setRevenueSyncRunning(false);
-        return result;
-        
-    } catch (error) {
-        console.error('❌ Initial sync failed:', error.message);
-        setRevenueSyncError(error);
-        setRevenueSyncRunning(false);
-        updateSyncStatus('revenue', 'failed', error.message, null);
-        throw error;
-    }
-}
-
-
-/**
- * Incremental sync - only fetch new transactions since last sync
- * This checks the last synced block and only fetches transactions after that
- */
-export async function incrementalSync() {
-    console.log('\n📡 Starting INCREMENTAL SYNC...\n');
-    
-    const startTime = Date.now();
-    
-    try {
-        // Get last synced block from database
-        const syncStatus = getSyncStatus('revenue');
-        const lastBlock = syncStatus?.last_sync_block || null;
-        
-        // Get current block height
-        const currentBlock = await fetchCurrentBlockHeight();
-        
-        console.log(`   Last synced block: ${lastBlock || 'none (first sync)'}`);
-        console.log(`   Current block: ${currentBlock}`);
-        
-        setRevenueSyncRunning(true, currentBlock);
-        
-        if (lastBlock && currentBlock - lastBlock < BLOCK_CONFIG.INCREMENTAL_THRESHOLD) {
-            console.log(`   📊 Only ${currentBlock - lastBlock} new blocks - doing incremental sync`);
-            
-            // Get existing txids to filter out duplicates
-            const existingTxids = new Set(getAllTxids());
-            console.log(`   🗄️  Database has ${existingTxids.size} existing transactions`);
-            
-            let allNewTransactions = [];
-            let totalNewTxsFound = 0;
-            
-            // Fetch recent transactions for each address
-            for (const address of TARGET_ADDRESSES) {
-                console.log(`\n   🔍 Checking address: ${address.substring(0, 20)}...`);
-                
-                // Fetch first page (most recent transactions)
-                const recentTxs = await fetchAddressTransactionIds(address, 1, 100);
-                
-                if (!recentTxs || !recentTxs.txids) {
-                    console.warn(`   ⚠️  Failed to fetch recent transactions`);
-                    continue;
-                }
-                
-                console.log(`   📥 Fetched ${recentTxs.txids.length} recent transaction IDs`);
-                
-                let newTxsForAddress = 0;
-                
-                // Process each transaction
-                for (const txid of recentTxs.txids) {
-                    // Skip if we already have this transaction
-                    if (existingTxids.has(txid)) {
-                        continue;
-                    }
-                    
-                    // Fetch full transaction details
-                    const txDetails = await fetchTransactionDetails(txid);
-                    
-                    if (!txDetails) {
-                        continue;
-                    }
-                    
-                    // Skip if transaction is older than our last sync
-                    if (lastBlock && txDetails.blockHeight <= lastBlock) {
+                        markTxidAsFailed(txid, 'fetch_failed');
                         continue;
                     }
                     
@@ -501,53 +456,62 @@ export async function incrementalSync() {
                     
                     if (payments.length > 0) {
                         allNewTransactions.push(...payments);
-                        newTxsForAddress += payments.length;
+                        console.log(`   💰 Found ${payments.length} payment(s) in tx ${txid.substring(0, 10)} (${allNewTransactions.length}/${TRANSACTIONS_PER_SYNC})`);
+                    } else {
+                        console.log(`   ℹ️  No payments in tx ${txid.substring(0, 10)}`);
                     }
                 }
                 
-                if (newTxsForAddress > 0) {
-                    console.log(`   ✅ Found ${newTxsForAddress} new payment(s)`);
-                    totalNewTxsFound += newTxsForAddress;
-                } else {
-                    console.log(`   ℹ️  No new payments found`);
-                }
+                if (targetReached) break;
             }
             
-            // Save new transactions
-            if (allNewTransactions.length > 0) {
-                console.log(`\n💾 Saving ${allNewTransactions.length} new transactions...`);
-                insertTransactionsBatch(allNewTransactions);
-                console.log(`✅ New transactions saved`);
-            }
-            
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            
-            console.log(`\n✅ INCREMENTAL SYNC COMPLETE`);
-            console.log(`   Duration: ${duration}s`);
-            console.log(`   New payments found: ${totalNewTxsFound}`);
-            console.log(`   Total in database: ${getTxidCount()}\n`);
-            
-            // Update sync status
-            updateSyncStatus('revenue', 'completed', null, currentBlock);
-            
-            return {
-                success: true,
-                newPayments: totalNewTxsFound,
-                duration: duration
-            };
-            
-        } else {
-            console.log(`   📊 Too many blocks since last sync (${currentBlock - (lastBlock || 0)}) - recommend full sync`);
-            console.log(`   ℹ️  Incremental sync skipped - run full sync instead\n`);
-            
-            return {
-                success: false,
-                reason: 'Too many blocks - full sync recommended'
-            };
+            if (targetReached) break;
         }
         
+        // Save new transactions
+        if (allNewTransactions.length > 0) {
+            console.log(`\n💾 Saving ${allNewTransactions.length} new transactions...`);
+            insertTransactionsBatch(allNewTransactions);
+            console.log(`✅ New transactions saved`);
+            
+            // Update sync status with the latest block
+            const currentBlock = await fetchCurrentBlockHeight();
+            updateSyncStatus('revenue', 'completed', null, currentBlock);
+        } else {
+            console.log(`\n✅ No new transactions found (database is up to date)`);
+        }
+        
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        
+        console.log(`\n✅ PROGRESSIVE SYNC COMPLETE`);
+        console.log(`   Duration: ${duration}s`);
+        console.log(`   Transactions checked: ${totalTxsChecked}`);
+        console.log(`   New payments imported: ${allNewTransactions.length}`);
+        console.log(`   Total in database: ${getTxidCount()}`);
+        
+        // Report on failed transactions if any
+        const failedStats = getFailedTxStats();
+        if (failedStats.totalFailed > 0) {
+            console.log(`\n⚠️  Failed Transaction Summary:`);
+            console.log(`   Total failed: ${failedStats.totalFailed}`);
+            console.log(`   By attempts:`, failedStats.byAttempts);
+            if (failedStats.recentlyFailed.length > 0) {
+                console.log(`   Recent failures (last 10 min):`, failedStats.recentlyFailed.slice(0, 5));
+            }
+            console.log(`   Note: Failed transactions will be retried in 5 minutes`);
+        }
+        console.log('');
+        
+        return {
+            success: true,
+            newPayments: allNewTransactions.length,
+            txsChecked: totalTxsChecked,
+            duration: duration,
+            failedTxids: failedStats.totalFailed
+        };
+        
     } catch (error) {
-        console.error('❌ Incremental sync error:', error.message);
+        console.error('❌ Progressive sync error:', error.message);
         throw error;
     }
 }
@@ -558,7 +522,6 @@ export async function incrementalSync() {
 
 /**
  * Calculate today's revenue from database
- * FIXED: Now includes last_update timestamp
  */
 async function calculateDailyRevenue() {
     try {
@@ -567,7 +530,6 @@ async function calculateDailyRevenue() {
         
         console.log(`📊 Today's revenue (${today}): ${revenue.toFixed(2)} FLUX`);
         
-        // FIXED: Added last_update timestamp
         updateCurrentMetrics({ 
             last_update: Date.now(),
             current_revenue: revenue 
@@ -627,7 +589,7 @@ function calculateRevenueByTimeframe(timeframe = 'day') {
 }
 
 /**
- * Get revenue breakdown by timeframe (returns detailed stats)
+ * Get revenue breakdown by timeframe
  */
 export function getRevenueBreakdown() {
     try {
@@ -652,7 +614,7 @@ export function getRevenueBreakdown() {
 
 /**
  * Fetch all revenue metrics (price + revenue)
- * UPDATED: Now includes state tracking
+ * MAIN ENTRY POINT - Called every 5 minutes by scheduler
  */
 export async function fetchRevenueStats() {
     setRevenueSyncRunning(true);
@@ -660,17 +622,13 @@ export async function fetchRevenueStats() {
     try {
         console.log('🔍 Fetching complete revenue statistics...');
         
+        // Fetch price
         const price = await fetchFluxPrice();
         
-        // Try incremental sync first
-        const incrementalResult = await incrementalSync();
+        // Run progressive sync to import new transactions
+        await progressiveSync();
         
-        // ADD THIS: If incremental sync was skipped, run full sync
-        if (!incrementalResult.success && incrementalResult.reason) {
-            console.log('⚠️  Incremental sync skipped, running FULL SYNC instead...\n');
-            await initialSync();  // ← ADD THIS FALLBACK
-        }
-        
+        // Calculate daily revenue
         const dailyRevenue = await calculateDailyRevenue();
         
         const revenueData = {
@@ -712,7 +670,7 @@ export function formatRevenueStats(revenueData, fluxPrice) {
 }
 
 /**
- * Get detailed sync status for monitoring (NEW)
+ * Get detailed sync status for monitoring
  */
 export function getRevenueSyncStatus() {
     return {
@@ -720,7 +678,7 @@ export function getRevenueSyncStatus() {
         timeSinceLastSync: getTimeSinceLastSync(),
         isHealthy: !revenueSyncState.isRunning && 
                    revenueSyncState.lastCompleted !== null &&
-                   getTimeSinceLastSync() < 5 * 60 * 1000 // Within last 5 minutes
+                   getTimeSinceLastSync() < 5 * 60 * 1000
     };
 }
 
@@ -732,9 +690,8 @@ export async function debugBlockbookAddress(address) {
     console.log(`Address: ${address}\n`);
     
     try {
-        // Step 1: Fetch address transaction IDs
         console.log('Step 1: Fetching address transaction IDs...');
-        const addressData = await fetchAddressTransactionIds(address, 1, 5);  // Just get 5 for testing
+        const addressData = await fetchAddressTransactionIds(address, 1, 5);
         
         if (!addressData) {
             console.error('❌ Failed to fetch address data');
@@ -752,9 +709,8 @@ export async function debugBlockbookAddress(address) {
             return;
         }
         
-        // Show the transaction IDs
         console.log('Transaction IDs:');
-        addressData.txids.slice(0, 5).forEach((txid, i) => {  // Show first 5 only
+        addressData.txids.slice(0, 5).forEach((txid, i) => {
             console.log(`   [${i}] ${txid}`);
         });
         if (addressData.txids.length > 5) {
@@ -762,7 +718,6 @@ export async function debugBlockbookAddress(address) {
         }
         console.log('');
         
-        // Step 2: Fetch details for first transaction
         const firstTxId = addressData.txids[0];
             
         console.log(`Step 2: Fetching details for first transaction...`);
@@ -783,7 +738,6 @@ export async function debugBlockbookAddress(address) {
         console.log(`   Inputs (vin): ${txDetails.vin?.length || 0}`);
         console.log(`   Outputs (vout): ${txDetails.vout?.length || 0}`);
         
-        // Show all vout details
         if (txDetails.vout) {
             console.log(`\n   Vout (outputs) details:`);
             txDetails.vout.forEach((vout, index) => {
@@ -794,7 +748,6 @@ export async function debugBlockbookAddress(address) {
         }
         console.log('');
         
-        // Step 3: Process transaction
         console.log('Step 3: Processing transaction to find payments to tracked address...');
         const payments = processTransaction(txDetails, [address]);
         
@@ -809,19 +762,6 @@ export async function debugBlockbookAddress(address) {
             });
         } else {
             console.log('⚠️  No payments to tracked address found in this transaction');
-            console.log('   Possible reasons:');
-            console.log('   - This address was the sender (check vin), not receiver');
-            console.log('   - Payment went to a different address (change output)');
-            console.log('   - This is a different type of transaction\n');
-            
-            // Show vin addresses for context
-            if (txDetails.vin && txDetails.vin.length > 0) {
-                console.log('   Inputs (vin) addresses:');
-                txDetails.vin.forEach((vin, i) => {
-                    const addresses = vin.addresses?.join(', ') || 'none';
-                    console.log(`     [${i}] ${addresses}`);
-                });
-            }
         }
         
         console.log(`\n✅ DEBUG Complete\n`);
@@ -829,5 +769,65 @@ export async function debugBlockbookAddress(address) {
     } catch (error) {
         console.error('❌ DEBUG Error:', error.message);
         console.error('Stack:', error.stack);
+    }
+}
+
+/**
+ * Initial sync - for first-time setup (processes all history)
+ * This is different from progressive sync - it tries to get everything
+ */
+export async function initialSync() {
+    setRevenueSyncRunning(true);
+    
+    try {
+        console.log('🚀 Starting INITIAL FULL SYNC (one-time setup)...');
+        console.log('⚠️  This will take a while if you have many transactions\n');
+        
+        // Fetch FLUX price first
+        console.log('💰 Fetching FLUX price...');
+        await fetchFluxPrice();
+        console.log('');
+        
+        // Keep running progressive sync until no new transactions found
+        let totalImported = 0;
+        let continueSync = true;
+        let iterations = 0;
+        
+        while (continueSync) {
+            iterations++;
+            console.log(`\n🔄 Initial sync iteration ${iterations}...\n`);
+            
+            const result = await progressiveSync();
+            
+            totalImported += result.newPayments;
+            
+            if (result.newPayments === 0) {
+                console.log('\n✅ All historical transactions imported!');
+                continueSync = false;
+            } else {
+                console.log(`\n📊 Progress: ${totalImported} total transactions imported so far`);
+                console.log('⏳ Waiting 2 seconds before next batch...\n');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+        
+        console.log(`\n✅ INITIAL SYNC COMPLETE`);
+        console.log(`   Total transactions imported: ${totalImported}`);
+        console.log(`   Iterations: ${iterations}`);
+        console.log(`   Total in database: ${getTxidCount()}\n`);
+        
+        setRevenueSyncRunning(false);
+        return {
+            success: true,
+            totalImported,
+            iterations
+        };
+        
+    } catch (error) {
+        console.error('❌ Initial sync failed:', error.message);
+        setRevenueSyncError(error);
+        setRevenueSyncRunning(false);
+        updateSyncStatus('revenue', 'failed', error.message, null);
+        throw error;
     }
 }
