@@ -226,18 +226,29 @@ export function hoursForBlocks(blocks) {
 }
 
 // ============================================
-// DYNAMIC API URL CONFIGURATION
+// SINGLE-PORT ARCHITECTURE API URL
 // ============================================
 
 /**
- * CRITICAL FIX: Get the correct API URL based on environment
- * This function dynamically determines the backend API URL based on:
- * 1. Environment variables (for explicit configuration)
- * 2. Current hostname (for production deployment)
- * 3. Fallback to localhost (for SSR/development)
+ * FINAL FIX: API URL for single-port architecture
  * 
- * IMPORTANT: This function MUST be called in onMount() or client-side only,
- * NOT during module initialization or SSR.
+ * Since Flux only exposes port 37000 for the domain, we serve everything
+ * through the same port. SvelteKit's hooks.server.js proxies /api/* requests
+ * to the Express backend on port 3000 internally.
+ * 
+ * How it works:
+ * 1. Browser makes request to: http://fluxtracker.app.runonflux.io:37000/api/health
+ * 2. SvelteKit server (running on port 5173, exposed as 37000) receives the request
+ * 3. hooks.server.js sees "/api/" prefix and proxies to http://localhost:3000/api/health
+ * 4. Express backend responds
+ * 5. SvelteKit forwards response back to browser
+ * 
+ * This way, from the browser's perspective, everything comes from the same origin!
+ * 
+ * Access patterns:
+ * - Development: http://localhost:5173/api/... → proxied to http://localhost:3000/api/...
+ * - Production IP: http://149.154.176.249:37000/api/... → proxied to http://localhost:3000/api/...
+ * - Production Domain: http://fluxtracker.app.runonflux.io:37000/api/... → proxied to http://localhost:3000/api/...
  */
 export function getApiUrl() {
     // CRITICAL: Only run this in the browser, never during SSR
@@ -247,34 +258,31 @@ export function getApiUrl() {
     }
 
     // Check for explicit environment variable override
-    // This can be set during build: VITE_API_URL=http://your-api-server:3000
     if (import.meta.env.VITE_API_URL) {
         console.log('[config] Using VITE_API_URL:', import.meta.env.VITE_API_URL);
         return import.meta.env.VITE_API_URL;
     }
 
-    // Get current browser location
-    const protocol = window.location.protocol; // 'http:' or 'https:'
-    const hostname = window.location.hostname; // e.g., 'localhost', '127.0.0.1', or '149.154.176.158'
+    // Use the SAME origin (protocol + hostname + port) as the frontend
+    // The SvelteKit server will proxy /api/* requests to the Express backend
+    const origin = window.location.origin;
     
-    // Determine API port (default 3000, but can be overridden)
-    const apiPort = import.meta.env.VITE_API_PORT || '3000';
+    console.log('[config] Using same-origin API (proxied):', origin);
+    console.log('[config] Frontend URL:', window.location.href);
+    console.log('[config] API requests will go to:', `${origin}/api/*`);
+    console.log('[config] SvelteKit will proxy these to: http://localhost:3000/api/*');
     
-    // Construct the API URL using the SAME protocol and hostname as the frontend
-    const apiUrl = `${protocol}//${hostname}:${apiPort}`;
-    
-    console.log('[config] Dynamic API URL:', apiUrl);
-    return apiUrl;
+    return origin;
 }
 
 /**
  * Alternative function for SSR contexts (server-side rendering)
- * This always returns localhost for internal Docker communication
+ * Returns empty string since API calls should only happen client-side
  */
 export function getApiUrlSSR() {
-    return 'http://localhost:3000';
+    return '';
 }
 
 // Fallback constants (do not use these directly - use getApiUrl() instead)
-export const API_BASE_URL = 'http://localhost:3000';  // Fallback only
-export const API_BASE_URL_SSR = 'http://localhost:3000'; // SSR only
+export const API_BASE_URL = 'http://localhost:5173';  // Development fallback
+export const API_BASE_URL_SSR = '';  // No API calls during SSR
