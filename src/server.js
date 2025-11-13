@@ -456,6 +456,69 @@ app.get('/api/categories/nodes', (req, res) => {
     }
 });
 
+// Analytics comparison endpoint
+app.get('/api/analytics/comparison/:days', (req, res) => {
+    try {
+        const days = parseInt(req.params.days);
+        
+        if (isNaN(days) || days < 1) {
+            return res.status(400).json({ error: 'Invalid days parameter' });
+        }
+        
+        const current = getCurrentMetrics();
+        if (!current) {
+            return res.status(404).json({ error: 'No current metrics found' });
+        }
+        
+        // Get snapshot from N days ago
+        const targetDate = new Date();
+        targetDate.setDate(targetDate.getDate() - days);
+        const targetDateStr = targetDate.toISOString().split('T')[0];
+        
+        const pastSnapshot = getSnapshotByDate(targetDateStr);
+        
+        if (!pastSnapshot) {
+            console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
+            return res.status(404).json({ 
+                error: 'No historical snapshot available for comparison',
+                message: `No snapshot exists for ${targetDateStr} (${days} days ago). Snapshots are created daily and comparison requires historical data.`,
+                targetDate: targetDateStr,
+                days: days,
+                currentDate: new Date().toISOString().split('T')[0]
+            });
+        }
+        
+        // Calculate changes
+        const calculateChange = (current, past) => {
+            if (!past || past === 0) return { change: 0, trend: 'neutral' };
+            const change = ((current - past) / past) * 100;
+            return {
+                change: Math.round(change * 100) / 100,
+                trend: change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
+            };
+        };
+        
+        res.json({
+            period: days,
+            currentDate: new Date().toISOString().split('T')[0],
+            comparisonDate: targetDateStr,
+            changes: {
+                revenue: calculateChange(current.current_revenue, pastSnapshot.daily_revenue),
+                nodes: calculateChange(current.node_total, pastSnapshot.node_total),
+                apps: calculateChange(current.total_apps, pastSnapshot.total_apps),
+                cpu: calculateChange(current.cpu_utilization_percent, pastSnapshot.cpu_utilization_percent),
+                ram: calculateChange(current.ram_utilization_percent, pastSnapshot.ram_utilization_percent),
+                storage: calculateChange(current.storage_utilization_percent, pastSnapshot.storage_utilization_percent),
+                gaming: calculateChange(current.gaming_apps_total, pastSnapshot.gaming_apps_total),
+                crypto: calculateChange(current.crypto_nodes_total, pastSnapshot.crypto_nodes_total),
+                wordpress: calculateChange(current.wordpress_count, pastSnapshot.wordpress_count)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // UPDATED: Manual snapshot trigger using new system
 app.post('/api/admin/snapshot', async (req, res) => {
     try {

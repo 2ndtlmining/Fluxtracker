@@ -106,16 +106,24 @@
       console.log(`Fetching comparison for ${days} days (${period})`);
 
       const response = await fetch(`${API_URL}/api/analytics/comparison/${days}`);
-      console.log('Response received:', response);
       
       if (!response.ok) {
-        console.error('Error in fetchComparison:', response.statusText);
+        // Try to get the error message from the response
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            console.warn(`⚠️  Comparison for ${period} (${days} days): ${errorData.message}`);
+          } else {
+            console.error(`❌ Error fetching comparison for ${period}:`, response.statusText);
+          }
+        } catch {
+          console.error(`❌ Error fetching comparison for ${period}:`, response.statusText);
+        }
         comparisonCache[period] = null;
         return;
       }
       
       const data = await response.json();
-      console.log('Data received:', data);
 
       if (data && data.changes) {
         // Cache the result
