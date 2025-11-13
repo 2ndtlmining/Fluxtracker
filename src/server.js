@@ -4,6 +4,7 @@ import {
     getCurrentMetrics,
     getLastNSnapshots,
     getSnapshotsInRange,
+    getSnapshotByDate,
     getTransactionsByDate,
     getRevenueForDateRange,
     getDatabaseStats,
@@ -470,23 +471,11 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             return res.status(404).json({ error: 'No current metrics found' });
         }
         
-        // Get snapshot from N days ago
+        // Get dates for comparison
+        const today = new Date().toISOString().split('T')[0];
         const targetDate = new Date();
         targetDate.setDate(targetDate.getDate() - days);
         const targetDateStr = targetDate.toISOString().split('T')[0];
-        
-        const pastSnapshot = getSnapshotByDate(targetDateStr);
-        
-        if (!pastSnapshot) {
-            console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
-            return res.status(404).json({ 
-                error: 'No historical snapshot available for comparison',
-                message: `No snapshot exists for ${targetDateStr} (${days} days ago). Snapshots are created daily and comparison requires historical data.`,
-                targetDate: targetDateStr,
-                days: days,
-                currentDate: new Date().toISOString().split('T')[0]
-            });
-        }
         
         // Calculate changes
         const calculateChange = (current, past) => {
@@ -498,24 +487,66 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             };
         };
         
-        res.json({
+        // SPECIAL HANDLING FOR REVENUE
+        // Revenue compares transaction sums, not snapshot data
+        const todayRevenue = getRevenueForDateRange(today, today);
+        const comparisonRevenue = getRevenueForDateRange(targetDateStr, targetDateStr);
+        
+        let revenueComparison;
+        if (comparisonRevenue > 0) {
+            revenueComparison = calculateChange(todayRevenue, comparisonRevenue);
+        } else {
+            // No transaction data for comparison date
+            revenueComparison = { 
+                change: 0, 
+                trend: 'neutral',
+                note: `No revenue data for ${targetDateStr}`
+            };
+        }
+        
+        // For other metrics, we need snapshot data
+        const pastSnapshot = getSnapshotByDate(targetDateStr);
+        
+        // Build response - revenue always available if we have transaction data
+        const response = {
             period: days,
-            currentDate: new Date().toISOString().split('T')[0],
+            currentDate: today,
             comparisonDate: targetDateStr,
             changes: {
-                revenue: calculateChange(current.current_revenue, pastSnapshot.daily_revenue),
-                nodes: calculateChange(current.node_total, pastSnapshot.node_total),
-                apps: calculateChange(current.total_apps, pastSnapshot.total_apps),
-                cpu: calculateChange(current.cpu_utilization_percent, pastSnapshot.cpu_utilization_percent),
-                ram: calculateChange(current.ram_utilization_percent, pastSnapshot.ram_utilization_percent),
-                storage: calculateChange(current.storage_utilization_percent, pastSnapshot.storage_utilization_percent),
-                gaming: calculateChange(current.gaming_apps_total, pastSnapshot.gaming_apps_total),
-                crypto: calculateChange(current.crypto_nodes_total, pastSnapshot.crypto_nodes_total),
-                wordpress: calculateChange(current.wordpress_count, pastSnapshot.wordpress_count)
+                revenue: revenueComparison
             }
-        });
+        };
+        
+        // Add other metrics only if snapshot exists
+        if (pastSnapshot) {
+            response.changes.nodes = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
+            response.changes.apps = calculateChange(current.apps?.total || 0, pastSnapshot.total_apps);
+            response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
+            response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
+            response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
+            response.changes.gaming = calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total);
+            response.changes.crypto = calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total);
+            response.changes.wordpress = calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count);
+        } else {
+            // No snapshot available, but revenue can still work
+            console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
+            console.log(`✓  Revenue comparison still available using transaction data`);
+            
+            // Return partial data with revenue only
+            response.partialData = true;
+            response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
+        }
+        
+        res.json(response);
+        
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('❌ Comparison endpoint error:', error);
+        console.error('   Stack:', error.stack);
+        res.status(500).json({ 
+            error: 'No comparison data available',
+            details: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
     }
 });
 

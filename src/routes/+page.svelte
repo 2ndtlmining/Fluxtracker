@@ -126,7 +126,16 @@
       const data = await response.json();
 
       if (data && data.changes) {
-        // Cache the result
+        // Check if this is partial data (revenue only)
+        if (data.partialData) {
+          console.log(`✓ Partial comparison for ${period} (${days} days): Revenue comparison available`);
+          console.log(`  Revenue: ${data.changes.revenue?.change?.toFixed(2) || 0}% ${data.changes.revenue?.trend || 'neutral'}`);
+          console.warn(`⚠️  Other metrics not available: ${data.message}`);
+        } else {
+          console.log(`✓ Full comparison loaded for ${period} (${days} days)`);
+        }
+        
+        // Cache the result (even if partial)
         comparisonCache[period] = data;
       } else {
         comparisonCache[period] = null;
