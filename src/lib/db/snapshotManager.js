@@ -7,6 +7,7 @@ import {
 /**
  * SIMPLIFIED SNAPSHOT MANAGER
  * Dead simple logic: Check every 30 minutes if today's snapshot exists. If not, create it.
+ * UPDATED: Now validates that metrics are populated before taking a snapshot
  */
 
 // ============================================
@@ -16,6 +17,7 @@ import {
 const CONFIG = {
     CHECK_INTERVAL_MS: 30 * 60 * 1000,  // Check every 30 minutes
     GRACE_PERIOD_MINUTES: 5,             // Wait 5 minutes after midnight before first snapshot
+    MIN_VALID_METRICS: 3,                // Minimum number of non-zero metrics required
 };
 
 // ============================================
@@ -27,7 +29,8 @@ let state = {
     lastCheck: null,
     lastSuccess: null,
     consecutiveFailures: 0,
-    intervalId: null
+    intervalId: null,
+    metricsPopulated: false  // NEW: Track if we've seen valid metrics
 };
 
 /**
@@ -50,6 +53,65 @@ export function getSnapshotSystemStatus() {
         todaySnapshotExists: !!todaySnapshot,
         todaySnapshotDate: todaySnapshot?.snapshot_date || null,
         isHealthy: state.consecutiveFailures < 3
+    };
+}
+
+// ============================================
+// METRICS VALIDATION
+// ============================================
+
+/**
+ * Check if metrics are actually populated with real data
+ * This prevents taking snapshots with all zeros on first startup
+ */
+function areMetricsPopulated(metrics) {
+    if (!metrics) {
+        return {
+            valid: false,
+            reason: 'No metrics available in database'
+        };
+    }
+    
+    // Check if last_update exists and is recent (within last 2 hours)
+    if (!metrics.last_update) {
+        return {
+            valid: false,
+            reason: 'Metrics have no last_update timestamp'
+        };
+    }
+    
+    const metricAge = Date.now() - metrics.last_update;
+    const maxAge = 2 * 60 * 60 * 1000; // 2 hours
+    
+    if (metricAge > maxAge) {
+        return {
+            valid: false,
+            reason: `Metrics are ${Math.round(metricAge / 1000 / 60 / 60)} hours old`
+        };
+    }
+    
+    // Count how many key metrics have non-zero values
+    const keyMetrics = [
+        metrics.node_total,
+        metrics.total_apps,
+        metrics.total_cpu_cores,
+        metrics.total_ram_gb,
+        metrics.total_storage_gb
+    ];
+    
+    const nonZeroCount = keyMetrics.filter(value => value && value > 0).length;
+    
+    if (nonZeroCount < CONFIG.MIN_VALID_METRICS) {
+        return {
+            valid: false,
+            reason: `Only ${nonZeroCount} of ${keyMetrics.length} key metrics are populated (need at least ${CONFIG.MIN_VALID_METRICS})`
+        };
+    }
+    
+    // All checks passed!
+    return {
+        valid: true,
+        reason: `Metrics are valid (${nonZeroCount}/${keyMetrics.length} key metrics populated)`
     };
 }
 
@@ -86,10 +148,24 @@ function shouldTakeSnapshot() {
         };
     }
     
-    // If we get here: No snapshot exists AND past grace period
+    // Check 3: NEW - Are metrics actually populated?
+    const currentMetrics = getCurrentMetrics();
+    const metricsCheck = areMetricsPopulated(currentMetrics);
+    
+    if (!metricsCheck.valid) {
+        return {
+            should: false,
+            reason: `Metrics not ready: ${metricsCheck.reason}`
+        };
+    }
+    
+    // Mark that we've seen valid metrics at least once
+    state.metricsPopulated = true;
+    
+    // If we get here: No snapshot exists AND past grace period AND metrics are valid
     return {
         should: true,
-        reason: 'No snapshot exists for today and past grace period'
+        reason: 'No snapshot exists for today, past grace period, and metrics are populated'
     };
 }
 
@@ -108,6 +184,12 @@ async function takeSnapshot() {
         
         if (!currentMetrics) {
             throw new Error('No current metrics available');
+        }
+        
+        // Double-check metrics are valid before snapshot
+        const metricsCheck = areMetricsPopulated(currentMetrics);
+        if (!metricsCheck.valid) {
+            throw new Error(`Invalid metrics: ${metricsCheck.reason}`);
         }
         
         // Check if metrics are recent (within last 24 hours)
@@ -186,6 +268,8 @@ async function takeSnapshot() {
         console.log(`   Revenue: ${snapshotData.daily_revenue.toFixed(2)} FLUX`);
         console.log(`   Nodes: ${snapshotData.node_total}`);
         console.log(`   Apps: ${snapshotData.total_apps}`);
+        console.log(`   CPU Cores: ${snapshotData.total_cpu_cores}`);
+        console.log(`   RAM: ${snapshotData.total_ram_gb} GB`);
         
         return {
             success: true,
@@ -267,8 +351,9 @@ export function startSnapshotChecker() {
     console.log('🚀 Starting snapshot checker...');
     console.log(`   Check interval: ${CONFIG.CHECK_INTERVAL_MS / 1000 / 60} minutes`);
     console.log(`   Grace period: ${CONFIG.GRACE_PERIOD_MINUTES} minutes after midnight`);
+    console.log(`   Minimum valid metrics: ${CONFIG.MIN_VALID_METRICS} key metrics must be non-zero`);
     
-    // Run immediately on startup
+    // Run immediately on startup (but will skip if metrics aren't ready)
     runCheck();
     
     // Then run every 30 minutes
