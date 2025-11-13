@@ -215,7 +215,15 @@ app.get('/api/admin/test-status', (req, res) => {
 app.get('/api/stats', (req, res) => {
     try {
         const stats = getDatabaseStats();
-        res.json(stats);
+        
+        // Get the last snapshot date
+        const lastSnapshot = getLastNSnapshots(1);
+        const lastSnapshotDate = lastSnapshot.length > 0 ? lastSnapshot[0].snapshot_date : null;
+        
+        res.json({
+            ...stats,
+            lastSnapshotDate
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

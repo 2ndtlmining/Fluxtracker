@@ -7,8 +7,8 @@
   
   // System stats
   let uptime = '0 days, 0:00';
-  let users = 0;
-  let loadAverage = '0.00, 0.00, 0.00';
+  let snapshotCount = 0;        // Replaces "users"
+  let lastSnapshotDate = 'N/A'; // Replaces "load average"
   let memoryMB = 0;
   
   // App stats
@@ -58,11 +58,6 @@
         }
       }
       
-      // Set defaults
-      users = 1;
-      loadAverage = '0.01, 0.03, 0.05';
-      cachePercent = '90.0%';
-      
       // Try to fetch from API
       const response = await fetch(`${API_URL}/api/health`);
       const data = await response.json();
@@ -78,7 +73,7 @@
         uptime = `${days} days, ${hours}:${minutes.toString().padStart(2, '0')}`;
       }
       
-      // Fetch database stats
+      // Fetch database stats (now includes snapshot count and last snapshot date)
       try {
         const statsResponse = await fetch(`${API_URL}/api/stats`);
         const stats = await statsResponse.json();
@@ -86,10 +81,14 @@
         if (stats) {
           dbStatus = 'online';
           dbSize = `${Math.round(stats.dbSizeKB / 1024)}MB`;
+          snapshotCount = stats.snapshots || 0;
+          lastSnapshotDate = stats.lastSnapshotDate || 'N/A';
         }
       } catch (e) {
         dbStatus = 'offline';
         dbSize = '0MB';
+        snapshotCount = 0;
+        lastSnapshotDate = 'N/A';
       }
       
     } catch (error) {
@@ -136,18 +135,18 @@
     
     <!-- Right side: System Stats (Two lines) -->
     <div class="header-stats">
-      <!-- Top line: Uptime, Users, Load Average, Memory -->
+      <!-- Top line: Uptime, Snapshot Count, Last Snapshot Date, Memory -->
       <div class="stats-line">
         <span class="system-stat">
           up <span class="system-stat-value">{uptime}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          <span class="system-stat-value">{users}</span> user
+          <span class="system-stat-value">{snapshotCount}</span> snapshots
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          load average: <span class="system-stat-value">{loadAverage}</span>
+          last snapshot: <span class="system-stat-value">{lastSnapshotDate}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
@@ -159,7 +158,7 @@
         </span>
       </div>
       
-      <!-- Bottom line: OS, CPU, DB, Cache, API, Port, Mem% -->
+      <!-- Bottom line: OS, CPU, DB -->
       <div class="stats-line">
         <span class="system-stat">
           <span class="system-stat-label">OS:</span> 
@@ -174,11 +173,6 @@
         <span class="system-stat">
           <span class="system-stat-label">DB:</span> 
           <span class="system-stat-value">{dbSize}</span>
-        </span>
-        <span class="stat-separator">|</span>
-        <span class="system-stat">
-          <span class="system-stat-label">Cache:</span> 
-          <span class="system-stat-value good">{cachePercent}</span>
         </span>
       </div>
     </div>
