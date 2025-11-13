@@ -9,8 +9,9 @@
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   
-  // Get API URL (works in both development and production)
-  const API_URL = getApiUrl();
+  // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
+  // Initialize empty and set in onMount() when we're in the browser
+  let API_URL = '';
   
   // Data from API
   let metrics = null;
@@ -50,6 +51,10 @@
   } : null;
   
   onMount(async () => {
+    // Get API URL in browser context (NOT during SSR!)
+    API_URL = getApiUrl();
+    console.log('✅ Using API URL:', API_URL);
+    
     // Load metrics and initial comparison in parallel
     await Promise.all([
       fetchMetrics(),

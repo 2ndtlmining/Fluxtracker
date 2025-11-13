@@ -27,7 +27,7 @@ export const BLOCK_CONFIG = {
     BLOCKS_PER_MONTH: 86400,         // 2,880 * 30 = 86,400 blocks
     BLOCKS_PER_QUARTER: 259200,      // 2,880 * 90 = 259,200 blocks
     BLOCKS_PER_YEAR: 1051200,        // 2,880 * 365 = 1,051,200 blocks
-    INCREMENTAL_THRESHOLD: 2880  // for sycn
+    INCREMENTAL_THRESHOLD: 2880
 };
 
 // ============================================
@@ -204,27 +204,24 @@ export function hoursForBlocks(blocks) {
 // Configuration for API endpoints
 // This allows the frontend to connect to the backend in different environments
 
-// In production (Docker), both services run on the same machine
-// The browser needs to connect to the backend, so we use the browser's hostname
-export const API_BASE_URL = typeof window !== 'undefined' 
-    ? `http://${window.location.hostname}:3000`
-    : 'http://localhost:3000';
+// IMPORTANT: Don't use this directly in components - use getApiUrl() instead
+export const API_BASE_URL = 'http://localhost:3000';  // Fallback only
 
 // For server-side rendering, use localhost
 export const API_BASE_URL_SSR = 'http://localhost:3000';
 
 // Helper to get the correct API URL based on context
 export function getApiUrl() {
-    // If running in browser, use window.location.hostname
-    if (typeof window !== 'undefined') {
-        return `http://${window.location.hostname}:3000`;
+    // CRITICAL: Check if we're in browser AND if window.location is actually available
+    // During SSR, window might exist but not be properly initialized
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+        // We're in the browser - use the current hostname with API port 3000
+        const hostname = window.location.hostname;
+        console.log('[config] Browser mode - API URL:', `http://${hostname}:3000`);
+        return `http://${hostname}:3000`;
     }
-    // If running on server, use localhost
+    
+    // We're on the server (SSR) - use localhost for internal Docker communication
+    console.log('[config] SSR mode - API URL: http://localhost:3000');
     return 'http://localhost:3000';
 }
-
-
-
-
-
-
