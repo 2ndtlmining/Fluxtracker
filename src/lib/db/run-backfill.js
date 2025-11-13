@@ -18,7 +18,7 @@ setTimeout(async () => {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('Creating snapshots from Sep 22, 2024 to Nov 5, 2025...\n');
         
-        const result = backfillRevenueSnapshots('2024-09-22', '2025-11-09');
+        const result = backfillRevenueSnapshots('2024-09-22', '2025-11-12');
         
         console.log(`\n✅ Backfill Complete!`);
         console.log(`   • Created: ${result.created} new snapshots`);

@@ -51,8 +51,36 @@ const LOGGING_CONFIG = {
     logErrorsOnly: false,                 // Only log errors (overrides above)
 };
 
+// ============================================
+// CORS CONFIGURATION - CRITICAL FOR DOMAIN ACCESS
+// ============================================
+// IMPORTANT: This allows access from both IP address and domain name
+const corsOptions = {
+    origin: [
+        'http://localhost:5173',                           // Development
+        'http://localhost:37000',                          // Development (if using port 37000 locally)
+        'http://127.0.0.1:5173',                          // Development
+        'http://149.154.176.249:37000',                   // Production IP (update with your actual IP)
+        'http://149.154.176.158:37000',                   // Alternative IP (if you have multiple IPs)
+        'http://fluxtracker.app.runonflux.io:37000',      // Production Domain (update with your actual domain)
+        'https://fluxtracker.app.runonflux.io:37000',     // Production Domain HTTPS (if using HTTPS)
+        'http://fluxtracker.app.runonflux.io',            // Domain without port
+        'https://fluxtracker.app.runonflux.io',           // Domain HTTPS without port
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
+    maxAge: 600 // Cache preflight requests for 10 minutes
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Add OPTIONS handler for preflight requests
+app.options('*', cors(corsOptions));
+
 // Middleware
-app.use(cors());
 app.use(express.json());
 
 // Smart request logging with filters
@@ -593,11 +621,13 @@ app.post('/api/admin/snapshot', async (req, res) => {
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════════╗
 ║  FLUX DASHBOARD API - PORT ${PORT}              ║
+║  Listening on: 0.0.0.0:${PORT}                   ║
 ║  Auto-Running Services: Revenue + Snapshots       ║
+║  CORS enabled for domain and IP access            ║
 ╚═══════════════════════════════════════════════════╝
     `);
     
