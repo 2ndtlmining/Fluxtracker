@@ -14,7 +14,7 @@
   // App stats
   let os = 'Loading...';
   let cpuCores = 0;
-  let dbSize = '0MB';
+  let dbSize = '0KB';
   let cachePercent = '0%';
   let memPercent = 0;
   
@@ -80,13 +80,25 @@
         
         if (stats) {
           dbStatus = 'online';
-          dbSize = `${Math.round(stats.dbSizeKB / 1024)}MB`;
+          // Better size display - show KB for small databases, MB with decimals for larger
+          const sizeKB = stats.dbSizeKB || 0;
+          const sizeMB = sizeKB / 1024;
+          
+          if (sizeMB < 0.1) {
+            dbSize = `${sizeKB}KB`;
+          } else if (sizeMB < 1) {
+            dbSize = `${Math.round(sizeKB)}KB`;
+          } else if (sizeMB < 10) {
+            dbSize = `${sizeMB.toFixed(2)}MB`;
+          } else {
+            dbSize = `${sizeMB.toFixed(1)}MB`;
+          }
           snapshotCount = stats.snapshots || 0;
           lastSnapshotDate = stats.lastSnapshotDate || 'N/A';
         }
       } catch (e) {
         dbStatus = 'offline';
-        dbSize = '0MB';
+        dbSize = '0KB';
         snapshotCount = 0;
         lastSnapshotDate = 'N/A';
       }
@@ -129,7 +141,7 @@
         FLUX<br/>TRACKER
       </h1>
       <div class="build-info">
-        Build: <span class="text-cyan">v.07 revenue unicorn</span>
+        Build: <span class="text-cyan">v.02 revenue unicorn</span>
       </div>
     </div>
     
