@@ -8,6 +8,7 @@
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
+  import GamingCard from '$lib/components/GamingCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   
@@ -73,6 +74,27 @@
     trend: comparison.changes.nodes?.trend || 'neutral'
   } : null;
   
+  // Gaming comparison data
+  $: minecraftComparison = comparison ? {
+    change: comparison.changes.gaming?.minecraftChange || 0,
+    trend: comparison.changes.gaming?.minecraftTrend || 'neutral'
+  } : null;
+  
+  $: palworldComparison = comparison ? {
+    change: comparison.changes.gaming?.palworldChange || 0,
+    trend: comparison.changes.gaming?.palworldTrend || 'neutral'
+  } : null;
+  
+  $: enshroudedComparison = comparison ? {
+    change: comparison.changes.gaming?.enshroudedChange || 0,
+    trend: comparison.changes.gaming?.enshroudedTrend || 'neutral'
+  } : null;
+  
+  $: totalGamingComparison = comparison ? {
+    change: comparison.changes.gaming?.difference || 0,
+    trend: comparison.changes.gaming?.trend || 'neutral'
+  } : null;
+  
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -99,6 +121,19 @@
       change: comparison?.changes?.revenue?.change || 0,
       trend: comparison?.changes?.revenue?.trend || 'neutral'
     }
+  };
+  
+  // Format gaming data for GamingCard
+  $: gamingData = metrics?.gaming ? {
+    minecraft: { count: metrics.gaming.minecraft || 0 },
+    palworld: { count: metrics.gaming.palworld || 0 },
+    enshrouded: { count: metrics.gaming.enshrouded || 0 },
+    total: metrics.gaming.total || 0
+  } : {
+    minecraft: { count: 0 },
+    palworld: { count: 0 },
+    enshrouded: { count: 0 },
+    total: 0
   };
   
   onMount(async () => {
@@ -324,15 +359,16 @@
     <h3 class="section-title">Additional Metrics</h3>
     
     <div class="stats-grid-wide">
-      <!-- Gaming Apps -->
-      <StatCard
-        icon="🎮"
-        title="Gaming Apps"
-        value={loading ? '...' : formatNumber(metrics?.gaming?.total || 0)}
-        subtitle={loading ? '' : `Minecraft: ${formatNumber(metrics?.gaming?.minecraft || 0)} • Palworld: ${formatNumber(metrics?.gaming?.palworld || 0)}`}
-        change={comparison ? formatChange(comparison.changes.gaming, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.gaming) : 'neutral'}
-        valueColor="purple"
+      <!-- Gaming Apps (NEW: Using GamingCard component) -->
+      <GamingCard
+        minecraft={gamingData.minecraft}
+        palworld={gamingData.palworld}
+        enshrouded={gamingData.enshrouded}
+        total={gamingData.total}
+        {minecraftComparison}
+        {palworldComparison}
+        {enshroudedComparison}
+        totalComparison={totalGamingComparison}
         {loading}
       />
       

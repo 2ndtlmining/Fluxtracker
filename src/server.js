@@ -632,7 +632,17 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             
             response.changes.gaming = {
                 ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
-                difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0)
+                difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0),
+                // Individual game comparisons
+                minecraftChange: (current.gaming?.minecraft || 0) - (pastSnapshot.gaming_minecraft || 0),
+                minecraftTrend: (current.gaming?.minecraft || 0) > (pastSnapshot.gaming_minecraft || 0) ? 'up' : 
+                               (current.gaming?.minecraft || 0) < (pastSnapshot.gaming_minecraft || 0) ? 'down' : 'neutral',
+                palworldChange: (current.gaming?.palworld || 0) - (pastSnapshot.gaming_palworld || 0),
+                palworldTrend: (current.gaming?.palworld || 0) > (pastSnapshot.gaming_palworld || 0) ? 'up' : 
+                              (current.gaming?.palworld || 0) < (pastSnapshot.gaming_palworld || 0) ? 'down' : 'neutral',
+                enshroudedChange: (current.gaming?.enshrouded || 0) - (pastSnapshot.gaming_enshrouded || 0),
+                enshroudedTrend: (current.gaming?.enshrouded || 0) > (pastSnapshot.gaming_enshrouded || 0) ? 'up' : 
+                                (current.gaming?.enshrouded || 0) < (pastSnapshot.gaming_enshrouded || 0) ? 'down' : 'neutral'
             };
             response.changes.crypto = {
                 ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
