@@ -599,14 +599,43 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         
         // Add other metrics only if snapshot exists
         if (pastSnapshot) {
-            response.changes.nodes = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
-            response.changes.apps = calculateChange(current.apps?.total || 0, pastSnapshot.total_apps);
+            // Calculate node comparisons with individual breakdowns
+            const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
+            const cumulusChange = (current.nodes?.cumulus || 0) - (pastSnapshot.node_cumulus || 0);
+            const nimbusChange = (current.nodes?.nimbus || 0) - (pastSnapshot.node_nimbus || 0);
+            const stratusChange = (current.nodes?.stratus || 0) - (pastSnapshot.node_stratus || 0);
+            
+            response.changes.nodes = {
+                ...nodeChange,
+                difference: (current.nodes?.total || 0) - (pastSnapshot.node_total || 0),
+                cumulusChange: cumulusChange,
+                cumulusTrend: cumulusChange > 0 ? 'up' : cumulusChange < 0 ? 'down' : 'neutral',
+                nimbusChange: nimbusChange,
+                nimbusTrend: nimbusChange > 0 ? 'up' : nimbusChange < 0 ? 'down' : 'neutral',
+                stratusChange: stratusChange,
+                stratusTrend: stratusChange > 0 ? 'up' : stratusChange < 0 ? 'down' : 'neutral'
+            };
+            
+            response.changes.apps = {
+                ...calculateChange(current.apps?.total || 0, pastSnapshot.total_apps),
+                difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0)
+            };
             response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
             response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
             response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
-            response.changes.gaming = calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total);
-            response.changes.crypto = calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total);
-            response.changes.wordpress = calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count);
+            
+            response.changes.gaming = {
+                ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
+                difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0)
+            };
+            response.changes.crypto = {
+                ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
+                difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0)
+            };
+            response.changes.wordpress = {
+                ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
+                difference: (current.wordpress?.count || 0) - (pastSnapshot.wordpress_count || 0)
+            };
         } else {
             // No snapshot available, but revenue can still work
             console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);

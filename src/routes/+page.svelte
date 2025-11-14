@@ -6,6 +6,7 @@
   import Footer from '$lib/components/Footer.svelte';
   import StatCard from '$lib/components/StatCard.svelte';
   import CloudCard from '$lib/components/CloudCard.svelte';
+  import NodeCard from '$lib/components/NodeCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   
@@ -49,6 +50,40 @@
     change: comparison.changes.storage?.change || 0,
     trend: comparison.changes.storage?.trend || 'neutral'
   } : null;
+  
+  // Node comparison data
+  $: cumulusComparison = comparison ? {
+    change: comparison.changes.nodes?.cumulusChange || 0,
+    trend: comparison.changes.nodes?.cumulusTrend || 'neutral'
+  } : null;
+  
+  $: nimbusComparison = comparison ? {
+    change: comparison.changes.nodes?.nimbusChange || 0,
+    trend: comparison.changes.nodes?.nimbusTrend || 'neutral'
+  } : null;
+  
+  $: stratusComparison = comparison ? {
+    change: comparison.changes.nodes?.stratusChange || 0,
+    trend: comparison.changes.nodes?.stratusTrend || 'neutral'
+  } : null;
+  
+  $: totalNodesComparison = comparison ? {
+    change: comparison.changes.nodes?.difference || 0,
+    trend: comparison.changes.nodes?.trend || 'neutral'
+  } : null;
+  
+  // Format node data for NodeCard
+  $: nodeData = metrics?.nodes ? {
+    cumulus: { count: metrics.nodes.cumulus || 0 },
+    nimbus: { count: metrics.nodes.nimbus || 0 },
+    stratus: { count: metrics.nodes.stratus || 0 },
+    total: metrics.nodes.total || 0
+  } : {
+    cumulus: { count: 0 },
+    nimbus: { count: 0 },
+    stratus: { count: 0 },
+    total: 0
+  };
   
   onMount(async () => {
     // Get API URL in browser context (NOT during SSR!)
@@ -248,15 +283,16 @@
         {loading}
       />
       
-      <!-- Total Nodes Card -->
-      <StatCard
-        icon="📊"
-        title="Total Nodes"
-        value={loading ? '...' : formatNumber(metrics?.nodes?.total || 0)}
-        subtitle={loading ? '' : `${formatNumber(metrics?.nodes?.cumulus || 0)} Cumulus • ${formatNumber(metrics?.nodes?.nimbus || 0)} Nimbus • ${formatNumber(metrics?.nodes?.stratus || 0)} Stratus` }
-        change={comparison ? formatChange(comparison.changes.nodes, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.nodes) : 'neutral'}
-        valueColor="green"
+      <!-- Total Nodes Card (NEW: Using NodeCard component) -->
+      <NodeCard
+        cumulus={nodeData.cumulus}
+        nimbus={nodeData.nimbus}
+        stratus={nodeData.stratus}
+        total={nodeData.total}
+        {cumulusComparison}
+        {nimbusComparison}
+        {stratusComparison}
+        totalComparison={totalNodesComparison}
         {loading}
       />
       
