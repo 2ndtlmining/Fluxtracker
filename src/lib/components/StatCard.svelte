@@ -1,5 +1,5 @@
 <script>
-  export let icon = '💰';           // Emoji or icon
+  export let icon = '💰';           // Emoji or Lucide icon component
   export let title = '';            // Card title (e.g., "Daily Revenue")
   export let value = '';            // Main value to display
   export let subtitle = '';         // Optional subtitle
@@ -7,11 +7,20 @@
   export let trend = 'neutral';     // 'up', 'down', 'neutral'
   export let valueColor = 'cyan';   // 'cyan', 'green', 'white'
   export let loading = false;       // Loading state
+  
+  // Check if icon is a component (Lucide) or string (emoji)
+  $: isLucideIcon = typeof icon !== 'string';
 </script>
 
 <div class="stat-card terminal-border" class:loading>
   <!-- Icon -->
-  <div class="stat-icon">{icon}</div>
+  <div class="stat-icon" class:lucide={isLucideIcon}>
+    {#if isLucideIcon}
+      <svelte:component this={icon} size={24} strokeWidth={2} />
+    {:else}
+      {icon}
+    {/if}
+  </div>
   
   <div class="stat-content">
     <!-- Title -->
@@ -74,6 +83,18 @@
     line-height: 1;
     opacity: 0.9;
     filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.3));
+  }
+  
+  .stat-icon.lucide {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .stat-icon.lucide :global(svg) {
+    color: var(--text-primary);
+    filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.3));
+    transition: all 0.3s ease;
   }
   
   /* Content */
@@ -198,5 +219,10 @@
     filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
     transform: scale(1.05);
     transition: all 0.3s ease;
+  }
+  
+  .stat-card:hover .stat-icon.lucide :global(svg) {
+    filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
+    transform: scale(1.05);
   }
 </style>

@@ -12,6 +12,7 @@
   import CryptoCard from '$lib/components/CryptoCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
+  import { FileText, Package } from 'lucide-svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -422,24 +423,24 @@
       
       <!-- WordPress Sites -->
       <StatCard
-        icon="📝"
+        icon={FileText}
         title="WordPress Sites"
         value={loading ? '...' : formatNumber(metrics?.wordpress?.count || 0)}
         subtitle="Active installations"
         change={comparison ? formatChange(comparison.changes.wordpress, true) : ''}
         trend={comparison ? getTrend(comparison.changes.wordpress) : 'neutral'}
-        valueColor="blue"
+        valueColor="cyan"
         {loading}
       />
       
       <!-- Total Apps -->
       <StatCard
-        icon="📦"
+        icon={Package}
         title="Total Apps"
         value={loading ? '...' : formatNumber(metrics?.apps?.total || 0)}
         change={comparison ? formatChange(comparison.changes.apps, true) : ''}
         trend={comparison ? getTrend(comparison.changes.apps) : 'neutral'}
-        valueColor="pink"
+        valueColor="cyan"
         {loading}
       />
     </div>
