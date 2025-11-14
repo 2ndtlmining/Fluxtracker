@@ -9,6 +9,7 @@
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
   import GamingCard from '$lib/components/GamingCard.svelte';
+  import CryptoCard from '$lib/components/CryptoCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   
@@ -95,6 +96,27 @@
     trend: comparison.changes.gaming?.trend || 'neutral'
   } : null;
   
+  // Crypto comparison data
+  $: presearchComparison = comparison ? {
+    change: comparison.changes.crypto?.presearchChange || 0,
+    trend: comparison.changes.crypto?.presearchTrend || 'neutral'
+  } : null;
+  
+  $: kaspaComparison = comparison ? {
+    change: comparison.changes.crypto?.kaspaChange || 0,
+    trend: comparison.changes.crypto?.kaspaTrend || 'neutral'
+  } : null;
+  
+  $: alephiumComparison = comparison ? {
+    change: comparison.changes.crypto?.alephiumChange || 0,
+    trend: comparison.changes.crypto?.alephiumTrend || 'neutral'
+  } : null;
+  
+  $: totalCryptoComparison = comparison ? {
+    change: comparison.changes.crypto?.difference || 0,
+    trend: comparison.changes.crypto?.trend || 'neutral'
+  } : null;
+  
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -133,6 +155,19 @@
     minecraft: { count: 0 },
     palworld: { count: 0 },
     enshrouded: { count: 0 },
+    total: 0
+  };
+  
+  // Format crypto data for CryptoCard
+  $: cryptoData = metrics?.crypto ? {
+    presearch: { count: metrics.crypto.presearch || 0 },
+    kaspa: { count: metrics.crypto.kaspa || 0 },
+    alephium: { count: metrics.crypto.alephium || 0 },
+    total: metrics.crypto.total || 0
+  } : {
+    presearch: { count: 0 },
+    kaspa: { count: 0 },
+    alephium: { count: 0 },
     total: 0
   };
   
@@ -372,15 +407,16 @@
         {loading}
       />
       
-      <!-- Crypto Nodes -->
-      <StatCard
-        icon="🪙"
-        title="Crypto Nodes"
-        value={loading ? '...' : formatNumber(metrics?.crypto?.total || 0)}
-        subtitle={loading ? '' : `Presearch: ${formatNumber(metrics?.crypto?.presearch || 0)} • Kaspa: ${formatNumber(metrics?.crypto?.kaspa || 0)}`}
-        change={comparison ? formatChange(comparison.changes.crypto, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.crypto) : 'neutral'}
-        valueColor="orange"
+      <!-- Crypto Nodes (NEW: Using CryptoCard component) -->
+      <CryptoCard
+        presearch={cryptoData.presearch}
+        kaspa={cryptoData.kaspa}
+        alephium={cryptoData.alephium}
+        total={cryptoData.total}
+        {presearchComparison}
+        {kaspaComparison}
+        {alephiumComparison}
+        totalComparison={totalCryptoComparison}
         {loading}
       />
       

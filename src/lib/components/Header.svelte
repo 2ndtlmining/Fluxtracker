@@ -141,7 +141,7 @@
         FLUX<br/>TRACKER
       </h1>
       <div class="build-info">
-        Build: <span class="text-cyan">v.03 revenue unicorn</span>
+        Build: <span class="text-cyan">v.04 revenue unicorn</span>
       </div>
     </div>
     

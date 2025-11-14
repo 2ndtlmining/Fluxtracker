@@ -328,7 +328,7 @@ app.get('/api/metrics/current', (req, res) => {
             },
             apps: { total: metrics.total_apps, watchtower: metrics.watchtower_count },
             gaming: { total: metrics.gaming_apps_total, palworld: metrics.gaming_palworld, enshrouded: metrics.gaming_enshrouded, minecraft: metrics.gaming_minecraft },
-            crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kadena: metrics.crypto_kadena, kaspa: metrics.crypto_kaspa },
+            crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kaspa: metrics.crypto_kaspa, alephium: metrics.crypto_alephium },
             wordpress: { count: metrics.wordpress_count },
             nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total }
         });
@@ -646,7 +646,17 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             };
             response.changes.crypto = {
                 ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
-                difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0)
+                difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0),
+                // Individual crypto node comparisons
+                presearchChange: (current.crypto?.presearch || 0) - (pastSnapshot.crypto_presearch || 0),
+                presearchTrend: (current.crypto?.presearch || 0) > (pastSnapshot.crypto_presearch || 0) ? 'up' : 
+                               (current.crypto?.presearch || 0) < (pastSnapshot.crypto_presearch || 0) ? 'down' : 'neutral',
+                kaspaChange: (current.crypto?.kaspa || 0) - (pastSnapshot.crypto_kaspa || 0),
+                kaspaTrend: (current.crypto?.kaspa || 0) > (pastSnapshot.crypto_kaspa || 0) ? 'up' : 
+                           (current.crypto?.kaspa || 0) < (pastSnapshot.crypto_kaspa || 0) ? 'down' : 'neutral',
+                alephiumChange: (current.crypto?.alephium || 0) - (pastSnapshot.crypto_alephium || 0),
+                alephiumTrend: (current.crypto?.alephium || 0) > (pastSnapshot.crypto_alephium || 0) ? 'up' : 
+                              (current.crypto?.alephium || 0) < (pastSnapshot.crypto_alephium || 0) ? 'down' : 'neutral'
             };
             response.changes.wordpress = {
                 ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
