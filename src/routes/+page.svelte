@@ -7,6 +7,7 @@
   import StatCard from '$lib/components/StatCard.svelte';
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
+  import RevenueCard from '$lib/components/RevenueCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   
@@ -83,6 +84,21 @@
     nimbus: { count: 0 },
     stratus: { count: 0 },
     total: 0
+  };
+  
+  // Format revenue data for RevenueCard
+  $: revenueData = {
+    payments: {
+      count: metrics?.revenue?.paymentCount || 0
+    },
+    usd: {
+      amount: metrics?.revenue?.usdValue || 0
+    },
+    flux: {
+      amount: metrics?.revenue?.current || 0,
+      change: comparison?.changes?.revenue?.change || 0,
+      trend: comparison?.changes?.revenue?.trend || 'neutral'
+    }
   };
   
   onMount(async () => {
@@ -271,15 +287,11 @@
     
     <!-- Hero Stats Grid (3 cards) -->
     <div class="stats-grid">
-      <!-- Revenue Card -->
-      <StatCard
-        icon="💰"
-        title="Daily Revenue"
-        value={loading ? '...' : `${formatCurrency(metrics?.revenue?.current || 0)} FLUX`}
-        subtitle={loading ? '' : metrics?.revenue?.usdValue ? `~$${formatCurrency(metrics.revenue.usdValue)}` : ''}
-        change={comparison ? formatChange(comparison.changes.revenue) : ''}
-        trend={comparison ? getTrend(comparison.changes.revenue) : 'neutral'}
-        valueColor="cyan"
+      <!-- Revenue Card (NEW: Using RevenueCard component) -->
+      <RevenueCard
+        payments={revenueData.payments}
+        usd={revenueData.usd}
+        flux={revenueData.flux}
         {loading}
       />
       

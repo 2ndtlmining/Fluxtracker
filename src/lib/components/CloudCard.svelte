@@ -1,4 +1,6 @@
 <script>
+  import { Cloud } from 'lucide-svelte';
+  
   export let cpu = { total: 0, used: 0, utilization: 0 };
   export let ram = { total: 0, used: 0, utilization: 0 };
   export let storage = { total: 0, used: 0, utilization: 0 };
@@ -43,7 +45,9 @@
 
 <div class="cloud-card terminal-border" class:loading>
   <div class="cloud-header">
-    <div class="cloud-icon">☁️</div>
+    <div class="cloud-icon">
+      <Cloud size={24} strokeWidth={2} />
+    </div>
     <div class="cloud-title">Cloud Resources</div>
     
     <!-- Overall demand indicator (based on CPU) -->
@@ -62,10 +66,10 @@
       <!-- CPU -->
       <div class="cloud-metric">
         <div class="metric-row">
-          <div class="metric-label">CPU</div>
+          <div class="metric-label">CPU <span class="unit">(cores)</span></div>
           <div class="metric-value cyan">{formatDecimal(cpu.utilization)}%</div>
         </div>
-        <div class="metric-detail">{formatNumber(cpu.used)} / {formatNumber(cpu.total)} cores</div>
+        <div class="metric-detail">{formatNumber(cpu.used)} / {formatNumber(cpu.total)}</div>
         
         <!-- CPU Comparison -->
         {#if cpuComparison && cpuComparison.change !== undefined}
@@ -83,10 +87,10 @@
       <!-- RAM -->
       <div class="cloud-metric">
         <div class="metric-row">
-          <div class="metric-label">RAM</div>
+          <div class="metric-label">RAM <span class="unit">(GB)</span></div>
           <div class="metric-value cyan">{formatDecimal(ram.utilization)}%</div>
         </div>
-        <div class="metric-detail">{formatDecimal(ram.used)} / {formatDecimal(ram.total)} GB</div>
+        <div class="metric-detail">{formatDecimal(ram.used)} / {formatDecimal(ram.total)}</div>
         
         <!-- RAM Comparison -->
         {#if ramComparison && ramComparison.change !== undefined}
@@ -104,10 +108,10 @@
       <!-- Storage -->
       <div class="cloud-metric">
         <div class="metric-row">
-          <div class="metric-label">Storage</div>
+          <div class="metric-label">Storage <span class="unit">(GB)</span></div>
           <div class="metric-value cyan">{formatDecimal(storage.utilization)}%</div>
         </div>
-        <div class="metric-detail">{formatNumber(storage.used)} / {formatNumber(storage.total)} GB</div>
+        <div class="metric-detail">{formatNumber(storage.used)} / {formatNumber(storage.total)}</div>
         
         <!-- Storage Comparison -->
         {#if storageComparison && storageComparison.change !== undefined}
@@ -155,9 +159,16 @@
   }
   
   .cloud-icon {
-    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     opacity: 0.9;
+  }
+  
+  .cloud-icon :global(svg) {
+    color: var(--text-primary);
     filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.3));
+    transition: all 0.3s ease;
   }
   
   .cloud-title {
@@ -237,6 +248,13 @@
     font-weight: 600;
   }
   
+  .metric-label .unit {
+    font-size: 0.6rem;
+    opacity: 0.7;
+    text-transform: lowercase;
+    font-weight: 500;
+  }
+  
   .metric-value {
     font-size: 1.75rem;
     font-weight: 700;
@@ -311,10 +329,9 @@
   }
   
   /* Hover Effects */
-  .cloud-card:hover .cloud-icon {
+  .cloud-card:hover .cloud-icon :global(svg) {
     filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
     transform: scale(1.05);
-    transition: all 0.3s ease;
   }
   
   .cloud-card:hover .metric-value.cyan {

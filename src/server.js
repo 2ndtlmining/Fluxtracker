@@ -7,6 +7,7 @@ import {
     getSnapshotByDate,
     getTransactionsByDate,
     getRevenueForDateRange,
+    getPaymentCountForDateRange,
     getDatabaseStats,
     getTxidCount,
     getTransactionsPaginated,
@@ -308,12 +309,17 @@ app.get('/api/metrics/current', (req, res) => {
         const metrics = getCurrentMetrics();
         if (!metrics) return res.status(404).json({ error: 'No metrics found' });
         
+        // Get today's date for payment count
+        const today = new Date().toISOString().split('T')[0];
+        const paymentCount = getPaymentCountForDateRange(today, today);
+        
         res.json({
             lastUpdate: metrics.last_update,
             revenue: {
                 current: metrics.current_revenue,
                 fluxPriceUsd: metrics.flux_price_usd,
-                usdValue: metrics.flux_price_usd ? metrics.current_revenue * metrics.flux_price_usd : null
+                usdValue: metrics.flux_price_usd ? metrics.current_revenue * metrics.flux_price_usd : null,
+                paymentCount: paymentCount
             },
             cloud: {
                 cpu: { total: metrics.total_cpu_cores, used: metrics.used_cpu_cores, utilization: metrics.cpu_utilization_percent },

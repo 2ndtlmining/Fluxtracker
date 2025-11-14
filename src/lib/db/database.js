@@ -509,6 +509,19 @@ export function getRevenueForDateRange(startDate, endDate) {
     return result?.total_revenue || 0;
 }
 
+/**
+ * Get count of payments (transactions) for a date range
+ */
+export function getPaymentCountForDateRange(startDate, endDate) {
+    const stmt = db.prepare(`
+        SELECT COUNT(*) as payment_count
+        FROM revenue_transactions
+        WHERE date BETWEEN ? AND ?
+    `);
+    const result = stmt.get(startDate, endDate);
+    return result?.payment_count || 0;
+}
+
 export function getRevenueForBlockRange(startBlock, endBlock) {
     const stmt = db.prepare(`
         SELECT SUM(amount) as total_revenue
