@@ -1,4 +1,6 @@
 <script>
+  import { Server } from 'lucide-svelte';
+  
   export let cumulus = { count: 0 };
   export let nimbus = { count: 0 };
   export let stratus = { count: 0 };
@@ -20,7 +22,9 @@
 
 <div class="node-card terminal-border" class:loading>
   <div class="node-header">
-    <div class="node-icon">📊</div>
+    <div class="node-icon">
+      <Server size={24} strokeWidth={2} />
+    </div>
     <div class="node-title">Total Nodes</div>
   </div>
   
@@ -135,9 +139,16 @@
   }
   
   .node-icon {
-    font-size: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     opacity: 0.9;
+  }
+  
+  .node-icon :global(svg) {
+    color: var(--text-primary);
     filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.3));
+    transition: all 0.3s ease;
   }
   
   .node-title {
@@ -302,10 +313,9 @@
   }
   
   /* Hover Effects */
-  .node-card:hover .node-icon {
+  .node-card:hover .node-icon :global(svg) {
     filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
     transform: scale(1.05);
-    transition: all 0.3s ease;
   }
   
   .node-card:hover .metric-value.cyan {
