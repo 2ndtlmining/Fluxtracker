@@ -337,23 +337,23 @@ app.get('/api/metrics/current', (req, res) => {
     }
 });
 
-app.get('/api/analytics/comparison/:days', async (req, res) => {
-    try {
-        const days = parseInt(req.params.days) || 1;
-        const { getAnalyticsComparison } = await import('./lib/db/snapshot.js');
-        const comparison = getAnalyticsComparison(days);
-        
-        if (!comparison) {
-            return res.status(404).json({ 
-                error: 'No comparison data available'
-            });
-        }
-        
-        res.json(comparison);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
+// app.get('/api/analytics/comparison/:days', async (req, res) => {
+//     try {
+//         const days = parseInt(req.params.days) || 1;
+//         const { getAnalyticsComparison } = await import('./lib/db/snapshot.js');
+//         const comparison = getAnalyticsComparison(days);
+//         
+//         if (!comparison) {
+//             return res.status(404).json({ 
+//                 error: 'No comparison data available'
+//             });
+//         }
+//         
+//         res.json(comparison);
+//     } catch (error) {
+//         res.status(500).json({ error: error.message });
+//     }
+// });
 
 // Enhanced endpoint with full snapshot data for charts
 app.get('/api/history/snapshots/full', (req, res) => {

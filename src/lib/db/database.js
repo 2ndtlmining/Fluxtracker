@@ -16,6 +16,22 @@ let db;
 export function initDatabase() {
     try {
         db = new Database(dbPath, { verbose: console.log });
+
+        console.log('🔍 Checking database integrity...');
+        const integrity = db.pragma('integrity_check');
+        
+        if (integrity[0].integrity_check === 'ok') {
+            console.log('✅ Database integrity: OK');
+        } else {
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.error('❌ DATABASE CORRUPTION DETECTED!');
+            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.error('Fix commands:');
+            console.error(`  1. cp ${dbPath} ${dbPath}.backup`);
+            console.error(`  2. rm ${dbPath}`);
+            console.error('  3. Restart server');
+            throw new Error('Database corrupted');
+        }
         
         // Enable WAL mode for better performance
         db.pragma('journal_mode = WAL');
