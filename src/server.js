@@ -337,23 +337,28 @@ app.get('/api/metrics/current', (req, res) => {
     }
 });
 
-// app.get('/api/analytics/comparison/:days', async (req, res) => {
-//     try {
-//         const days = parseInt(req.params.days) || 1;
-//         const { getAnalyticsComparison } = await import('./lib/db/snapshot.js');
-//         const comparison = getAnalyticsComparison(days);
-//         
-//         if (!comparison) {
-//             return res.status(404).json({ 
-//                 error: 'No comparison data available'
-//             });
-//         }
-//         
-//         res.json(comparison);
-//     } catch (error) {
-//         res.status(500).json({ error: error.message });
-//     }
-// });
+// DISABLED: This old endpoint is replaced by the more complete one below
+/*
+
+app.get('/api/analytics/comparison/:days', async (req, res) => {
+    try {
+        const days = parseInt(req.params.days) || 1;
+        const { getAnalyticsComparison } = await import('./lib/db/snapshot.js');
+        const comparison = getAnalyticsComparison(days);
+        
+        if (!comparison) {
+            return res.status(404).json({ 
+                error: 'No comparison data available'
+            });
+        }
+        
+        res.json(comparison);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+*/
 
 // Enhanced endpoint with full snapshot data for charts
 app.get('/api/history/snapshots/full', (req, res) => {
@@ -544,6 +549,10 @@ app.get('/api/categories/nodes', (req, res) => {
 });
 
 // Analytics comparison endpoint
+// CORRECTED Analytics comparison endpoint
+// This version TRANSFORMS getCurrentMetrics() to match the structure your frontend expects
+// Replace the endpoint starting at line ~547 in server.js with this code
+
 app.get('/api/analytics/comparison/:days', (req, res) => {
     try {
         const days = parseInt(req.params.days);
@@ -552,16 +561,52 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             return res.status(400).json({ error: 'Invalid days parameter' });
         }
         
-        const current = getCurrentMetrics();
-        if (!current) {
+        const rawCurrent = getCurrentMetrics();
+        if (!rawCurrent) {
             return res.status(404).json({ error: 'No current metrics found' });
         }
+        
+        // IMPORTANT: Transform raw database columns into nested structure
+        // This matches what /api/metrics/current returns
+        const current = {
+            nodes: { 
+                total: rawCurrent.node_total, 
+                cumulus: rawCurrent.node_cumulus, 
+                nimbus: rawCurrent.node_nimbus, 
+                stratus: rawCurrent.node_stratus 
+            },
+            apps: { 
+                total: rawCurrent.total_apps 
+            },
+            gaming: { 
+                total: rawCurrent.gaming_apps_total, 
+                minecraft: rawCurrent.gaming_minecraft, 
+                palworld: rawCurrent.gaming_palworld, 
+                enshrouded: rawCurrent.gaming_enshrouded 
+            },
+            crypto: { 
+                total: rawCurrent.crypto_nodes_total, 
+                presearch: rawCurrent.crypto_presearch, 
+                kaspa: rawCurrent.crypto_kaspa, 
+                alephium: rawCurrent.crypto_alephium 
+            },
+            cloud: {
+                cpu: { utilization: rawCurrent.cpu_utilization_percent },
+                ram: { utilization: rawCurrent.ram_utilization_percent },
+                storage: { utilization: rawCurrent.storage_utilization_percent }
+            },
+            wordpress: { 
+                count: rawCurrent.wordpress_count 
+            }
+        };
         
         // Get dates for comparison
         const today = new Date().toISOString().split('T')[0];
         const targetDate = new Date();
         targetDate.setDate(targetDate.getDate() - days);
         const targetDateStr = targetDate.toISOString().split('T')[0];
+        
+        console.log(`📊 Comparison: Today=${today}, Target=${targetDateStr} (${days} days ago)`);
         
         // Calculate changes
         const calculateChange = (current, past) => {
@@ -605,6 +650,8 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         
         // Add other metrics only if snapshot exists
         if (pastSnapshot) {
+            console.log(`✓ Found snapshot for ${targetDateStr}`);
+            
             // Calculate node comparisons with individual breakdowns
             const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
             const cumulusChange = (current.nodes?.cumulus || 0) - (pastSnapshot.node_cumulus || 0);
@@ -678,9 +725,8 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         console.error('❌ Comparison endpoint error:', error);
         console.error('   Stack:', error.stack);
         res.status(500).json({ 
-            error: 'No comparison data available',
-            details: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            error: 'Internal server error',
+            details: error.message 
         });
     }
 });
