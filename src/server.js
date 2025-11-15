@@ -566,8 +566,8 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             return res.status(404).json({ error: 'No current metrics found' });
         }
         
-        // IMPORTANT: Transform raw database columns into nested structure
-        // This matches what /api/metrics/current returns
+        // CRITICAL: Transform raw database columns into nested structure
+        // This matches what the OLD endpoint returned from snapshot.js
         const current = {
             nodes: { 
                 total: rawCurrent.node_total, 
@@ -619,7 +619,6 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         };
         
         // SPECIAL HANDLING FOR REVENUE
-        // Revenue compares transaction sums, not snapshot data
         const todayRevenue = getRevenueForDateRange(today, today);
         const comparisonRevenue = getRevenueForDateRange(targetDateStr, targetDateStr);
         
@@ -627,7 +626,6 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         if (comparisonRevenue > 0) {
             revenueComparison = calculateChange(todayRevenue, comparisonRevenue);
         } else {
-            // No transaction data for comparison date
             revenueComparison = { 
                 change: 0, 
                 trend: 'neutral',
@@ -638,7 +636,7 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         // For other metrics, we need snapshot data
         const pastSnapshot = getSnapshotByDate(targetDateStr);
         
-        // Build response - revenue always available if we have transaction data
+        // Build response
         const response = {
             period: days,
             currentDate: today,
@@ -652,7 +650,7 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
         if (pastSnapshot) {
             console.log(`✓ Found snapshot for ${targetDateStr}`);
             
-            // Calculate node comparisons with individual breakdowns
+            // Node comparisons with individual breakdowns
             const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
             const cumulusChange = (current.nodes?.cumulus || 0) - (pastSnapshot.node_cumulus || 0);
             const nimbusChange = (current.nodes?.nimbus || 0) - (pastSnapshot.node_nimbus || 0);
@@ -673,14 +671,16 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 ...calculateChange(current.apps?.total || 0, pastSnapshot.total_apps),
                 difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0)
             };
+            
+            // CLOUD COMPARISONS - Now using transformed data
             response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
             response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
             response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
             
+            // Gaming comparisons with individual breakdowns
             response.changes.gaming = {
                 ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
                 difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0),
-                // Individual game comparisons
                 minecraftChange: (current.gaming?.minecraft || 0) - (pastSnapshot.gaming_minecraft || 0),
                 minecraftTrend: (current.gaming?.minecraft || 0) > (pastSnapshot.gaming_minecraft || 0) ? 'up' : 
                                (current.gaming?.minecraft || 0) < (pastSnapshot.gaming_minecraft || 0) ? 'down' : 'neutral',
@@ -691,10 +691,11 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 enshroudedTrend: (current.gaming?.enshrouded || 0) > (pastSnapshot.gaming_enshrouded || 0) ? 'up' : 
                                 (current.gaming?.enshrouded || 0) < (pastSnapshot.gaming_enshrouded || 0) ? 'down' : 'neutral'
             };
+            
+            // Crypto comparisons with individual breakdowns
             response.changes.crypto = {
                 ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
                 difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0),
-                // Individual crypto node comparisons
                 presearchChange: (current.crypto?.presearch || 0) - (pastSnapshot.crypto_presearch || 0),
                 presearchTrend: (current.crypto?.presearch || 0) > (pastSnapshot.crypto_presearch || 0) ? 'up' : 
                                (current.crypto?.presearch || 0) < (pastSnapshot.crypto_presearch || 0) ? 'down' : 'neutral',
@@ -705,16 +706,16 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 alephiumTrend: (current.crypto?.alephium || 0) > (pastSnapshot.crypto_alephium || 0) ? 'up' : 
                               (current.crypto?.alephium || 0) < (pastSnapshot.crypto_alephium || 0) ? 'down' : 'neutral'
             };
+            
             response.changes.wordpress = {
                 ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
                 difference: (current.wordpress?.count || 0) - (pastSnapshot.wordpress_count || 0)
             };
+            
         } else {
-            // No snapshot available, but revenue can still work
             console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
             console.log(`✓  Revenue comparison still available using transaction data`);
             
-            // Return partial data with revenue only
             response.partialData = true;
             response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
         }
