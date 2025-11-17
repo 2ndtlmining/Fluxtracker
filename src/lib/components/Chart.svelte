@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
+  import { DollarSign, Gamepad2, Coins, Server, Cloud, Package } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -32,7 +33,6 @@
   const categories = {
     revenue: {
       label: 'Revenue',
-      icon: '💰',
       color: 'rgb(0, 255, 255)',
       metrics: [
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' }
@@ -40,7 +40,6 @@
     },
     gaming: {
       label: 'Gaming Apps',
-      icon: '🎮',
       color: 'rgb(138, 43, 226)',
       metrics: [
         { id: 'gaming_total', label: 'Total Gaming Apps', field: 'gaming_apps_total', format: 'number' },
@@ -51,7 +50,6 @@
     },
     crypto: {
       label: 'Crypto Nodes',
-      icon: '🪙',
       color: 'rgb(255, 165, 0)',
       metrics: [
         { id: 'crypto_total', label: 'Total Crypto Nodes', field: 'crypto_nodes_total', format: 'number' },
@@ -62,7 +60,6 @@
     },
     nodes: {
       label: 'Node Distribution',
-      icon: '🖥️',
       color: 'rgb(0, 255, 65)',
       metrics: [
         { id: 'node_total', label: 'Total Nodes', field: 'node_total', format: 'number' },
@@ -73,7 +70,6 @@
     },
     resources: {
       label: 'Cloud Resources',
-      icon: '☁️',
       color: 'rgb(100, 200, 255)',
       metrics: [
         { id: 'cpu_util', label: 'CPU Utilization %', field: 'cpu_utilization_percent', format: 'percent' },
@@ -89,7 +85,6 @@
     },
     apps: {
       label: 'Applications',
-      icon: '📦',
       color: 'rgb(255, 100, 255)',
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
@@ -545,7 +540,21 @@
         on:click={() => handleCategoryChange(id)}
         style="--category-color: {category.color}"
       >
-        <span class="category-icon">{category.icon}</span>
+        <span class="category-icon">
+          {#if id === 'revenue'}
+            <DollarSign size={16} strokeWidth={2} />
+          {:else if id === 'gaming'}
+            <Gamepad2 size={16} strokeWidth={2} />
+          {:else if id === 'crypto'}
+            <Coins size={16} strokeWidth={2} />
+          {:else if id === 'nodes'}
+            <Server size={16} strokeWidth={2} />
+          {:else if id === 'resources'}
+            <Cloud size={16} strokeWidth={2} />
+          {:else if id === 'apps'}
+            <Package size={16} strokeWidth={2} />
+          {/if}
+        </span>
         <span class="category-label">{category.label}</span>
       </button>
     {/each}
@@ -725,7 +734,24 @@
   }
 
   .category-icon {
-    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .category-icon :global(svg) {
+    color: var(--text-primary);
+    filter: drop-shadow(0 0 5px rgba(0, 255, 255, 0.3));
+    transition: all 0.3s ease;
+  }
+
+  .category-pill:hover .category-icon :global(svg) {
+    filter: drop-shadow(0 0 10px rgba(0, 255, 255, 0.5));
+    transform: scale(1.05);
+  }
+
+  .category-pill.active .category-icon :global(svg) {
+    filter: drop-shadow(0 0 10px var(--category-color));
   }
 
   .category-label {
