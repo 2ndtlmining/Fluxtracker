@@ -32,11 +32,14 @@ import {
 import { fetchRevenueStats } from './lib/services/revenueService.js';
 
 // Import testAllServices
-import { startServiceTests, getServiceTestSchedulerStatus } from './lib/services/servicesScheduler.js';
+import { startServiceTests, getServiceTestSchedulerStatus, startCarouselUpdates,stopCarouselUpdates, getCarouselSchedulerStatus  } from './lib/services/servicesScheduler.js';
 import { testAllServices } from './lib/services/test-allServices.js';
 
 // Import backfill functions
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
+
+import { json } from '@sveltejs/kit';
+import { getCachedTopApps } from './lib/services/carouselService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -763,6 +766,25 @@ app.post('/api/admin/snapshot', async (req, res) => {
     }
 });
 
+app.get('/api/carousel/top-apps', (req, res) => {
+    try {
+        const result = getCachedTopApps();
+        res.json({
+            apps: result.apps || [],
+            cached: result.cached,
+            cacheAge: result.cacheAge,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('❌ Error in carousel API:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch top apps',
+            apps: [],
+            cached: false
+        });
+    }
+});
+
 // 404 handler
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
@@ -799,6 +821,13 @@ app.listen(PORT, '0.0.0.0', () => {
         console.error('⚠️  System will continue but tests may not run!');
     }
 
+    // NEW: Start the carousel updates
+    try {
+    console.log('🎠 Carousel update scheduler initialized');
+    startCarouselUpdates();
+    } catch (error) {
+    console.error('❌ Could not initialize carousel:', error.message);
+    }
 
     // Start the snapshot checker (runs every 30 minutes)
     try {
@@ -833,6 +862,18 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
     console.log('🛑 SIGINT received, shutting down gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🛑 SIGTERM received, shutting down gracefully...');
+    stopCarouselUpdates();  // ADD THIS
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🛑 SIGINT received, shutting down gracefully...');
+    stopCarouselUpdates();  // ADD THIS
     process.exit(0);
 });
 

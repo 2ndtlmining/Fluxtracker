@@ -13,6 +13,7 @@
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   import { FileText, Package } from 'lucide-svelte';
+  import CarouselCard from '$lib/components/CarouselCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -338,6 +339,9 @@
   <Header />
   
   <main class="main-content">
+    <!-- Carousel - NEW -->
+    <CarouselCard />
+    
     <!-- Title with Comparison Toggle -->
     <div class="page-header">
       <h2 class="page-title">Performance Overview</h2>
@@ -480,6 +484,7 @@
     align-items: center;
     gap: var(--spacing-md);
     margin-bottom: var(--spacing-lg);
+    margin-top: var(--spacing-lg);
   }
   
   .page-title {
