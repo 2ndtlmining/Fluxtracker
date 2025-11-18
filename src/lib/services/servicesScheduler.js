@@ -1,7 +1,7 @@
 // flux-performance-dashboard/src/lib/services/servicesScheduler.js
 
 import { testAllServices } from './test-allServices.js';
-import { fetchTopApps } from './carouselService.js';
+import { fetchCarouselData } from './carouselService.js';  // UPDATED: Use new function name
 
 // Configuration
 const TEST_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -69,13 +69,13 @@ async function runCarouselUpdate() {
     try {
         isCarouselRunning = true;
         
-        // Fetch top apps for carousel
-        const topApps = await fetchTopApps();
+        // UPDATED: Fetch all carousel data (apps + benchmarks)
+        const carouselStats = await fetchCarouselData();
         
         lastCarouselRun = Date.now();
         consecutiveCarouselFailures = 0;
         
-        console.log(`✅ Carousel updated with ${topApps.length} apps\n`);
+        console.log(`✅ Carousel updated with ${carouselStats.length} stats\n`);
         
     } catch (error) {
         console.error('❌ Carousel sync failed:', error.message);

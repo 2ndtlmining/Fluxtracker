@@ -39,7 +39,7 @@ import { testAllServices } from './lib/services/test-allServices.js';
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 
 import { json } from '@sveltejs/kit';
-import { getCachedTopApps } from './lib/services/carouselService.js';
+import { getCachedCarouselData } from './lib/services/carouselService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -766,20 +766,25 @@ app.post('/api/admin/snapshot', async (req, res) => {
     }
 });
 
-app.get('/api/carousel/top-apps', (req, res) => {
+app.get('/api/carousel/stats', (req, res) => {
     try {
-        const result = getCachedTopApps();
+        const result = getCachedCarouselData();  // ✅ New function
+        
         res.json({
-            apps: result.apps || [],
+            stats: result.stats || [],  // ✅ New field name
             cached: result.cached,
             cacheAge: result.cacheAge,
+            fresh: result.fresh,
             timestamp: new Date().toISOString()
         });
+        
     } catch (error) {
         console.error('❌ Error in carousel API:', error);
+        
         res.status(500).json({ 
-            error: 'Failed to fetch top apps',
-            apps: [],
+            error: 'Failed to fetch carousel stats',
+            message: error.message,
+            stats: [],
             cached: false
         });
     }

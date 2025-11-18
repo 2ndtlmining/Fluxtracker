@@ -76,6 +76,11 @@ export const API_ENDPOINTS = {
     // Price APIs
     PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
     PRICE_FALLBACK: 'https://explorer.runonflux.io/api/currency',
+
+    //cloud stats
+    API_FLUX_NETWORK_UTILISATION: 'https://stats.runonflux.io/fluxinfo?projection=apps.resources',
+    API_NODE_BENCHMARKS: 'https://stats.runonflux.io/fluxinfo?projection=benchmark',
+    API_NODE_GEOLOCATION: 'https://stats.runonflux.io/fluxinfo?projection=geolocation',
 };
 
 // ============================================

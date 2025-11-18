@@ -3,8 +3,8 @@ import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
 
 // API endpoints for network utilization
-const API_FLUX_NETWORK_UTILISATION = 'https://stats.runonflux.io/fluxinfo?projection=apps.resources';
-const API_NODE_BENCHMARKS = 'https://stats.runonflux.io/fluxinfo?projection=benchmark';
+//const API_FLUX_NETWORK_UTILISATION = 'https://stats.runonflux.io/fluxinfo?projection=apps.resources';
+//const API_NODE_BENCHMARKS = 'https://stats.runonflux.io/fluxinfo?projection=benchmark';
 
 // Retry configuration
 const MAX_RETRIES = 2;
