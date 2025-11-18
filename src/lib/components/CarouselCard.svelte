@@ -1,53 +1,51 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
-  import { Package } from 'lucide-svelte';
+  import { TrendingUp } from 'lucide-svelte';
   
   let API_URL = '';
-  let topApps = [];
+  let stats = [];
   let loading = true;
   let error = null;
   let interval;
   
   // Duplicate the array for seamless infinite scroll
-  $: duplicatedApps = [...topApps, ...topApps];
+  $: duplicatedStats = [...stats, ...stats];
   
   onMount(async () => {
     API_URL = getApiUrl();
-    await fetchTopApps();
+    await fetchCarouselStats();
     
     // Refresh every hour (matching your service interval)
-    interval = setInterval(fetchTopApps, 60 * 60 * 1000);
+    interval = setInterval(fetchCarouselStats, 60 * 60 * 1000);
   });
   
   onDestroy(() => {
     if (interval) clearInterval(interval);
   });
   
-  async function fetchTopApps() {
+  async function fetchCarouselStats() {
     try {
-      const response = await fetch(`${API_URL}/api/carousel/top-apps`);
+      const response = await fetch(`${API_URL}/api/carousel/stats`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch top apps');
+        throw new Error('Failed to fetch carousel stats');
       }
       
       const data = await response.json();
       
-      if (data && data.apps && data.apps.length > 0) {
-        topApps = data.apps;
+      if (data && data.stats && data.stats.length > 0) {
+        stats = data.stats;
         error = null;
         loading = false;
-      } else if (topApps.length === 0) {
-        // Only show error if we have no cached data
-        error = 'No app data available';
+      } else if (stats.length === 0) {
+        error = 'No stats available';
         loading = false;
       }
-      // If we have cached data and fetch fails, just keep showing the old data
       
     } catch (err) {
-      console.error('Error fetching top apps:', err);
-      if (topApps.length === 0) {
+      console.error('Error fetching carousel stats:', err);
+      if (stats.length === 0) {
         error = err.message;
       }
       loading = false;
@@ -62,8 +60,8 @@
 <div class="carousel-container">
   <div class="carousel-header">
     <div class="header-content">
-      <Package size={20} class="header-icon" />
-      <h3 class="carousel-title">Top Running Apps</h3>
+      <TrendingUp size={20} class="header-icon" />
+      <h3 class="carousel-title">Top Network Stats</h3>
     </div>
     <div class="live-indicator">
       <span class="live-dot"></span>
@@ -75,26 +73,31 @@
     {#if loading}
       <div class="carousel-message">
         <div class="loading-spinner">⟳</div>
-        <span>Loading top apps...</span>
+        <span>Loading stats...</span>
       </div>
-    {:else if error && topApps.length === 0}
+    {:else if error && stats.length === 0}
       <div class="carousel-message error">
         <span>⚠️ {error}</span>
       </div>
-    {:else if topApps.length > 0}
+    {:else if stats.length > 0}
       <div class="carousel-track">
-        {#each duplicatedApps as app, index (index)}
+        {#each duplicatedStats as stat, index (index)}
           <div class="carousel-item">
-            <span class="item-rank">#{app.rank}</span>
-            <span class="item-name">{app.name}</span>
-            <span class="item-count">{formatNumber(app.count)}</span>
+            <span class="item-label">
+              {stat.label}:
+            </span>
+            <span class="item-name">{stat.name}</span>
+            <span class="item-value">
+              {formatNumber(stat.value)}
+            </span>
+            <span class="item-unit">{stat.unit}</span>
             <span class="item-separator">•</span>
           </div>
         {/each}
       </div>
     {:else}
       <div class="carousel-message">
-        <span>No apps currently running</span>
+        <span>No stats available</span>
       </div>
     {/if}
   </div>
@@ -126,8 +129,8 @@
   }
   
   :global(.header-icon) {
-    color: var(--accent-purple);
-    filter: drop-shadow(0 0 4px var(--accent-purple));
+    color: var(--accent-cyan);
+    filter: drop-shadow(0 0 4px var(--accent-cyan));
   }
   
   .carousel-title {
@@ -208,7 +211,7 @@
   
   .carousel-track {
     display: flex;
-    animation: scroll 60s linear infinite;
+    animation: scroll 90s linear infinite;
     white-space: nowrap;
   }
   
@@ -229,17 +232,18 @@
   .carousel-item {
     display: inline-flex;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 0.5rem;
     padding: 0 var(--spacing-lg);
     font-family: 'JetBrains Mono', monospace;
     flex-shrink: 0;
   }
   
-  .item-rank {
-    font-size: 0.875rem;
-    color: var(--accent-purple);
+  .item-label {
+    font-size: 0.75rem;
     font-weight: 700;
-    text-shadow: 0 0 8px var(--accent-purple);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--accent-purple);
   }
   
   .item-name {
@@ -251,11 +255,17 @@
     text-overflow: ellipsis;
   }
   
-  .item-count {
-    font-size: 0.875rem;
-    color: var(--accent-cyan);
+  .item-value {
+    font-size: 0.9375rem;
     font-weight: 700;
-    text-shadow: 0 0 8px var(--accent-cyan);
+    color: var(--accent-purple);
+    text-shadow: 0 0 8px var(--accent-purple);
+  }
+  
+  .item-unit {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 500;
   }
   
   .item-separator {
@@ -275,7 +285,7 @@
     }
     
     .carousel-track {
-      animation-duration: 40s; /* Faster on mobile */
+      animation-duration: 60s; /* Faster on mobile */
     }
   }
 </style>
