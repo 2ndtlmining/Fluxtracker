@@ -1,36 +1,39 @@
 <script>
   import { DollarSign } from 'lucide-svelte';
   
-  // Daily props
-  export let dailyPayments = { count: 0 };
-  export let dailyUsd = { amount: 0 };
-  export let dailyFlux = { amount: 0, change: 0, trend: 'neutral' };
-  
-  // Monthly props
-  export let monthlyPayments = { count: 0 };
-  export let monthlyUsd = { amount: 0 };
-  export let monthlyFlux = { amount: 0, change: 0, trend: 'neutral' };
-  
+  export let payments = { count: 0 };
+  export let usd = { amount: 0 };
+  export let flux = { amount: 0, change: 0, trend: 'neutral' };
   export let loading = false;
+  export let period = 'D'; // D, W, M, Q, Y
+  
+  // Map period to display name
+  const periodNames = {
+    'D': 'Daily Revenue',
+    'W': 'Weekly Revenue',
+    'M': 'Monthly Revenue',
+    'Q': 'Quarterly Revenue',
+    'Y': 'Yearly Revenue'
+  };
+  
+  $: periodName = periodNames[period] || 'Daily Revenue';
   
   /**
-   * Format numbers with K, M, B suffixes for large values
+   * Format payment counts
    */
-  function formatLargeNumber(num) {
+  function formatPaymentCount(num) {
     if (!num) return '0';
     
     const absNum = Math.abs(num);
     
-    if (absNum >= 1000000000) {
-      return (num / 1000000000).toFixed(2).replace(/\.00$/, '') + 'B';
-    } else if (absNum >= 1000000) {
+    if (absNum >= 1000000) {
       return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'M';
     } else if (absNum >= 10000) {
-      return (num / 1000).toFixed(2).replace(/\.00$/, '') + 'K';
+      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
     } else if (absNum >= 1000) {
       return Math.round(num).toLocaleString();
     } else {
-      return num.toFixed(2).replace(/\.00$/, '');
+      return Math.round(num).toString();
     }
   }
   
@@ -71,25 +74,6 @@
       return num.toFixed(2);
     }
   }
-  
-  /**
-   * Format payment counts
-   */
-  function formatPaymentCount(num) {
-    if (!num) return '0';
-    
-    const absNum = Math.abs(num);
-    
-    if (absNum >= 1000000) {
-      return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'M';
-    } else if (absNum >= 10000) {
-      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-    } else if (absNum >= 1000) {
-      return Math.round(num).toLocaleString();
-    } else {
-      return Math.round(num).toString();
-    }
-  }
 </script>
 
 <div class="revenue-card terminal-border" class:loading>
@@ -97,98 +81,45 @@
     <div class="revenue-icon">
       <DollarSign size={24} strokeWidth={2} />
     </div>
-    <div class="revenue-title">Revenue Metrics</div>
+    <div class="revenue-title">{periodName}</div>
   </div>
   
   {#if !loading}
-    <!-- TODAY Section -->
-    <div class="revenue-section">
-      <div class="section-label">Today</div>
-      
-      <!-- Metrics Grid -->
-      <div class="revenue-metrics">
-        <!-- Payments -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">Payments</div>
-            <div class="metric-value cyan">{formatPaymentCount(dailyPayments.count)}</div>
-          </div>
-        </div>
-        
-        <!-- USD -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">USD</div>
-            <div class="metric-value cyan">{formatUsd(dailyUsd.amount)}</div>
-          </div>
-        </div>
-        
-        <!-- FLUX -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">FLUX</div>
-            <div class="metric-value cyan">{formatFlux(dailyFlux.amount)}</div>
-          </div>
-          
-          <!-- Daily Trend - Positioned under FLUX -->
-          {#if dailyFlux.change !== undefined && dailyFlux.change !== 0}
-            <div class="metric-change" class:up={dailyFlux.trend === 'up'} class:down={dailyFlux.trend === 'down'}>
-              {#if dailyFlux.trend === 'up'}
-                <span class="trend-arrow">↑</span>
-              {:else if dailyFlux.trend === 'down'}
-                <span class="trend-arrow">↓</span>
-              {/if}
-              {dailyFlux.change >= 0 ? '+' : ''}{dailyFlux.change.toFixed(2)}%
-            </div>
-          {/if}
+    <div class="revenue-metrics">
+      <!-- Payments -->
+      <div class="revenue-metric">
+        <div class="metric-row">
+          <div class="metric-label">Payments</div>
+          <div class="metric-value cyan">{formatPaymentCount(payments.count)}</div>
         </div>
       </div>
-    </div>
-    
-    <!-- Divider -->
-    <div class="section-divider"></div>
-    
-    <!-- THIS MONTH Section -->
-    <div class="revenue-section">
-      <div class="section-label">This Month</div>
       
-      <!-- Metrics Grid -->
-      <div class="revenue-metrics">
-        <!-- Payments -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">Payments</div>
-            <div class="metric-value cyan">{formatPaymentCount(monthlyPayments.count)}</div>
-          </div>
+      <!-- USD -->
+      <div class="revenue-metric">
+        <div class="metric-row">
+          <div class="metric-label">USD</div>
+          <div class="metric-value cyan">{formatUsd(usd.amount)}</div>
+        </div>
+      </div>
+      
+      <!-- FLUX -->
+      <div class="revenue-metric">
+        <div class="metric-row">
+          <div class="metric-label">FLUX</div>
+          <div class="metric-value cyan">{formatFlux(flux.amount)}</div>
         </div>
         
-        <!-- USD -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">USD</div>
-            <div class="metric-value cyan">{formatUsd(monthlyUsd.amount)}</div>
+        <!-- Trend badge under FLUX -->
+        {#if flux.change !== undefined && flux.change !== 0}
+          <div class="metric-change" class:up={flux.trend === 'up'} class:down={flux.trend === 'down'}>
+            {#if flux.trend === 'up'}
+              <span class="trend-arrow">↑</span>
+            {:else if flux.trend === 'down'}
+              <span class="trend-arrow">↓</span>
+            {/if}
+            {flux.change >= 0 ? '+' : ''}{flux.change.toFixed(2)}%
           </div>
-        </div>
-        
-        <!-- FLUX -->
-        <div class="revenue-metric">
-          <div class="metric-row">
-            <div class="metric-label">FLUX</div>
-            <div class="metric-value cyan">{formatFlux(monthlyFlux.amount)}</div>
-          </div>
-          
-          <!-- Monthly Trend - Positioned under FLUX -->
-          {#if monthlyFlux.change !== undefined && monthlyFlux.change !== 0}
-            <div class="metric-change" class:up={monthlyFlux.trend === 'up'} class:down={monthlyFlux.trend === 'down'}>
-              {#if monthlyFlux.trend === 'up'}
-                <span class="trend-arrow">↑</span>
-              {:else if monthlyFlux.trend === 'down'}
-                <span class="trend-arrow">↓</span>
-              {/if}
-              {monthlyFlux.change >= 0 ? '+' : ''}{monthlyFlux.change.toFixed(2)}%
-            </div>
-          {/if}
-        </div>
+        {/if}
       </div>
     </div>
   {:else}
@@ -245,26 +176,13 @@
     flex: 1;
   }
   
-  /* Revenue Sections */
-  .revenue-section {
-    margin-bottom: var(--spacing-sm);
-  }
-  
-  .section-label {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 600;
-    margin-bottom: var(--spacing-xs);
-  }
-  
-  /* Revenue Metrics Grid - Matching NodeCard structure */
+  /* Revenue Metrics Grid */
   .revenue-metrics {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-xs);
+    /* Add extra padding to align with NodeCard which has comparison indicators */
+    padding-bottom: calc(var(--spacing-xs) + 1rem + 0.5rem + 0.5rem);
   }
   
   .revenue-metric {
@@ -273,7 +191,6 @@
     gap: var(--spacing-xs);
   }
   
-  /* Metric Row - Matching NodeCard exactly */
   .metric-row {
     display: flex;
     flex-direction: column;
@@ -301,14 +218,7 @@
     text-shadow: var(--glow-cyan);
   }
   
-  /* Divider */
-  .section-divider {
-    height: 1px;
-    background: var(--border-color);
-    margin: var(--spacing-md) 0;
-  }
-  
-  /* Metric Change - Matching NodeCard */
+  /* Metric Change */
   .metric-change {
     display: inline-flex;
     align-items: center;

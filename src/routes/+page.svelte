@@ -25,9 +25,8 @@
   let loading = true;
   let comparisonLoading = false; // Separate loading state for comparison
   let interval;
-  // Revenue data states - separate for daily and monthly
-  let dailyRevenue = null;
-  let monthlyRevenue = null;
+  // Revenue data for current period
+  let revenueData = null;
   
   // Comparison period toggle
   let comparisonPeriod = 'D'; // D, W, M, Q, Y
@@ -135,34 +134,18 @@
     total: 0
   };
   
-  // Format revenue data for RevenueCard
-// Format daily revenue data for RevenueCard
-$: dailyRevenueData = {
-  payments: {
-    count: dailyRevenue?.payments?.count || 0
+// Format revenue data for RevenueCard based on current period
+  $: revenueFormatted = {
+    payments: {
+    count: revenueData?.payments?.count || 0
   },
   usd: {
-    amount: dailyRevenue?.usd?.amount || 0
+    amount: revenueData?.usd?.amount || 0
   },
   flux: {
-    amount: dailyRevenue?.flux?.amount || 0,
-    change: dailyRevenue?.flux?.change || 0,
-    trend: dailyRevenue?.flux?.trend || 'neutral'
-  }
-};
-
-// Format monthly revenue data for RevenueCard
-$: monthlyRevenueData = {
-  payments: {
-    count: monthlyRevenue?.payments?.count || 0
-  },
-  usd: {
-    amount: monthlyRevenue?.usd?.amount || 0
-  },
-  flux: {
-    amount: monthlyRevenue?.flux?.amount || 0,
-    change: monthlyRevenue?.flux?.change || 0,
-    trend: monthlyRevenue?.flux?.trend || 'neutral'
+    amount: revenueData?.flux?.amount || 0,
+    change: revenueData?.flux?.change || 0,
+    trend: revenueData?.flux?.trend || 'neutral'
   }
 };
   
@@ -199,48 +182,40 @@ $: monthlyRevenueData = {
   // Load all data in parallel
   await Promise.all([
     fetchMetrics(),
-    fetchDailyRevenue(),        // NEW
-    fetchMonthlyRevenue(),       // NEW
+    fetchRevenue(comparisonPeriod),     // NEW - fetch revenue for current period
     fetchComparison(comparisonPeriod)
   ]);
   
-  // Prefetch other common periods in the background
   prefetchComparisons();
   
   // Auto-refresh every 5 minutes 
   interval = setInterval(async () => {
     await fetchMetrics();
-    await fetchDailyRevenue();      // NEW
-    await fetchMonthlyRevenue();     // NEW
+    await fetchRevenue(comparisonPeriod);    // NEW - refresh revenue for current period
     await fetchComparison(comparisonPeriod);
   }, 300000);
 });
 
-  async function fetchDailyRevenue() {
+ async function fetchRevenue(period) {
   try {
-    const response = await fetch(`${API_URL}/api/revenue/daily`);
+    const periodMap = {
+      'D': 'daily',
+      'W': 'weekly',
+      'M': 'monthly',
+      'Q': 'quarterly',
+      'Y': 'yearly'
+    };
+    
+    const periodName = periodMap[period] || 'daily';
+    const response = await fetch(`${API_URL}/api/revenue/${periodName}`);
     const data = await response.json();
     
     if (data) {
-      dailyRevenue = data;
-      console.log('✓ Daily revenue loaded:', data);
+      revenueData = data;
+      console.log(`✓ ${periodName} revenue loaded:`, data);
     }
   } catch (error) {
-    console.error('Error fetching daily revenue:', error);
-  }
-}
-
-async function fetchMonthlyRevenue() {
-  try {
-    const response = await fetch(`${API_URL}/api/revenue/monthly`);
-    const data = await response.json();
-    
-    if (data) {
-      monthlyRevenue = data;
-      console.log('✓ Monthly revenue loaded:', data);
-    }
-  } catch (error) {
-    console.error('Error fetching monthly revenue:', error);
+    console.error(`Error fetching ${period} revenue:`, error);
   }
 }
   
@@ -265,10 +240,10 @@ async function fetchMonthlyRevenue() {
   
   async function fetchComparison(period) {
     // If we already have this data cached, don't fetch again
-    if (comparisonCache[period]) {
-      console.log(`Using cached comparison for ${period}`);
-      return;
-    }
+  if (comparisonCache[period]) {
+    console.log(`Using cached comparison for ${period}`);
+    return;
+  }
     
     comparisonLoading = true;
     
@@ -308,7 +283,7 @@ async function fetchMonthlyRevenue() {
         }
         
         // Cache the result (even if partial)
-        comparisonCache[period] = data;
+        comparisonCache[period] = data; 
       } else {
         comparisonCache[period] = null;
       }
@@ -343,7 +318,10 @@ async function fetchMonthlyRevenue() {
     
     comparisonPeriod = nextPeriod;
     
-    // Fetch if not cached
+    // Fetch revenue for the new period
+    await fetchRevenue(nextPeriod);
+    
+    // Fetch comparison if not cached
     if (!comparisonCache[nextPeriod]) {
       await fetchComparison(nextPeriod);
     }
@@ -411,16 +389,14 @@ async function fetchMonthlyRevenue() {
     
     <!-- Hero Stats Grid (3 cards) -->
     <div class="stats-grid">
-      <!-- Revenue Card (UPDATED: Using new daily and monthly props) -->
+      <!-- Revenue Card (Period-responsive) -->
       <RevenueCard
-        dailyPayments={dailyRevenueData.payments}
-        dailyUsd={dailyRevenueData.usd}
-        dailyFlux={dailyRevenueData.flux}
-        monthlyPayments={monthlyRevenueData.payments}
-        monthlyUsd={monthlyRevenueData.usd}
-        monthlyFlux={monthlyRevenueData.flux}
+        payments={revenueFormatted.payments}
+        usd={revenueFormatted.usd}
+        flux={revenueFormatted.flux}
+        period={comparisonPeriod}
         {loading}
-      />
+    />
       
       <!-- Total Nodes Card (NEW: Using NodeCard component) -->
       <NodeCard
