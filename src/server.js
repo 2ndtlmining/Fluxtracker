@@ -29,7 +29,15 @@ import {
 } from './lib/services/revenueScheduler.js';
 
 // Import revenue service for manual trigger
-import { fetchRevenueStats } from './lib/services/revenueService.js';
+import { 
+    fetchRevenueStats,
+    calculateMonthlyRevenue,
+    calculatePreviousMonthRevenue,
+    getMonthlyPaymentCount,
+    getPreviousMonthPaymentCount,
+    calculateYesterdayRevenue,
+    getYesterdayPaymentCount
+} from './lib/services/revenueService.js';
 
 // Import testAllServices
 import { startServiceTests, getServiceTestSchedulerStatus, startCarouselUpdates,stopCarouselUpdates, getCarouselSchedulerStatus  } from './lib/services/servicesScheduler.js';
@@ -200,6 +208,114 @@ app.get('/api/admin/revenue-status', (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+/**
+ * GET /api/revenue/daily
+ * Returns today's revenue with comparison to yesterday
+ */
+app.get('/api/revenue/daily', async (req, res) => {
+    try {
+        const currentMetrics = getCurrentMetrics();
+        const fluxPrice = currentMetrics?.flux_price_usd || 0;
+        
+        // Get today's data
+        const todayRevenue = currentMetrics?.current_revenue || 0;
+        const today = new Date().toISOString().split('T')[0];
+        const todayPayments = getPaymentCountForDateRange(today, today);
+        const todayUsd = todayRevenue * fluxPrice;
+        
+        // Get yesterday's data for comparison
+        const yesterdayRevenue = await calculateYesterdayRevenue();
+        const yesterdayPayments = await getYesterdayPaymentCount();
+        
+        // Calculate change percentage
+        let changePercent = 0;
+        let trend = 'neutral';
+        
+        if (yesterdayRevenue > 0) {
+            changePercent = ((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100;
+            trend = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'neutral';
+        }
+        
+        res.json({
+            payments: {
+                count: todayPayments,
+                yesterday: yesterdayPayments
+            },
+            usd: {
+                amount: todayUsd
+            },
+            flux: {
+                amount: todayRevenue,
+                yesterday: yesterdayRevenue,
+                change: changePercent,
+                trend: trend
+            },
+            timestamp: Date.now()
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in daily revenue endpoint:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch daily revenue',
+            details: error.message 
+        });
+    }
+});
+
+/**
+ * GET /api/revenue/monthly
+ * Returns this month's revenue with comparison to last month
+ */
+app.get('/api/revenue/monthly', async (req, res) => {
+    try {
+        const currentMetrics = getCurrentMetrics();
+        const fluxPrice = currentMetrics?.flux_price_usd || 0;
+        
+        // Get this month's data
+        const monthRevenue = await calculateMonthlyRevenue();
+        const monthPayments = await getMonthlyPaymentCount();
+        const monthUsd = monthRevenue * fluxPrice;
+        
+        // Get last month's data for comparison
+        const lastMonthRevenue = await calculatePreviousMonthRevenue();
+        const lastMonthPayments = await getPreviousMonthPaymentCount();
+        
+        // Calculate change percentage
+        let changePercent = 0;
+        let trend = 'neutral';
+        
+        if (lastMonthRevenue > 0) {
+            changePercent = ((monthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100;
+            trend = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'neutral';
+        }
+        
+        res.json({
+            payments: {
+                count: monthPayments,
+                lastMonth: lastMonthPayments
+            },
+            usd: {
+                amount: monthUsd
+            },
+            flux: {
+                amount: monthRevenue,
+                lastMonth: lastMonthRevenue,
+                change: changePercent,
+                trend: trend
+            },
+            timestamp: Date.now()
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in monthly revenue endpoint:', error);
+        res.status(500).json({ 
+            error: 'Failed to fetch monthly revenue',
+            details: error.message 
+        });
+    }
+});
+
 
 // NEW: Manual test services trigger endpoint
 app.post('/api/admin/test-services', async (req, res) => {

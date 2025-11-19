@@ -6,6 +6,7 @@ import {
     getSyncStatus,
     insertTransactionsBatch,
     getRevenueForDateRange,
+    getPaymentCountForDateRange,
     getAllTxids,
     getTxidCount,
     getLastSyncedBlock
@@ -828,6 +829,161 @@ export async function initialSync() {
         setRevenueSyncError(error);
         setRevenueSyncRunning(false);
         updateSyncStatus('revenue', 'failed', error.message, null);
+        throw error;
+    }
+}
+// ============================================
+// MONTHLY REVENUE FUNCTIONS
+// ============================================
+
+/**
+ * Calculate revenue for the current month (month-to-date)
+ */
+export async function calculateMonthlyRevenue() {
+    try {
+        const now = new Date();
+        
+        // Get first day of current month
+        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startDate = firstDayOfMonth.toISOString().split('T')[0];
+        
+        // Get today
+        const today = now.toISOString().split('T')[0];
+        
+        // Calculate revenue for current month
+        const revenue = getRevenueForDateRange(startDate, today);
+        
+        console.log(`📊 MONTHLY Revenue (${startDate} to ${today}): ${revenue.toFixed(2)} FLUX`);
+        
+        return revenue;
+        
+    } catch (error) {
+        console.error('❌ Error calculating monthly revenue:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Calculate revenue for the previous month (for comparison)
+ */
+export async function calculatePreviousMonthRevenue() {
+    try {
+        const now = new Date();
+        
+        // Get first day of previous month
+        const firstDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const startDate = firstDayOfPrevMonth.toISOString().split('T')[0];
+        
+        // Get last day of previous month
+        const lastDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
+        
+        // Calculate revenue for previous month
+        const revenue = getRevenueForDateRange(startDate, endDate);
+        
+        console.log(`📊 PREVIOUS MONTH Revenue (${startDate} to ${endDate}): ${revenue.toFixed(2)} FLUX`);
+        
+        return revenue;
+        
+    } catch (error) {
+        console.error('❌ Error calculating previous month revenue:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Get payment count for the current month
+ */
+export async function getMonthlyPaymentCount() {
+    try {
+        const now = new Date();
+        
+        // Get first day of current month
+        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const startDate = firstDayOfMonth.toISOString().split('T')[0];
+        
+        // Get today
+        const today = now.toISOString().split('T')[0];
+        
+        // Get payment count for current month
+        const count = getPaymentCountForDateRange(startDate, today);
+        
+        console.log(`📊 MONTHLY Payment Count (${startDate} to ${today}): ${count}`);
+        
+        return count;
+        
+    } catch (error) {
+        console.error('❌ Error getting monthly payment count:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Get payment count for the previous month
+ */
+export async function getPreviousMonthPaymentCount() {
+    try {
+        const now = new Date();
+        
+        // Get first day of previous month
+        const firstDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const startDate = firstDayOfPrevMonth.toISOString().split('T')[0];
+        
+        // Get last day of previous month
+        const lastDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+        const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
+        
+        // Get payment count for previous month
+        const count = getPaymentCountForDateRange(startDate, endDate);
+        
+        console.log(`📊 PREVIOUS MONTH Payment Count (${startDate} to ${endDate}): ${count}`);
+        
+        return count;
+        
+    } catch (error) {
+        console.error('❌ Error getting previous month payment count:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Calculate yesterday's revenue (for daily comparison)
+ */
+export async function calculateYesterdayRevenue() {
+    try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        const revenue = getRevenueForDateRange(yesterdayStr, yesterdayStr);
+        
+        console.log(`📊 YESTERDAY Revenue (${yesterdayStr}): ${revenue.toFixed(2)} FLUX`);
+        
+        return revenue;
+        
+    } catch (error) {
+        console.error('❌ Error calculating yesterday revenue:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * Get payment count for yesterday
+ */
+export async function getYesterdayPaymentCount() {
+    try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        
+        const count = getPaymentCountForDateRange(yesterdayStr, yesterdayStr);
+        
+        console.log(`📊 YESTERDAY Payment Count (${yesterdayStr}): ${count}`);
+        
+        return count;
+        
+    } catch (error) {
+        console.error('❌ Error getting yesterday payment count:', error.message);
         throw error;
     }
 }

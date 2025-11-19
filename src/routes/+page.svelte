@@ -25,6 +25,9 @@
   let loading = true;
   let comparisonLoading = false; // Separate loading state for comparison
   let interval;
+  // Revenue data states - separate for daily and monthly
+  let dailyRevenue = null;
+  let monthlyRevenue = null;
   
   // Comparison period toggle
   let comparisonPeriod = 'D'; // D, W, M, Q, Y
@@ -133,19 +136,35 @@
   };
   
   // Format revenue data for RevenueCard
-  $: revenueData = {
-    payments: {
-      count: metrics?.revenue?.paymentCount || 0
-    },
-    usd: {
-      amount: metrics?.revenue?.usdValue || 0
-    },
-    flux: {
-      amount: metrics?.revenue?.current || 0,
-      change: comparison?.changes?.revenue?.change || 0,
-      trend: comparison?.changes?.revenue?.trend || 'neutral'
-    }
-  };
+// Format daily revenue data for RevenueCard
+$: dailyRevenueData = {
+  payments: {
+    count: dailyRevenue?.payments?.count || 0
+  },
+  usd: {
+    amount: dailyRevenue?.usd?.amount || 0
+  },
+  flux: {
+    amount: dailyRevenue?.flux?.amount || 0,
+    change: dailyRevenue?.flux?.change || 0,
+    trend: dailyRevenue?.flux?.trend || 'neutral'
+  }
+};
+
+// Format monthly revenue data for RevenueCard
+$: monthlyRevenueData = {
+  payments: {
+    count: monthlyRevenue?.payments?.count || 0
+  },
+  usd: {
+    amount: monthlyRevenue?.usd?.amount || 0
+  },
+  flux: {
+    amount: monthlyRevenue?.flux?.amount || 0,
+    change: monthlyRevenue?.flux?.change || 0,
+    trend: monthlyRevenue?.flux?.trend || 'neutral'
+  }
+};
   
   // Format gaming data for GamingCard
   $: gamingData = metrics?.gaming ? {
@@ -173,27 +192,57 @@
     total: 0
   };
   
-  onMount(async () => {
-    // Get API URL in browser context (NOT during SSR!)
-    API_URL = getApiUrl();
-    console.log('✅ Using API URL:', API_URL);
+ onMount(async () => {
+  API_URL = getApiUrl();
+  console.log('✅ Using API URL:', API_URL);
+  
+  // Load all data in parallel
+  await Promise.all([
+    fetchMetrics(),
+    fetchDailyRevenue(),        // NEW
+    fetchMonthlyRevenue(),       // NEW
+    fetchComparison(comparisonPeriod)
+  ]);
+  
+  // Prefetch other common periods in the background
+  prefetchComparisons();
+  
+  // Auto-refresh every 5 minutes 
+  interval = setInterval(async () => {
+    await fetchMetrics();
+    await fetchDailyRevenue();      // NEW
+    await fetchMonthlyRevenue();     // NEW
+    await fetchComparison(comparisonPeriod);
+  }, 300000);
+});
+
+  async function fetchDailyRevenue() {
+  try {
+    const response = await fetch(`${API_URL}/api/revenue/daily`);
+    const data = await response.json();
     
-    // Load metrics and initial comparison in parallel
-    await Promise.all([
-      fetchMetrics(),
-      fetchComparison(comparisonPeriod) // Explicitly pass the initial period
-    ]);
+    if (data) {
+      dailyRevenue = data;
+      console.log('✓ Daily revenue loaded:', data);
+    }
+  } catch (error) {
+    console.error('Error fetching daily revenue:', error);
+  }
+}
+
+async function fetchMonthlyRevenue() {
+  try {
+    const response = await fetch(`${API_URL}/api/revenue/monthly`);
+    const data = await response.json();
     
-    // Prefetch other common periods in the background
-    prefetchComparisons();
-    
-    // Auto-refresh every 5 minutes 
-    interval = setInterval(async () => {
-      await fetchMetrics();
-      // Only refresh the current comparison period
-      await fetchComparison(comparisonPeriod);
-    }, 300000);
-  });
+    if (data) {
+      monthlyRevenue = data;
+      console.log('✓ Monthly revenue loaded:', data);
+    }
+  } catch (error) {
+    console.error('Error fetching monthly revenue:', error);
+  }
+}
   
   onDestroy(() => {
     if (interval) clearInterval(interval);
@@ -362,11 +411,14 @@
     
     <!-- Hero Stats Grid (3 cards) -->
     <div class="stats-grid">
-      <!-- Revenue Card (NEW: Using RevenueCard component) -->
+      <!-- Revenue Card (UPDATED: Using new daily and monthly props) -->
       <RevenueCard
-        payments={revenueData.payments}
-        usd={revenueData.usd}
-        flux={revenueData.flux}
+        dailyPayments={dailyRevenueData.payments}
+        dailyUsd={dailyRevenueData.usd}
+        dailyFlux={dailyRevenueData.flux}
+        monthlyPayments={monthlyRevenueData.payments}
+        monthlyUsd={monthlyRevenueData.usd}
+        monthlyFlux={monthlyRevenueData.flux}
         {loading}
       />
       
