@@ -1,20 +1,94 @@
 <script>
   import { DollarSign } from 'lucide-svelte';
   
-  export let payments = { count: 0 };
-  export let usd = { amount: 0 };
-  export let flux = { amount: 0, change: 0, trend: 'neutral' };
+  // Daily props
+  export let dailyPayments = { count: 0 };
+  export let dailyUsd = { amount: 0 };
+  export let dailyFlux = { amount: 0, change: 0, trend: 'neutral' };
+  
+  // Monthly props
+  export let monthlyPayments = { count: 0 };
+  export let monthlyUsd = { amount: 0 };
+  export let monthlyFlux = { amount: 0, change: 0, trend: 'neutral' };
+  
   export let loading = false;
   
-  // Format numbers
-  function formatNumber(num) {
+  /**
+   * Format numbers with K, M, B suffixes for large values
+   */
+  function formatLargeNumber(num) {
     if (!num) return '0';
-    return Math.round(num).toLocaleString();
+    
+    const absNum = Math.abs(num);
+    
+    if (absNum >= 1000000000) {
+      return (num / 1000000000).toFixed(2).replace(/\.00$/, '') + 'B';
+    } else if (absNum >= 1000000) {
+      return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'M';
+    } else if (absNum >= 10000) {
+      return (num / 1000).toFixed(2).replace(/\.00$/, '') + 'K';
+    } else if (absNum >= 1000) {
+      return Math.round(num).toLocaleString();
+    } else {
+      return num.toFixed(2).replace(/\.00$/, '');
+    }
   }
   
-  function formatDecimal(num) {
+  /**
+   * Format USD amounts
+   */
+  function formatUsd(num) {
+    if (!num) return '$0.00';
+    
+    const absNum = Math.abs(num);
+    
+    if (absNum >= 1000000) {
+      return '$' + (num / 1000000).toFixed(2) + 'M';
+    } else if (absNum >= 10000) {
+      return '$' + (num / 1000).toFixed(2) + 'K';
+    } else if (absNum >= 1000) {
+      return '$' + num.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    } else {
+      return '$' + num.toFixed(2);
+    }
+  }
+  
+  /**
+   * Format FLUX amounts
+   */
+  function formatFlux(num) {
     if (!num) return '0.00';
-    return num.toFixed(2);
+    
+    const absNum = Math.abs(num);
+    
+    if (absNum >= 1000000) {
+      return (num / 1000000).toFixed(2) + 'M';
+    } else if (absNum >= 10000) {
+      return (num / 1000).toFixed(2) + 'K';
+    } else if (absNum >= 1000) {
+      return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    } else {
+      return num.toFixed(2);
+    }
+  }
+  
+  /**
+   * Format payment counts
+   */
+  function formatPaymentCount(num) {
+    if (!num) return '0';
+    
+    const absNum = Math.abs(num);
+    
+    if (absNum >= 1000000) {
+      return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'M';
+    } else if (absNum >= 10000) {
+      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+    } else if (absNum >= 1000) {
+      return Math.round(num).toLocaleString();
+    } else {
+      return Math.round(num).toString();
+    }
   }
 </script>
 
@@ -23,42 +97,99 @@
     <div class="revenue-icon">
       <DollarSign size={24} strokeWidth={2} />
     </div>
-    <div class="revenue-title">Daily Revenue</div>
+    <div class="revenue-title">Revenue Metrics</div>
   </div>
   
   {#if !loading}
-    <div class="revenue-metrics">
-      <!-- Payments Count -->
-      <div class="revenue-metric">
-        <div class="metric-row">
-          <div class="metric-label">Payments</div>
-          <div class="metric-value cyan">{formatNumber(payments.count)}</div>
-        </div>
-      </div>
+    <!-- TODAY Section -->
+    <div class="revenue-section">
+      <div class="section-label">Today</div>
       
-      <!-- USD -->
-      <div class="revenue-metric">
-        <div class="metric-row">
-          <div class="metric-label">USD Equivalent</div>
-          <div class="metric-value cyan">${formatDecimal(usd.amount)}</div>
+      <!-- Metrics Grid -->
+      <div class="revenue-metrics">
+        <!-- Payments -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">Payments</div>
+            <div class="metric-value cyan">{formatPaymentCount(dailyPayments.count)}</div>
+          </div>
+        </div>
+        
+        <!-- USD -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">USD</div>
+            <div class="metric-value cyan">{formatUsd(dailyUsd.amount)}</div>
+          </div>
+        </div>
+        
+        <!-- FLUX -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">FLUX</div>
+            <div class="metric-value cyan">{formatFlux(dailyFlux.amount)}</div>
+          </div>
+          
+          <!-- Daily Trend - Positioned under FLUX -->
+          {#if dailyFlux.change !== undefined && dailyFlux.change !== 0}
+            <div class="metric-change" class:up={dailyFlux.trend === 'up'} class:down={dailyFlux.trend === 'down'}>
+              {#if dailyFlux.trend === 'up'}
+                <span class="trend-arrow">↑</span>
+              {:else if dailyFlux.trend === 'down'}
+                <span class="trend-arrow">↓</span>
+              {/if}
+              {dailyFlux.change >= 0 ? '+' : ''}{dailyFlux.change.toFixed(2)}%
+            </div>
+          {/if}
         </div>
       </div>
     </div>
     
-    <!-- Total Section -->
-    <div class="revenue-total">
-      <div class="total-label">Today's Revenue</div>
-      <div class="total-value">{formatDecimal(flux.amount)} FLUX</div>
-      {#if flux.change !== undefined && flux.change !== 0}
-        <div class="total-change" class:up={flux.trend === 'up'} class:down={flux.trend === 'down'}>
-          {#if flux.trend === 'up'}
-            <span class="trend-arrow">↑</span>
-          {:else if flux.trend === 'down'}
-            <span class="trend-arrow">↓</span>
-          {/if}
-          {flux.change >= 0 ? '+' : ''}{formatDecimal(flux.change)}%
+    <!-- Divider -->
+    <div class="section-divider"></div>
+    
+    <!-- THIS MONTH Section -->
+    <div class="revenue-section">
+      <div class="section-label">This Month</div>
+      
+      <!-- Metrics Grid -->
+      <div class="revenue-metrics">
+        <!-- Payments -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">Payments</div>
+            <div class="metric-value cyan">{formatPaymentCount(monthlyPayments.count)}</div>
+          </div>
         </div>
-      {/if}
+        
+        <!-- USD -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">USD</div>
+            <div class="metric-value cyan">{formatUsd(monthlyUsd.amount)}</div>
+          </div>
+        </div>
+        
+        <!-- FLUX -->
+        <div class="revenue-metric">
+          <div class="metric-row">
+            <div class="metric-label">FLUX</div>
+            <div class="metric-value cyan">{formatFlux(monthlyFlux.amount)}</div>
+          </div>
+          
+          <!-- Monthly Trend - Positioned under FLUX -->
+          {#if monthlyFlux.change !== undefined && monthlyFlux.change !== 0}
+            <div class="metric-change" class:up={monthlyFlux.trend === 'up'} class:down={monthlyFlux.trend === 'down'}>
+              {#if monthlyFlux.trend === 'up'}
+                <span class="trend-arrow">↑</span>
+              {:else if monthlyFlux.trend === 'down'}
+                <span class="trend-arrow">↓</span>
+              {/if}
+              {monthlyFlux.change >= 0 ? '+' : ''}{monthlyFlux.change.toFixed(2)}%
+            </div>
+          {/if}
+        </div>
+      </div>
     </div>
   {:else}
     <div class="loading-state">Loading revenue data...</div>
@@ -114,13 +245,26 @@
     flex: 1;
   }
   
+  /* Revenue Sections */
+  .revenue-section {
+    margin-bottom: var(--spacing-sm);
+  }
+  
+  .section-label {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+  }
+  
+  /* Revenue Metrics Grid - Matching NodeCard structure */
   .revenue-metrics {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
-    /* Add extra padding to align border with NodeCard which has comparison indicators */
-    padding-bottom: calc(var(--spacing-xs) + 1rem + 0.5rem + 0.5rem);
+    margin-bottom: var(--spacing-xs);
   }
   
   .revenue-metric {
@@ -129,6 +273,7 @@
     gap: var(--spacing-xs);
   }
   
+  /* Metric Row - Matching NodeCard exactly */
   .metric-row {
     display: flex;
     flex-direction: column;
@@ -156,52 +301,41 @@
     text-shadow: var(--glow-cyan);
   }
   
-  /* Revenue Total Section */
-  .revenue-total {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding-top: var(--spacing-md);
-    border-top: 1px solid var(--border-color);
+  /* Divider */
+  .section-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: var(--spacing-md) 0;
   }
   
-  .total-label {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-weight: 600;
-    flex: 1;
-  }
-  
-  .total-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    text-shadow: var(--glow-cyan);
-    font-variant-numeric: tabular-nums;
-  }
-  
-  .total-change {
+  /* Metric Change - Matching NodeCard */
+  .metric-change {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     font-weight: 600;
-    padding: 0.375rem 0.625rem;
+    padding: 0.25rem 0.5rem;
     border-radius: var(--radius-sm);
+    width: fit-content;
+    margin-top: var(--spacing-xs);
   }
   
-  .total-change.up {
+  .metric-change.up {
     color: var(--accent-green);
     background: rgba(0, 255, 65, 0.1);
     border: 1px solid rgba(0, 255, 65, 0.3);
   }
   
-  .total-change.down {
+  .metric-change.down {
     color: var(--accent-red);
     background: rgba(255, 68, 68, 0.1);
     border: 1px solid rgba(255, 68, 68, 0.3);
+  }
+  
+  .trend-arrow {
+    font-size: 0.875rem;
+    font-weight: 700;
   }
   
   .loading-state {
@@ -216,33 +350,11 @@
       grid-template-columns: 1fr;
       gap: var(--spacing-lg);
     }
-    
-    .metric-value {
-      font-size: 1.5rem;
-    }
-    
-    .revenue-total {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: var(--spacing-sm);
-    }
-    
-    .total-value {
-      font-size: 1.25rem;
-    }
   }
   
   /* Hover Effects */
   .revenue-card:hover .revenue-icon :global(svg) {
     filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
     transform: scale(1.05);
-  }
-  
-  .revenue-card:hover .metric-value.cyan {
-    text-shadow: 0 0 15px var(--text-primary), 0 0 25px var(--text-primary);
-  }
-  
-  .revenue-card:hover .total-value {
-    text-shadow: 0 0 15px var(--text-primary), 0 0 25px var(--text-primary);
   }
 </style>
