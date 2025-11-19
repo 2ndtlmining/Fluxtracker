@@ -104,7 +104,13 @@ export const GAMING_REPOS = [
             'itzg/minecraft-server',
             'itzg/minecraft-bedrock-server'
         ]
-    }
+    },
+    {
+        name: 'Valheim',
+        dbKey: 'gaming_valheim',
+        imageMatch: 'mbround18/valheim'
+     }
+
     // Add new games here:
     // {
     //     name: 'Valheim',

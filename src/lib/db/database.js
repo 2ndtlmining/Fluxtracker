@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { migrateSchema } from './schemaMigrator.js';
 
 // Ensure data directory exists
 const dataDir = path.join(process.cwd(), 'data');
@@ -41,6 +42,38 @@ export function initDatabase() {
         createTables();
         initializeSyncStatus();
         
+                try {
+            console.log('\n🔄 Checking for schema updates...');
+            
+            // Import config dynamically to avoid circular dependencies
+            import('../config.js').then(async (config) => {
+                try {
+                    const migrationResult = await migrateSchema(config);
+                    
+                    if (migrationResult.success) {
+                        if (migrationResult.columnsAdded.length > 0) {
+                            console.log('✅ Schema updated with new columns');
+                        } else {
+                            console.log('✓ Schema is up to date');
+                        }
+                    } else {
+                        console.warn('⚠️  Schema migration had issues:', migrationResult.errors);
+                    }
+                } catch (migrationError) {
+                    console.warn('⚠️  Schema migration error:', migrationError.message);
+                    console.log('   Database will work, but new columns may need manual addition');
+                }
+            }).catch(err => {
+                console.warn('⚠️  Could not load config for auto-migration:', err.message);
+                console.log('   Database will work, but schema migration skipped');
+            });
+            
+        } catch (error) {
+            console.warn('⚠️  Auto-migration skipped:', error.message);
+            console.log('   Database will work, but new columns may need manual addition');
+        }
+
+
         console.log('✅ Database initialized successfully');
         return db;
     } catch (error) {
