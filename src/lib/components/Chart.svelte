@@ -55,7 +55,13 @@
         { id: 'crypto_total', label: 'Total Crypto Nodes', field: 'crypto_nodes_total', format: 'number' },
         { id: 'crypto_presearch', label: 'Presearch', field: 'crypto_presearch', format: 'number' },
         { id: 'crypto_kadena', label: 'Kadena', field: 'crypto_kadena', format: 'number' },
-        { id: 'crypto_kaspa', label: 'Kaspa', field: 'crypto_kaspa', format: 'number' }
+        { id: 'crypto_kaspa', label: 'Kaspa', field: 'crypto_kaspa', format: 'number' },
+        { id: 'crypto_streamr', label: 'Streamr', field: 'crypto_streamr', format: 'number' },
+        { id: 'crypto_ravencoin', label: 'Ravencoin', field: 'crypto_ravencoin', format: 'number' },
+        { id: 'crypto_alephium', label: 'Alephium', field: 'crypto_alephium', format: 'number' },
+        { id: 'crypto_bittensor', label: 'Bittensor', field: 'crypto_bittensor', format: 'number' },
+        { id: 'crypto_timpi_collector', label: 'Timpi Collector', field: 'crypto_timpi_collector', format: 'number' },
+        { id: 'crypto_timpi_geocore', label: 'Timpi Geocore', field: 'crypto_timpi_geocore', format: 'number' }
       ]
     },
     nodes: {
