@@ -193,7 +193,7 @@ async function fetchTopBenchmarks() {
         stats.push({
             type: 'benchmark',
             category: 'ssd',
-            label: 'Most SSD',
+            label: 'Biggest SSD',
             name: topSsd.benchmark.bench.ipaddress,
             value: topSsd.benchmark.bench.ssd,
             unit: 'GB'
