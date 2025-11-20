@@ -45,7 +45,8 @@
         { id: 'gaming_total', label: 'Total Gaming Apps', field: 'gaming_apps_total', format: 'number' },
         { id: 'gaming_minecraft', label: 'Minecraft', field: 'gaming_minecraft', format: 'number' },
         { id: 'gaming_palworld', label: 'Palworld', field: 'gaming_palworld', format: 'number' },
-        { id: 'gaming_enshrouded', label: 'Enshrouded', field: 'gaming_enshrouded', format: 'number' }
+        { id: 'gaming_enshrouded', label: 'Enshrouded', field: 'gaming_enshrouded', format: 'number' },
+        { id: 'gaming_valheim', label: 'Valheim', field: 'gaming_valheim', format: 'number' }
       ]
     },
     crypto: {

@@ -109,13 +109,71 @@ export const GAMING_REPOS = [
         name: 'Valheim',
         dbKey: 'gaming_valheim',
         imageMatch: 'mbround18/valheim'
-     }
+    }
 
     // Add new games here:
     // {
-    //     name: 'Valheim',
-    //     dbKey: 'gaming_valheim',
-    //     imageMatch: 'lloesche/valheim-server'
+    //     name: 'Rust',
+    //     dbKey: 'gaming_rust',
+    //     imageMatch: 'rust'
+    // }
+];
+
+// ============================================
+// CRYPTO NODE REPOSITORIES TO TRACK
+// ============================================
+export const CRYPTO_REPOS = [
+    {
+        name: 'Presearch',
+        dbKey: 'crypto_presearch',
+        imageMatch: 'presearch/node'
+    },
+    {
+        name: 'Streamr',
+        dbKey: 'crypto_streamr',
+        imageMatch: 'streamr/node'
+    },
+    {
+        name: 'Ravencoin',
+        dbKey: 'crypto_ravencoin',
+        imageMatch: 'dramirezrt/ravencoin-core-server'
+    },
+    {
+        name: 'Kadena',
+        dbKey: 'crypto_kadena',
+        imageMatch: 'runonflux/kadena-chainweb-node'
+    },
+    {
+        name: 'Alephium',
+        dbKey: 'crypto_alephium',
+        imageMatch: 'touilleio/alephium-standalone'
+    },
+    {
+        name: 'Bittensor',
+        dbKey: 'crypto_bittensor',
+        imageMatch: 'opentensor/subtensor'
+    },
+    {
+        name: 'Timpi Collector',
+        dbKey: 'crypto_timpi_collector',
+        imageMatch: 'timpiltd/timpi-collector'
+    },
+    {
+        name: 'Timpi Geocore',
+        dbKey: 'crypto_timpi_geocore',
+        imageMatch: 'timpiltd/timpi-geocore'
+    },
+    {
+        name: 'Kaspa',
+        dbKey: 'crypto_kaspa',
+        imageMatch: 'kaspanet/rusty-kaspad'
+    }
+
+    // Add new crypto nodes here:
+    // {
+    //     name: 'Ergo',
+    //     dbKey: 'crypto_ergo',
+    //     imageMatch: 'ergoplatform/ergo'
     // }
 ];
 
