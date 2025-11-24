@@ -2,9 +2,8 @@ import axios from 'axios';
 import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
 
-// API endpoints for network utilization
-//const API_FLUX_NETWORK_UTILISATION = 'https://stats.runonflux.io/fluxinfo?projection=apps.resources';
-//const API_NODE_BENCHMARKS = 'https://stats.runonflux.io/fluxinfo?projection=benchmark';
+// NOTE: API endpoints are now properly imported from API_ENDPOINTS in config.js
+// Previously these were local constants causing undefined variable errors
 
 // Retry configuration
 const MAX_RETRIES = 2;
@@ -78,8 +77,8 @@ export async function fetchCloudStats() {
         
         try {
             const [resFluxNetworkUtils, resNodeBenchmarks] = await Promise.all([
-                retryApiCall(() => axios.get(API_FLUX_NETWORK_UTILISATION, { timeout: 15000 })),
-                retryApiCall(() => axios.get(API_NODE_BENCHMARKS, { timeout: 15000 }))
+                retryApiCall(() => axios.get(API_ENDPOINTS.API_FLUX_NETWORK_UTILISATION, { timeout: 15000 })),
+                retryApiCall(() => axios.get(API_ENDPOINTS.API_NODE_BENCHMARKS, { timeout: 15000 }))
             ]);
             
             networkUtilsData = resFluxNetworkUtils.data;

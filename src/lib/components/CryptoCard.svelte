@@ -4,6 +4,7 @@
   export let presearch = { count: 0 };
   export let kaspa = { count: 0 };
   export let alephium = { count: 0 };
+  export let timpi_collector = { count: 0 };
   export let total = 0;
   export let loading = false;
   

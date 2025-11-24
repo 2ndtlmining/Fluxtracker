@@ -1051,13 +1051,13 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
     console.log('🛑 SIGTERM received, shutting down gracefully...');
-    stopCarouselUpdates();  // ADD THIS
+    stopCarouselUpdates();  
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
     console.log('🛑 SIGINT received, shutting down gracefully...');
-    stopCarouselUpdates();  // ADD THIS
+    stopCarouselUpdates();  
     process.exit(0);
 });
 
