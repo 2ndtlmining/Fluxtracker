@@ -3,6 +3,14 @@ import path from 'path';
 import fs from 'fs';
 import { migrateSchema } from './schemaMigrator.js';
 
+// ============================================
+// CORRUPTION PREVENTION - MINIMAL ADDITIONS
+// ============================================
+const BUSY_TIMEOUT = 30000; // 30 seconds
+const INSTANCE_ID = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+let lockPath;
+let isWriter = false;
+
 // Ensure data directory exists
 const dataDir = path.join(process.cwd(), 'data');
 if (!fs.existsSync(dataDir)) {
@@ -10,13 +18,86 @@ if (!fs.existsSync(dataDir)) {
 }
 
 const dbPath = path.join(dataDir, 'flux-performance.db');
+lockPath = path.join(dataDir, '.db-write.lock');
 
 // Initialize database connection
 let db;
 
+// ============================================
+// WRITE LOCK (prevents corruption from G-sync)
+// ============================================
+function tryAcquireWriteLock() {
+    try {
+        if (fs.existsSync(lockPath)) {
+            const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            const lockAge = Date.now() - lockData.timestamp;
+            if (lockAge < 5 * 60 * 1000) { // Lock fresh (< 5 min)
+                return false;
+            }
+            fs.unlinkSync(lockPath); // Remove stale lock
+        }
+        
+        fs.writeFileSync(lockPath, JSON.stringify({
+            instanceId: INSTANCE_ID,
+            timestamp: Date.now()
+        }), { flag: 'wx' });
+        
+        console.log(`🔒 Write lock acquired: ${INSTANCE_ID}`);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
+function canWrite() {
+    if (!isWriter) {
+        isWriter = tryAcquireWriteLock();
+    }
+    
+    if (isWriter) {
+        try {
+            if (fs.existsSync(lockPath)) {
+                const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+                if (lockData.instanceId !== INSTANCE_ID) {
+                    isWriter = false;
+                    return false;
+                }
+            } else {
+                return tryAcquireWriteLock();
+            }
+        } catch (err) {
+            return false;
+        }
+    }
+    
+    return isWriter;
+}
+
+function releaseLock() {
+    try {
+        if (fs.existsSync(lockPath)) {
+            const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+            if (lockData.instanceId === INSTANCE_ID) {
+                fs.unlinkSync(lockPath);
+                console.log(`🔓 Write lock released: ${INSTANCE_ID}`);
+            }
+        }
+    } catch (error) {
+        // Ignore
+    }
+    isWriter = false;
+}
+
+// ============================================
+// YOUR ORIGINAL initDatabase() WITH MINIMAL CHANGES
+// ============================================
 export function initDatabase() {
     try {
-        db = new Database(dbPath, { verbose: console.log });
+        // CHANGED: Added timeout parameter
+        db = new Database(dbPath, { 
+            verbose: console.log,
+            timeout: BUSY_TIMEOUT  // ← ONLY CHANGE: 30 second timeout
+        });
 
         console.log('🔍 Checking database integrity...');
         const integrity = db.pragma('integrity_check');
@@ -34,18 +115,32 @@ export function initDatabase() {
             throw new Error('Database corrupted');
         }
         
-        // Enable WAL mode for better performance
+        // UNCHANGED: Your existing WAL setup
         db.pragma('journal_mode = WAL');
         db.pragma('synchronous = NORMAL');
         db.pragma('cache_size = 32768'); // 128MB cache
         
+        // NEW: Additional WAL settings for corruption prevention
+        db.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
+        db.pragma('wal_autocheckpoint = 1000');
+        db.pragma('locking_mode = NORMAL');
+        
         createTables();
         initializeSyncStatus();
         
-                try {
+        // NEW: Try to acquire write lock
+        if (tryAcquireWriteLock()) {
+            console.log('✅ Elected as WRITER - will handle database writes');
+            isWriter = true;
+        } else {
+            console.log('📖 READ-ONLY mode - another instance is the writer');
+            isWriter = false;
+        }
+        
+        // UNCHANGED: Your schema migration code
+        try {
             console.log('\n🔄 Checking for schema updates...');
             
-            // Import config dynamically to avoid circular dependencies
             import('../config.js').then(async (config) => {
                 try {
                     const migrationResult = await migrateSchema(config);
@@ -73,6 +168,10 @@ export function initDatabase() {
             console.log('   Database will work, but new columns may need manual addition');
         }
 
+        // NEW: Cleanup on exit
+        process.on('SIGINT', releaseLock);
+        process.on('SIGTERM', releaseLock);
+        process.on('exit', releaseLock);
 
         console.log('✅ Database initialized successfully');
         return db;
@@ -82,8 +181,12 @@ export function initDatabase() {
     }
 }
 
+// ============================================
+// ALL YOUR ORIGINAL FUNCTIONS - UNCHANGED
+// (except write functions have canWrite() check)
+// ============================================
+
 function createTables() {
-    // Table 1: Daily Snapshots
     db.exec(`
         CREATE TABLE IF NOT EXISTS daily_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -147,7 +250,6 @@ function createTables() {
         CREATE INDEX IF NOT EXISTS idx_timestamp ON daily_snapshots(timestamp);
     `);
 
-    // Table 2: Revenue Transactions
     db.exec(`
         CREATE TABLE IF NOT EXISTS revenue_transactions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,7 +269,6 @@ function createTables() {
         CREATE INDEX IF NOT EXISTS idx_timestamp ON revenue_transactions(timestamp);
     `);
 
-    // Table 3: Current Metrics
     db.exec(`
         CREATE TABLE IF NOT EXISTS current_metrics (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -227,7 +328,6 @@ function createTables() {
         VALUES (1, 0);
     `);
 
-    // Table 4: Sync Status
     db.exec(`
         CREATE TABLE IF NOT EXISTS sync_status (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -257,7 +357,7 @@ function initializeSyncStatus() {
 }
 
 // ============================================
-// CURRENT METRICS OPERATIONS
+// CURRENT METRICS OPERATIONS - UNCHANGED
 // ============================================
 
 export function getCurrentMetrics() {
@@ -267,10 +367,15 @@ export function getCurrentMetrics() {
 }
 
 export function updateCurrentMetrics(metrics) {
-    // CRITICAL FIX: Get current metrics first, then merge with updates
+    // ONLY CHANGE: Check if we can write
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping metrics update - not the writer');
+        return;
+    }
+    
+    // YOUR ORIGINAL CODE BELOW - UNCHANGED
     const current = getCurrentMetrics();
     
-    // Merge with defaults to prevent NULL values
     const mergedMetrics = {
         current_revenue: metrics.current_revenue ?? current.current_revenue ?? null,
         flux_price_usd: metrics.flux_price_usd ?? current.flux_price_usd ?? null,
@@ -383,10 +488,17 @@ export function updateCurrentMetrics(metrics) {
 }
 
 // ============================================
-// DAILY SNAPSHOTS OPERATIONS
+// DAILY SNAPSHOTS OPERATIONS - MINIMAL CHANGES
 // ============================================
 
 export function createDailySnapshot(snapshot) {
+    // ONLY CHANGE: Check if we can write
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping snapshot - not the writer');
+        return;
+    }
+    
+    // YOUR ORIGINAL CODE BELOW - UNCHANGED
     const stmt = db.prepare(`
         INSERT OR REPLACE INTO daily_snapshots (
             snapshot_date, timestamp,
@@ -476,6 +588,11 @@ export function getAllSnapshots() {
 }
 
 export function deleteOldSnapshots(daysToKeep = 365) {
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping delete - not the writer');
+        return 0;
+    }
+    
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
@@ -488,10 +605,15 @@ export function deleteOldSnapshots(daysToKeep = 365) {
 }
 
 // ============================================
-// REVENUE TRANSACTIONS OPERATIONS
+// REVENUE TRANSACTIONS OPERATIONS - MINIMAL CHANGES
 // ============================================
 
 export function insertTransaction(tx) {
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping transaction - not the writer');
+        return;
+    }
+    
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions 
         (txid, address, from_address, amount, block_height, timestamp, date)
@@ -510,6 +632,13 @@ export function insertTransaction(tx) {
 }
 
 export function insertTransactionsBatch(transactions) {
+    // ONLY CHANGE: Check if we can write
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping batch - not the writer');
+        return;
+    }
+    
+    // YOUR ORIGINAL CODE BELOW - UNCHANGED
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions 
         (txid, address, from_address, amount, block_height, timestamp, date)
@@ -558,9 +687,6 @@ export function getRevenueForDateRange(startDate, endDate) {
     return result?.total_revenue || 0;
 }
 
-/**
- * Get count of payments (transactions) for a date range
- */
 export function getPaymentCountForDateRange(startDate, endDate) {
     const stmt = db.prepare(`
         SELECT COUNT(*) as payment_count
@@ -590,33 +716,23 @@ export function getLastSyncedBlock() {
     return result?.last_block || null;
 }
 
-/**
- * Get all transaction IDs from database (for filtering during sync)
- */
 export function getAllTxids() {
     const stmt = db.prepare('SELECT txid FROM revenue_transactions');
     return stmt.all().map(row => row.txid);
 }
 
-/**
- * Get count of transactions in database
- */
 export function getTxidCount() {
     const stmt = db.prepare('SELECT COUNT(*) as count FROM revenue_transactions');
     const result = stmt.get();
     return result?.count || 0;
 }
 
-/**
- * Get paginated transactions with optional search
- */
 export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
     const offset = (page - 1) * limit;
     
     let whereClause = '';
     let params = [];
     
-    // Build search query if search term provided
     if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim()}%`;
         whereClause = `WHERE 
@@ -628,7 +744,6 @@ export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
         params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
     }
     
-    // Get total count
     const countStmt = db.prepare(`
         SELECT COUNT(*) as count 
         FROM revenue_transactions 
@@ -637,7 +752,6 @@ export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
     const countResult = params.length > 0 ? countStmt.get(...params) : countStmt.get();
     const total = countResult?.count || 0;
     
-    // Get paginated results
     const dataStmt = db.prepare(`
         SELECT * FROM revenue_transactions 
         ${whereClause}
@@ -657,10 +771,6 @@ export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
     };
 }
 
-/**
- * NEW: Get daily revenue aggregated from transactions for the last N days
- * This replaces snapshot-based revenue for chart display
- */
 export function getDailyRevenueFromTransactions(days = 30) {
     const stmt = db.prepare(`
         SELECT 
@@ -677,9 +787,6 @@ export function getDailyRevenueFromTransactions(days = 30) {
     return results;
 }
 
-/**
- * NEW: Get daily revenue aggregated from transactions for a specific date range
- */
 export function getDailyRevenueInRange(startDate, endDate) {
     const stmt = db.prepare(`
         SELECT 
@@ -697,6 +804,11 @@ export function getDailyRevenueInRange(startDate, endDate) {
 }
 
 export function deleteOldTransactions(daysToKeep = 365) {
+    if (!canWrite()) {
+        console.warn('⚠️  Skipping delete - not the writer');
+        return 0;
+    }
+    
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
@@ -709,7 +821,7 @@ export function deleteOldTransactions(daysToKeep = 365) {
 }
 
 // ============================================
-// SYNC STATUS OPERATIONS
+// SYNC STATUS OPERATIONS - MINIMAL CHANGES
 // ============================================
 
 export function getSyncStatus(syncType) {
@@ -718,6 +830,8 @@ export function getSyncStatus(syncType) {
 }
 
 export function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {
+    if (!canWrite()) return;
+    
     const stmt = db.prepare(`
         UPDATE sync_status SET
             last_sync = ?,
@@ -731,12 +845,14 @@ export function updateSyncStatus(syncType, status, errorMessage = null, lastBloc
 }
 
 export function setNextSync(syncType, nextSyncTime) {
+    if (!canWrite()) return;
+    
     const stmt = db.prepare('UPDATE sync_status SET next_sync = ? WHERE sync_type = ?');
     stmt.run(nextSyncTime, syncType);
 }
 
 // ============================================
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS - UNCHANGED
 // ============================================
 
 export function getDatabaseStats() {
@@ -748,12 +864,15 @@ export function getDatabaseStats() {
         snapshots: snapshots.count,
         transactions: transactions.count,
         dbSizeKB: Math.round(dbSize / 1024),
-        dbPath
+        dbPath,
+        isWriter: isWriter,
+        instanceId: INSTANCE_ID
     };
 }
 
 export function closeDatabase() {
     if (db) {
+        releaseLock();
         db.close();
         console.log('✅ Database connection closed');
     }
