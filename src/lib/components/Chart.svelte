@@ -23,6 +23,7 @@
   let selectedCategory = defaultCategory;
   let selectedMetric = null;
   let selectedTimeframe = defaultTimeframe;
+  let selectedAggregation = 'daily'; // NEW: aggregation selector
 
   // Cached data - fetch once, reuse many times
   let allSnapshots = [];
@@ -110,6 +111,13 @@
     { id: '1Y', label: '1 Year', days: 365 },
   ];
 
+  // NEW: Aggregation options
+  const aggregations = [
+    { id: 'daily', label: 'Daily' },
+    { id: 'weekly', label: 'Weekly' },
+    { id: 'monthly', label: 'Monthly' }
+  ];
+
   // Update available metrics when category changes
   $: {
     if (selectedCategory && categories[selectedCategory]) {
@@ -122,8 +130,16 @@
 
   // When category or metric changes, process existing data (no fetch needed!)
   $: if (selectedCategory && selectedMetric && allSnapshots.length > 0) {
-    console.log(`🔄 Category/Metric changed to ${selectedCategory}/${selectedMetric} - processing cached data`);
+    console.log(`📄 Category/Metric changed to ${selectedCategory}/${selectedMetric} - processing cached data`);
     processChartData();
+  }
+
+  // NEW: Watch for aggregation changes
+  $: if (selectedAggregation) {
+    console.log(`📊 Aggregation changed to ${selectedAggregation}`);
+    if (allSnapshots.length > 0) {
+      processChartData();
+    }
   }
 
   // When canvas becomes available and we have data, render the chart
@@ -233,51 +249,182 @@
       return;
     }
 
-    console.log(`📊 Processing data for ${metric.label} (${metric.field})`);
+    console.log(`📊 Processing data for ${metric.label} (${metric.field}) - Aggregation: ${selectedAggregation}`);
 
-    const labels = [];
-    const data = [];
-    const rawDates = [];
-
-    // Sort data by date (oldest first) to ensure consistent ordering
+    // Sort data by date (oldest first)
     const sortedSnapshots = [...allSnapshots].sort((a, b) => {
       const dateA = new Date(a.date || a.snapshot_date);
       const dateB = new Date(b.date || b.snapshot_date);
-      return dateA - dateB; // Ascending order (oldest to newest)
+      return dateA - dateB;
     });
 
-    // Process snapshots (now guaranteed oldest to newest)
-    for (let i = 0; i < sortedSnapshots.length; i++) {
-      const snapshot = sortedSnapshots[i];
-      
-      // Handle different date field names
-      const dateStr = snapshot.date || snapshot.snapshot_date;
-      if (!dateStr) continue;
-      
-      const date = new Date(dateStr);
-      labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-      rawDates.push(dateStr);
-      
-      // Extract value - handle revenue from transaction endpoint vs snapshot endpoint
-      let value = 0;
-      if (selectedCategory === 'revenue') {
-        // Revenue from transactions endpoint uses 'revenue' field
-        value = snapshot.revenue || snapshot[metric.field] || 0;
-      } else {
-        // Other categories use their specific fields
-        value = snapshot[metric.field] || 0;
+    let labels = [];
+    let data = [];
+    let rawDates = [];
+
+    if (selectedAggregation === 'daily') {
+      // DAILY - Your existing logic
+      for (let i = 0; i < sortedSnapshots.length; i++) {
+        const snapshot = sortedSnapshots[i];
+        const dateStr = snapshot.date || snapshot.snapshot_date;
+        if (!dateStr) continue;
+        
+        const date = new Date(dateStr);
+        labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        rawDates.push(dateStr);
+        
+        let value = 0;
+        if (selectedCategory === 'revenue') {
+          value = snapshot.revenue || snapshot[metric.field] || 0;
+        } else {
+          value = snapshot[metric.field] || 0;
+        }
+        
+        data.push(value);
       }
-      
-      data.push(value);
+    } else if (selectedAggregation === 'weekly') {
+      // WEEKLY AGGREGATION
+      const weeklyData = aggregateByWeek(sortedSnapshots, metric);
+      labels = weeklyData.labels;
+      data = weeklyData.data;
+      rawDates = weeklyData.rawDates;
+    } else if (selectedAggregation === 'monthly') {
+      // MONTHLY AGGREGATION
+      const monthlyData = aggregateByMonth(sortedSnapshots, metric);
+      labels = monthlyData.labels;
+      data = monthlyData.data;
+      rawDates = monthlyData.rawDates;
     }
 
-    console.log(`✅ Processed ${data.length} data points`);
+    console.log(`✅ Processed ${data.length} ${selectedAggregation} data points`);
     console.log(`   First date: ${rawDates[0]}, Last date: ${rawDates[rawDates.length - 1]}`);
     console.log(`   First value: ${data[0]}, Last value: ${data[data.length - 1]}`);
 
     chartData = { labels, data, rawDates };
+  }
+
+  // NEW: Helper function for weekly aggregation
+  function aggregateByWeek(snapshots, metric) {
+    const weeklyMap = new Map();
     
-    // Chart will be rendered by reactive statement when canvas is ready
+    snapshots.forEach(snapshot => {
+      const dateStr = snapshot.date || snapshot.snapshot_date;
+      if (!dateStr) return;
+      
+      const date = new Date(dateStr);
+      
+      // Get Monday of the week (ISO week)
+      const dayOfWeek = date.getDay();
+      const diff = date.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+      const monday = new Date(date.setDate(diff));
+      const weekKey = monday.toISOString().split('T')[0];
+      
+      let value = 0;
+      if (selectedCategory === 'revenue') {
+        value = snapshot.revenue || snapshot[metric.field] || 0;
+      } else {
+        value = snapshot[metric.field] || 0;
+      }
+      
+      if (!weeklyMap.has(weekKey)) {
+        weeklyMap.set(weekKey, {
+          total: 0,
+          count: 0,
+          date: monday
+        });
+      }
+      
+      const weekData = weeklyMap.get(weekKey);
+      
+      // For revenue, sum up. For other metrics, average
+      if (selectedCategory === 'revenue') {
+        weekData.total += value;
+      } else {
+        weekData.total += value;
+        weekData.count++;
+      }
+    });
+    
+    // Convert map to arrays
+    const sortedWeeks = Array.from(weeklyMap.entries())
+      .sort((a, b) => new Date(a[0]) - new Date(b[0]));
+    
+    const labels = sortedWeeks.map(([key, data]) => {
+      const date = new Date(key);
+      return `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    });
+    
+    const data = sortedWeeks.map(([key, weekData]) => {
+      if (selectedCategory === 'revenue') {
+        return weekData.total; // Sum for revenue
+      } else {
+        return weekData.count > 0 ? weekData.total / weekData.count : 0; // Average for others
+      }
+    });
+    
+    const rawDates = sortedWeeks.map(([key]) => key);
+    
+    return { labels, data, rawDates };
+  }
+
+  // NEW: Helper function for monthly aggregation
+  function aggregateByMonth(snapshots, metric) {
+    const monthlyMap = new Map();
+    
+    snapshots.forEach(snapshot => {
+      const dateStr = snapshot.date || snapshot.snapshot_date;
+      if (!dateStr) return;
+      
+      const date = new Date(dateStr);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      let value = 0;
+      if (selectedCategory === 'revenue') {
+        value = snapshot.revenue || snapshot[metric.field] || 0;
+      } else {
+        value = snapshot[metric.field] || 0;
+      }
+      
+      if (!monthlyMap.has(monthKey)) {
+        monthlyMap.set(monthKey, {
+          total: 0,
+          count: 0,
+          year: date.getFullYear(),
+          month: date.getMonth()
+        });
+      }
+      
+      const monthData = monthlyMap.get(monthKey);
+      
+      // For revenue, sum up. For other metrics, average
+      if (selectedCategory === 'revenue') {
+        monthData.total += value;
+      } else {
+        monthData.total += value;
+        monthData.count++;
+      }
+    });
+    
+    // Convert map to arrays
+    const sortedMonths = Array.from(monthlyMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]));
+    
+    const labels = sortedMonths.map(([key, data]) => {
+      const date = new Date(data.year, data.month);
+      return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    });
+    
+    const data = sortedMonths.map(([key, monthData]) => {
+      if (selectedCategory === 'revenue') {
+        return monthData.total; // Sum for revenue
+      } else {
+        return monthData.count > 0 ? monthData.total / monthData.count : 0; // Average for others
+      }
+    });
+    
+    const rawDates = sortedMonths.map(([key]) => key + '-01');
+    
+    return { labels, data, rawDates };
   }
 
   function renderChart() {
@@ -438,14 +585,15 @@
     if (!metric || !category) return;
 
     // Build CSV content
-    const headers = ['Date', metric.label, 'Category', 'Timeframe'];
+    const headers = ['Date', metric.label, 'Category', 'Timeframe', 'Aggregation'];
     const rows = chartData.rawDates.map((date, index) => {
       const value = chartData.data[index];
       return [
         date,
         value,
         category.label,
-        selectedTimeframe
+        selectedTimeframe,
+        selectedAggregation
       ];
     });
 
@@ -461,7 +609,7 @@
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().split('T')[0];
-    const filename = `flux_${selectedCategory}_${selectedMetric}_${selectedTimeframe}_${timestamp}.csv`;
+    const filename = `flux_${selectedCategory}_${selectedMetric}_${selectedAggregation}_${selectedTimeframe}_${timestamp}.csv`;
     
     // Create download link
     const url = URL.createObjectURL(blob);
@@ -494,6 +642,20 @@
     </div>
 
     <div class="chart-controls">
+      <!-- NEW: Aggregation Selector -->
+      <div class="control-group">
+        <label for="aggregation-{title}">View:</label>
+        <select 
+          id="aggregation-{title}"
+          bind:value={selectedAggregation}
+          class="chart-select"
+        >
+          {#each aggregations as agg}
+            <option value={agg.id}>{agg.label}</option>
+          {/each}
+        </select>
+      </div>
+
       <!-- Timeframe Selector -->
       <div class="control-group">
         <label for="timeframe-{title}">Period:</label>
