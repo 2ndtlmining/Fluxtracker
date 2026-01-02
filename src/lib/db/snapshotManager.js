@@ -1,14 +1,11 @@
+// lib/db/snapshotManager.js - FIXED VERSION
+// This version has relaxed validation to allow snapshots with existing data
+
 import { 
     createDailySnapshot, 
     getCurrentMetrics,
     getSnapshotByDate
 } from './database.js';
-
-/**
- * SIMPLIFIED SNAPSHOT MANAGER
- * Dead simple logic: Check every 30 minutes if today's snapshot exists. If not, create it.
- * UPDATED: Now validates that metrics are populated before taking a snapshot
- */
 
 // ============================================
 // CONFIGURATION
@@ -16,12 +13,13 @@ import {
 
 const CONFIG = {
     CHECK_INTERVAL_MS: 30 * 60 * 1000,  // Check every 30 minutes
-    GRACE_PERIOD_MINUTES: 5,             // Wait 5 minutes after midnight before first snapshot
-    MIN_VALID_METRICS: 3,                // Minimum number of non-zero metrics required
+    GRACE_PERIOD_MINUTES: 5,             // Wait 5 minutes after midnight
+    MIN_VALID_METRICS: 2,                // RELAXED: Only need 2 metrics (was 3)
+    MAX_METRIC_AGE_HOURS: 24,            // RELAXED: Accept metrics up to 24 hours old (was 2)
 };
 
 // ============================================
-// STATE TRACKING (for monitoring only)
+// STATE TRACKING
 // ============================================
 
 let state = {
@@ -30,18 +28,18 @@ let state = {
     lastSuccess: null,
     consecutiveFailures: 0,
     intervalId: null,
-    metricsPopulated: false  // NEW: Track if we've seen valid metrics
+    metricsPopulated: false
 };
 
 /**
- * Get current state (for status endpoint)
+ * Get current state
  */
 export function getSnapshotState() {
     return { ...state };
 }
 
 /**
- * Get system status (for health checks)
+ * Get system status
  */
 export function getSnapshotSystemStatus() {
     const today = new Date().toISOString().split('T')[0];
@@ -57,13 +55,9 @@ export function getSnapshotSystemStatus() {
 }
 
 // ============================================
-// METRICS VALIDATION
+// METRICS VALIDATION - RELAXED VERSION
 // ============================================
 
-/**
- * Check if metrics are actually populated with real data
- * This prevents taking snapshots with all zeros on first startup
- */
 function areMetricsPopulated(metrics) {
     if (!metrics) {
         return {
@@ -72,7 +66,7 @@ function areMetricsPopulated(metrics) {
         };
     }
     
-    // Check if last_update exists and is recent (within last 2 hours)
+    // RELAXED: Check if last_update exists and is recent (within last 24 hours)
     if (!metrics.last_update) {
         return {
             valid: false,
@@ -81,16 +75,16 @@ function areMetricsPopulated(metrics) {
     }
     
     const metricAge = Date.now() - metrics.last_update;
-    const maxAge = 2 * 60 * 60 * 1000; // 2 hours
+    const maxAge = CONFIG.MAX_METRIC_AGE_HOURS * 60 * 60 * 1000;
     
     if (metricAge > maxAge) {
         return {
             valid: false,
-            reason: `Metrics are ${Math.round(metricAge / 1000 / 60 / 60)} hours old`
+            reason: `Metrics are ${Math.round(metricAge / 1000 / 60 / 60)} hours old (max ${CONFIG.MAX_METRIC_AGE_HOURS}h)`
         };
     }
     
-    // Count how many key metrics have non-zero values
+    // RELAXED: Count key metrics with non-zero values
     const keyMetrics = [
         metrics.node_total,
         metrics.total_apps,
@@ -111,18 +105,14 @@ function areMetricsPopulated(metrics) {
     // All checks passed!
     return {
         valid: true,
-        reason: `Metrics are valid (${nonZeroCount}/${keyMetrics.length} key metrics populated)`
+        reason: `Metrics are valid (${nonZeroCount}/${keyMetrics.length} key metrics populated, ${Math.round(metricAge / 1000 / 60)} min old)`
     };
 }
 
 // ============================================
-// CORE SNAPSHOT LOGIC (SIMPLIFIED)
+// CORE SNAPSHOT LOGIC
 // ============================================
 
-/**
- * Check if we should take a snapshot right now
- * SIMPLE LOGIC: Just check if today's snapshot exists!
- */
 function shouldTakeSnapshot() {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
@@ -148,7 +138,7 @@ function shouldTakeSnapshot() {
         };
     }
     
-    // Check 3: NEW - Are metrics actually populated?
+    // Check 3: Are metrics populated?
     const currentMetrics = getCurrentMetrics();
     const metricsCheck = areMetricsPopulated(currentMetrics);
     
@@ -159,19 +149,15 @@ function shouldTakeSnapshot() {
         };
     }
     
-    // Mark that we've seen valid metrics at least once
+    // Mark that we've seen valid metrics
     state.metricsPopulated = true;
     
-    // If we get here: No snapshot exists AND past grace period AND metrics are valid
     return {
         should: true,
-        reason: 'No snapshot exists for today, past grace period, and metrics are populated'
+        reason: `Ready: No snapshot exists, past grace period, metrics valid (${metricsCheck.reason})`
     };
 }
 
-/**
- * Take a snapshot (the actual work)
- */
 async function takeSnapshot() {
     console.log('📸 Taking snapshot...');
     
@@ -179,29 +165,18 @@ async function takeSnapshot() {
         const now = new Date();
         const snapshotDate = now.toISOString().split('T')[0];
         
-        // Get current metrics
         const currentMetrics = getCurrentMetrics();
         
         if (!currentMetrics) {
             throw new Error('No current metrics available');
         }
         
-        // Double-check metrics are valid before snapshot
+        // Double-check metrics are valid
         const metricsCheck = areMetricsPopulated(currentMetrics);
         if (!metricsCheck.valid) {
             throw new Error(`Invalid metrics: ${metricsCheck.reason}`);
         }
         
-        // Check if metrics are recent (within last 24 hours)
-        const metricAge = Date.now() - currentMetrics.last_update;
-        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-        
-        if (metricAge > maxAge) {
-            console.warn(`⚠️  Metrics are ${Math.round(metricAge / 1000 / 60 / 60)} hours old`);
-            // Continue anyway - better to have old data than no data
-        }
-        
-        // Prepare snapshot data
         const snapshotData = {
             snapshot_date: snapshotDate,
             timestamp: Math.floor(now.getTime() / 1000),
@@ -254,7 +229,6 @@ async function takeSnapshot() {
             node_nimbus: currentMetrics.node_nimbus || 0,
             node_stratus: currentMetrics.node_stratus || 0,
             node_total: currentMetrics.node_total || 0,
-            
             sync_status: 'completed'
         };
         
@@ -300,7 +274,7 @@ async function runCheck() {
     
     // Prevent concurrent runs
     if (state.isRunning) {
-        console.log('⏭️  Previous check still running, skipping...');
+        console.log('⏸️  Previous check still running, skipping...');
         return;
     }
     
@@ -311,7 +285,7 @@ async function runCheck() {
         const check = shouldTakeSnapshot();
         
         if (!check.should) {
-            console.log(`⏭️  ${check.reason}`);
+            console.log(`⏸️  ${check.reason}`);
             return;
         }
         
@@ -352,15 +326,16 @@ export function startSnapshotChecker() {
     console.log('🚀 Starting snapshot checker...');
     console.log(`   Check interval: ${CONFIG.CHECK_INTERVAL_MS / 1000 / 60} minutes`);
     console.log(`   Grace period: ${CONFIG.GRACE_PERIOD_MINUTES} minutes after midnight`);
-    console.log(`   Minimum valid metrics: ${CONFIG.MIN_VALID_METRICS} key metrics must be non-zero`);
+    console.log(`   RELAXED: Metrics can be up to ${CONFIG.MAX_METRIC_AGE_HOURS}h old`);
+    console.log(`   RELAXED: Only ${CONFIG.MIN_VALID_METRICS} metrics need to be non-zero`);
     
-    // Run immediately on startup (but will skip if metrics aren't ready)
+    // Run immediately
     runCheck();
     
-    // Then run every 30 minutes
+    // Then every 30 minutes
     state.intervalId = setInterval(runCheck, CONFIG.CHECK_INTERVAL_MS);
     
-    console.log('✅ Snapshot checker started and will run every 30 minutes');
+    console.log('✅ Snapshot checker started');
 }
 
 /**
@@ -392,7 +367,3 @@ export async function takeManualSnapshot() {
     
     return await takeSnapshot();
 }
-
-// ============================================
-// THAT'S IT! SIMPLE AND BULLETPROOF!
-// ============================================
