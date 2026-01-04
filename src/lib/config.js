@@ -115,7 +115,13 @@ export const GAMING_REPOS = [
         name: 'Valheim',
         dbKey: 'gaming_valheim',
         imageMatch: 'mbround18/valheim'
-    }
+    },
+    {
+        name: 'Satisfactory',
+        dbKey: 'gaming_satisfactory',
+        imageMatch: 'wolveix/satisfactory-server'
+    },
+
 
     // Add new games here:
     // {

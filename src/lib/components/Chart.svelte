@@ -47,7 +47,8 @@
         { id: 'gaming_minecraft', label: 'Minecraft', field: 'gaming_minecraft', format: 'number' },
         { id: 'gaming_palworld', label: 'Palworld', field: 'gaming_palworld', format: 'number' },
         { id: 'gaming_enshrouded', label: 'Enshrouded', field: 'gaming_enshrouded', format: 'number' },
-        { id: 'gaming_valheim', label: 'Valheim', field: 'gaming_valheim', format: 'number' }
+        { id: 'gaming_valheim', label: 'Valheim', field: 'gaming_valheim', format: 'number' },
+        { id: 'gaming_satisfactory', label: 'Satisfactory', field: 'gaming_satisfactory', format: 'number' }
       ]
     },
     crypto: {

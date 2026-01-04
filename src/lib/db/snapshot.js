@@ -65,7 +65,8 @@ export function takeSnapshot() {
             gaming_palworld: currentMetrics.gaming_palworld || 0,
             gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
             gaming_minecraft: currentMetrics.gaming_minecraft || 0,
-            gaming_valheim: currentMetrics.gaming_valheim || 0, 
+            gaming_valheim: currentMetrics.gaming_valheim || 0,
+            gaming_satisfactory: currentMetrics.gaming_satisfactory || 0, 
             
             // Crypto Nodes
             crypto_presearch: currentMetrics.crypto_presearch || 0,
@@ -168,6 +169,7 @@ export function backfillRevenueSnapshots(startDate, endDate) {
                 gaming_enshrouded: 0,
                 gaming_minecraft: 0,
                 gaming_valheim: 0,
+                gaming_satisfactory: 0,
                 crypto_presearch: 0,
                 crypto_streamr: 0,
                 crypto_ravencoin: 0,

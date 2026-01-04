@@ -220,6 +220,7 @@ function createTables() {
             gaming_enshrouded INTEGER DEFAULT 0,
             gaming_minecraft INTEGER DEFAULT 0,
             gaming_valheim INTEGER DEFAULT 0,
+            gaming_satisfactory INTEGER DEFAULT 0,
             
             -- Crypto Nodes
             crypto_presearch INTEGER DEFAULT 0,
@@ -302,6 +303,7 @@ function createTables() {
             gaming_enshrouded INTEGER DEFAULT 0,
             gaming_minecraft INTEGER DEFAULT 0,
             gaming_valheim INTEGER DEFAULT 0,
+            gaming_satisfactory INTEGER DEFAULT 0,
             
             -- Crypto Nodes
             crypto_presearch INTEGER DEFAULT 0,
@@ -397,6 +399,7 @@ export function updateCurrentMetrics(metrics) {
         gaming_enshrouded: metrics.gaming_enshrouded ?? current.gaming_enshrouded ?? null,
         gaming_minecraft: metrics.gaming_minecraft ?? current.gaming_minecraft ?? null,
         gaming_valheim: metrics.gaming_valheim ?? current.gaming_valheim ?? null,
+        gaming_satisfactory: metrics.gaming_satisfactory ?? current.gaming_satisfactory ?? null,
         crypto_presearch: metrics.crypto_presearch ?? current.crypto_presearch ?? null,
         crypto_streamr: metrics.crypto_streamr ?? current.crypto_streamr ?? null,
         crypto_ravencoin: metrics.crypto_ravencoin ?? current.crypto_ravencoin ?? null,
@@ -435,6 +438,7 @@ export function updateCurrentMetrics(metrics) {
             gaming_enshrouded = ?,
             gaming_minecraft = ?,
             gaming_valheim = ?,
+            gaming_satisfactory = ?,
             crypto_presearch = ?,
             crypto_streamr = ?,
             crypto_ravencoin = ?,
@@ -473,6 +477,7 @@ export function updateCurrentMetrics(metrics) {
         mergedMetrics.gaming_enshrouded,
         mergedMetrics.gaming_minecraft,
         mergedMetrics.gaming_valheim,
+        mergedMetrics.gaming_satisfactory,
         mergedMetrics.crypto_presearch,
         mergedMetrics.crypto_streamr,
         mergedMetrics.crypto_ravencoin,
@@ -512,14 +517,14 @@ export function createDailySnapshot(snapshot) {
             total_ram_gb, used_ram_gb, ram_utilization_percent,
             total_storage_gb, used_storage_gb, storage_utilization_percent,
             total_apps, watchtower_count,
-            gaming_apps_total, gaming_palworld, gaming_enshrouded, gaming_minecraft,gaming_valheim,
+            gaming_apps_total, gaming_palworld, gaming_enshrouded, gaming_minecraft,gaming_valheim,gaming_satisfactory,
             crypto_presearch, crypto_streamr, crypto_ravencoin, crypto_kadena,
             crypto_alephium, crypto_bittensor, crypto_timpi_collector, crypto_timpi_geocore,
             crypto_kaspa, crypto_nodes_total,
             wordpress_count,
             node_cumulus, node_nimbus, node_stratus, node_total,
             sync_status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -543,6 +548,7 @@ export function createDailySnapshot(snapshot) {
         snapshot.gaming_enshrouded,
         snapshot.gaming_minecraft,
         snapshot.gaming_valheim,
+        snapshot.gaming_satisfactory,
         snapshot.crypto_presearch,
         snapshot.crypto_streamr,
         snapshot.crypto_ravencoin,

@@ -187,6 +187,7 @@ async function takeSnapshot() {
             gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
             gaming_minecraft: currentMetrics.gaming_minecraft || 0,
             gaming_valheim: currentMetrics.gaming_valheim || 0,
+            gaming_satisfactory: currentMetrics.gaming_satisfactory || 0,
             
             // Crypto Nodes
             crypto_presearch: currentMetrics.crypto_presearch || 0,
