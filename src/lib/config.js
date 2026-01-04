@@ -90,12 +90,18 @@ export const GAMING_REPOS = [
     {
         name: 'Palworld',
         dbKey: 'gaming_palworld',
-        imageMatch: 'thijsvanloef/palworld-server-docker'
+        imageMatch: [
+            'thijsvanloef/palworld-server-docker'
+
+        ]
     },
     {
         name: 'Enshrouded',
         dbKey: 'gaming_enshrouded',
-        imageMatch: 'jktuned/enshrouded-server'
+        imageMatch: [
+            'jktuned/enshrouded-server',
+            'sknnr/enshrouded-dedicated-server'
+        ]
     },
     {
         name: 'Minecraft',
