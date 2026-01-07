@@ -490,7 +490,7 @@ export function updateCurrentMetrics(metrics) {
         mergedMetrics.watchtower_count,
         mergedMetrics.gitapps_count,
         mergedMetrics.dockerapps_count,
-        mergedMetrics.gitapps_count,
+        mergedMetrics.gitapps_percent,
         mergedMetrics.dockerapps_percent,
         mergedMetrics.gaming_apps_total,
         mergedMetrics.gaming_palworld,

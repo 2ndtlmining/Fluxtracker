@@ -510,7 +510,7 @@
                 if (metric.format === 'flux') {
                   return value.toFixed(0) + ' FLUX';
                 } else if (metric.format === 'percent') {
-                  return value.toFixed(0) + '%';
+                  return value.toFixed(2) + '%';
                 }
                 return Math.round(value);
               }
@@ -549,7 +549,7 @@
                 if (metric.format === 'flux') {
                   return value.toFixed(0) + ' FLUX';
                 } else if (metric.format === 'percent') {
-                  return value.toFixed(0) + '%';
+                  return value.toFixed(2) + '%';
                 }
                 return Math.round(value);
               }
