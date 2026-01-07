@@ -57,6 +57,11 @@ function getCachedCloudData() {
             storage_utilization_percent: cachedMetrics.storage_utilization_percent,
             total_apps: cachedMetrics.total_apps,
             watchtower_count: cachedMetrics.watchtower_count,
+            // NEW: Git and Docker app metrics
+            gitapps_count: cachedMetrics.gitapps_count || 0,
+            dockerapps_count: cachedMetrics.dockerapps_count || 0,
+            gitapps_percent: cachedMetrics.gitapps_percent || 0,
+            dockerapps_percent: cachedMetrics.dockerapps_percent || 0,
             _cached: true
         };
     }
@@ -246,7 +251,7 @@ export async function fetchCloudStats() {
         const ssdPercentage = totalSsdGB > 0 ? (lockedSsdGB / totalSsdGB) * 100 : 0;
         const coresPercentage = totalCores > 0 ? (totalLockedCores / totalCores) * 100 : 0;
         
-        // Fetch app count
+        // Fetch app count (includes Git/Docker app breakdown)
         const appCountData = await fetchAppCount();
         
         const cloudData = {
@@ -264,6 +269,13 @@ export async function fetchCloudStats() {
             
             total_apps: appCountData.totalApps,
             watchtower_count: appCountData.watchtowerCount,
+            
+            // NEW: Git and Docker app metrics
+            gitapps_count: appCountData.gitappsCount,
+            dockerapps_count: appCountData.dockerappsCount,
+            gitapps_percent: appCountData.gitappsPercent,
+            dockerapps_percent: appCountData.dockerappsPercent,
+            
             _cached: false
         };
         
@@ -306,7 +318,14 @@ export async function fetchCloudStats() {
 }
 
 /**
- * Fetch app count and exclude Watchtower
+ * Fetch app count and categorize apps (Watchtower, Git apps, Docker apps)
+ * 
+ * NEW LOGIC:
+ * - Gitapps: Apps with image "runonflux/orbit"
+ * - Watchtower: Apps with image "containrrr/watchtower" (excluded from total)
+ * - Dockerapps: Total apps - Gitapps (Watchtower already excluded from total)
+ * - Gitapps%: (Gitapps / Total apps) * 100
+ * - Dockerapps%: (Dockerapps / Total apps) * 100
  */
 async function fetchAppCount() {
     try {
@@ -323,25 +342,59 @@ async function fetchAppCount() {
         
         const appsData = response.data.data;
         
-        let totalApps = 0;
+        let totalAppsRaw = 0;      // Total including Watchtower
         let watchtowerCount = 0;
+        let gitappsCount = 0;      // NEW: Count of Git apps (runonflux/orbit)
         
         appsData.forEach(app => {
             if (app.apps && app.apps.runningapps) {
                 app.apps.runningapps.forEach(runningApp => {
-                    totalApps++;
+                    totalAppsRaw++;
                     
                     const image = runningApp.Image || '';
+                    
+                    // Count Watchtower apps
                     if (image.includes('containrrr/watchtower')) {
                         watchtowerCount++;
+                    }
+                    
+                    // NEW: Count Git apps (runonflux/orbit)
+                    if (image.includes('runonflux/orbit')) {
+                        gitappsCount++;
                     }
                 });
             }
         });
         
+        // Total apps excludes Watchtower
+        const totalApps = totalAppsRaw - watchtowerCount;
+        
+        // NEW: Calculate Docker apps (Total apps - Git apps)
+        // Note: Watchtower is already excluded from totalApps, so we don't subtract it again
+        const dockerappsCount = totalApps - gitappsCount;
+        
+        // NEW: Calculate percentages
+        const gitappsPercent = totalApps > 0 
+            ? parseFloat(((gitappsCount / totalApps) * 100).toFixed(2))
+            : 0;
+            
+        const dockerappsPercent = totalApps > 0 
+            ? parseFloat(((dockerappsCount / totalApps) * 100).toFixed(2))
+            : 0;
+        
+        console.log('📊 App Breakdown:');
+        console.log(`   Total Apps (excl. Watchtower): ${totalApps}`);
+        console.log(`   Watchtower: ${watchtowerCount}`);
+        console.log(`   Git Apps (runonflux/orbit): ${gitappsCount} (${gitappsPercent}%)`);
+        console.log(`   Docker Apps: ${dockerappsCount} (${dockerappsPercent}%)`);
+        
         return {
-            totalApps: totalApps - watchtowerCount,
-            watchtowerCount: watchtowerCount
+            totalApps,
+            watchtowerCount,
+            gitappsCount,
+            dockerappsCount,
+            gitappsPercent,
+            dockerappsPercent
         };
         
     } catch (error) {
@@ -352,14 +405,22 @@ async function fetchAppCount() {
         if (cachedMetrics && cachedMetrics.total_apps !== undefined) {
             return {
                 totalApps: cachedMetrics.total_apps,
-                watchtowerCount: cachedMetrics.watchtower_count || 0
+                watchtowerCount: cachedMetrics.watchtower_count || 0,
+                gitappsCount: cachedMetrics.gitapps_count || 0,
+                dockerappsCount: cachedMetrics.dockerapps_count || 0,
+                gitappsPercent: cachedMetrics.gitapps_percent || 0,
+                dockerappsPercent: cachedMetrics.dockerapps_percent || 0
             };
         }
         
         // Return zeros as last resort
         return {
             totalApps: 0,
-            watchtowerCount: 0
+            watchtowerCount: 0,
+            gitappsCount: 0,
+            dockerappsCount: 0,
+            gitappsPercent: 0,
+            dockerappsPercent: 0
         };
     }
 }
@@ -386,7 +447,12 @@ export function formatCloudStats(cloudData) {
         },
         apps: {
             total: cloudData.total_apps,
-            watchtower: cloudData.watchtower_count
+            watchtower: cloudData.watchtower_count,
+            // NEW: Git and Docker app breakdown
+            gitapps: cloudData.gitapps_count,
+            dockerapps: cloudData.dockerapps_count,
+            gitappsPercent: cloudData.gitapps_percent + '%',
+            dockerappsPercent: cloudData.dockerapps_percent + '%'
         },
         cached: cloudData._cached || false
     };

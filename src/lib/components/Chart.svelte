@@ -98,6 +98,10 @@
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
         { id: 'wordpress_count', label: 'WordPress Sites', field: 'wordpress_count', format: 'number' },
+        { id: 'gitapps_count', label: 'Git Apps', field: 'gitapps_count', format: 'number' },
+        { id: 'dockerapps_count', label: 'Docker Apps', field: 'dockerapps_count', format: 'number' },
+        { id: 'gitapps_percent', label: 'Git Apps %', field: 'gitapps_percent', format: 'percent' },
+        { id: 'dockerapps_percent', label: 'Docker Apps %', field: 'dockerapps_percent', format: 'percent' },
       ]
     }
   };

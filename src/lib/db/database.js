@@ -213,6 +213,10 @@ function createTables() {
             -- App Counts
             total_apps INTEGER DEFAULT 0,
             watchtower_count INTEGER DEFAULT 0,
+            gitapps_count INTEGER DEFAULT 0,
+            dockerapps_count INTEGER DEFAULT 0,
+            gitapps_percent REAL DEFAULT 0,
+            dockerapps_percent REAL DEFAULT 0,
             
             -- Gaming
             gaming_apps_total INTEGER DEFAULT 0,
@@ -296,6 +300,10 @@ function createTables() {
             -- App Counts
             total_apps INTEGER DEFAULT 0,
             watchtower_count INTEGER DEFAULT 0,
+            gitapps_count INTEGER DEFAULT 0,
+            dockerapps_count INTEGER DEFAULT 0,
+            gitapps_percent REAL DEFAULT 0,
+            dockerapps_percent REAL DEFAULT 0,
             
             -- Gaming
             gaming_apps_total INTEGER DEFAULT 0,
@@ -394,6 +402,10 @@ export function updateCurrentMetrics(metrics) {
         storage_utilization_percent: metrics.storage_utilization_percent ?? current.storage_utilization_percent ?? null,
         total_apps: metrics.total_apps ?? current.total_apps ?? null,
         watchtower_count: metrics.watchtower_count ?? current.watchtower_count ?? null,
+        gitapps_count: metrics.gitapps_count ?? current.gitapps_count ?? null,
+        dockerapps_count: metrics.dockerapps_count ?? current.dockerapps_count ?? null,
+        gitapps_percent: metrics.gitapps_percent ?? current.gitapps_percent ?? null,
+        dockerapps_percent: metrics.dockerapps_percent ?? current.dockerapps_percent ?? null,
         gaming_apps_total: metrics.gaming_apps_total ?? current.gaming_apps_total ?? null,
         gaming_palworld: metrics.gaming_palworld ?? current.gaming_palworld ?? null,
         gaming_enshrouded: metrics.gaming_enshrouded ?? current.gaming_enshrouded ?? null,
@@ -433,6 +445,10 @@ export function updateCurrentMetrics(metrics) {
             storage_utilization_percent = ?,
             total_apps = ?,
             watchtower_count = ?,
+            gitapps_count = ?,
+            dockerapps_count = ?,
+            gitapps_percent = ?,
+            dockerapps_percent = ?,
             gaming_apps_total = ?,
             gaming_palworld = ?,
             gaming_enshrouded = ?,
@@ -472,6 +488,10 @@ export function updateCurrentMetrics(metrics) {
         mergedMetrics.storage_utilization_percent,
         mergedMetrics.total_apps,
         mergedMetrics.watchtower_count,
+        mergedMetrics.gitapps_count,
+        mergedMetrics.dockerapps_count,
+        mergedMetrics.gitapps_count,
+        mergedMetrics.dockerapps_percent,
         mergedMetrics.gaming_apps_total,
         mergedMetrics.gaming_palworld,
         mergedMetrics.gaming_enshrouded,
@@ -516,7 +536,7 @@ export function createDailySnapshot(snapshot) {
             total_cpu_cores, used_cpu_cores, cpu_utilization_percent,
             total_ram_gb, used_ram_gb, ram_utilization_percent,
             total_storage_gb, used_storage_gb, storage_utilization_percent,
-            total_apps, watchtower_count,
+            total_apps, watchtower_count,gitapps_count, dockerapps_count, gitapps_percent, dockerapps_percent,
             gaming_apps_total, gaming_palworld, gaming_enshrouded, gaming_minecraft,gaming_valheim,gaming_satisfactory,
             crypto_presearch, crypto_streamr, crypto_ravencoin, crypto_kadena,
             crypto_alephium, crypto_bittensor, crypto_timpi_collector, crypto_timpi_geocore,
@@ -524,7 +544,7 @@ export function createDailySnapshot(snapshot) {
             wordpress_count,
             node_cumulus, node_nimbus, node_stratus, node_total,
             sync_status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -543,6 +563,10 @@ export function createDailySnapshot(snapshot) {
         snapshot.storage_utilization_percent,
         snapshot.total_apps,
         snapshot.watchtower_count,
+        snapshot.gitapps_count,
+        snapshot.dockerapps_count,
+        snapshot.gitapps_percent,
+        snapshot.dockerapps_percent,
         snapshot.gaming_apps_total,
         snapshot.gaming_palworld,
         snapshot.gaming_enshrouded,

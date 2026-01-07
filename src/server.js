@@ -508,7 +508,14 @@ app.get('/api/metrics/current', (req, res) => {
                 ram: { total: metrics.total_ram_gb, used: metrics.used_ram_gb, utilization: metrics.ram_utilization_percent },
                 storage: { total: metrics.total_storage_gb, used: metrics.used_storage_gb, utilization: metrics.storage_utilization_percent }
             },
-            apps: { total: metrics.total_apps, watchtower: metrics.watchtower_count },
+            apps: { 
+                total: metrics.total_apps, 
+                watchtower: metrics.watchtower_count,
+                gitapps: metrics.gitapps_count || 0,
+                dockerapps: metrics.dockerapps_count || 0,
+                gitapps_percent: metrics.gitapps_percent || 0,
+                dockerapps_percent: metrics.dockerapps_percent || 0
+            },
             gaming: { total: metrics.gaming_apps_total, palworld: metrics.gaming_palworld, enshrouded: metrics.gaming_enshrouded, minecraft: metrics.gaming_minecraft },
             crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kaspa: metrics.crypto_kaspa, alephium: metrics.crypto_alephium },
             wordpress: { count: metrics.wordpress_count },
@@ -597,7 +604,13 @@ app.get('/api/history/snapshots', (req, res) => {
                 date: s.snapshot_date,
                 revenue: s.daily_revenue,
                 nodes: { total: s.node_total, cumulus: s.node_cumulus, nimbus: s.node_nimbus },
-                apps: { total: s.total_apps, gaming: s.gaming_apps_total, crypto: s.crypto_nodes_total }
+                apps: { 
+                    total: s.total_apps, 
+                    gaming: s.gaming_apps_total, 
+                    crypto: s.crypto_nodes_total,
+                    gitapps: s.gitapps_count || 0,
+                    dockerapps: s.dockerapps_count || 0
+                }
             }))
         });
     } catch (error) {
@@ -758,7 +771,9 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 stratus: rawCurrent.node_stratus 
             },
             apps: { 
-                total: rawCurrent.total_apps 
+                total: rawCurrent.total_apps,
+                gitapps: rawCurrent.gitapps_count || 0,
+                dockerapps: rawCurrent.dockerapps_count || 0
             },
             gaming: { 
                 total: rawCurrent.gaming_apps_total, 
@@ -851,7 +866,13 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             
             response.changes.apps = {
                 ...calculateChange(current.apps?.total || 0, pastSnapshot.total_apps),
-                difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0)
+                difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0),
+                gitChange: (current.apps?.gitapps || 0) - (pastSnapshot.gitapps_count || 0),
+                gitTrend: (current.apps?.gitapps || 0) > (pastSnapshot.gitapps_count || 0) ? 'up' : 
+                         (current.apps?.gitapps || 0) < (pastSnapshot.gitapps_count || 0) ? 'down' : 'neutral',
+                dockerChange: (current.apps?.dockerapps || 0) - (pastSnapshot.dockerapps_count || 0),
+                dockerTrend: (current.apps?.dockerapps || 0) > (pastSnapshot.dockerapps_count || 0) ? 'up' : 
+                            (current.apps?.dockerapps || 0) < (pastSnapshot.dockerapps_count || 0) ? 'down' : 'neutral'
             };
             
             // CLOUD COMPARISONS - Now using transformed data
@@ -900,6 +921,18 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
             
             response.partialData = true;
             response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
+            
+            // Calculate Git/Docker comparison even without past snapshot (compare against 0)
+            response.changes.apps = {
+                change: 0,
+                difference: 0,
+                trend: 'neutral',
+                gitChange: current.apps?.gitapps || 0,
+                gitTrend: (current.apps?.gitapps || 0) > 0 ? 'up' : 'neutral',
+                dockerChange: current.apps?.dockerapps || 0,
+                dockerTrend: (current.apps?.dockerapps || 0) > 0 ? 'up' : 'neutral'
+            };
+            
         }
         
         res.json(response);

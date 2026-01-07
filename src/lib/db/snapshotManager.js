@@ -180,6 +180,10 @@ async function takeSnapshot() {
             // Apps
             total_apps: currentMetrics.total_apps || 0,
             watchtower_count: currentMetrics.watchtower_count || 0,
+            gitapps_count: currentMetrics.gitapps_count || 0,
+            dockerapps_count: currentMetrics.dockerapps_count || 0,
+            gitapps_percent: currentMetrics.gitapps_percent || 0,
+            dockerapps_percent: currentMetrics.dockerapps_percent || 0,
             
             // Gaming - ✅ INCLUDES gaming_valheim
             gaming_apps_total: currentMetrics.gaming_apps_total || 0,

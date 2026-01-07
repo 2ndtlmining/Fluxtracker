@@ -59,6 +59,10 @@ export function takeSnapshot() {
             // Apps
             total_apps: currentMetrics.total_apps || 0,
             watchtower_count: currentMetrics.watchtower_count || 0,
+            gitapps_count: currentMetrics.gitapps_count || 0,
+            dockerapps_count: currentMetrics.dockerapps_count || 0,
+            gitapps_percent: currentMetrics.gitapps_percent || 0,
+            dockerapps_percent: currentMetrics.dockerapps_percent || 0,
             
             // Gaming
             gaming_apps_total: currentMetrics.gaming_apps_total || 0,
@@ -164,6 +168,10 @@ export function backfillRevenueSnapshots(startDate, endDate) {
                 storage_utilization_percent: 0,
                 total_apps: 0,
                 watchtower_count: 0,
+                gitapps_count: 0,
+                dockerapps_count: 0,
+                gitapps_percent: 0,
+                dockerapps_percent: 0,
                 gaming_apps_total: 0,
                 gaming_palworld: 0,
                 gaming_enshrouded: 0,
@@ -401,7 +409,14 @@ export function getComparisonMetrics(date1, date2) {
             old: snapshot1.total_apps,
             new: snapshot2.total_apps,
             change: calculateChange(snapshot1.total_apps, snapshot2.total_apps),
-            difference: calculateDifference(snapshot1.total_apps, snapshot2.total_apps)
+            difference: calculateDifference(snapshot1.total_apps, snapshot2.total_apps),
+            // Git/Docker app breakdown
+            gitChange: calculateDifference(snapshot1.gitapps_count ?? 0, snapshot2.gitapps_count ?? 0),
+            gitTrend: calculateDifference(snapshot1.gitapps_count || 0, snapshot2.gitapps_count || 0) > 0 ? 'up' : 
+                     calculateDifference(snapshot1.gitapps_count || 0, snapshot2.gitapps_count || 0) < 0 ? 'down' : 'neutral',
+            dockerChange: calculateDifference(snapshot1.dockerapps_count ?? 0, snapshot2.dockerapps_count ?? 0),
+            dockerTrend: calculateDifference(snapshot1.dockerapps_count || 0, snapshot2.dockerapps_count || 0) > 0 ? 'up' : 
+                        calculateDifference(snapshot1.dockerapps_count || 0, snapshot2.dockerapps_count || 0) < 0 ? 'down' : 'neutral'
         },
         gaming: {
             old: snapshot1.gaming_apps_total,
@@ -580,7 +595,11 @@ export function getAnalyticsComparison(days) {
             apps: {
                 change: comparison.apps.change,
                 difference: comparison.apps.difference,
-                trend: comparison.apps.change > 0 ? 'up' : comparison.apps.change < 0 ? 'down' : 'neutral'
+                trend: comparison.apps.change > 0 ? 'up' : comparison.apps.change < 0 ? 'down' : 'neutral',
+                gitChange: comparison.apps.gitChange || 0,
+                gitTrend: comparison.apps.gitTrend || 'neutral',
+                dockerChange: comparison.apps.dockerChange || 0,
+                dockerTrend: comparison.apps.dockerTrend || 'neutral'
             },
             // NEW: Cloud resource comparisons
             cpu: {

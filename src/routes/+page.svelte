@@ -10,9 +10,10 @@
   import RevenueCard from '$lib/components/RevenueCard.svelte';
   import GamingCard from '$lib/components/GamingCard.svelte';
   import CryptoCard from '$lib/components/CryptoCard.svelte';
+  import AppsCard from '$lib/components/AppsCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
-  import { FileText, Package } from 'lucide-svelte';
+  import { FileText } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
@@ -121,6 +122,22 @@
     trend: comparison.changes.crypto?.trend || 'neutral'
   } : null;
   
+  // Apps comparison data
+  $: gitAppsComparison = comparison ? {
+    change: comparison.changes.apps?.gitChange || 0,
+    trend: comparison.changes.apps?.gitTrend || 'neutral'
+  } : null;
+  
+  $: dockerAppsComparison = comparison ? {
+    change: comparison.changes.apps?.dockerChange || 0,
+    trend: comparison.changes.apps?.dockerTrend || 'neutral'
+  } : null;
+  
+  $: totalAppsComparison = comparison ? {
+    change: comparison.changes.apps?.difference || 0,
+    trend: comparison.changes.apps?.trend || 'neutral'
+  } : null;
+  
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -172,6 +189,17 @@
     presearch: { count: 0 },
     kaspa: { count: 0 },
     alephium: { count: 0 },
+    total: 0
+  };
+  
+  // Format apps data for AppsCard
+  $: appsData = metrics?.apps ? {
+    git: { count: metrics.apps.gitapps || 0 },
+    docker: { count: metrics.apps.dockerapps || 0 },
+    total: metrics.apps.total || 0
+  } : {
+    git: { count: 0 },
+    docker: { count: 0 },
     total: 0
   };
   
@@ -465,14 +493,14 @@
         {loading}
       />
       
-      <!-- Total Apps -->
-      <StatCard
-        icon={Package}
-        title="Total Apps"
-        value={loading ? '...' : formatNumber(metrics?.apps?.total || 0)}
-        change={comparison ? formatChange(comparison.changes.apps, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.apps) : 'neutral'}
-        valueColor="cyan"
+      <!-- Total Apps (NEW: Using AppsCard component) -->
+      <AppsCard
+        git={appsData.git}
+        docker={appsData.docker}
+        total={appsData.total}
+        {gitAppsComparison}
+        {dockerAppsComparison}
+        totalComparison={totalAppsComparison}
         {loading}
       />
     </div>
