@@ -7,8 +7,8 @@
   export let loading = false;
   
   // Comparison data (optional)
-  export let gitComparison = null;        // { change: number, trend: 'up'|'down'|'neutral' }
-  export let dockerComparison = null;
+  export let gitAppsComparison = null;        // { change: number, trend: 'up'|'down'|'neutral' }
+  export let dockerAppsComparison = null;
   export let totalComparison = null;
   
   // Format numbers
@@ -36,14 +36,14 @@
         </div>
         
         <!-- Git Comparison -->
-        {#if gitComparison && gitComparison.change !== undefined}
-          <div class="metric-change" class:up={gitComparison.trend === 'up'} class:down={gitComparison.trend === 'down'}>
-            {#if gitComparison.trend === 'up'}
+        {#if gitAppsComparison && gitAppsComparison.change !== undefined}
+          <div class="metric-change" class:up={gitAppsComparison.trend === 'up'} class:down={gitAppsComparison.trend === 'down'}>
+            {#if gitAppsComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
-            {:else if gitComparison.trend === 'down'}
+            {:else if gitAppsComparison.trend === 'down'}
               <span class="trend-arrow">↓</span>
             {/if}
-            {gitComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(gitComparison.change))}
+            {gitAppsComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(gitAppsComparison.change))}
           </div>
         {/if}
       </div>
@@ -56,14 +56,14 @@
         </div>
         
         <!-- Docker Comparison -->
-        {#if dockerComparison && dockerComparison.change !== undefined}
-          <div class="metric-change" class:up={dockerComparison.trend === 'up'} class:down={dockerComparison.trend === 'down'}>
-            {#if dockerComparison.trend === 'up'}
+        {#if dockerAppsComparison && dockerAppsComparison.change !== undefined}
+          <div class="metric-change" class:up={dockerAppsComparison.trend === 'up'} class:down={dockerAppsComparison.trend === 'down'}>
+            {#if dockerAppsComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
-            {:else if dockerComparison.trend === 'down'}
+            {:else if dockerAppsComparison.trend === 'down'}
               <span class="trend-arrow">↓</span>
             {/if}
-            {dockerComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(dockerComparison.change))}
+            {dockerAppsComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(dockerAppsComparison.change))}
           </div>
         {/if}
       </div>
