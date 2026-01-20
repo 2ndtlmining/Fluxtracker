@@ -47,7 +47,7 @@ import { testAllServices } from './lib/services/test-allServices.js';
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 
 import { json } from '@sveltejs/kit';
-import { getCachedCarouselData } from './lib/services/carouselService.js';
+import { getCachedCarouselData, getCachedDeployedApps } from './lib/services/carouselService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -995,6 +995,31 @@ app.get('/api/carousel/stats', (req, res) => {
         
         res.status(500).json({ 
             error: 'Failed to fetch carousel stats',
+            message: error.message,
+            stats: [],
+            cached: false
+        });
+    }
+});
+
+// Carousel endpoint for latest deployed apps
+app.get('/api/carousel/deployed', async (req, res) => {
+    try {
+        const result = await getCachedDeployedApps();
+        
+        res.json({
+            stats: result.stats || [],
+            cached: result.cached,
+            cacheAge: result.cacheAge,
+            fresh: result.fresh,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Error in deployed apps API:', error);
+        
+        res.status(500).json({ 
+            error: 'Failed to fetch deployed apps',
             message: error.message,
             stats: [],
             cached: false

@@ -5,7 +5,9 @@ import { API_ENDPOINTS } from '../config.js';
 
 // Cache for carousel data
 let cachedCarouselData = null;
+let cachedDeployedApps = null;
 let lastFetchTime = 0;
+let lastDeployedFetchTime = 0;
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache
 
 // Images to exclude from top apps (health check/monitoring apps)
@@ -48,12 +50,145 @@ export async function fetchCarouselData() {
         
         // Return cached data if available
         if (cachedCarouselData) {
-            console.log('⚠️  Using cached carousel data due to fetch error');
+            console.log('⚠️ Using cached carousel data due to fetch error');
             return cachedCarouselData;
         }
         
         // If no cache, return empty array
         return [];
+    }
+}
+
+/**
+ * Fetch latest deployed apps (deployed today)
+ */
+export async function fetchLatestDeployedApps() {
+    try {
+        console.log('📦 Fetching latest deployed apps...');
+        
+        // Fetch current block height and app specs in parallel
+        const [blockHeightResponse, appsResponse] = await Promise.all([
+            axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
+            axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
+        ]);
+        
+        const currentBlockHeight = blockHeightResponse.data?.data || 0;
+        const appsData = appsResponse.data?.data || [];
+        
+        if (!currentBlockHeight || !Array.isArray(appsData)) {
+            throw new Error('Invalid response from API');
+        }
+        
+        console.log(`   Current block height: ${currentBlockHeight.toLocaleString()}`);
+        console.log(`   Total apps in network: ${appsData.length}`);
+        
+        // Filter apps deployed today (within 2880 blocks = 24 hours at 30s per block)
+        const BLOCKS_PER_DAY = 2880;
+        const deployedToday = appsData.filter(app => {
+            const blockAge = currentBlockHeight - (app.height || 0);
+            return blockAge >= 0 && blockAge < BLOCKS_PER_DAY;
+        });
+        
+        console.log(`   Apps deployed today: ${deployedToday.length}`);
+        
+        // Sort alphabetically by name
+        deployedToday.sort((a, b) => {
+            const nameA = (a.name || '').toLowerCase();
+            const nameB = (b.name || '').toLowerCase();
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Format for carousel display
+        const formattedApps = deployedToday.map((app, index) => {
+            // Extract specs from compose array if available, otherwise use top-level
+            let cpu = app.cpu || 0;
+            let ram = app.ram || 0;
+            let hdd = app.hdd || 0;
+            let instances = app.instances || 0;
+            
+            // If app has compose array, sum up resources from all containers
+            if (app.compose && Array.isArray(app.compose)) {
+                cpu = app.compose.reduce((sum, c) => sum + (c.cpu || 0), 0);
+                ram = app.compose.reduce((sum, c) => sum + (c.ram || 0), 0);
+                hdd = app.compose.reduce((sum, c) => sum + (c.hdd || 0), 0);
+            }
+            
+            // Format the details string
+            const details = [
+                `${instances} ${instances === 1 ? 'instance' : 'instances'}`,
+                `${formatCpu(cpu)}`,
+                `${formatRam(ram)}`,
+                `${formatStorage(hdd)}`
+            ].join(' • ');
+            
+            return {
+                type: 'deployed',
+                rank: index + 1,
+                name: app.name,
+                details: details,
+                // Keep individual values for potential future use
+                instances: instances,
+                cpu: cpu,
+                ram: ram,
+                hdd: hdd,
+                height: app.height,
+                blockAge: currentBlockHeight - app.height
+            };
+        });
+        
+        // Cache the results
+        cachedDeployedApps = formattedApps;
+        lastDeployedFetchTime = Date.now();
+        
+        console.log('✅ Latest deployed apps fetched:', formattedApps.length, 'apps');
+        
+        return formattedApps;
+        
+    } catch (error) {
+        console.error('❌ Error fetching deployed apps:', error.message);
+        
+        // Return cached data if available
+        if (cachedDeployedApps) {
+            console.log('⚠️ Using cached deployed apps data due to fetch error');
+            return cachedDeployedApps;
+        }
+        
+        return [];
+    }
+}
+
+/**
+ * Format CPU cores/threads
+ */
+function formatCpu(cpu) {
+    if (cpu >= 1) {
+        return `${cpu} ${cpu === 1 ? 'core' : 'cores'}`;
+    } else {
+        // For fractional CPUs, show as threads
+        const threads = Math.round(cpu * 100) / 100;
+        return `${threads} threads`;
+    }
+}
+
+/**
+ * Format RAM in appropriate units
+ */
+function formatRam(ram) {
+    if (ram >= 1000) {
+        return `${(ram / 1000).toFixed(1)} GB RAM`;
+    } else {
+        return `${ram} MB RAM`;
+    }
+}
+
+/**
+ * Format storage in appropriate units
+ */
+function formatStorage(hdd) {
+    if (hdd >= 1000) {
+        return `${(hdd / 1000).toFixed(1)} TB SSD`;
+    } else {
+        return `${hdd} GB SSD`;
     }
 }
 
@@ -153,7 +288,7 @@ async function fetchTopBenchmarks() {
         );
         
         if (validBenchmarks.length === 0) {
-            console.log('⚠️  No valid benchmarks found');
+            console.log('⚠️ No valid benchmarks found');
             return [];
         }
         
@@ -271,6 +406,32 @@ export function getCachedCarouselData() {
     return {
         stats: cachedCarouselData || [],
         cached: !!cachedCarouselData,
+        cacheAge: Math.floor(cacheAge / 1000), // seconds
+        fresh: isFresh
+    };
+}
+
+/**
+ * Get cached deployed apps data (used by API endpoint)
+ * If no cache exists, fetch immediately
+ */
+export async function getCachedDeployedApps() {
+    const cacheAge = Date.now() - lastDeployedFetchTime;
+    const isFresh = cacheAge < CACHE_DURATION;
+    
+    // If no cache or stale cache, fetch now
+    if (!cachedDeployedApps || !isFresh) {
+        console.log('📦 No fresh deployed apps cache, fetching now...');
+        try {
+            await fetchLatestDeployedApps();
+        } catch (error) {
+            console.error('❌ Failed to fetch deployed apps on-demand:', error);
+        }
+    }
+    
+    return {
+        stats: cachedDeployedApps || [],
+        cached: !!cachedDeployedApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
         fresh: isFresh
     };
