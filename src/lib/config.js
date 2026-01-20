@@ -70,8 +70,8 @@ export const API_ENDPOINTS = {
     STATS_BASE: 'https://stats.runonflux.io',
     RUNNING_APPS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
     
-    // WordPress API
-    WORDPRESS: 'https://jetpackbridge.runonflux.io/api/v1/wordpress.php?action=COUNT',
+    // WordPress API - UPDATED to use running apps endpoint
+    WORDPRESS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
     
     // Price APIs
     PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
@@ -190,6 +190,19 @@ export const CRYPTO_REPOS = [
 ];
 
 // ============================================
+// WORDPRESS CONFIGURATION
+// ============================================
+export const WORDPRESS_CONFIG = {
+    name: 'WordPress',
+    dbKey: 'wordpress_count',
+    // Match WordPress nginx image with or without tag
+    imageMatch: 'runonflux/wp-nginx',
+    updateInterval: 10 * 60 * 1000,     // Update every 10 minutes
+    enableCache: true,
+    cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
+};
+
+// ============================================
 // REVENUE CALCULATION CONFIG
 // ============================================
 export const REVENUE_CONFIG = {
@@ -223,16 +236,6 @@ export const CLOUD_CONFIG = {
 export const GAMING_CONFIG = {
     updateInterval: 10 * 60 * 1000,     // Update every 10 minutes
     repos: GAMING_REPOS,                 // Gaming repos to track
-    enableCache: true,
-    cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
-};
-
-// ============================================
-// WORDPRESS TRACKING CONFIG
-// ============================================
-export const WORDPRESS_CONFIG = {
-    updateInterval: 10 * 60 * 1000,     // Update every 10 minutes
-    apiUrl: API_ENDPOINTS.WORDPRESS,
     enableCache: true,
     cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
 };
