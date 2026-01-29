@@ -114,7 +114,10 @@ export const GAMING_REPOS = [
     {
         name: 'Valheim',
         dbKey: 'gaming_valheim',
-        imageMatch: 'mbround18/valheim'
+        imageMatch: [
+            'mbround18/valheim',
+            'littlestache/valheim-flux'
+        ] 
     },
     {
         name: 'Satisfactory',
