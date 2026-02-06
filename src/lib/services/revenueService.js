@@ -313,7 +313,7 @@ async function fetchTransactionDetails(txid, retries = 3) {
 /**
  * Process transaction and extract revenue for our tracked addresses
  */
-function processTransaction(tx, trackedAddresses) {
+function processTransaction(tx, trackedAddresses, fluxPriceUSD = null) {
     const transactions = [];
     
     if (!tx || !tx.vout) {
@@ -339,11 +339,15 @@ function processTransaction(tx, trackedAddresses) {
                 const amountSatoshis = parseFloat(vout.value) || 0;
                 const amountFlux = amountSatoshis / 100000000;
                 
+                // Calculate USD value if price is available
+                const amountUSD = fluxPriceUSD ? amountFlux * fluxPriceUSD : null;
+                
                 transactions.push({
                     txid: tx.txid,
                     address: address,
                     from_address: fromAddress,
                     amount: amountFlux,
+                    amount_usd: amountUSD,
                     block_height: blockHeight,
                     timestamp: timestamp,
                     date: date
@@ -370,6 +374,14 @@ export async function progressiveSync() {
     const startTime = Date.now();
     
     try {
+        // Fetch current FLUX price for USD calculation
+        const fluxPrice = await fetchFluxPrice();
+        if (fluxPrice) {
+            console.log(`   💵 Current FLUX price: $${fluxPrice.toFixed(4)}`);
+        } else {
+            console.warn('   ⚠️  Could not fetch FLUX price - USD values will be null');
+        }
+        
         // Get existing txids from database
         const existingTxids = new Set(getAllTxids());
         console.log(`   🗄️  Database has ${existingTxids.size} existing transactions`);
@@ -453,7 +465,7 @@ export async function progressiveSync() {
                     }
                     
                     // Process transaction to find payments to our addresses
-                    const payments = processTransaction(txDetails, TARGET_ADDRESSES);
+                    const payments = processTransaction(txDetails, TARGET_ADDRESSES, fluxPrice);
                     
                     if (payments.length > 0) {
                         allNewTransactions.push(...payments);

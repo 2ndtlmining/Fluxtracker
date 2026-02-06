@@ -12,7 +12,9 @@ import {
     getTxidCount,
     getTransactionsPaginated,
     getDailyRevenueFromTransactions,
-    getDailyRevenueInRange
+    getDailyRevenueInRange,
+    getDailyRevenueUSDFromTransactions,
+    getDailyRevenueUSDInRange
 } from './lib/db/database.js';
 
 // Import the NEW snapshot manager
@@ -579,6 +581,26 @@ app.get('/api/history/revenue/daily', (req, res) => {
         const revenueData = (start_date && end_date)
             ? getDailyRevenueInRange(start_date, end_date)
             : getDailyRevenueFromTransactions(parseInt(limit) || 30);
+        
+        res.json({
+            count: revenueData.length,
+            data: revenueData
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint to get daily revenue in USD from transactions
+app.get('/api/history/revenue/daily-usd', (req, res) => {
+    try {
+        console.log('Fetching daily USD revenue from transactions');
+        const { limit, start_date, end_date } = req.query;
+        
+        // Get daily USD revenue aggregated from transactions
+        const revenueData = (start_date && end_date)
+            ? getDailyRevenueUSDInRange(start_date, end_date)
+            : getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
         
         res.json({
             count: revenueData.length,

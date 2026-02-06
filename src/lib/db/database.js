@@ -263,6 +263,7 @@ function createTables() {
             address TEXT NOT NULL,
             from_address TEXT DEFAULT 'Unknown',
             amount REAL NOT NULL,
+            amount_usd REAL,
             block_height INTEGER NOT NULL,
             timestamp INTEGER NOT NULL,
             date DATE NOT NULL
@@ -652,8 +653,8 @@ export function insertTransaction(tx) {
     
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions 
-        (txid, address, from_address, amount, block_height, timestamp, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -661,6 +662,7 @@ export function insertTransaction(tx) {
         tx.address,
         tx.from_address || 'Unknown',
         tx.amount,
+        tx.amount_usd || null,
         tx.block_height,
         tx.timestamp,
         tx.date
@@ -677,8 +679,8 @@ export function insertTransactionsBatch(transactions) {
     // YOUR ORIGINAL CODE BELOW - UNCHANGED
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions 
-        (txid, address, from_address, amount, block_height, timestamp, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((txs) => {
@@ -688,6 +690,7 @@ export function insertTransactionsBatch(transactions) {
                 tx.address, 
                 tx.from_address || 'Unknown', 
                 tx.amount, 
+                tx.amount_usd || null,
                 tx.block_height, 
                 tx.timestamp, 
                 tx.date
@@ -838,6 +841,44 @@ export function getDailyRevenueInRange(startDate, endDate) {
     console.log(`✅ Retrieved daily revenue for ${results.length} days from transactions (${startDate} to ${endDate})`);
     return results;
 }
+
+// USD Revenue aggregation functions
+export function getDailyRevenueUSDFromTransactions(days = 30) {
+    const stmt = db.prepare(`
+        SELECT 
+            date,
+            SUM(COALESCE(amount_usd, 0)) as daily_revenue_usd,
+            COUNT(CASE WHEN amount_usd IS NOT NULL THEN 1 END) as usd_count,
+            COUNT(*) as total_count
+        FROM revenue_transactions
+        WHERE date >= date('now', '-' || ? || ' days')
+        GROUP BY date
+        ORDER BY date ASC
+    `);
+    
+    const results = stmt.all(days);
+    console.log(`✅ Retrieved daily USD revenue for ${results.length} days from transactions`);
+    return results;
+}
+
+export function getDailyRevenueUSDInRange(startDate, endDate) {
+    const stmt = db.prepare(`
+        SELECT 
+            date,
+            SUM(COALESCE(amount_usd, 0)) as daily_revenue_usd,
+            COUNT(CASE WHEN amount_usd IS NOT NULL THEN 1 END) as usd_count,
+            COUNT(*) as total_count
+        FROM revenue_transactions
+        WHERE date BETWEEN ? AND ?
+        GROUP BY date
+        ORDER BY date ASC
+    `);
+    
+    const results = stmt.all(startDate, endDate);
+    console.log(`✅ Retrieved daily USD revenue for ${results.length} days from transactions (${startDate} to ${endDate})`);
+    return results;
+}
+
 
 export function deleteOldTransactions(daysToKeep = 365) {
     if (!canWrite()) {

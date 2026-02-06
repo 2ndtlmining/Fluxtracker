@@ -143,6 +143,13 @@
     return amount.toFixed(8);
   }
 
+  function formatUSD(amountUSD) {
+    if (amountUSD === null || amountUSD === undefined) {
+      return '-';
+    }
+    return '$' + amountUSD.toFixed(2);
+  }
+
   function formatDate(dateStr) {
     return dateStr; // Already in YYYY-MM-DD format
   }
@@ -174,13 +181,14 @@
       const allTransactions = result.transactions || [];
 
       // Build CSV content
-      const headers = ['Type', 'Transaction ID', 'From Address', 'To Address', 'Amount (FLUX)', 'Date', 'Block Height'];
+      const headers = ['Type', 'Transaction ID', 'From Address', 'To Address', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Block Height'];
       const rows = allTransactions.map(tx => [
         'IN',
         tx.txid,
         tx.from_address || 'Unknown',
         tx.address,
         tx.amount.toFixed(8),
+        tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
         tx.date,
         tx.block_height
       ]);
@@ -308,6 +316,7 @@
               <th>FROM_ADDRESS</th>
               <th>TO_ADDRESS</th>
               <th>AMOUNT_FLUX</th>
+              <th>AMOUNT_USD</th>
               <th>DATE</th>
               <th>BLOCK</th>
             </tr>
@@ -329,6 +338,7 @@
                 <td class="address-col">{formatAddress(tx.from_address)}</td>
                 <td class="address-col">{formatAddress(tx.address)}</td>
                 <td class="amount-col">{formatAmount(tx.amount)}</td>
+                <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
                 <td class="date-col">{formatDate(tx.date)}</td>
                 <td class="block-col">{tx.block_height.toLocaleString()}</td>
               </tr>
@@ -661,6 +671,13 @@
     color: var(--accent-green);
     font-weight: 700;
     text-align: right;
+  }
+
+  .amount-usd-col {
+    color: var(--accent-purple);
+    font-weight: 700;
+    text-align: right;
+    font-family: 'Courier New', monospace;
   }
 
   .date-col {

@@ -36,7 +36,8 @@
       label: 'Revenue',
       color: 'rgb(0, 255, 255)',
       metrics: [
-        { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' }
+        { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
+        { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' }
       ]
     },
     gaming: {
@@ -133,9 +134,27 @@
     }
   }
 
-  // When category or metric changes, process existing data (no fetch needed!)
-  $: if (selectedCategory && selectedMetric && allSnapshots.length > 0) {
-    console.log(`📄 Category/Metric changed to ${selectedCategory}/${selectedMetric} - processing cached data`);
+  // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
+  let lastMetric = selectedMetric;
+  $: if (selectedMetric !== lastMetric && allSnapshots.length > 0) {
+    // Check if switching between FLUX and USD revenue (requires re-fetch)
+    const needsRefetch = selectedCategory === 'revenue' && 
+                        ((lastMetric === 'daily_revenue' && selectedMetric === 'daily_revenue_usd') ||
+                         (lastMetric === 'daily_revenue_usd' && selectedMetric === 'daily_revenue'));
+    
+    if (needsRefetch) {
+      console.log(`💱 Switching between FLUX/USD - re-fetching data from different endpoint`);
+      lastMetric = selectedMetric;
+      fetchAllData();
+    } else {
+      console.log(`📄 Metric changed to ${selectedMetric} - processing cached data`);
+      lastMetric = selectedMetric;
+      processChartData();
+    }
+  }
+  
+  // When category changes, process existing data
+  $: if (selectedCategory && allSnapshots.length > 0) {
     processChartData();
   }
 
@@ -187,8 +206,16 @@
       
       // For REVENUE category, use transaction-based endpoint for real-time data
       if (selectedCategory === 'revenue') {
-        console.log('💰 Fetching revenue from transactions (real-time)');
-        const response = await fetch(`${API_URL}/api/history/revenue/daily?limit=${days}`);
+        // Check if USD metric is selected
+        const metric = availableMetrics.find(m => m.id === selectedMetric);
+        const isUSD = metric && metric.id === 'daily_revenue_usd';
+        
+        const endpoint = isUSD 
+          ? `${API_URL}/api/history/revenue/daily-usd?limit=${days}`
+          : `${API_URL}/api/history/revenue/daily?limit=${days}`;
+        
+        console.log(`💰 Fetching ${isUSD ? 'USD' : 'FLUX'} revenue from transactions (real-time)`);
+        const response = await fetch(endpoint);
         
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
@@ -280,7 +307,12 @@
         
         let value = 0;
         if (selectedCategory === 'revenue') {
-          value = snapshot.revenue || snapshot[metric.field] || 0;
+          if (metric.id === 'daily_revenue_usd') {
+            // For USD, use the daily_revenue_usd field (handles NULL gracefully with || 0)
+            value = snapshot.daily_revenue_usd || 0;
+          } else {
+            value = snapshot.revenue || snapshot[metric.field] || 0;
+          }
         } else {
           value = snapshot[metric.field] || 0;
         }
@@ -326,7 +358,11 @@
       
       let value = 0;
       if (selectedCategory === 'revenue') {
-        value = snapshot.revenue || snapshot[metric.field] || 0;
+        if (metric.id === 'daily_revenue_usd') {
+          value = snapshot.daily_revenue_usd || 0;
+        } else {
+          value = snapshot.revenue || snapshot[metric.field] || 0;
+        }
       } else {
         value = snapshot[metric.field] || 0;
       }
@@ -385,7 +421,11 @@
       
       let value = 0;
       if (selectedCategory === 'revenue') {
-        value = snapshot.revenue || snapshot[metric.field] || 0;
+        if (metric.id === 'daily_revenue_usd') {
+          value = snapshot.daily_revenue_usd || 0;
+        } else {
+          value = snapshot.revenue || snapshot[metric.field] || 0;
+        }
       } else {
         value = snapshot[metric.field] || 0;
       }
@@ -509,6 +549,8 @@
                 const value = context.parsed.y;
                 if (metric.format === 'flux') {
                   return value.toFixed(0) + ' FLUX';
+                } else if (metric.format === 'usd') {
+                  return '$' + value.toFixed(2);
                 } else if (metric.format === 'percent') {
                   return value.toFixed(2) + '%';
                 }
@@ -548,6 +590,8 @@
               callback: function(value) {
                 if (metric.format === 'flux') {
                   return value.toFixed(0) + ' FLUX';
+                } else if (metric.format === 'usd') {
+                  return '$' + value.toFixed(0);
                 } else if (metric.format === 'percent') {
                   return value.toFixed(2) + '%';
                 }
