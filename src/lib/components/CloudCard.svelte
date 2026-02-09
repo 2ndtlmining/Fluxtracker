@@ -87,7 +87,7 @@
       <!-- RAM -->
       <div class="cloud-metric">
         <div class="metric-row">
-          <div class="metric-label">RAM <span class="unit">(GB)</span></div>
+          <div class="metric-label">RAM <span class="unit">(TB)</span></div>
           <div class="metric-value cyan">{formatDecimal(ram.utilization)}%</div>
         </div>
         <div class="metric-detail">{formatDecimal(ram.used)} / {formatDecimal(ram.total)}</div>
@@ -108,7 +108,7 @@
       <!-- Storage -->
       <div class="cloud-metric">
         <div class="metric-row">
-          <div class="metric-label">Storage <span class="unit">(GB)</span></div>
+          <div class="metric-label">Storage <span class="unit">(TB)</span></div>
           <div class="metric-value cyan">{formatDecimal(storage.utilization)}%</div>
         </div>
         <div class="metric-detail">{formatNumber(storage.used)} / {formatNumber(storage.total)}</div>
