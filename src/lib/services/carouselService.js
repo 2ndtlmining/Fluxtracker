@@ -126,14 +126,16 @@ export async function fetchLatestDeployedApps() {
             let ram = app.ram || 0;
             let hdd = app.hdd || 0;
             let instances = app.instances || 0;
-            
+
             // If app has compose array, sum up resources from all containers
             if (app.compose && Array.isArray(app.compose)) {
                 cpu = app.compose.reduce((sum, c) => sum + (c.cpu || 0), 0);
                 ram = app.compose.reduce((sum, c) => sum + (c.ram || 0), 0);
                 hdd = app.compose.reduce((sum, c) => sum + (c.hdd || 0), 0);
             }
-            
+
+            const isEnterprise = !!(app.enterprise);
+
             // Format the details string
             const details = [
                 `${instances} ${instances === 1 ? 'instance' : 'instances'}`,
@@ -141,7 +143,7 @@ export async function fetchLatestDeployedApps() {
                 `${formatRam(ram)}`,
                 `${formatStorage(hdd)}`
             ].join(' • ');
-            
+
             return {
                 type: 'deployed',
                 rank: index + 1,
@@ -152,6 +154,7 @@ export async function fetchLatestDeployedApps() {
                 cpu: cpu,
                 ram: ram,
                 hdd: hdd,
+                isEnterprise: isEnterprise,
                 height: app.height,
                 blockAge: currentBlockHeight - app.height
             };
@@ -479,6 +482,8 @@ export async function fetchExpiringApps() {
                 hdd = app.compose.reduce((sum, c) => sum + (c.hdd || 0), 0);
             }
 
+            const isEnterprise = !!(app.enterprise);
+
             return {
                 type: 'expiring',
                 rank: index + 1,
@@ -487,6 +492,7 @@ export async function fetchExpiringApps() {
                 cpu: cpu,
                 ram: ram,
                 hdd: hdd,
+                isEnterprise: isEnterprise,
                 blocksUntilExpiry: app.expiresInBlocks
             };
         });
