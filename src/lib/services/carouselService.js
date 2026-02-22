@@ -12,6 +12,11 @@ let lastDeployedFetchTime = 0;
 let lastExpiringFetchTime = 0;
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache
 
+// Shared cache for expensive Flux API calls (block height + app specs)
+let cachedFluxApiData = null;
+let lastFluxApiCacheTime = 0;
+const FLUX_API_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Images to exclude from top apps (health check/monitoring apps)
 const EXCLUDED_IMAGES = [
     'containrrr/watchtower',  // Health check image on all servers
@@ -62,20 +67,34 @@ export async function fetchCarouselData() {
 }
 
 /**
+ * Shared fetch for block height + app specs with short-lived cache.
+ * Prevents duplicate API calls when multiple carousel tabs load in quick succession.
+ */
+async function getSharedFluxApiData() {
+    const age = Date.now() - lastFluxApiCacheTime;
+    if (cachedFluxApiData && age < FLUX_API_CACHE_DURATION) {
+        return cachedFluxApiData;
+    }
+    const [blockHeightResponse, appsResponse] = await Promise.all([
+        axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
+        axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
+    ]);
+    cachedFluxApiData = {
+        currentBlockHeight: blockHeightResponse.data?.data || 0,
+        appsData: appsResponse.data?.data || []
+    };
+    lastFluxApiCacheTime = Date.now();
+    return cachedFluxApiData;
+}
+
+/**
  * Fetch latest deployed apps (deployed today)
  */
 export async function fetchLatestDeployedApps() {
     try {
         console.log('📦 Fetching latest deployed apps...');
-        
-        // Fetch current block height and app specs in parallel
-        const [blockHeightResponse, appsResponse] = await Promise.all([
-            axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
-            axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
-        ]);
-        
-        const currentBlockHeight = blockHeightResponse.data?.data || 0;
-        const appsData = appsResponse.data?.data || [];
+
+        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
         
         if (!currentBlockHeight || !Array.isArray(appsData)) {
             throw new Error('Invalid response from API');
@@ -420,14 +439,7 @@ export async function fetchExpiringApps() {
     try {
         console.log('⏳ Fetching expiring apps...');
 
-        // Fetch current block height and app specs in parallel
-        const [blockHeightResponse, appsResponse] = await Promise.all([
-            axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
-            axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
-        ]);
-
-        const currentBlockHeight = blockHeightResponse.data?.data || 0;
-        const appsData = appsResponse.data?.data || [];
+        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
 
         if (!currentBlockHeight || !Array.isArray(appsData)) {
             throw new Error('Invalid response from API');
