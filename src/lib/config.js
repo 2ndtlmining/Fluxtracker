@@ -206,6 +206,16 @@ export const WORDPRESS_CONFIG = {
 };
 
 // ============================================
+// EXCLUDED TRANSACTION PATTERNS
+// ============================================
+export const EXCLUDED_TRANSACTIONS = [
+    {
+        from_address: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
+        amount: 0.02  // FLUX (app spec-change fee – treated as free for end user)
+    }
+];
+
+// ============================================
 // REVENUE CALCULATION CONFIG
 // ============================================
 export const REVENUE_CONFIG = {

@@ -182,21 +182,26 @@
               <span class="item-separator">•</span>
             {/if}
             
-            {#if stat.cpu !== undefined}
-              <span class="item-value">{stat.cpu >= 1 ? formatNumber(stat.cpu) : (Math.round(stat.cpu * 100) / 100)}</span>
-              <span class="item-unit">{stat.cpu >= 1 ? (stat.cpu === 1 ? 'core' : 'cores') : 'threads'}</span>
+            {#if stat.isEnterprise}
               <span class="item-separator">•</span>
-            {/if}
-            
-            {#if stat.ram !== undefined}
-              <span class="item-value">{stat.ram >= 1000 ? (stat.ram / 1000).toFixed(1) : formatNumber(stat.ram)}</span>
-              <span class="item-unit">{stat.ram >= 1000 ? 'GB' : 'MB'} RAM</span>
-              <span class="item-separator">•</span>
-            {/if}
-            
-            {#if stat.hdd !== undefined}
-              <span class="item-value">{stat.hdd >= 1000 ? (stat.hdd / 1000).toFixed(1) : formatNumber(stat.hdd)}</span>
-              <span class="item-unit">{stat.hdd >= 1000 ? 'TB' : 'GB'} SSD</span>
+              <span class="item-badge item-enterprise">Enterprise</span>
+            {:else}
+              {#if stat.cpu !== undefined}
+                <span class="item-value">{stat.cpu >= 1 ? formatNumber(stat.cpu) : (Math.round(stat.cpu * 100) / 100)}</span>
+                <span class="item-unit">{stat.cpu >= 1 ? (stat.cpu === 1 ? 'core' : 'cores') : 'threads'}</span>
+                <span class="item-separator">•</span>
+              {/if}
+
+              {#if stat.ram !== undefined}
+                <span class="item-value">{stat.ram >= 1000 ? (stat.ram / 1000).toFixed(1) : formatNumber(stat.ram)}</span>
+                <span class="item-unit">{stat.ram >= 1000 ? 'GB' : 'MB'} RAM</span>
+                <span class="item-separator">•</span>
+              {/if}
+
+              {#if stat.hdd !== undefined}
+                <span class="item-value">{stat.hdd >= 1000 ? (stat.hdd / 1000).toFixed(1) : formatNumber(stat.hdd)}</span>
+                <span class="item-unit">{stat.hdd >= 1000 ? 'TB' : 'GB'} SSD</span>
+              {/if}
             {/if}
 
             {#if stat.blocksUntilExpiry !== undefined}
@@ -426,6 +431,24 @@
   .item-expiry {
     color: var(--accent-orange, #f97316);
     text-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
+  }
+
+  .item-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 0.2rem 0.6rem;
+    border-radius: var(--radius-sm, 4px);
+    border: 1px solid;
+    flex-shrink: 0;
+  }
+
+  .item-enterprise {
+    color: var(--accent-purple, #a855f7);
+    border-color: var(--accent-purple, #a855f7);
+    background: rgba(168, 85, 247, 0.12);
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.2), inset 0 0 8px rgba(168, 85, 247, 0.05);
   }
   
   /* Responsive */

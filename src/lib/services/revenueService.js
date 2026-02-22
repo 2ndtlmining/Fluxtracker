@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_ENDPOINTS, TARGET_ADDRESSES, BLOCK_CONFIG } from '../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, BLOCK_CONFIG, EXCLUDED_TRANSACTIONS } from '../config.js';
 import { 
     updateCurrentMetrics, 
     updateSyncStatus,
@@ -339,10 +339,16 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null) {
             if (trackedAddresses.includes(address)) {
                 const amountSatoshis = parseFloat(vout.value) || 0;
                 const amountFlux = amountSatoshis / 100000000;
-                
+
+                // Skip excluded transactions (e.g. Flux app spec-change fees)
+                const isExcluded = EXCLUDED_TRANSACTIONS.some(
+                    ex => ex.from_address === fromAddress && Math.abs(ex.amount - amountFlux) < 0.000001
+                );
+                if (isExcluded) continue;
+
                 // Calculate USD value if price is available
                 const amountUSD = fluxPriceUSD ? amountFlux * fluxPriceUSD : null;
-                
+
                 transactions.push({
                     txid: tx.txid,
                     address: address,
