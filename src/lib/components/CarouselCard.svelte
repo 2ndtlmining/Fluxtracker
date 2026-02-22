@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
-  import { TrendingUp, Package } from 'lucide-svelte';
+  import { TrendingUp, Package, Hourglass } from 'lucide-svelte';
   
   let API_URL = '';
   let stats = [];
@@ -9,7 +9,7 @@
   let error = null;
   let interval;
   
-  // Toggle state: 'network' or 'deployed'
+  // Toggle state: 'network', 'deployed', or 'expiring'
   let viewMode = 'network';
   
   // Duplicate the array for seamless infinite scroll
@@ -29,9 +29,11 @@
   
   async function fetchCarouselStats() {
     try {
-      const endpoint = viewMode === 'network' 
+      const endpoint = viewMode === 'network'
         ? `${API_URL}/api/carousel/stats`
-        : `${API_URL}/api/carousel/deployed`;
+        : viewMode === 'deployed'
+        ? `${API_URL}/api/carousel/deployed`
+        : `${API_URL}/api/carousel/expiring`;
       
       console.log(`🎠 Fetching carousel data from: ${endpoint}`);
       
@@ -50,7 +52,11 @@
         loading = false;
         console.log(`✅ Loaded ${stats.length} carousel items`);
       } else if (stats.length === 0) {
-        error = viewMode === 'deployed' ? 'No apps deployed today' : 'No stats available';
+        error = viewMode === 'deployed'
+          ? 'No apps deployed today'
+          : viewMode === 'expiring'
+          ? 'No apps expiring within 24 hours'
+          : 'No stats available';
         loading = false;
         console.warn(`⚠️ No data available: ${error}`);
       } else {
@@ -81,6 +87,15 @@
   function formatNumber(num) {
     return new Intl.NumberFormat('en-US').format(num);
   }
+
+  function formatBlocksAsTime(blocks) {
+    const totalMinutes = Math.round(blocks * 30 / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    if (minutes === 0) return `${hours}h`;
+    return `${hours}h ${minutes}m`;
+  }
 </script>
 
 <div class="carousel-container">
@@ -88,8 +103,10 @@
     <div class="header-content">
       {#if viewMode === 'network'}
         <TrendingUp size={20} class="header-icon" />
-      {:else}
+      {:else if viewMode === 'deployed'}
         <Package size={20} class="header-icon" />
+      {:else}
+        <Hourglass size={20} class="header-icon" />
       {/if}
       
       <!-- Toggle buttons -->
@@ -101,12 +118,19 @@
         >
           Top Network Stats
         </button>
-        <button 
+        <button
           class="toggle-btn"
           class:active={viewMode === 'deployed'}
           on:click={() => toggleViewMode('deployed')}
         >
           Latest Deployed Apps
+        </button>
+        <button
+          class="toggle-btn"
+          class:active={viewMode === 'expiring'}
+          on:click={() => toggleViewMode('expiring')}
+        >
+          Expiring Soon
         </button>
       </div>
     </div>
@@ -174,7 +198,13 @@
               <span class="item-value">{stat.hdd >= 1000 ? (stat.hdd / 1000).toFixed(1) : formatNumber(stat.hdd)}</span>
               <span class="item-unit">{stat.hdd >= 1000 ? 'TB' : 'GB'} SSD</span>
             {/if}
-            
+
+            {#if stat.blocksUntilExpiry !== undefined}
+              <span class="item-separator">•</span>
+              <span class="item-value item-expiry">{formatBlocksAsTime(stat.blocksUntilExpiry)}</span>
+              <span class="item-unit">left</span>
+            {/if}
+
             <span class="item-separator">•</span>
           </div>
         {/each}
@@ -391,6 +421,11 @@
     color: var(--text-muted);
     font-size: 0.75rem;
     opacity: 0.5;
+  }
+
+  .item-expiry {
+    color: var(--accent-orange, #f97316);
+    text-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
   }
   
   /* Responsive */
