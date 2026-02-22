@@ -6,8 +6,10 @@ import { API_ENDPOINTS } from '../config.js';
 // Cache for carousel data
 let cachedCarouselData = null;
 let cachedDeployedApps = null;
+let cachedExpiringApps = null;
 let lastFetchTime = 0;
 let lastDeployedFetchTime = 0;
+let lastExpiringFetchTime = 0;
 const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache
 
 // Images to exclude from top apps (health check/monitoring apps)
@@ -412,6 +414,91 @@ export function getCachedCarouselData() {
 }
 
 /**
+ * Fetch apps expiring within 2880 blocks (~24 hours)
+ */
+export async function fetchExpiringApps() {
+    try {
+        console.log('⏳ Fetching expiring apps...');
+
+        // Fetch current block height and app specs in parallel
+        const [blockHeightResponse, appsResponse] = await Promise.all([
+            axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
+            axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
+        ]);
+
+        const currentBlockHeight = blockHeightResponse.data?.data || 0;
+        const appsData = appsResponse.data?.data || [];
+
+        if (!currentBlockHeight || !Array.isArray(appsData)) {
+            throw new Error('Invalid response from API');
+        }
+
+        console.log(`   Current block height: ${currentBlockHeight.toLocaleString()}`);
+        console.log(`   Total apps in network: ${appsData.length}`);
+
+        const BLOCKS_PER_DAY = 2880;
+        const expiringSoon = appsData
+            .filter(app => {
+                if (!app.expire) return false;
+                const expiryBlock = (app.height || 0) + app.expire;
+                const expiresInBlocks = expiryBlock - currentBlockHeight;
+                return expiresInBlocks >= 0 && expiresInBlocks < BLOCKS_PER_DAY;
+            })
+            .map(app => ({
+                ...app,
+                expiresInBlocks: (app.height || 0) + app.expire - currentBlockHeight
+            }));
+
+        console.log(`   Apps expiring within 2880 blocks: ${expiringSoon.length}`);
+
+        // Sort ascending by expiry (most urgent first)
+        expiringSoon.sort((a, b) => a.expiresInBlocks - b.expiresInBlocks);
+
+        // Format for carousel display
+        const formattedApps = expiringSoon.map((app, index) => {
+            let cpu = app.cpu || 0;
+            let ram = app.ram || 0;
+            let hdd = app.hdd || 0;
+            let instances = app.instances || 0;
+
+            if (app.compose && Array.isArray(app.compose)) {
+                cpu = app.compose.reduce((sum, c) => sum + (c.cpu || 0), 0);
+                ram = app.compose.reduce((sum, c) => sum + (c.ram || 0), 0);
+                hdd = app.compose.reduce((sum, c) => sum + (c.hdd || 0), 0);
+            }
+
+            return {
+                type: 'expiring',
+                rank: index + 1,
+                name: app.name,
+                instances: instances,
+                cpu: cpu,
+                ram: ram,
+                hdd: hdd,
+                blocksUntilExpiry: app.expiresInBlocks
+            };
+        });
+
+        cachedExpiringApps = formattedApps;
+        lastExpiringFetchTime = Date.now();
+
+        console.log('✅ Expiring apps fetched:', formattedApps.length, 'apps');
+
+        return formattedApps;
+
+    } catch (error) {
+        console.error('❌ Error fetching expiring apps:', error.message);
+
+        if (cachedExpiringApps) {
+            console.log('⚠️ Using cached expiring apps data due to fetch error');
+            return cachedExpiringApps;
+        }
+
+        return [];
+    }
+}
+
+/**
  * Get cached deployed apps data (used by API endpoint)
  * If no cache exists, fetch immediately
  */
@@ -432,6 +519,31 @@ export async function getCachedDeployedApps() {
     return {
         stats: cachedDeployedApps || [],
         cached: !!cachedDeployedApps,
+        cacheAge: Math.floor(cacheAge / 1000), // seconds
+        fresh: isFresh
+    };
+}
+
+/**
+ * Get cached expiring apps data (used by API endpoint)
+ * If no cache exists, fetch immediately
+ */
+export async function getCachedExpiringApps() {
+    const cacheAge = Date.now() - lastExpiringFetchTime;
+    const isFresh = cacheAge < CACHE_DURATION;
+
+    if (!cachedExpiringApps || !isFresh) {
+        console.log('⏳ No fresh expiring apps cache, fetching now...');
+        try {
+            await fetchExpiringApps();
+        } catch (error) {
+            console.error('❌ Failed to fetch expiring apps on-demand:', error);
+        }
+    }
+
+    return {
+        stats: cachedExpiringApps || [],
+        cached: !!cachedExpiringApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
         fresh: isFresh
     };
