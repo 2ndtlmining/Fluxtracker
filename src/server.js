@@ -31,14 +31,15 @@ import {
 } from './lib/services/revenueScheduler.js';
 
 // Import revenue service for manual trigger
-import { 
+import {
     fetchRevenueStats,
     calculateMonthlyRevenue,
     calculatePreviousMonthRevenue,
     getMonthlyPaymentCount,
     getPreviousMonthPaymentCount,
     calculateYesterdayRevenue,
-    getYesterdayPaymentCount
+    getYesterdayPaymentCount,
+    clearPermanentlyFailedTxids
 } from './lib/services/revenueService.js';
 
 // Import testAllServices
@@ -666,8 +667,8 @@ app.get('/api/transactions/summary', (req, res) => {
 app.get('/api/transactions/paginated', (req, res) => {
     try {
         console.log('Starting transaction pagination');
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 50;
+        const page = Math.max(parseInt(req.query.page) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
         const search = req.query.search || '';
         
         const result = getTransactionsPaginated(page, limit, search);
@@ -1120,7 +1121,13 @@ app.listen(PORT, '0.0.0.0', () => {
         console.error('❌ Could not initialize snapshot checker:', error.message);
         console.error('⚠️  System will continue but snapshots may not be taken!');
     }
-    
+
+    // Run failed txid cleanup daily
+    setInterval(() => {
+        const cleared = clearPermanentlyFailedTxids();
+        if (cleared > 0) console.log(`🧹 Cleared ${cleared} permanently failed txids`);
+    }, 24 * 60 * 60 * 1000);
+
     console.log('\n🎉 All services started successfully!');
     console.log('──────────────────────────────────────────────────\n');
     
@@ -1138,23 +1145,13 @@ app.listen(PORT, '0.0.0.0', () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
     console.log('🛑 SIGTERM received, shutting down gracefully...');
+    stopCarouselUpdates();
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
     console.log('🛑 SIGINT received, shutting down gracefully...');
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('🛑 SIGTERM received, shutting down gracefully...');
-    stopCarouselUpdates();  
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('🛑 SIGINT received, shutting down gracefully...');
-    stopCarouselUpdates();  
+    stopCarouselUpdates();
     process.exit(0);
 });
 

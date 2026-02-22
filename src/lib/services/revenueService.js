@@ -114,8 +114,9 @@ export function getFailedTxStats() {
  */
 export function clearPermanentlyFailedTxids() {
     let cleared = 0;
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
     failedTxids.forEach((data, txid) => {
-        if (data.attempts >= 5) {
+        if (data.attempts >= 5 || data.lastAttempt < sevenDaysAgo) {
             failedTxids.delete(txid);
             cleared++;
         }
