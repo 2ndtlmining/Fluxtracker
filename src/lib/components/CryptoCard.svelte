@@ -26,7 +26,7 @@
     <div class="crypto-icon">
       <Coins size={24} strokeWidth={2} />
     </div>
-    <div class="crypto-title">Crypto Nodes</div>
+    <div class="crypto-title">Crypto Node Instances</div>
   </div>
   
   {#if !loading}
@@ -94,7 +94,7 @@
     
     <!-- Total with comparison -->
     <div class="crypto-total">
-      <div class="total-label">Total Nodes</div>
+      <div class="total-label">Total Node Instances</div>
       <div class="total-value">{formatNumber(total)}</div>
       {#if totalComparison && totalComparison.change !== undefined}
         <div class="total-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'}>

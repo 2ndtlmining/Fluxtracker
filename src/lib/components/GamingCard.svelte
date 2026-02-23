@@ -25,7 +25,7 @@
     <div class="gaming-icon">
       <Gamepad2 size={24} strokeWidth={2} />
     </div>
-    <div class="gaming-title">Gaming Apps</div>
+    <div class="gaming-title">Gaming App Instances</div>
   </div>
   
   {#if !loading}
@@ -93,7 +93,7 @@
     
     <!-- Total with comparison -->
     <div class="gaming-total">
-      <div class="total-label">Total Games</div>
+      <div class="total-label">Total Gaming Instances</div>
       <div class="total-value">{formatNumber(total)}</div>
       {#if totalComparison && totalComparison.change !== undefined}
         <div class="total-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'}>

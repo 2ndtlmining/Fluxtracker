@@ -1,14 +1,16 @@
 import axios from 'axios';
 import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, INITIAL_SYNC_LOOKBACK_BLOCKS } from '../config.js';
-import { 
-    updateCurrentMetrics, 
+import {
+    updateCurrentMetrics,
     updateSyncStatus,
     getSyncStatus,
     insertTransactionsBatch,
     getRevenueForDateRange,
     getPaymentCountForDateRange,
     getAllTxids,
-    getTxidCount
+    getTxidCount,
+    getUndeterminedAppNames,
+    updateAppTypeForAppName
 } from '../db/database.js';
 
 // ============================================
@@ -300,10 +302,34 @@ async function fetchRawTransaction(txid, retries = 3) {
 // ============================================
 
 const permanentMessagesCache = {
-    map: new Map(),
+    map: new Map(),      // hash -> name
+    typeMap: new Map(),  // name (lowercase) -> 'git' | 'docker'
     lastFetched: 0,
     TTL: 60 * 60 * 1000  // 1 hour
 };
+
+/**
+ * Determine if an app is git-based (runonflux/Orbit) or docker-based.
+ * Works with both old single-component and new compose-array spec formats.
+ */
+function determineAppType(appSpec) {
+    if (!appSpec) return 'docker';
+
+    // New compose format: array of components each with a repotag
+    if (Array.isArray(appSpec.compose)) {
+        const isGit = appSpec.compose.some(
+            c => c.repotag && c.repotag.toLowerCase().includes('runonflux/orbit')
+        );
+        return isGit ? 'git' : 'docker';
+    }
+
+    // Old single-component format: repotag directly on spec
+    if (appSpec.repotag && appSpec.repotag.toLowerCase().includes('runonflux/orbit')) {
+        return 'git';
+    }
+
+    return 'docker';
+}
 
 async function fetchPermanentMessages() {
     try {
@@ -312,11 +338,14 @@ async function fetchPermanentMessages() {
 
         if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
             permanentMessagesCache.map.clear();
+            permanentMessagesCache.typeMap.clear();
             for (const msg of response.data.data) {
                 const hash = msg.hash;
-                const name = msg.zelAppSpecification?.name || msg.appSpecifications?.name || msg.name;
+                const appSpec = msg.zelAppSpecification || msg.appSpecifications;
+                const name = appSpec?.name || msg.name;
                 if (hash && name) {
                     permanentMessagesCache.map.set(hash, name);
+                    permanentMessagesCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
                 }
             }
             permanentMessagesCache.lastFetched = Date.now();
@@ -368,6 +397,14 @@ function lookupAppName(hash) {
     return permanentMessagesCache.map.get(hash) || null;
 }
 
+/**
+ * Look up app type (git/docker) by app name
+ */
+function lookupAppType(appName) {
+    if (!appName) return null;
+    return permanentMessagesCache.typeMap.get(appName.toLowerCase()) || null;
+}
+
 // ============================================
 // TRANSACTION PROCESSING
 // ============================================
@@ -376,7 +413,7 @@ function lookupAppName(hash) {
  * Process transaction and extract revenue for our tracked addresses.
  * Expects Flux daemon getrawtransaction format (vout.value already in FLUX).
  */
-function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName = null) {
+function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName = null, appType = null) {
     const transactions = [];
 
     if (!tx || !tx.vout) {
@@ -426,7 +463,8 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName =
                     block_height: blockHeight,
                     timestamp,
                     date,
-                    app_name: appName || null
+                    app_name: appName || null,
+                    app_type: appType || null
                 });
             }
         }
@@ -534,8 +572,9 @@ export async function progressiveSync() {
                     // Extract app name via OP_RETURN -> permanentmessages lookup
                     const appHash = extractAppHashFromTx(tx);
                     const appName = appHash ? lookupAppName(appHash) : null;
+                    const appType = appName ? lookupAppType(appName) : null;
 
-                    const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName);
+                    const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType);
                     pendingPayments.push(...payments);
 
                     if (payments.length > 0) {
@@ -589,6 +628,38 @@ export async function progressiveSync() {
         console.error('Block-range sync error:', error.message);
         throw error;
     }
+}
+
+// ============================================
+// APP TYPE BACKFILL
+// ============================================
+
+/**
+ * Backfill app_type for all existing transactions where it is NULL.
+ * Uses the permanentMessages cache (fetches if stale) to determine git vs docker.
+ * Safe to run multiple times — only updates rows still missing app_type.
+ */
+export async function backfillAppTypes() {
+    await ensurePermanentMessagesCache();
+
+    const appNames = getUndeterminedAppNames();
+    console.log(`🔄 Backfilling app_type for ${appNames.length} distinct app names...`);
+
+    let updated = 0;
+    let unknown = 0;
+
+    for (const appName of appNames) {
+        const type = lookupAppType(appName);
+        if (type) {
+            updateAppTypeForAppName(appName, type);
+            updated++;
+        } else {
+            unknown++;
+        }
+    }
+
+    console.log(`✅ app_type backfill complete: ${updated} updated, ${unknown} unknown (no spec found)`);
+    return { total: appNames.length, updated, unknown };
 }
 
 // ============================================

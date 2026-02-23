@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { 
+import {
     getCurrentMetrics,
     getLastNSnapshots,
     getSnapshotsInRange,
@@ -11,6 +11,7 @@ import {
     getDatabaseStats,
     getTxidCount,
     getTransactionsPaginated,
+    getAppAnalytics,
     getDailyRevenueFromTransactions,
     getDailyRevenueInRange,
     getDailyRevenueUSDFromTransactions,
@@ -39,7 +40,8 @@ import {
     getPreviousMonthPaymentCount,
     calculateYesterdayRevenue,
     getYesterdayPaymentCount,
-    clearPermanentlyFailedTxids
+    clearPermanentlyFailedTxids,
+    backfillAppTypes
 } from './lib/services/revenueService.js';
 
 // Import testAllServices
@@ -194,6 +196,18 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
             success: false,
             error: error.message 
         });
+    }
+});
+
+// Backfill app_type (git/docker) for existing transactions
+app.post('/api/admin/backfill-app-types', async (req, res) => {
+    try {
+        console.log('🔄 app_type backfill triggered via API');
+        const result = await backfillAppTypes();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('❌ app_type backfill failed:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -670,14 +684,36 @@ app.get('/api/transactions/paginated', (req, res) => {
         const page = Math.max(parseInt(req.query.page) || 1, 1);
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
         const search = req.query.search || '';
-        
-        const result = getTransactionsPaginated(page, limit, search);
-        
+        const appName = req.query.appName || null;
+
+        const result = getTransactionsPaginated(page, limit, search, appName);
+
         res.json({
             transactions: result.transactions,
             total: result.total,
             page: page,
             limit: limit,
+            totalPages: Math.ceil(result.total / limit)
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// App Revenue Analytics - grouped by app_name
+app.get('/api/analytics/apps', (req, res) => {
+    try {
+        const page = Math.max(parseInt(req.query.page) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+        const search = req.query.search || '';
+
+        const result = getAppAnalytics(page, limit, search);
+
+        res.json({
+            apps: result.apps,
+            total: result.total,
+            page,
+            limit,
             totalPages: Math.ceil(result.total / limit)
         });
     } catch (error) {
