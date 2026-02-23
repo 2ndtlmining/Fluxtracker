@@ -16,7 +16,8 @@ import {
     getDailyRevenueInRange,
     getDailyRevenueUSDFromTransactions,
     getDailyRevenueUSDInRange,
-    resetRevenueSyncBlock
+    resetRevenueSyncBlock,
+    getSyncStatus
 } from './lib/db/database.js';
 
 // Import the NEW snapshot manager
