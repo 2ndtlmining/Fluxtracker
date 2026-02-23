@@ -248,7 +248,7 @@ export async function fetchCurrentBlockHeight() {
     }
 }
 
-const TXID_CHUNK_SIZE = 200000; // blocks per API call — stays well within timeout limits
+const TXID_CHUNK_SIZE = 50000; // blocks per API call — conservative to avoid public API timeouts
 
 /**
  * Fetch transaction IDs for an address within a block range using Flux daemon API.
@@ -268,18 +268,27 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
         chunks.push([startBlock, endBlock]);
     }
 
+    if (chunks.length > 1) {
+        console.log(`Splitting ${totalBlocks.toLocaleString()} blocks into ${chunks.length} chunks of ${TXID_CHUNK_SIZE.toLocaleString()}`);
+    }
+
     for (const [from, to] of chunks) {
         try {
             const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
-            console.log(`Fetching txids for ${address.substring(0, 15)}... (blocks ${from}-${to})`);
 
             const response = await axios.get(url, { timeout: 60000 });
 
             if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+                const count = response.data.data.length;
+                if (count > 0) {
+                    console.log(`  blocks ${from}-${to}: ${count} txids found`);
+                }
                 allTxids.push(...response.data.data);
+            } else {
+                console.warn(`  blocks ${from}-${to}: unexpected response`, response.data?.status);
             }
         } catch (error) {
-            console.error(`Error fetching txids for blocks ${from}-${to}:`, error.message);
+            console.error(`  blocks ${from}-${to}: ERROR - ${error.message}`);
         }
 
         // Small delay between chunks to be API-friendly
@@ -288,6 +297,7 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
         }
     }
 
+    console.log(`Total txids fetched for ${address.substring(0, 15)}: ${allTxids.length}`);
     return allTxids;
 }
 
