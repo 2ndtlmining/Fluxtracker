@@ -15,7 +15,8 @@ import {
     getDailyRevenueFromTransactions,
     getDailyRevenueInRange,
     getDailyRevenueUSDFromTransactions,
-    getDailyRevenueUSDInRange
+    getDailyRevenueUSDInRange,
+    resetRevenueSyncBlock
 } from './lib/db/database.js';
 
 // Import the NEW snapshot manager
@@ -196,6 +197,17 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
             success: false,
             error: error.message 
         });
+    }
+});
+
+// Reset revenue sync block to trigger full history re-scan from genesis on next sync
+app.post('/api/admin/reset-revenue-sync', (req, res) => {
+    try {
+        resetRevenueSyncBlock();
+        console.log('🔄 Revenue sync block reset — full history scan will run on next cycle');
+        res.json({ success: true, message: 'Revenue sync block reset. Full history scan from block 0 will run on next sync cycle.' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

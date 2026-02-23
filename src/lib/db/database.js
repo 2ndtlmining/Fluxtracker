@@ -1006,6 +1006,11 @@ export function updateSyncStatus(syncType, status, errorMessage = null, lastBloc
     stmt.run(Date.now(), lastBlock, status, errorMessage, syncType);
 }
 
+export function resetRevenueSyncBlock() {
+    if (!canWrite()) return;
+    db.prepare('UPDATE sync_status SET last_sync_block = NULL WHERE sync_type = ?').run('revenue');
+}
+
 export function setNextSync(syncType, nextSyncTime) {
     if (!canWrite()) return;
     
