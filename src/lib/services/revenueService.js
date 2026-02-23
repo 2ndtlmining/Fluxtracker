@@ -545,7 +545,7 @@ export async function progressiveSync() {
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock
             ? Math.max(0, lastSyncedBlock - 25)     // 25-block overlap catches edge cases
-            : Math.max(0, currentBlock - INITIAL_SYNC_LOOKBACK_BLOCKS);
+            : 0;                                    // Full history scan from genesis
 
         console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
 
