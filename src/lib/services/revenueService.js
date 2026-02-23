@@ -285,7 +285,7 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
                 }
                 allTxids.push(...response.data.data);
             } else {
-                console.warn(`  blocks ${from}-${to}: unexpected response`, response.data?.status);
+                console.warn(`  blocks ${from}-${to}: unexpected response — status: ${response.data?.status}, msg: ${JSON.stringify(response.data?.data ?? response.data)}`);
             }
         } catch (error) {
             console.error(`  blocks ${from}-${to}: ERROR - ${error.message}`);
@@ -576,8 +576,8 @@ export async function progressiveSync() {
         const syncStatus = getSyncStatus('revenue');
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock
-            ? Math.max(0, lastSyncedBlock - 25)     // 25-block overlap catches edge cases
-            : 0;                                    // Full history scan from genesis
+            ? Math.max(0, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
+            : Math.max(0, currentBlock - INITIAL_SYNC_LOOKBACK_BLOCKS);      // Controlled by config.js
 
         console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
 
