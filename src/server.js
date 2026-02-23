@@ -204,8 +204,16 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
 app.post('/api/admin/reset-revenue-sync', (req, res) => {
     try {
         resetRevenueSyncBlock();
-        console.log('🔄 Revenue sync block reset — full history scan will run on next cycle');
-        res.json({ success: true, message: 'Revenue sync block reset. Full history scan from block 0 will run on next sync cycle.' });
+        const verified = getSyncStatus('revenue');
+        const didReset = verified?.last_sync_block === null;
+        console.log(`🔄 Revenue sync block reset — last_sync_block is now ${verified?.last_sync_block}`);
+        res.json({
+            success: didReset,
+            last_sync_block: verified?.last_sync_block ?? null,
+            message: didReset
+                ? 'Reset successful. Full history scan from block 0 will run on next sync cycle.'
+                : 'Reset may not have applied — last_sync_block is still set.'
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

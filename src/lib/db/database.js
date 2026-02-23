@@ -1007,7 +1007,7 @@ export function updateSyncStatus(syncType, status, errorMessage = null, lastBloc
 }
 
 export function resetRevenueSyncBlock() {
-    if (!canWrite()) return;
+    // Admin operation — bypass canWrite() so it always executes regardless of writer election
     db.prepare('UPDATE sync_status SET last_sync_block = NULL WHERE sync_type = ?').run('revenue');
 }
 
