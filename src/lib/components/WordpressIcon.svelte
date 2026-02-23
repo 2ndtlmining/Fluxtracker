@@ -1,6 +1,6 @@
 <script>
   export let size = 24;
-  export let strokeWidth = 2; // accepted for API compatibility, unused (filled icon)
+  export const strokeWidth = 2; // accepted for API compatibility, unused (filled icon)
 </script>
 
 <svg

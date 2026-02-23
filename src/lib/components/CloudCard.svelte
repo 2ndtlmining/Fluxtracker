@@ -73,7 +73,7 @@
         
         <!-- CPU Comparison -->
         {#if cpuComparison && cpuComparison.change !== undefined}
-          <div class="metric-change" class:up={cpuComparison.trend === 'up'} class:down={cpuComparison.trend === 'down'}>
+          <div class="metric-change" class:up={cpuComparison.trend === 'up'} class:down={cpuComparison.trend === 'down'} class:neutral={cpuComparison.trend === 'neutral'}>
             {#if cpuComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if cpuComparison.trend === 'down'}
@@ -94,7 +94,7 @@
         
         <!-- RAM Comparison -->
         {#if ramComparison && ramComparison.change !== undefined}
-          <div class="metric-change" class:up={ramComparison.trend === 'up'} class:down={ramComparison.trend === 'down'}>
+          <div class="metric-change" class:up={ramComparison.trend === 'up'} class:down={ramComparison.trend === 'down'} class:neutral={ramComparison.trend === 'neutral'}>
             {#if ramComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if ramComparison.trend === 'down'}
@@ -115,7 +115,7 @@
         
         <!-- Storage Comparison -->
         {#if storageComparison && storageComparison.change !== undefined}
-          <div class="metric-change" class:up={storageComparison.trend === 'up'} class:down={storageComparison.trend === 'down'}>
+          <div class="metric-change" class:up={storageComparison.trend === 'up'} class:down={storageComparison.trend === 'down'} class:neutral={storageComparison.trend === 'neutral'}>
             {#if storageComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if storageComparison.trend === 'down'}

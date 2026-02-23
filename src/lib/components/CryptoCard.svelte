@@ -4,7 +4,7 @@
   export let presearch = { count: 0 };
   export let kaspa = { count: 0 };
   export let alephium = { count: 0 };
-  export let timpi_collector = { count: 0 };
+  export const timpi_collector = { count: 0 };
   export let total = 0;
   export let loading = false;
   
@@ -40,7 +40,7 @@
         
         <!-- Presearch Comparison -->
         {#if presearchComparison && presearchComparison.change !== undefined}
-          <div class="metric-change" class:up={presearchComparison.trend === 'up'} class:down={presearchComparison.trend === 'down'}>
+          <div class="metric-change" class:up={presearchComparison.trend === 'up'} class:down={presearchComparison.trend === 'down'} class:neutral={presearchComparison.trend === 'neutral'}>
             {#if presearchComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if presearchComparison.trend === 'down'}
@@ -60,7 +60,7 @@
         
         <!-- Kaspa Comparison -->
         {#if kaspaComparison && kaspaComparison.change !== undefined}
-          <div class="metric-change" class:up={kaspaComparison.trend === 'up'} class:down={kaspaComparison.trend === 'down'}>
+          <div class="metric-change" class:up={kaspaComparison.trend === 'up'} class:down={kaspaComparison.trend === 'down'} class:neutral={kaspaComparison.trend === 'neutral'}>
             {#if kaspaComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if kaspaComparison.trend === 'down'}
@@ -80,7 +80,7 @@
         
         <!-- Alephium Comparison -->
         {#if alephiumComparison && alephiumComparison.change !== undefined}
-          <div class="metric-change" class:up={alephiumComparison.trend === 'up'} class:down={alephiumComparison.trend === 'down'}>
+          <div class="metric-change" class:up={alephiumComparison.trend === 'up'} class:down={alephiumComparison.trend === 'down'} class:neutral={alephiumComparison.trend === 'neutral'}>
             {#if alephiumComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if alephiumComparison.trend === 'down'}

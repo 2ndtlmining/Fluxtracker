@@ -41,7 +41,7 @@
         
         <!-- Git Comparison -->
         {#if gitAppsComparison && gitAppsComparison.change !== undefined}
-          <div class="metric-change" class:up={gitAppsComparison.trend === 'up'} class:down={gitAppsComparison.trend === 'down'}>
+          <div class="metric-change" class:up={gitAppsComparison.trend === 'up'} class:down={gitAppsComparison.trend === 'down'} class:neutral={gitAppsComparison.trend === 'neutral'}>
             {#if gitAppsComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if gitAppsComparison.trend === 'down'}
@@ -65,7 +65,7 @@
         
         <!-- Docker Comparison -->
         {#if dockerAppsComparison && dockerAppsComparison.change !== undefined}
-          <div class="metric-change" class:up={dockerAppsComparison.trend === 'up'} class:down={dockerAppsComparison.trend === 'down'}>
+          <div class="metric-change" class:up={dockerAppsComparison.trend === 'up'} class:down={dockerAppsComparison.trend === 'down'} class:neutral={dockerAppsComparison.trend === 'neutral'}>
             {#if dockerAppsComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if dockerAppsComparison.trend === 'down'}

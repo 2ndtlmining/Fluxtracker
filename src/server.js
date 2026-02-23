@@ -44,7 +44,8 @@ import {
     calculateYesterdayRevenue,
     getYesterdayPaymentCount,
     clearPermanentlyFailedTxids,
-    backfillAppTypes
+    backfillAppTypes,
+    backfillAppNames
 } from './lib/services/revenueService.js';
 
 // Import testAllServices
@@ -240,6 +241,19 @@ app.post('/api/admin/backfill-app-types', async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         console.error('❌ app_type backfill failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Backfill app_name for transactions where it is NULL (re-fetches raw txs to extract OP_RETURN hash)
+app.post('/api/admin/backfill-app-names', async (req, res) => {
+    try {
+        const batchSize = Math.min(parseInt(req.body?.batchSize) || 500, 2000);
+        console.log(`🔄 app_name backfill triggered via API (batchSize: ${batchSize})`);
+        const result = await backfillAppNames(batchSize);
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('❌ app_name backfill failed:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
