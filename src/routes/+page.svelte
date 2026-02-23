@@ -13,7 +13,7 @@
   import AppsCard from '$lib/components/AppsCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
-  import { FileText } from 'lucide-svelte';
+  import WordpressIcon from '$lib/components/WordpressIcon.svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
@@ -483,8 +483,8 @@
       
       <!-- WordPress Sites -->
       <StatCard
-        icon={FileText}
-        title="WordPress Sites"
+        icon={WordpressIcon}
+        title="WordPress Instances"
         value={loading ? '...' : formatNumber(metrics?.wordpress?.count || 0)}
         subtitle="Active installations"
         change={comparison ? formatChange(comparison.changes.wordpress, true) : ''}

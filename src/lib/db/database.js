@@ -368,8 +368,13 @@ function migrateRevenueTransactions() {
             db.exec('ALTER TABLE revenue_transactions ADD COLUMN app_name TEXT DEFAULT NULL');
             console.log('Migration: added app_name column to revenue_transactions');
         }
+        const hasAppType = columns.some(col => col.name === 'app_type');
+        if (!hasAppType) {
+            db.exec('ALTER TABLE revenue_transactions ADD COLUMN app_type TEXT DEFAULT NULL');
+            console.log('Migration: added app_type column to revenue_transactions');
+        }
     } catch (error) {
-        console.warn('revenue_transactions migration check failed:', error.message);
+        console.warn('revenue_transactions migration check failed:', error.message); // nosec
     }
 }
 
@@ -668,8 +673,8 @@ export function insertTransaction(tx) {
     
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -681,7 +686,8 @@ export function insertTransaction(tx) {
         tx.block_height,
         tx.timestamp,
         tx.date,
-        tx.app_name || null
+        tx.app_name || null,
+        tx.app_type || null
     );
 }
 
@@ -694,8 +700,8 @@ export function insertTransactionsBatch(transactions) {
     
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((txs) => {
@@ -709,13 +715,31 @@ export function insertTransactionsBatch(transactions) {
                 tx.block_height,
                 tx.timestamp,
                 tx.date,
-                tx.app_name || null
+                tx.app_name || null,
+                tx.app_type || null
             );
         }
     });
 
     insertMany(transactions);
     console.log(`✅ Inserted ${transactions.length} transactions`);
+}
+
+// Returns distinct app names that have no app_type yet (for backfill)
+export function getUndeterminedAppNames() {
+    const stmt = db.prepare(`
+        SELECT DISTINCT app_name FROM revenue_transactions
+        WHERE app_name IS NOT NULL AND app_name != '' AND app_type IS NULL
+    `);
+    return stmt.all().map(row => row.app_name);
+}
+
+// Sets app_type for all rows matching a given app_name (only where still NULL)
+export function updateAppTypeForAppName(appName, appType) {
+    const stmt = db.prepare(`
+        UPDATE revenue_transactions SET app_type = ? WHERE app_name = ? AND app_type IS NULL
+    `);
+    stmt.run(appType, appName);
 }
 
 export function getTransactionsByDate(date) {
@@ -782,13 +806,17 @@ export function getTxidCount() {
     return result?.count || 0;
 }
 
-export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
+export function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null) {
     const offset = (page - 1) * limit;
-    
+
     let whereClause = '';
     let params = [];
-    
-    if (search && search.trim() !== '') {
+
+    if (appName && appName.trim() !== '') {
+        // Exact match for app drill-down
+        whereClause = 'WHERE app_name = ?';
+        params = [appName.trim()];
+    } else if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim()}%`;
         whereClause = `WHERE
             txid LIKE ? OR
@@ -825,6 +853,46 @@ export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
         limit,
         offset
     };
+}
+
+export function getAppAnalytics(page = 1, limit = 50, search = '') {
+    const offset = (page - 1) * limit;
+
+    let whereClause = "WHERE app_name IS NOT NULL AND app_name != ''";
+    let params = [];
+
+    if (search && search.trim() !== '') {
+        whereClause += " AND app_name LIKE ?";
+        params.push(`%${search.trim()}%`);
+    }
+
+    const countStmt = db.prepare(`
+        SELECT COUNT(DISTINCT app_name) as count
+        FROM revenue_transactions
+        ${whereClause}
+    `);
+    const countResult = params.length > 0 ? countStmt.get(...params) : countStmt.get();
+    const total = countResult?.count || 0;
+
+    const dataStmt = db.prepare(`
+        SELECT
+            app_name,
+            COUNT(*) as transaction_count,
+            SUM(amount) as total_revenue,
+            AVG(amount) as avg_payment,
+            MIN(date) as first_payment,
+            MAX(date) as last_payment
+        FROM revenue_transactions
+        ${whereClause}
+        GROUP BY app_name
+        ORDER BY total_revenue DESC
+        LIMIT ? OFFSET ?
+    `);
+
+    const queryParams = params.length > 0 ? [...params, limit, offset] : [limit, offset];
+    const apps = dataStmt.all(...queryParams);
+
+    return { apps, total, page, limit, offset };
 }
 
 export function getDailyRevenueFromTransactions(days = 30) {
