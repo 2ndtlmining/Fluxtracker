@@ -308,6 +308,36 @@ const permanentMessagesCache = {
     TTL: 60 * 60 * 1000  // 1 hour
 };
 
+// Secondary fallback: globalappsspecifications (hash -> name + type)
+const globalSpecsCache = {
+    map: new Map(),      // hash -> name
+    typeMap: new Map(),  // name (lowercase) -> 'git' | 'docker'
+    lastFetched: 0,
+    TTL: 60 * 60 * 1000
+};
+
+async function fetchGlobalSpecs() {
+    try {
+        const response = await axios.get(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 30000 });
+        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+            globalSpecsCache.map.clear();
+            globalSpecsCache.typeMap.clear();
+            for (const appSpec of response.data.data) {
+                const hash = appSpec.hash;
+                const name = appSpec.name;
+                if (hash && name) {
+                    globalSpecsCache.map.set(hash, name);
+                    globalSpecsCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
+                }
+            }
+            globalSpecsCache.lastFetched = Date.now();
+            console.log(`Loaded ${globalSpecsCache.map.size} app names from global specs`);
+        }
+    } catch (error) {
+        console.warn(`Failed to fetch global specs: ${error.message}`);
+    }
+}
+
 /**
  * Determine if an app is git-based (runonflux/Orbit) or docker-based.
  * Works with both old single-component and new compose-array spec formats.
@@ -357,10 +387,16 @@ async function fetchPermanentMessages() {
 }
 
 async function ensurePermanentMessagesCache() {
-    const age = Date.now() - permanentMessagesCache.lastFetched;
-    if (age > permanentMessagesCache.TTL || permanentMessagesCache.map.size === 0) {
-        await fetchPermanentMessages();
+    const pmAge = Date.now() - permanentMessagesCache.lastFetched;
+    const gsAge = Date.now() - globalSpecsCache.lastFetched;
+    const fetches = [];
+    if (pmAge > permanentMessagesCache.TTL || permanentMessagesCache.map.size === 0) {
+        fetches.push(fetchPermanentMessages());
     }
+    if (gsAge > globalSpecsCache.TTL || globalSpecsCache.map.size === 0) {
+        fetches.push(fetchGlobalSpecs());
+    }
+    if (fetches.length > 0) await Promise.all(fetches);
 }
 
 /**
@@ -390,11 +426,11 @@ function extractAppHashFromTx(tx) {
 }
 
 /**
- * Look up app name from hash in the permanent messages cache
+ * Look up app name from hash — permanentMessages first, globalSpecs as fallback
  */
 function lookupAppName(hash) {
     if (!hash) return null;
-    return permanentMessagesCache.map.get(hash) || null;
+    return permanentMessagesCache.map.get(hash) || globalSpecsCache.map.get(hash) || null;
 }
 
 /**
@@ -402,7 +438,9 @@ function lookupAppName(hash) {
  */
 function lookupAppType(appName) {
     if (!appName) return null;
-    return permanentMessagesCache.typeMap.get(appName.toLowerCase()) || null;
+    return permanentMessagesCache.typeMap.get(appName.toLowerCase())
+        || globalSpecsCache.typeMap.get(appName.toLowerCase())
+        || null;
 }
 
 // ============================================
