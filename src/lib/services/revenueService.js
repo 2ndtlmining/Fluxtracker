@@ -248,25 +248,47 @@ export async function fetchCurrentBlockHeight() {
     }
 }
 
+const TXID_CHUNK_SIZE = 200000; // blocks per API call — stays well within timeout limits
+
 /**
- * Fetch transaction IDs for an address within a block range using Flux daemon API
+ * Fetch transaction IDs for an address within a block range using Flux daemon API.
+ * Automatically chunks large ranges to avoid API timeouts.
  */
 async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
-    try {
-        const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${startBlock}/${endBlock}`;
-        console.log(`Fetching txids for ${address.substring(0, 15)}... (blocks ${startBlock}-${endBlock})`);
+    const allTxids = [];
+    const totalBlocks = endBlock - startBlock;
 
-        const response = await axios.get(url, { timeout: 30000 });
+    // Split large ranges into chunks to avoid timeouts on the public API
+    const chunks = [];
+    if (totalBlocks > TXID_CHUNK_SIZE) {
+        for (let from = startBlock; from < endBlock; from += TXID_CHUNK_SIZE) {
+            chunks.push([from, Math.min(from + TXID_CHUNK_SIZE - 1, endBlock)]);
+        }
+    } else {
+        chunks.push([startBlock, endBlock]);
+    }
 
-        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
-            return response.data.data;
+    for (const [from, to] of chunks) {
+        try {
+            const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
+            console.log(`Fetching txids for ${address.substring(0, 15)}... (blocks ${from}-${to})`);
+
+            const response = await axios.get(url, { timeout: 60000 });
+
+            if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+                allTxids.push(...response.data.data);
+            }
+        } catch (error) {
+            console.error(`Error fetching txids for blocks ${from}-${to}:`, error.message);
         }
 
-        return [];
-    } catch (error) {
-        console.error(`Error fetching address txids in range:`, error.message);
-        return [];
+        // Small delay between chunks to be API-friendly
+        if (chunks.length > 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
     }
+
+    return allTxids;
 }
 
 /**
