@@ -10,7 +10,10 @@ import {
     getAllTxids,
     getTxidCount,
     getUndeterminedAppNames,
-    updateAppTypeForAppName
+    updateAppTypeForAppName,
+    getTxidsWithoutAppName,
+    countTxidsWithoutAppName,
+    updateAppNameForTxid
 } from '../db/database.js';
 
 // ============================================
@@ -730,6 +733,57 @@ export async function backfillAppTypes() {
 
     console.log(`✅ app_type backfill complete: ${updated} updated, ${unknown} unknown (no spec found)`);
     return { total: appNames.length, updated, unknown };
+}
+
+/**
+ * Backfill app_name (and app_type) for existing transactions where app_name is NULL.
+ * Re-fetches raw transactions to extract OP_RETURN hashes, then resolves via cache.
+ * Safe to run multiple times — only touches rows still missing app_name.
+ * @param {number} batchSize - max transactions to process per call (default 500)
+ */
+export async function backfillAppNames(batchSize = 500) {
+    await ensurePermanentMessagesCache();
+
+    const total = countTxidsWithoutAppName();
+    const txids = getTxidsWithoutAppName(batchSize);
+    console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
+
+    let updated = 0;
+    let noHash = 0;
+    let noName = 0;
+    let fetchErrors = 0;
+
+    const BATCH = 10;
+    for (let i = 0; i < txids.length; i += BATCH) {
+        const batch = txids.slice(i, i + BATCH);
+        const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
+
+        for (let j = 0; j < batch.length; j++) {
+            const txid = batch[j];
+            const tx = txResults[j];
+
+            if (!tx) { fetchErrors++; continue; }
+
+            const appHash = extractAppHashFromTx(tx);
+            if (!appHash) { noHash++; continue; }
+
+            const appName = lookupAppName(appHash);
+            if (!appName) { noName++; continue; }
+
+            const appType = lookupAppType(appName);
+            updateAppNameForTxid(txid, appName, appType);
+            updated++;
+        }
+
+        if (i + BATCH < txids.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+    }
+
+    const remaining = total - updated;
+    console.log(`✅ app_name backfill complete: ${updated} updated, ${noHash} no OP_RETURN hash, ${noName} hash not in cache, ${fetchErrors} fetch errors`);
+    console.log(`   Remaining NULL app_name rows: ~${remaining}`);
+    return { total, processed: txids.length, updated, noHash, noName, fetchErrors, remaining };
 }
 
 // ============================================

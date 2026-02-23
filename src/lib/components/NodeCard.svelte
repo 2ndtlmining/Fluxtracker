@@ -39,7 +39,7 @@
         
         <!-- Cumulus Comparison -->
         {#if cumulusComparison && cumulusComparison.change !== undefined}
-          <div class="metric-change" class:up={cumulusComparison.trend === 'up'} class:down={cumulusComparison.trend === 'down'}>
+          <div class="metric-change" class:up={cumulusComparison.trend === 'up'} class:down={cumulusComparison.trend === 'down'} class:neutral={cumulusComparison.trend === 'neutral'}>
             {#if cumulusComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if cumulusComparison.trend === 'down'}
@@ -59,7 +59,7 @@
         
         <!-- Nimbus Comparison -->
         {#if nimbusComparison && nimbusComparison.change !== undefined}
-          <div class="metric-change" class:up={nimbusComparison.trend === 'up'} class:down={nimbusComparison.trend === 'down'}>
+          <div class="metric-change" class:up={nimbusComparison.trend === 'up'} class:down={nimbusComparison.trend === 'down'} class:neutral={nimbusComparison.trend === 'neutral'}>
             {#if nimbusComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if nimbusComparison.trend === 'down'}
@@ -79,7 +79,7 @@
         
         <!-- Stratus Comparison -->
         {#if stratusComparison && stratusComparison.change !== undefined}
-          <div class="metric-change" class:up={stratusComparison.trend === 'up'} class:down={stratusComparison.trend === 'down'}>
+          <div class="metric-change" class:up={stratusComparison.trend === 'up'} class:down={stratusComparison.trend === 'down'} class:neutral={stratusComparison.trend === 'neutral'}>
             {#if stratusComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if stratusComparison.trend === 'down'}

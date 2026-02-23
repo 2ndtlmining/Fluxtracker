@@ -616,8 +616,8 @@
 
   <!-- App Detail Modal -->
   {#if selectedApp}
-    <div class="modal-backdrop" on:click={closeAppDetail}>
-      <div class="modal-panel" on:click|stopPropagation>
+    <div class="modal-backdrop" role="button" tabindex="0" on:click={closeAppDetail} on:keydown={(e) => (e.key === 'Escape' || e.key === 'Enter') && closeAppDetail()}>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-label="App details" tabindex="-1" on:click|stopPropagation on:keydown|stopPropagation>
         <div class="modal-header">
           <h3 class="modal-title">{selectedApp.app_name}</h3>
           <button class="modal-close" on:click={closeAppDetail}>✕</button>

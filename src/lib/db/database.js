@@ -742,6 +742,38 @@ export function updateAppTypeForAppName(appName, appType) {
     stmt.run(appType, appName);
 }
 
+// Returns txids for transactions that have no app_name yet (for app_name backfill)
+export function getTxidsWithoutAppName(limit = 500) {
+    const stmt = db.prepare(`
+        SELECT txid FROM revenue_transactions
+        WHERE app_name IS NULL
+        ORDER BY block_height DESC
+        LIMIT ?
+    `);
+    return stmt.all(limit).map(row => row.txid);
+}
+
+// Returns count of transactions with no app_name
+export function countTxidsWithoutAppName() {
+    const stmt = db.prepare(`
+        SELECT COUNT(*) as count FROM revenue_transactions WHERE app_name IS NULL
+    `);
+    return stmt.get().count;
+}
+
+// Sets app_name and app_type for a single txid (only where app_name is still NULL)
+export function updateAppNameForTxid(txid, appName, appType) {
+    if (!canWrite()) {
+        console.warn('Skipping app_name update - not the writer');
+        return;
+    }
+    const stmt = db.prepare(`
+        UPDATE revenue_transactions SET app_name = ?, app_type = ?
+        WHERE txid = ? AND app_name IS NULL
+    `);
+    stmt.run(appName, appType, txid);
+}
+
 export function getTransactionsByDate(date) {
     const stmt = db.prepare('SELECT * FROM revenue_transactions WHERE date = ?');
     return stmt.all(date);

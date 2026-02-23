@@ -39,7 +39,7 @@
         
         <!-- Minecraft Comparison -->
         {#if minecraftComparison && minecraftComparison.change !== undefined}
-          <div class="metric-change" class:up={minecraftComparison.trend === 'up'} class:down={minecraftComparison.trend === 'down'}>
+          <div class="metric-change" class:up={minecraftComparison.trend === 'up'} class:down={minecraftComparison.trend === 'down'} class:neutral={minecraftComparison.trend === 'neutral'}>
             {#if minecraftComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if minecraftComparison.trend === 'down'}
@@ -59,7 +59,7 @@
         
         <!-- Palworld Comparison -->
         {#if palworldComparison && palworldComparison.change !== undefined}
-          <div class="metric-change" class:up={palworldComparison.trend === 'up'} class:down={palworldComparison.trend === 'down'}>
+          <div class="metric-change" class:up={palworldComparison.trend === 'up'} class:down={palworldComparison.trend === 'down'} class:neutral={palworldComparison.trend === 'neutral'}>
             {#if palworldComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if palworldComparison.trend === 'down'}
@@ -79,7 +79,7 @@
         
         <!-- Enshrouded Comparison -->
         {#if enshroudedComparison && enshroudedComparison.change !== undefined}
-          <div class="metric-change" class:up={enshroudedComparison.trend === 'up'} class:down={enshroudedComparison.trend === 'down'}>
+          <div class="metric-change" class:up={enshroudedComparison.trend === 'up'} class:down={enshroudedComparison.trend === 'down'} class:neutral={enshroudedComparison.trend === 'neutral'}>
             {#if enshroudedComparison.trend === 'up'}
               <span class="trend-arrow">↑</span>
             {:else if enshroudedComparison.trend === 'down'}
