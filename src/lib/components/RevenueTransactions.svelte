@@ -181,12 +181,12 @@
       const allTransactions = result.transactions || [];
 
       // Build CSV content
-      const headers = ['Type', 'Transaction ID', 'From Address', 'To Address', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Block Height'];
+      const headers = ['Type', 'Transaction ID', 'From Address', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Block Height'];
       const rows = allTransactions.map(tx => [
         'IN',
         tx.txid,
         tx.from_address || 'Unknown',
-        tx.address,
+        tx.app_name || '-',
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
         tx.date,
@@ -314,7 +314,7 @@
               <th>TYPE</th>
               <th>TRANSACTION_ID</th>
               <th>FROM_ADDRESS</th>
-              <th>TO_ADDRESS</th>
+              <th>APP_NAME</th>
               <th>AMOUNT_FLUX</th>
               <th>AMOUNT_USD</th>
               <th>DATE</th>
@@ -336,7 +336,7 @@
                   </a>
                 </td>
                 <td class="address-col">{formatAddress(tx.from_address)}</td>
-                <td class="address-col">{formatAddress(tx.address)}</td>
+                <td class="app-name-col">{tx.app_name || '-'}</td>
                 <td class="amount-col">{formatAmount(tx.amount)}</td>
                 <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
                 <td class="date-col">{formatDate(tx.date)}</td>
@@ -665,6 +665,15 @@
   .address-col {
     color: var(--text-dim);
     font-size: 0.75rem;
+  }
+
+  .app-name-col {
+    color: var(--accent-cyan);
+    font-size: 0.75rem;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .amount-col {

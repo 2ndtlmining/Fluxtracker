@@ -16,6 +16,11 @@ export const DONATION_ADDRESSES = [
 
 ];
 
+// Initial sync lookback for first run.
+// 1,500,000 covers all Flux history (chain launched ~2018, mixed 120s/30s blocks).
+// Increase if you need more. The getaddresstxids API handles large ranges natively.
+export const INITIAL_SYNC_LOOKBACK_BLOCKS = 1500000;
+
 export const SYNC_INTERVALS = {
     REVENUE: 5 * 60 * 1000,      // 5 minutes (for progressive transaction sync)
     CLOUD: 10 * 60 * 1000,       // 10 minutes
@@ -73,8 +78,11 @@ export const API_ENDPOINTS = {
     // WordPress API - UPDATED to use running apps endpoint
     WORDPRESS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
     
-    // Price APIs
+    // Price APIs (tried in order)
+    PRICE_COINGECKO: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
     PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
+    PRICE_EXPLORER: 'https://explorer.runonflux.io/api/currency',
+    PRICE_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/price?fsym=FLUX&tsyms=USD',
     PRICE_FALLBACK: 'https://explorer.runonflux.io/api/currency',
 
     //cloud stats
