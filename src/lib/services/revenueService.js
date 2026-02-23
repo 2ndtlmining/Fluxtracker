@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_ENDPOINTS, TARGET_ADDRESSES, BLOCK_CONFIG, EXCLUDED_TRANSACTIONS } from '../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, INITIAL_SYNC_LOOKBACK_BLOCKS } from '../config.js';
 import { 
     updateCurrentMetrics, 
     updateSyncStatus,
@@ -8,15 +8,8 @@ import {
     getRevenueForDateRange,
     getPaymentCountForDateRange,
     getAllTxids,
-    getTxidCount,
-    getLastSyncedBlock
+    getTxidCount
 } from '../db/database.js';
-
-// ============================================
-// CONFIGURATION
-// ============================================
-const TRANSACTIONS_PER_SYNC = 20;  // How many transactions to import per 5-minute cycle
-const PAGE_SIZE = 1000;             // How many txids to fetch per API call
 
 // ============================================
 // STATE TRACKING
@@ -26,11 +19,7 @@ let revenueSyncState = {
     lastStarted: null,
     lastCompleted: null,
     currentBlock: null,
-    lastError: null,
-    // NEW: Track pagination progress
-    currentPage: 1,
-    totalPages: null,
-    processedTxids: new Set() // Track what we've already processed
+    lastError: null
 };
 
 // ============================================
@@ -178,38 +167,57 @@ export function getTimeSinceLastSync() {
 // ============================================
 
 /**
- * Fetch FLUX price in USD
+ * Fetch FLUX price in USD.
+ * Tries three sources in order: CoinGecko → Flux Explorer → CryptoCompare
  */
 export async function fetchFluxPrice() {
+    console.log('Fetching FLUX price...');
+
+    // 1. CoinGecko
     try {
-        console.log('🔍 Fetching FLUX price...');
-        
-        try {
-            const response = await axios.get(
-                API_ENDPOINTS.PRICE_PRIMARY,
-                { timeout: 10000 }
-            );
-            
-            if (response.data && response.data.zelcash && response.data.zelcash.usd) {
-                const price = response.data.zelcash.usd;
-                console.log(`✅ FLUX Price: $${price}`);
-                updateCurrentMetrics({ 
-                    last_update: Date.now(),
-                    flux_price_usd: price 
-                });
+        const response = await axios.get(API_ENDPOINTS.PRICE_COINGECKO, { timeout: 10000 });
+        if (response.data?.zelcash?.usd) {
+            const price = response.data.zelcash.usd;
+            console.log(`FLUX Price (CoinGecko): $${price}`);
+            updateCurrentMetrics({ flux_price_usd: price });
+            return price;
+        }
+    } catch (e) {
+        console.warn(`CoinGecko failed: ${e.message}`);
+    }
+
+    // 2. Flux Explorer  (returns { status:200, currency:"USD", rate:X })
+    try {
+        const response = await axios.get(API_ENDPOINTS.PRICE_EXPLORER, { timeout: 10000 });
+        if (response.data?.rate) {
+            const price = parseFloat(response.data.rate);
+            if (price > 0) {
+                console.log(`FLUX Price (Explorer): $${price}`);
+                updateCurrentMetrics({ flux_price_usd: price });
                 return price;
             }
-        } catch (error) {
-            console.warn('⚠️  CoinGecko failed');
         }
-        
-        console.warn('⚠️  No USD price available');
-        return null;
-        
-    } catch (error) {
-        console.error('❌ Error fetching FLUX price:', error.message);
-        return null;
+    } catch (e) {
+        console.warn(`Flux Explorer price failed: ${e.message}`);
     }
+
+    // 3. CryptoCompare  (returns { USD: X })
+    try {
+        const response = await axios.get(API_ENDPOINTS.PRICE_CRYPTOCOMPARE, { timeout: 10000 });
+        if (response.data?.USD) {
+            const price = parseFloat(response.data.USD);
+            if (price > 0) {
+                console.log(`FLUX Price (CryptoCompare): $${price}`);
+                updateCurrentMetrics({ flux_price_usd: price });
+                return price;
+            }
+        }
+    } catch (e) {
+        console.warn(`CryptoCompare failed: ${e.message}`);
+    }
+
+    console.warn('All price sources failed — USD values will be null');
+    return null;
 }
 
 // ============================================
@@ -239,67 +247,47 @@ export async function fetchCurrentBlockHeight() {
 }
 
 /**
- * Fetch transaction IDs for a specific address using Blockbook
+ * Fetch transaction IDs for an address within a block range using Flux daemon API
  */
-async function fetchAddressTransactionIds(address, page = 1, pageSize = PAGE_SIZE) {
+async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
     try {
-        const url = `${API_ENDPOINTS.BLOCKBOOK}address/${address}?page=${page}&pageSize=${pageSize}`;
-        
-        console.log(`🔍 Fetching transaction IDs for ${address.substring(0, 15)}... (page ${page})`);
-        
-        const response = await axios.get(url, { 
-            timeout: 30000,
-            headers: {
-                'Accept': 'application/json'
-            }
-        });
-        
-        if (response.data) {
-            return {
-                txids: response.data.txids || [],
-                totalTxs: response.data.txs || 0,
-                totalPages: response.data.totalPages || 0,
-                currentPage: response.data.page || page,
-                balance: response.data.balance || '0'
-            };
+        const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${startBlock}/${endBlock}`;
+        console.log(`Fetching txids for ${address.substring(0, 15)}... (blocks ${startBlock}-${endBlock})`);
+
+        const response = await axios.get(url, { timeout: 30000 });
+
+        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+            return response.data.data;
         }
-        
-        return null;
-        
+
+        return [];
     } catch (error) {
-        console.error(`❌ Error fetching address transactions:`, error.message);
-        return null;
+        console.error(`Error fetching address txids in range:`, error.message);
+        return [];
     }
 }
 
 /**
- * Fetch full transaction details using Blockbook with retry logic
+ * Fetch raw transaction details from Flux daemon with retry logic
  */
-async function fetchTransactionDetails(txid, retries = 3) {
+async function fetchRawTransaction(txid, retries = 3) {
     for (let attempt = 1; attempt <= retries; attempt++) {
         try {
-            const url = `${API_ENDPOINTS.BLOCKBOOK}tx/${txid}`;
-            
-            const response = await axios.get(url, { 
-                timeout: 15000,
-                headers: {
-                    'Accept': 'application/json'
-                }
-            });
-            
-            if (response.data) {
-                return response.data;
+            const url = `${API_ENDPOINTS.DAEMON}/getrawtransaction/${txid}/1`;
+            const response = await axios.get(url, { timeout: 15000 });
+
+            if (response.data && response.data.status === 'success') {
+                return response.data.data;
             }
-            
+
             return null;
-            
         } catch (error) {
             if (attempt < retries) {
                 const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-                console.warn(`⚠️  Retry ${attempt}/${retries} for tx ${txid.substring(0, 10)} in ${delay}ms...`);
+                console.warn(`Retry ${attempt}/${retries} for tx ${txid.substring(0, 10)} in ${delay}ms...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                console.error(`❌ Failed to fetch tx ${txid.substring(0, 10)} after ${retries} attempts`);
+                console.error(`Failed to fetch tx ${txid.substring(0, 10)} after ${retries} attempts`);
                 return null;
             }
         }
@@ -308,37 +296,113 @@ async function fetchTransactionDetails(txid, retries = 3) {
 }
 
 // ============================================
+// APP NAME LOOKUP (via OP_RETURN + permanentmessages)
+// ============================================
+
+const permanentMessagesCache = {
+    map: new Map(),
+    lastFetched: 0,
+    TTL: 60 * 60 * 1000  // 1 hour
+};
+
+async function fetchPermanentMessages() {
+    try {
+        console.log('Fetching permanent messages for app name lookup...');
+        const response = await axios.get(`${API_ENDPOINTS.APPS}/permanentmessages`, { timeout: 30000 });
+
+        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+            permanentMessagesCache.map.clear();
+            for (const msg of response.data.data) {
+                const hash = msg.hash;
+                const name = msg.zelAppSpecification?.name || msg.appSpecifications?.name || msg.name;
+                if (hash && name) {
+                    permanentMessagesCache.map.set(hash, name);
+                }
+            }
+            permanentMessagesCache.lastFetched = Date.now();
+            console.log(`Loaded ${permanentMessagesCache.map.size} app names from permanent messages`);
+        }
+    } catch (error) {
+        console.warn(`Failed to fetch permanent messages: ${error.message}`);
+    }
+}
+
+async function ensurePermanentMessagesCache() {
+    const age = Date.now() - permanentMessagesCache.lastFetched;
+    if (age > permanentMessagesCache.TTL || permanentMessagesCache.map.size === 0) {
+        await fetchPermanentMessages();
+    }
+}
+
+/**
+ * Extract app hash from OP_RETURN output of a transaction
+ */
+function extractAppHashFromTx(tx) {
+    if (!tx.vout) return null;
+
+    for (const vout of tx.vout) {
+        if (vout.scriptPubKey && vout.scriptPubKey.type === 'nulldata') {
+            const hex = vout.scriptPubKey.hex || '';
+            // Skip OP_RETURN opcode (6a) + length byte = 4 hex chars
+            if (hex.length > 4 && hex.startsWith('6a')) {
+                const dataHex = hex.substring(4);
+                try {
+                    const decoded = Buffer.from(dataHex, 'hex').toString('utf8');
+                    if (/^[0-9a-f]{64}$/i.test(decoded.trim())) {
+                        return decoded.trim().toLowerCase();
+                    }
+                } catch (e) {
+                    // ignore parse errors
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Look up app name from hash in the permanent messages cache
+ */
+function lookupAppName(hash) {
+    if (!hash) return null;
+    return permanentMessagesCache.map.get(hash) || null;
+}
+
+// ============================================
 // TRANSACTION PROCESSING
 // ============================================
 
 /**
- * Process transaction and extract revenue for our tracked addresses
+ * Process transaction and extract revenue for our tracked addresses.
+ * Expects Flux daemon getrawtransaction format (vout.value already in FLUX).
  */
-function processTransaction(tx, trackedAddresses, fluxPriceUSD = null) {
+function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName = null) {
     const transactions = [];
-    
+
     if (!tx || !tx.vout) {
         return transactions;
     }
-    
-    const timestamp = tx.blockTime || Math.floor(Date.now() / 1000);
+
+    // Flux daemon uses tx.blocktime (not blockTime) and tx.height (not blockHeight)
+    const timestamp = tx.blocktime || Math.floor(Date.now() / 1000);
     const date = new Date(timestamp * 1000).toISOString().split('T')[0];
-    const blockHeight = tx.blockHeight || 0;
-    
+    const blockHeight = tx.height || 0;
+
     let fromAddress = 'Unknown';
-    if (tx.vin && tx.vin.length > 0 && tx.vin[0].addresses && tx.vin[0].addresses.length > 0) {
-        fromAddress = tx.vin[0].addresses[0];
+    if (tx.vin && tx.vin.length > 0) {
+        fromAddress = tx.vin[0].addresses?.[0] || tx.vin[0].address || 'Unknown';
     }
-    
+
     for (const vout of tx.vout) {
-        if (!vout.addresses || vout.addresses.length === 0) {
-            continue;
-        }
-        
-        for (const address of vout.addresses) {
+        // Flux daemon puts addresses inside scriptPubKey.addresses
+        const addresses = vout.scriptPubKey?.addresses || vout.addresses || [];
+
+        if (!addresses || addresses.length === 0) continue;
+
+        for (const address of addresses) {
             if (trackedAddresses.includes(address)) {
-                const amountSatoshis = parseFloat(vout.value) || 0;
-                const amountFlux = amountSatoshis / 100000000;
+                // vout.value is already in FLUX (no satoshi conversion needed)
+                const amountFlux = parseFloat(vout.value) || 0;
 
                 // Skip excluded transactions (e.g. Flux app spec-change fees)
                 const isExcluded = EXCLUDED_TRANSACTIONS.some(
@@ -346,23 +410,28 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null) {
                 );
                 if (isExcluded) continue;
 
-                // Calculate USD value if price is available
-                const amountUSD = fluxPriceUSD ? amountFlux * fluxPriceUSD : null;
+                // Only apply USD conversion if the transaction is recent (within 24 hours).
+                // For historical transactions the current price would be wrong — leave as null.
+                const txAgeSeconds = Math.floor(Date.now() / 1000) - timestamp;
+                const amountUSD = (fluxPriceUSD && txAgeSeconds < 86400)
+                    ? amountFlux * fluxPriceUSD
+                    : null;
 
                 transactions.push({
                     txid: tx.txid,
-                    address: address,
+                    address,
                     from_address: fromAddress,
                     amount: amountFlux,
                     amount_usd: amountUSD,
                     block_height: blockHeight,
-                    timestamp: timestamp,
-                    date: date
+                    timestamp,
+                    date,
+                    app_name: appName || null
                 });
             }
         }
     }
-    
+
     return transactions;
 }
 
@@ -371,167 +440,153 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null) {
 // ============================================
 
 /**
- * Progressive sync - imports TRANSACTIONS_PER_SYNC new transactions per run
- * This ensures we gradually build up historical data without overwhelming the API
+ * Progressive sync — uses Flux daemon block-range API to find and import new transactions
  */
 export async function progressiveSync() {
-    console.log('\n📡 Starting PROGRESSIVE SYNC...\n');
-    console.log(`   Target: Import ${TRANSACTIONS_PER_SYNC} new transactions\n`);
-    
+    console.log('\nStarting BLOCK-RANGE SYNC...\n');
+
     const startTime = Date.now();
-    
+    const BATCH_SIZE = 10;
+
     try {
-        // Fetch current FLUX price for USD calculation
+        // 1. Fetch FLUX price
         const fluxPrice = await fetchFluxPrice();
         if (fluxPrice) {
-            console.log(`   💵 Current FLUX price: $${fluxPrice.toFixed(4)}`);
+            console.log(`FLUX price: $${fluxPrice.toFixed(4)}`);
         } else {
-            console.warn('   ⚠️  Could not fetch FLUX price - USD values will be null');
+            console.warn('Could not fetch FLUX price - USD values will be null');
         }
-        
-        // Get existing txids from database
+
+        // 2. Get current block height
+        const currentBlock = await fetchCurrentBlockHeight();
+        revenueSyncState.currentBlock = currentBlock;
+
+        // 3. Determine start block.
+        // Use last_sync_block from sync_status (the highest block we've SCANNED, not just the
+        // highest block we have a transaction for). This prevents re-scanning a growing gap
+        // when there are no recent transactions.
+        const syncStatus = getSyncStatus('revenue');
+        const lastSyncedBlock = syncStatus?.last_sync_block || null;
+        const startBlock = lastSyncedBlock
+            ? Math.max(0, lastSyncedBlock - 25)     // 25-block overlap catches edge cases
+            : Math.max(0, currentBlock - INITIAL_SYNC_LOOKBACK_BLOCKS);
+
+        console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
+
+        // 4. Ensure app name cache is fresh
+        await ensurePermanentMessagesCache();
+
+        // 5. Get existing txids
         const existingTxids = new Set(getAllTxids());
-        console.log(`   🗄️  Database has ${existingTxids.size} existing transactions`);
-        
-        let allNewTransactions = [];
-        let totalTxsChecked = 0;
-        let targetReached = false;
-        
-        // Process each tracked address
+        console.log(`Database has ${existingTxids.size} existing transactions`);
+
+        let pendingPayments = [];   // buffer between DB flushes
+        let totalNewPayments = 0;
+        const DB_FLUSH_SIZE = 200;  // write to DB every 200 payments so graphs update progressively
+
+        // Helper: flush pending payments to DB so they become visible immediately
+        function flushPending() {
+            if (pendingPayments.length === 0) return;
+            insertTransactionsBatch(pendingPayments);
+            totalNewPayments += pendingPayments.length;
+            console.log(`  Flushed ${pendingPayments.length} payments to DB (total so far: ${totalNewPayments})`);
+            pendingPayments = [];
+        }
+
+        // 6. Process each tracked address
         for (const address of TARGET_ADDRESSES) {
-            if (targetReached) break;
-            
-            console.log(`\n   🔍 Processing address: ${address.substring(0, 20)}...`);
-            
-            // Get first page to determine total pages
-            const firstPage = await fetchAddressTransactionIds(address, 1, PAGE_SIZE);
-            
-            if (!firstPage) {
-                console.error(`   ❌ Failed to fetch data for address`);
+            console.log(`\nFetching txids for ${address.substring(0, 20)}...`);
+
+            const txids = await fetchAddressTxidsInRange(address, startBlock, currentBlock);
+
+            if (!txids || txids.length === 0) {
+                console.log('No transactions found in range');
                 continue;
             }
-            
-            const totalPages = firstPage.totalPages;
-            const totalTxs = firstPage.totalTxs;
-            
-            console.log(`   📊 Total transactions: ${totalTxs}`);
-            console.log(`   📊 Total pages: ${totalPages}`);
-            console.log(`   📊 Need to import: ${TRANSACTIONS_PER_SYNC} transactions`);
-            
-            // Start from page 1 and work through pages until we find enough new transactions
-            for (let page = 1; page <= totalPages; page++) {
-                if (targetReached) break;
-                
-                console.log(`\n   📄 Checking page ${page}/${totalPages}...`);
-                
-                // Fetch page (reuse firstPage if page 1)
-                const pageData = page === 1 ? firstPage : await fetchAddressTransactionIds(address, page, PAGE_SIZE);
-                
-                if (!pageData || !pageData.txids || pageData.txids.length === 0) {
-                    console.warn(`   ⚠️  No data on page ${page}`);
-                    continue;
-                }
-                
-                console.log(`   📥 Found ${pageData.txids.length} transaction IDs on page`);
-                
-                // Check each txid on this page
-                let newTxidsOnPage = [];
-                for (const txid of pageData.txids) {
-                    if (!existingTxids.has(txid)) {
-                        // Check if this txid should be retried (not failed too many times recently)
-                        if (shouldRetryTxid(txid)) {
-                            newTxidsOnPage.push(txid);
-                        }
-                    }
-                }
-                
-                console.log(`   🆕 ${newTxidsOnPage.length} are NEW (not in database)`);
-                
-                if (newTxidsOnPage.length === 0) {
-                    console.log(`   ⏭️  All transactions on this page already exist, moving to next page...`);
-                    continue;
-                }
-                
-                // Process the new txids until we reach our target
-                for (const txid of newTxidsOnPage) {
-                    if (allNewTransactions.length >= TRANSACTIONS_PER_SYNC) {
-                        console.log(`\n   ✅ Target reached! Collected ${TRANSACTIONS_PER_SYNC} new transactions`);
-                        targetReached = true;
-                        break;
-                    }
-                    
-                    totalTxsChecked++;
-                    
-                    // Fetch full transaction details
-                    const txDetails = await fetchTransactionDetails(txid);
-                    
-                    if (!txDetails) {
-                        console.warn(`   ⚠️  Failed to fetch details for ${txid.substring(0, 10)}`);
+
+            console.log(`Found ${txids.length} transactions in range`);
+
+            // Filter out already-known and permanently-failed txids
+            const newTxids = txids.filter(txid => !existingTxids.has(txid) && shouldRetryTxid(txid));
+            console.log(`${newTxids.length} new transactions to process`);
+
+            // Process in parallel batches
+            for (let i = 0; i < newTxids.length; i += BATCH_SIZE) {
+                const batch = newTxids.slice(i, i + BATCH_SIZE);
+
+                const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
+
+                for (let j = 0; j < batch.length; j++) {
+                    const txid = batch[j];
+                    const tx = txResults[j];
+
+                    if (!tx) {
                         markTxidAsFailed(txid, 'fetch_failed');
                         continue;
                     }
-                    
-                    // Process transaction to find payments to our addresses
-                    const payments = processTransaction(txDetails, TARGET_ADDRESSES, fluxPrice);
-                    
+
+                    // Skip transactions with fewer than 8 confirmations (pick up next cycle)
+                    if (!tx.confirmations || tx.confirmations < 8) {
+                        console.log(`Skipping ${txid.substring(0, 10)} - only ${tx.confirmations} confirmations`);
+                        continue;
+                    }
+
+                    // Extract app name via OP_RETURN -> permanentmessages lookup
+                    const appHash = extractAppHashFromTx(tx);
+                    const appName = appHash ? lookupAppName(appHash) : null;
+
+                    const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName);
+                    pendingPayments.push(...payments);
+
                     if (payments.length > 0) {
-                        allNewTransactions.push(...payments);
-                        console.log(`   💰 Found ${payments.length} payment(s) in tx ${txid.substring(0, 10)} (${allNewTransactions.length}/${TRANSACTIONS_PER_SYNC})`);
-                    } else {
-                        console.log(`   ℹ️  No payments in tx ${txid.substring(0, 10)}`);
+                        console.log(`Payment in ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX${appName ? ` (${appName})` : ''}`);
                     }
                 }
-                
-                if (targetReached) break;
+
+                // Flush to DB every DB_FLUSH_SIZE payments so the UI can show partial data
+                if (pendingPayments.length >= DB_FLUSH_SIZE) {
+                    flushPending();
+                }
+
+                // Small delay between batches to be API-friendly
+                if (i + BATCH_SIZE < newTxids.length) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
             }
-            
-            if (targetReached) break;
+
+            // Flush any remaining payments for this address before moving to the next
+            flushPending();
         }
-        
-        // Save new transactions
-        if (allNewTransactions.length > 0) {
-            console.log(`\n💾 Saving ${allNewTransactions.length} new transactions...`);
-            insertTransactionsBatch(allNewTransactions);
-            console.log(`✅ New transactions saved`);
-            
-            // Update sync status with the latest block
-            const currentBlock = await fetchCurrentBlockHeight();
-            updateSyncStatus('revenue', 'completed', null, currentBlock);
-        } else {
-            console.log(`\n✅ No new transactions found (database is up to date)`);
+
+        // 7. Final flush (catches any remainder < DB_FLUSH_SIZE)
+        flushPending();
+
+        if (totalNewPayments === 0) {
+            console.log('\nNo new transactions found (database is up to date)');
         }
-        
+
+        // 8. Update sync status
+        updateSyncStatus('revenue', 'completed', null, currentBlock);
+
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        
-        console.log(`\n✅ PROGRESSIVE SYNC COMPLETE`);
-        console.log(`   Duration: ${duration}s`);
-        console.log(`   Transactions checked: ${totalTxsChecked}`);
-        console.log(`   New payments imported: ${allNewTransactions.length}`);
-        console.log(`   Total in database: ${getTxidCount()}`);
-        
-        // Report on failed transactions if any
+        console.log(`\nBLOCK-RANGE SYNC COMPLETE`);
+        console.log(`  Duration: ${duration}s | New payments: ${totalNewPayments} | Total: ${getTxidCount()}`);
+
         const failedStats = getFailedTxStats();
         if (failedStats.totalFailed > 0) {
-            console.log(`\n⚠️  Failed Transaction Summary:`);
-            console.log(`   Total failed: ${failedStats.totalFailed}`);
-            console.log(`   By attempts:`, failedStats.byAttempts);
-            if (failedStats.recentlyFailed.length > 0) {
-                console.log(`   Recent failures (last 10 min):`, failedStats.recentlyFailed.slice(0, 5));
-            }
-            console.log(`   Note: Failed transactions will be retried in 5 minutes`);
+            console.log(`  Failed txids: ${failedStats.totalFailed} (will retry)`);
         }
-        console.log('');
-        
+
         return {
             success: true,
-            newPayments: allNewTransactions.length,
-            txsChecked: totalTxsChecked,
-            duration: duration,
+            newPayments: totalNewPayments,
+            txsChecked: 0,
+            duration,
             failedTxids: failedStats.totalFailed
         };
-        
+
     } catch (error) {
-        console.error('❌ Progressive sync error:', error.message);
+        console.error('Block-range sync error:', error.message);
         throw error;
     }
 }
@@ -702,95 +757,6 @@ export function getRevenueSyncStatus() {
     };
 }
 
-/**
- * DEBUG: Test Blockbook API with a specific address
- */
-export async function debugBlockbookAddress(address) {
-    console.log(`\n🔍 DEBUG: Testing Blockbook API for address\n`);
-    console.log(`Address: ${address}\n`);
-    
-    try {
-        console.log('Step 1: Fetching address transaction IDs...');
-        const addressData = await fetchAddressTransactionIds(address, 1, 5);
-        
-        if (!addressData) {
-            console.error('❌ Failed to fetch address data');
-            return;
-        }
-        
-        console.log(`✅ Address data received:`);
-        console.log(`   Total transactions: ${addressData.totalTxs}`);
-        console.log(`   Total pages: ${addressData.totalPages}`);
-        console.log(`   Balance: ${addressData.balance} satoshis (${(parseFloat(addressData.balance) / 100000000).toFixed(2)} FLUX)`);
-        console.log(`   Transaction IDs on page 1: ${addressData.txids.length}\n`);
-        
-        if (addressData.txids.length === 0) {
-            console.log('⚠️  No transaction IDs found');
-            return;
-        }
-        
-        console.log('Transaction IDs:');
-        addressData.txids.slice(0, 5).forEach((txid, i) => {
-            console.log(`   [${i}] ${txid}`);
-        });
-        if (addressData.txids.length > 5) {
-            console.log(`   ... and ${addressData.txids.length - 5} more`);
-        }
-        console.log('');
-        
-        const firstTxId = addressData.txids[0];
-            
-        console.log(`Step 2: Fetching details for first transaction...`);
-        console.log(`   TXID: ${firstTxId}\n`);
-        
-        const txDetails = await fetchTransactionDetails(firstTxId);
-        
-        if (!txDetails) {
-            console.error('❌ Failed to fetch transaction details');
-            return;
-        }
-        
-        console.log(`✅ Transaction details received:`);
-        console.log(`   TXID: ${txDetails.txid}`);
-        console.log(`   Block: ${txDetails.blockHeight}`);
-        console.log(`   Time: ${new Date(txDetails.blockTime * 1000).toISOString()}`);
-        console.log(`   Confirmations: ${txDetails.confirmations}`);
-        console.log(`   Inputs (vin): ${txDetails.vin?.length || 0}`);
-        console.log(`   Outputs (vout): ${txDetails.vout?.length || 0}`);
-        
-        if (txDetails.vout) {
-            console.log(`\n   Vout (outputs) details:`);
-            txDetails.vout.forEach((vout, index) => {
-                const fluxAmount = (parseFloat(vout.value) / 100000000).toFixed(8);
-                const addresses = vout.addresses?.join(', ') || 'none';
-                console.log(`     [${index}] ${fluxAmount} FLUX → ${addresses}`);
-            });
-        }
-        console.log('');
-        
-        console.log('Step 3: Processing transaction to find payments to tracked address...');
-        const payments = processTransaction(txDetails, [address]);
-        
-        if (payments.length > 0) {
-            console.log(`✅ Found ${payments.length} payment(s) to tracked address:`);
-            payments.forEach(payment => {
-                console.log(`   💰 ${payment.amount.toFixed(8)} FLUX`);
-                console.log(`      To: ${payment.address}`);
-                console.log(`      Block: ${payment.block_height}`);
-                console.log(`      Date: ${payment.date}`);
-                console.log(`      Time: ${new Date(payment.timestamp * 1000).toISOString()}`);
-            });
-        } else {
-            console.log('⚠️  No payments to tracked address found in this transaction');
-        }
-        
-        console.log(`\n✅ DEBUG Complete\n`);
-        
-    } catch (error) {
-        console.error('❌ DEBUG Error:', error.message);
-        console.error('Stack:', error.stack);
-    }
-}
 
 /**
  * Initial sync - for first-time setup (processes all history)

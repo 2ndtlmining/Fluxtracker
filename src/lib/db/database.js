@@ -126,6 +126,7 @@ export function initDatabase() {
         db.pragma('locking_mode = NORMAL');
         
         createTables();
+        migrateRevenueTransactions();
         initializeSyncStatus();
         
         // NEW: Try to acquire write lock
@@ -266,7 +267,8 @@ function createTables() {
             amount_usd REAL,
             block_height INTEGER NOT NULL,
             timestamp INTEGER NOT NULL,
-            date DATE NOT NULL
+            date DATE NOT NULL,
+            app_name TEXT DEFAULT NULL
         );
         
         CREATE INDEX IF NOT EXISTS idx_address ON revenue_transactions(address);
@@ -356,6 +358,19 @@ function createTables() {
     `);
 
     console.log('✅ Database tables created');
+}
+
+function migrateRevenueTransactions() {
+    try {
+        const columns = db.pragma('table_info(revenue_transactions)');
+        const hasAppName = columns.some(col => col.name === 'app_name');
+        if (!hasAppName) {
+            db.exec('ALTER TABLE revenue_transactions ADD COLUMN app_name TEXT DEFAULT NULL');
+            console.log('Migration: added app_name column to revenue_transactions');
+        }
+    } catch (error) {
+        console.warn('revenue_transactions migration check failed:', error.message);
+    }
 }
 
 function initializeSyncStatus() {
@@ -652,9 +667,9 @@ export function insertTransaction(tx) {
     }
     
     const stmt = db.prepare(`
-        INSERT OR IGNORE INTO revenue_transactions 
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO revenue_transactions
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -665,7 +680,8 @@ export function insertTransaction(tx) {
         tx.amount_usd || null,
         tx.block_height,
         tx.timestamp,
-        tx.date
+        tx.date,
+        tx.app_name || null
     );
 }
 
@@ -676,24 +692,24 @@ export function insertTransactionsBatch(transactions) {
         return;
     }
     
-    // YOUR ORIGINAL CODE BELOW - UNCHANGED
     const stmt = db.prepare(`
-        INSERT OR IGNORE INTO revenue_transactions 
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO revenue_transactions
+        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((txs) => {
         for (const tx of txs) {
             stmt.run(
-                tx.txid, 
-                tx.address, 
-                tx.from_address || 'Unknown', 
-                tx.amount, 
+                tx.txid,
+                tx.address,
+                tx.from_address || 'Unknown',
+                tx.amount,
                 tx.amount_usd || null,
-                tx.block_height, 
-                tx.timestamp, 
-                tx.date
+                tx.block_height,
+                tx.timestamp,
+                tx.date,
+                tx.app_name || null
             );
         }
     });
@@ -774,13 +790,14 @@ export function getTransactionsPaginated(page = 1, limit = 50, search = '') {
     
     if (search && search.trim() !== '') {
         const searchTerm = `%${search.trim()}%`;
-        whereClause = `WHERE 
-            txid LIKE ? OR 
-            address LIKE ? OR 
+        whereClause = `WHERE
+            txid LIKE ? OR
+            address LIKE ? OR
             from_address LIKE ? OR
             CAST(amount AS TEXT) LIKE ? OR
-            date LIKE ?`;
-        params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
+            date LIKE ? OR
+            app_name LIKE ?`;
+        params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
     }
     
     const countStmt = db.prepare(`

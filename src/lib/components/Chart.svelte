@@ -107,7 +107,7 @@
     }
   };
 
-  // Timeframe options
+  // Timeframe options (days: null = fetch all available data)
   const timeframes = [
     { id: '7d', label: '7 Days', days: 7 },
     { id: '14d', label: '14 Days', days: 14 },
@@ -115,6 +115,7 @@
     { id: '60d', label: '60 Days', days: 60 },
     { id: '90d', label: '90 Days', days: 90 },
     { id: '1Y', label: '1 Year', days: 365 },
+    { id: 'all', label: 'All', days: null },
   ];
 
   // NEW: Aggregation options
@@ -200,29 +201,31 @@
     error = null;
 
     try {
-      const days = timeframes.find(t => t.id === selectedTimeframe)?.days || 30;
-      
-      console.log(`📡 Fetching data for ${days} days`);
-      
+      const timeframe = timeframes.find(t => t.id === selectedTimeframe);
+      // null days means "all available data" — use a large limit that exceeds any realistic dataset
+      const limitParam = timeframe?.days ?? 9999;
+
+      console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
+
       // For REVENUE category, use transaction-based endpoint for real-time data
       if (selectedCategory === 'revenue') {
         // Check if USD metric is selected
         const metric = availableMetrics.find(m => m.id === selectedMetric);
         const isUSD = metric && metric.id === 'daily_revenue_usd';
-        
-        const endpoint = isUSD 
-          ? `${API_URL}/api/history/revenue/daily-usd?limit=${days}`
-          : `${API_URL}/api/history/revenue/daily?limit=${days}`;
-        
+
+        const endpoint = isUSD
+          ? `${API_URL}/api/history/revenue/daily-usd?limit=${limitParam}`
+          : `${API_URL}/api/history/revenue/daily?limit=${limitParam}`;
+
         console.log(`💰 Fetching ${isUSD ? 'USD' : 'FLUX'} revenue from transactions (real-time)`);
         const response = await fetch(endpoint);
-        
+
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
         }
 
         const result = await response.json();
-        
+
         // Handle response format
         if (Array.isArray(result)) {
           allSnapshots = result;
@@ -234,14 +237,14 @@
       } else {
         // For other categories, use snapshot data
         console.log('📊 Fetching from snapshots');
-        const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${days}`);
-        
+        const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}`);
+
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
         }
 
         const result = await response.json();
-        
+
         // Handle response format
         if (Array.isArray(result)) {
           allSnapshots = result;
