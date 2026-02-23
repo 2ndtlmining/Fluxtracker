@@ -19,7 +19,7 @@ export const DONATION_ADDRESSES = [
 // Initial sync lookback for first run.
 // 1,500,000 covers all Flux history (chain launched ~2018, mixed 120s/30s blocks).
 // Increase if you need more. The getaddresstxids API handles large ranges natively.
-export const INITIAL_SYNC_LOOKBACK_BLOCKS = 1500000;
+export const INITIAL_SYNC_LOOKBACK_BLOCKS = 2000000;
 
 export const SYNC_INTERVALS = {
     REVENUE: 5 * 60 * 1000,      // 5 minutes (for progressive transaction sync)

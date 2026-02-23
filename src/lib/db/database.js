@@ -1011,6 +1011,14 @@ export function resetRevenueSyncBlock() {
     db.prepare('UPDATE sync_status SET last_sync_block = NULL WHERE sync_type = ?').run('revenue');
 }
 
+export function clearRevenueData() {
+    // Admin operation — wipes all revenue transactions and resets sync so a full resync runs
+    const count = db.prepare('SELECT COUNT(*) as cnt FROM revenue_transactions').get().cnt;
+    db.prepare('DELETE FROM revenue_transactions').run();
+    db.prepare('UPDATE sync_status SET last_sync_block = NULL, last_sync = 0, status = ? WHERE sync_type = ?').run('pending', 'revenue');
+    return count;
+}
+
 export function setNextSync(syncType, nextSyncTime) {
     if (!canWrite()) return;
     

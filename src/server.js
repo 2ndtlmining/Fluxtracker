@@ -17,7 +17,8 @@ import {
     getDailyRevenueUSDFromTransactions,
     getDailyRevenueUSDInRange,
     resetRevenueSyncBlock,
-    getSyncStatus
+    getSyncStatus,
+    clearRevenueData
 } from './lib/db/database.js';
 
 // Import the NEW snapshot manager
@@ -198,6 +199,17 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
             success: false,
             error: error.message 
         });
+    }
+});
+
+// Clear all revenue data and reset sync — triggers a full resync on next cycle
+app.post('/api/admin/clear-revenue-data', (req, res) => {
+    try {
+        const deleted = clearRevenueData();
+        console.log(`🗑️  Cleared ${deleted} revenue transactions — full resync will run on next cycle`);
+        res.json({ success: true, deleted, message: `Cleared ${deleted} transactions. Resync will start on next cycle.` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

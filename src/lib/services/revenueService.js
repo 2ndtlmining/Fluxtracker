@@ -248,25 +248,57 @@ export async function fetchCurrentBlockHeight() {
     }
 }
 
+const TXID_CHUNK_SIZE = 50000; // blocks per API call — conservative to avoid public API timeouts
+
 /**
- * Fetch transaction IDs for an address within a block range using Flux daemon API
+ * Fetch transaction IDs for an address within a block range using Flux daemon API.
+ * Automatically chunks large ranges to avoid API timeouts.
  */
 async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
-    try {
-        const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${startBlock}/${endBlock}`;
-        console.log(`Fetching txids for ${address.substring(0, 15)}... (blocks ${startBlock}-${endBlock})`);
+    const allTxids = [];
+    const totalBlocks = endBlock - startBlock;
 
-        const response = await axios.get(url, { timeout: 30000 });
+    // Split large ranges into chunks to avoid timeouts on the public API
+    const chunks = [];
+    if (totalBlocks > TXID_CHUNK_SIZE) {
+        for (let from = startBlock; from < endBlock; from += TXID_CHUNK_SIZE) {
+            chunks.push([from, Math.min(from + TXID_CHUNK_SIZE - 1, endBlock)]);
+        }
+    } else {
+        chunks.push([startBlock, endBlock]);
+    }
 
-        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
-            return response.data.data;
+    if (chunks.length > 1) {
+        console.log(`Splitting ${totalBlocks.toLocaleString()} blocks into ${chunks.length} chunks of ${TXID_CHUNK_SIZE.toLocaleString()}`);
+    }
+
+    for (const [from, to] of chunks) {
+        try {
+            const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
+
+            const response = await axios.get(url, { timeout: 60000 });
+
+            if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+                const count = response.data.data.length;
+                if (count > 0) {
+                    console.log(`  blocks ${from}-${to}: ${count} txids found`);
+                }
+                allTxids.push(...response.data.data);
+            } else {
+                console.warn(`  blocks ${from}-${to}: unexpected response — status: ${response.data?.status}, msg: ${JSON.stringify(response.data?.data ?? response.data)}`);
+            }
+        } catch (error) {
+            console.error(`  blocks ${from}-${to}: ERROR - ${error.message}`);
         }
 
-        return [];
-    } catch (error) {
-        console.error(`Error fetching address txids in range:`, error.message);
-        return [];
+        // Small delay between chunks to be API-friendly
+        if (chunks.length > 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
     }
+
+    console.log(`Total txids fetched for ${address.substring(0, 15)}: ${allTxids.length}`);
+    return allTxids;
 }
 
 /**
@@ -544,8 +576,8 @@ export async function progressiveSync() {
         const syncStatus = getSyncStatus('revenue');
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock
-            ? Math.max(0, lastSyncedBlock - 25)     // 25-block overlap catches edge cases
-            : 0;                                    // Full history scan from genesis
+            ? Math.max(0, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
+            : Math.max(0, currentBlock - INITIAL_SYNC_LOOKBACK_BLOCKS);      // Controlled by config.js
 
         console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
 
