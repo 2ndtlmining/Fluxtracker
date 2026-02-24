@@ -743,10 +743,14 @@ export function updateAppTypeForAppName(appName, appType) {
 }
 
 // Returns txids for transactions that have no app_name yet (for app_name backfill)
-export function getTxidsWithoutAppName(limit = 500) {
+// Pass recentDays to limit to recent rows only (prevents endlessly retrying old direct payments)
+export function getTxidsWithoutAppName(limit = 500, recentDays = null) {
+    const dateFilter = recentDays
+        ? `AND date >= date('now', '-${Math.floor(recentDays)} days')`
+        : '';
     const stmt = db.prepare(`
         SELECT txid FROM revenue_transactions
-        WHERE app_name IS NULL
+        WHERE app_name IS NULL ${dateFilter}
         ORDER BY block_height DESC
         LIMIT ?
     `);
@@ -754,9 +758,13 @@ export function getTxidsWithoutAppName(limit = 500) {
 }
 
 // Returns count of transactions with no app_name
-export function countTxidsWithoutAppName() {
+// Pass recentDays to limit to recent rows only (same scope as getTxidsWithoutAppName)
+export function countTxidsWithoutAppName(recentDays = null) {
+    const dateFilter = recentDays
+        ? `AND date >= date('now', '-${Math.floor(recentDays)} days')`
+        : '';
     const stmt = db.prepare(`
-        SELECT COUNT(*) as count FROM revenue_transactions WHERE app_name IS NULL
+        SELECT COUNT(*) as count FROM revenue_transactions WHERE app_name IS NULL ${dateFilter}
     `);
     return stmt.get().count;
 }

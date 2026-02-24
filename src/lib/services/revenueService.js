@@ -740,12 +740,13 @@ export async function backfillAppTypes() {
  * Re-fetches raw transactions to extract OP_RETURN hashes, then resolves via cache.
  * Safe to run multiple times — only touches rows still missing app_name.
  * @param {number} batchSize - max transactions to process per call (default 500)
+ * @param {number|null} recentDays - if set, only process transactions from the last N days
  */
-export async function backfillAppNames(batchSize = 500) {
+export async function backfillAppNames(batchSize = 500, recentDays = null) {
     await ensurePermanentMessagesCache();
 
-    const total = countTxidsWithoutAppName();
-    const txids = getTxidsWithoutAppName(batchSize);
+    const total = countTxidsWithoutAppName(recentDays);
+    const txids = getTxidsWithoutAppName(batchSize, recentDays);
     console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
 
     let updated = 0;
@@ -899,13 +900,14 @@ export async function fetchRevenueStats() {
         await progressiveSync();
 
         // Auto-backfill transactions that are still missing app_name.
-        // This handles the race condition where we indexed the tx before the
-        // permanentmessages API had the app entry — each sync cycle gives it
-        // another chance to resolve, processing up to 100 rows at a time.
-        const nullAppNames = countTxidsWithoutAppName();
+        // Only looks at the last 30 days — old NULL rows are almost certainly direct
+        // payments with no OP_RETURN hash that will never resolve. Use the manual
+        // admin endpoint (/api/admin/backfill-app-names) to process all NULLs.
+        const AUTO_BACKFILL_DAYS = 30;
+        const nullAppNames = countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
         if (nullAppNames > 0) {
-            console.log(`🔄 Auto-backfilling ${nullAppNames} transactions missing app_name...`);
-            await backfillAppNames(100);
+            console.log(`🔄 Auto-backfilling ${nullAppNames} recent transactions missing app_name...`);
+            await backfillAppNames(100, AUTO_BACKFILL_DAYS);
         }
 
         // Calculate daily revenue

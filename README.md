@@ -304,9 +304,17 @@ const corsOptions = {
 - `GET /api/history/range?start=YYYY-MM-DD&end=YYYY-MM-DD` - Date range query
 
 ### Admin Endpoints
-- `POST /api/admin/snapshot` - Trigger manual snapshot
-- `POST /api/admin/revenue-sync` - Trigger manual revenue sync
+- `GET /api/admin/revenue-status` - Revenue sync scheduler health and transaction count
 - `GET /api/admin/snapshot-status` - Snapshot system health
+- `GET /api/admin/test-status` - Service test scheduler status
+- `POST /api/admin/revenue-sync` - Trigger manual revenue sync
+- `POST /api/admin/reset-revenue-sync` - Reset sync block pointer (triggers full history re-scan next cycle)
+- `POST /api/admin/clear-revenue-data` - **Destructive** — wipe all transactions and force full resync
+- `POST /api/admin/backfill-app-names` - Backfill missing app names for transactions with `app_name = NULL`
+- `POST /api/admin/backfill-app-types` - Backfill missing app types (git/docker) for known app names
+- `POST /api/admin/backfill` - Regenerate daily snapshots from transaction data (last 365 days)
+- `POST /api/admin/snapshot` - Trigger manual daily snapshot
+- `POST /api/admin/test-services` - Manually trigger service health tests
 
 ### Carousel Endpoint
 - `GET /api/carousel/stats` - Top running applications with caching
@@ -335,17 +343,77 @@ cp data/flux-performance.db data/flux-performance.db.backup
 sqlite3 data/flux-performance.db "PRAGMA integrity_check;"
 ```
 
-### Manual Data Sync
-```bash
-# Trigger revenue sync via API
-curl -X POST http://localhost:3000/api/admin/revenue-sync
+### Admin Operations
 
-# Trigger snapshot creation
-curl -X POST http://localhost:3000/api/admin/snapshot
+Replace `YOUR_SERVER` with the actual host (e.g. `192.168.10.30:5173` for prod, `localhost:5173` locally).
+
+#### Check status
+```bash
+# Revenue sync health — last run time, in-progress flag, transaction count
+curl http://YOUR_SERVER/api/admin/revenue-status
+
+# Snapshot system health
+curl http://YOUR_SERVER/api/admin/snapshot-status
+```
+
+#### Trigger a manual revenue sync
+Runs the same sync as the automatic 5-minute cycle immediately.
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/revenue-sync
+```
+
+#### Backfill missing app names
+Transactions are saved as soon as they appear on-chain. If the permanentmessages API hasn't indexed the app yet at that moment, the transaction lands with `app_name = NULL`. This endpoint re-fetches those transactions and resolves the name.
+
+The auto-sync already handles recent rows (last 30 days, 100 per cycle). Use this endpoint to process a large backlog or historical data. Run multiple times until `remaining` reaches 0 or stops decreasing.
+
+Transactions with no OP_RETURN (direct FLUX payments, not app payments) will stay NULL — that is correct behaviour and they are counted as `noHash` in the response.
+```bash
+# Default batch (500 rows, all NULL rows regardless of age)
+curl -X POST http://YOUR_SERVER/api/admin/backfill-app-names \
+  -H "Content-Type: application/json"
+
+# Larger batch to clear a backlog faster (max 2000 per call)
+curl -X POST http://YOUR_SERVER/api/admin/backfill-app-names \
+  -H "Content-Type: application/json" \
+  -d '{"batchSize": 2000}'
+```
+
+#### Backfill missing app types (git vs docker)
+Fills in `app_type` for transactions that have an `app_name` but no type yet. Safe to run any time.
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/backfill-app-types
+```
+
+#### Backfill historical snapshots
+Regenerates daily snapshot records from existing transaction data for the past 365 days. Use if snapshot history has gaps.
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/backfill
+```
+
+#### Trigger a manual snapshot
+Creates a daily snapshot for today using current metrics.
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/snapshot
+```
+
+#### Reset sync block (re-scan from history start)
+Clears the last-synced block pointer so the next cycle re-scans from the configured lookback window. Does **not** delete any data — it just forces a wider scan next time. Use if you suspect gaps in transaction history.
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/reset-revenue-sync
+
+# Then trigger an immediate sync to kick it off now
+curl -X POST http://YOUR_SERVER/api/admin/revenue-sync
+```
+
+#### Clear all revenue data (destructive)
+Deletes every revenue transaction and resets sync state to zero. The next sync cycle re-imports all history. Use only as a last resort (corrupted data, clean-slate needed).
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/clear-revenue-data
 ```
 
 ### Monitoring
-- Check `/api/health` for system status
+- Check `/api/health` for overall system status
 - Monitor console logs for sync failures (3+ consecutive = alert)
 - Verify daily snapshots exist via `/api/admin/snapshot-status`
 
