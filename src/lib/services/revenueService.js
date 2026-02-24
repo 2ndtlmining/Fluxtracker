@@ -741,12 +741,19 @@ export async function backfillAppTypes() {
  * Safe to run multiple times — only touches rows still missing app_name.
  * @param {number} batchSize - max transactions to process per call (default 500)
  * @param {number|null} recentDays - if set, only process transactions from the last N days
+ * @param {boolean} skipFailed - if true, skip txids already known to have no OP_RETURN hash (auto-backfill only)
  */
-export async function backfillAppNames(batchSize = 500, recentDays = null) {
+export async function backfillAppNames(batchSize = 500, recentDays = null, skipFailed = false) {
     await ensurePermanentMessagesCache();
 
     const total = countTxidsWithoutAppName(recentDays);
-    const txids = getTxidsWithoutAppName(batchSize, recentDays);
+
+    // Fetch extra candidates so we still fill the batch after filtering out known-dead txids
+    const candidates = getTxidsWithoutAppName(skipFailed ? batchSize * 3 : batchSize, recentDays);
+    const txids = skipFailed
+        ? candidates.filter(txid => shouldRetryTxid(txid)).slice(0, batchSize)
+        : candidates;
+
     console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
 
     let updated = 0;
@@ -766,7 +773,13 @@ export async function backfillAppNames(batchSize = 500, recentDays = null) {
             if (!tx) { fetchErrors++; continue; }
 
             const appHash = extractAppHashFromTx(tx);
-            if (!appHash) { noHash++; continue; }
+            if (!appHash) {
+                // Direct FLUX payment — no OP_RETURN, will never have an app_name.
+                // Mark with max attempts so auto-backfill (skipFailed=true) skips it next time.
+                failedTxids.set(txid, { attempts: 5, lastAttempt: Date.now(), reason: 'no_hash' });
+                noHash++;
+                continue;
+            }
 
             const appName = lookupAppName(appHash);
             if (!appName) { noName++; continue; }
@@ -907,7 +920,7 @@ export async function fetchRevenueStats() {
         const nullAppNames = countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
         if (nullAppNames > 0) {
             console.log(`🔄 Auto-backfilling ${nullAppNames} recent transactions missing app_name...`);
-            await backfillAppNames(100, AUTO_BACKFILL_DAYS);
+            await backfillAppNames(100, AUTO_BACKFILL_DAYS, true);
         }
 
         // Calculate daily revenue
