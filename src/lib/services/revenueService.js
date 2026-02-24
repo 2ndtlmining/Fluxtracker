@@ -897,7 +897,17 @@ export async function fetchRevenueStats() {
         
         // Run progressive sync to import new transactions
         await progressiveSync();
-        
+
+        // Auto-backfill transactions that are still missing app_name.
+        // This handles the race condition where we indexed the tx before the
+        // permanentmessages API had the app entry — each sync cycle gives it
+        // another chance to resolve, processing up to 100 rows at a time.
+        const nullAppNames = countTxidsWithoutAppName();
+        if (nullAppNames > 0) {
+            console.log(`🔄 Auto-backfilling ${nullAppNames} transactions missing app_name...`);
+            await backfillAppNames(100);
+        }
+
         // Calculate daily revenue
         const dailyRevenue = await calculateDailyRevenue();
         
