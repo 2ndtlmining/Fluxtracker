@@ -729,7 +729,7 @@ app.get('/api/transactions/paginated', (req, res) => {
     try {
         console.log('Starting transaction pagination');
         const page = Math.max(parseInt(req.query.page) || 1, 1);
-        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 500);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100000);
         const search = req.query.search || '';
         const appName = req.query.appName || null;
 
