@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
+  import { Heart } from 'lucide-svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   let API_URL = '';
@@ -156,7 +157,7 @@
       </span>
       <span class="footer-divider">|</span>
       <button class="donation-btn" on:click={copyDonationAddress} title="Click to copy donation address">
-        <span class="donation-icon">💰</span>
+        <Heart size={14} strokeWidth={2} />
         <span class="donation-text">Donate</span>
       </button>
     </div>

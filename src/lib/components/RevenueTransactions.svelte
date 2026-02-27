@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
+  import { Download } from 'lucide-svelte';
 
   // Props
   export let title = 'Revenue Transaction Log';
@@ -401,7 +402,7 @@
           on:click={exportToCSV}
           title="Export all transactions to CSV"
         >
-          <span class="export-icon">📥</span>
+          <Download size={14} strokeWidth={2} />
           <span class="export-text">CSV</span>
         </button>
       {/if}
