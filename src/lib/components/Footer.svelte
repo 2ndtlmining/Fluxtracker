@@ -2,92 +2,90 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
   import { Heart } from 'lucide-svelte';
-  
+
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   let API_URL = '';
-  
-  let lastSync = 'Never';
-  let timeSinceSync = '...';
+
   let totalTransactions = 0;
   let syncStatus = 'idle';
   let isRefreshing = false;
-  
- 
+
+  // Block sync info
+  let lastSyncBlock = null;
+  let currentBlock = null;
+  let isSyncing = false;
+
+  // Next sync countdown
+  let lastCompleted = null;
+  let nextSyncText = '...';
+  const SYNC_INTERVAL_S = 5 * 60; // 5 minutes in seconds
+
   let interval;
-  
+
   onMount(async () => {
     // Get API URL in browser context
     API_URL = getApiUrl();
-    console.log('✅ Footer using API URL:', API_URL);
-    
+
     await fetchFooterStats();
-    
-    // Update every 2 seconds
+
+    // Update countdown every second
     interval = setInterval(() => {
-      updateTimeSinceSync();
-    }, 2000);
+      updateNextSyncCountdown();
+    }, 1000);
   });
-  
+
   onDestroy(() => {
     if (interval) clearInterval(interval);
   });
-  
+
   async function fetchFooterStats() {
     try {
-      const response = await fetch(`${API_URL}/api/transactions/summary`);
-      
-      if (!response.ok) {
-        throw new Error('API not responding');
+      // Fetch both endpoints in parallel
+      const [txResponse, statusResponse] = await Promise.all([
+        fetch(`${API_URL}/api/transactions/summary`),
+        fetch(`${API_URL}/api/admin/revenue-status`)
+      ]);
+
+      if (txResponse.ok) {
+        const txData = await txResponse.json();
+        if (txData && txData.totalTransactions !== undefined) {
+          totalTransactions = txData.totalTransactions;
+          syncStatus = 'success';
+        }
       }
-      
-      const data = await response.json();
-      
-      if (data && data.totalTransactions !== undefined) {
-        totalTransactions = data.totalTransactions;
-        lastSync = new Date();
-        syncStatus = 'success';
-        updateTimeSinceSync();
-      } else {
-        // API returned but no data
-        syncStatus = 'error';
-        timeSinceSync = 'No data';
+
+      if (statusResponse.ok) {
+        const statusData = await statusResponse.json();
+        lastSyncBlock = statusData.lastSyncBlock;
+        currentBlock = statusData.currentBlock;
+        isSyncing = statusData.isSyncing;
+        lastCompleted = statusData.lastCompleted;
+        updateNextSyncCountdown();
       }
     } catch (error) {
       console.error('Error fetching footer stats:', error);
       syncStatus = 'error';
-      timeSinceSync = 'API offline';
-      
-      // Show a message to the user
-      console.log('Make sure the API server is running on port 3000');
+      nextSyncText = 'offline';
     }
   }
-  
+
   async function handleRefresh() {
-    if (isRefreshing) {
-      console.log('Refresh already in progress...');
-      return;
-    }
-    
+    if (isRefreshing) return;
+
     try {
       isRefreshing = true;
       syncStatus = 'syncing';
-      
-      // Call the test services endpoint
+
       const response = await fetch(`${API_URL}/api/admin/test-services`, {
         method: 'POST'
       });
-      
+
       const result = await response.json();
-      
+
       if (response.ok && result.success) {
-        console.log('Services tested successfully');
-        
-        // Refresh the footer stats after tests complete
         await fetchFooterStats();
-        
         syncStatus = 'success';
       } else if (result.alreadyRunning) {
-        console.log('Tests are already running, refreshing data only...');
         await fetchFooterStats();
         syncStatus = 'success';
       } else {
@@ -96,44 +94,51 @@
     } catch (error) {
       console.error('Error during refresh:', error);
       syncStatus = 'error';
-      
-      // Still try to refresh footer stats even if tests fail
       await fetchFooterStats();
     } finally {
       isRefreshing = false;
     }
   }
-  
-  function updateTimeSinceSync() {
-    if (!lastSync || lastSync === 'Never') return;
-    
-    const now = new Date();
-    const diff = Math.floor((now - lastSync) / 1000); // seconds
-    
-    if (diff < 60) {
-      timeSinceSync = `${diff} sec ago`;
-    } else if (diff < 3600) {
-      const minutes = Math.floor(diff / 60);
-      timeSinceSync = `${minutes} min ago`;
-    } else {
-      const hours = Math.floor(diff / 3600);
-      timeSinceSync = `${hours} hr ago`;
+
+  function updateNextSyncCountdown() {
+    if (isSyncing) {
+      nextSyncText = 'syncing...';
+      return;
     }
-  }
-  
-  function getSyncStatusColor() {
-    switch (syncStatus) {
-      case 'success': return 'green';
-      case 'error': return 'red';
-      case 'syncing': return 'yellow';
-      default: return 'yellow';
+    if (!lastCompleted) {
+      nextSyncText = '...';
+      return;
     }
+
+    const elapsed = Math.floor((Date.now() - lastCompleted) / 1000);
+    const remaining = Math.max(0, SYNC_INTERVAL_S - elapsed);
+
+    if (remaining <= 0) {
+      nextSyncText = 'imminent';
+      return;
+    }
+
+    const min = Math.floor(remaining / 60);
+    const sec = remaining % 60;
+    nextSyncText = `${min}:${sec.toString().padStart(2, '0')}`;
   }
-  
+
+  function formatBlock(num) {
+    if (num === null || num === undefined) return '---';
+    return num.toLocaleString('en-US').replace(/,/g, ' ');
+  }
+
+  function getSyncDotColor() {
+    if (syncStatus === 'error') return 'red';
+    if (isSyncing) return 'yellow';
+    if (lastSyncBlock !== null && currentBlock !== null && currentBlock - lastSyncBlock <= 50) return 'green';
+    if (lastSyncBlock !== null) return 'yellow';
+    return 'yellow';
+  }
+
   function copyDonationAddress() {
-    navigator.clipboard.writeText(DONATION_ADDRESS).then(() => {
+    navigator.clipboard.writeText(DONATION_ADDRESSES[0]).then(() => {
       console.log('Donation address copied to clipboard!');
-      // You could add a toast notification here if you have one
     }).catch(err => {
       console.error('Failed to copy address:', err);
     });
@@ -142,18 +147,26 @@
 
 <footer class="footer terminal-border">
   <div class="footer-content">
-    <!-- Left: Sync Status -->
+    <!-- Left: Synced Block + Next Sync -->
     <div class="footer-left">
-      <span class="status-dot {getSyncStatusColor()}"></span>
+      <span class="status-dot {getSyncDotColor()}"></span>
       <span class="footer-stat">
-        Last sync: <span class="footer-value">{timeSinceSync}</span>
+        Synced: <span class="footer-value">{formatBlock(lastSyncBlock)}</span>
+        {#if currentBlock}
+          <span class="footer-dim"> / </span><span class="footer-value">{formatBlock(currentBlock)}</span>
+        {/if}
+      </span>
+      <span class="footer-divider">|</span>
+      <span class="footer-stat">
+        <span class="sync-icon">{isSyncing ? '⟳' : '⏱'}</span>
+        Next Sync: <span class="footer-value">{nextSyncText}</span>
       </span>
     </div>
-    
+
     <!-- Center: Transaction Count & Donation -->
     <div class="footer-center">
       <span class="footer-stat">
-        <span class="footer-value cyan">{totalTransactions.toLocaleString()}</span> transactions
+        <span class="footer-value cyan">{totalTransactions.toLocaleString('en-US').replace(/,/g, ' ')}</span> transactions
       </span>
       <span class="footer-divider">|</span>
       <button class="donation-btn" on:click={copyDonationAddress} title="Click to copy donation address">
@@ -161,7 +174,7 @@
         <span class="donation-text">Donate</span>
       </button>
     </div>
-    
+
     <!-- Right: Actions -->
     <div class="footer-right">
       <a href="https://github.com/2ndtlmining/fluxtracker" target="_blank" rel="noopener noreferrer" class="github-link">
@@ -194,7 +207,7 @@
     bottom: 0;
     z-index: 100;
   }
-  
+
   .footer-content {
     display: flex;
     justify-content: space-between;
@@ -204,7 +217,7 @@
     font-size: 0.875rem;
     gap: var(--spacing-lg);
   }
-  
+
   .footer-left,
   .footer-center,
   .footer-right {
@@ -212,32 +225,40 @@
     align-items: center;
     gap: var(--spacing-md);
   }
-  
+
   .footer-center {
     flex: 1;
     justify-content: center;
   }
-  
+
   .footer-stat {
     color: var(--text-dim);
     font-weight: 500;
   }
-  
+
   .footer-value {
     color: var(--text-white);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
-  
+
   .footer-value.cyan {
     color: var(--text-primary);
   }
-  
+
+  .footer-dim {
+    color: var(--text-dim);
+  }
+
   .footer-divider {
     color: var(--border-color);
     margin: 0 0.5rem;
   }
-  
+
+  .sync-icon {
+    margin-right: 0.25rem;
+  }
+
   .donation-btn {
     background: transparent;
     border: 1px solid var(--border-color);
@@ -252,21 +273,17 @@
     align-items: center;
     gap: 0.25rem;
   }
-  
+
   .donation-btn:hover {
     border-color: var(--accent-green);
     color: var(--text-white);
     box-shadow: 0 0 10px rgba(72, 187, 120, 0.3);
   }
-  
-  .donation-icon {
-    font-size: 0.875rem;
-  }
-  
+
   .donation-text {
     font-size: 0.75rem;
   }
-  
+
   .footer-btn {
     background: transparent;
     border: 1px solid var(--border-color);
@@ -282,28 +299,28 @@
     align-items: center;
     gap: 0.375rem;
   }
-  
+
   .footer-btn:hover:not(:disabled) {
     border-color: var(--accent-cyan);
     color: var(--text-white);
     box-shadow: 0 0 10px var(--border-glow);
   }
-  
+
   .footer-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }
-  
+
   .spinner {
     display: inline-block;
     animation: spin 1s linear infinite;
   }
-  
+
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
-  
+
   .github-link {
     display: flex;
     align-items: center;
@@ -317,74 +334,75 @@
     font-size: 0.75rem;
     font-family: 'JetBrains Mono', monospace;
   }
-  
+
   .github-link:hover {
     border-color: var(--accent-cyan);
     color: var(--text-white);
     box-shadow: 0 0 10px var(--border-glow);
   }
-  
+
   .github-icon {
     width: 14px;
     height: 14px;
   }
-  
+
   .status-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    flex-shrink: 0;
     animation: pulse 2s ease-in-out infinite;
   }
-  
+
   .status-dot.green {
     background: var(--accent-green);
     box-shadow: 0 0 10px var(--accent-green);
   }
-  
+
   .status-dot.red {
     background: var(--accent-red);
     box-shadow: 0 0 10px var(--accent-red);
   }
-  
+
   .status-dot.yellow {
     background: var(--accent-yellow);
     box-shadow: 0 0 10px var(--accent-yellow);
   }
-  
+
   @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
-  
+
   /* Responsive */
   @media (max-width: 768px) {
     .footer {
       padding: var(--spacing-sm) var(--spacing-md);
     }
-    
+
     .footer-content {
       flex-direction: column;
       gap: var(--spacing-sm);
       font-size: 0.75rem;
     }
-    
+
     .footer-center {
       order: -1;
       flex-wrap: wrap;
     }
-    
+
     .footer-left,
     .footer-right {
       width: 100%;
       justify-content: space-between;
     }
-    
+
     .footer-btn,
     .donation-btn {
       font-size: 0.7rem;
       padding: 0.25rem 0.5rem;
     }
-    
+
     .github-link {
       font-size: 0.7rem;
       padding: 0.25rem 0.5rem;

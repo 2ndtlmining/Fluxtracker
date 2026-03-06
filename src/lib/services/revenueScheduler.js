@@ -5,14 +5,18 @@
  * No changes to your existing revenue logic - just adds the 5-minute timer.
  */
 
-import { fetchRevenueStats } from './revenueService.js';
+import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js';
 
 
 // Configuration
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes
+const AUDIT_INITIAL_DELAY_MS = 10 * 60 * 1000; // 10 minutes after startup
+const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // State tracking
 let intervalId = null;
+let auditTimeoutId = null;
+let auditIntervalId = null;
 let isRunning = false;
 let lastRun = null;
 let consecutiveFailures = 0;
@@ -54,6 +58,26 @@ async function runSync() {
 }
 
 /**
+ * Run a daily audit to catch any missed transactions
+ */
+async function runAudit() {
+    if (isRunning) {
+        console.log('Sync in progress — deferring audit');
+        return;
+    }
+
+    try {
+        isRunning = true;
+        const result = await auditRecentTransactions();
+        console.log(`Daily audit result: ${result.recovered} recovered, ${result.missingFound} missing found`);
+    } catch (error) {
+        console.error('Daily audit failed:', error.message);
+    } finally {
+        isRunning = false;
+    }
+}
+
+/**
  * Start the automatic revenue sync (runs every 5 minutes)
  */
 export function startRevenueSync() {
@@ -61,17 +85,23 @@ export function startRevenueSync() {
         console.warn('⚠️  Revenue sync already running');
         return;
     }
-    
+
     console.log('🚀 Starting automatic revenue sync...');
     console.log(`   Sync interval: ${SYNC_INTERVAL_MS / 1000 / 60} minutes`);
-    
+
     // Run immediately on startup
     runSync();
-    
+
     // Then run every 5 minutes
     intervalId = setInterval(runSync, SYNC_INTERVAL_MS);
-    
-    console.log('✅ Revenue sync scheduler started');
+
+    // Schedule daily audit: first run 10 min after startup, then every 24h
+    auditTimeoutId = setTimeout(() => {
+        runAudit();
+        auditIntervalId = setInterval(runAudit, AUDIT_INTERVAL_MS);
+    }, AUDIT_INITIAL_DELAY_MS);
+
+    console.log('✅ Revenue sync scheduler started (daily audit scheduled)');
 }
 
 /**
@@ -81,8 +111,16 @@ export function stopRevenueSync() {
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        console.log('🛑 Revenue sync scheduler stopped');
     }
+    if (auditTimeoutId) {
+        clearTimeout(auditTimeoutId);
+        auditTimeoutId = null;
+    }
+    if (auditIntervalId) {
+        clearInterval(auditIntervalId);
+        auditIntervalId = null;
+    }
+    console.log('Revenue sync scheduler stopped');
 }
 
 /**

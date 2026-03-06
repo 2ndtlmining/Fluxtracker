@@ -45,7 +45,10 @@ import {
     getYesterdayPaymentCount,
     clearPermanentlyFailedTxids,
     backfillAppTypes,
-    backfillAppNames
+    backfillAppNames,
+    auditRecentTransactions,
+    getRevenueSyncState,
+    fetchCurrentBlockHeight
 } from './lib/services/revenueService.js';
 
 // Import testAllServices
@@ -258,15 +261,39 @@ app.post('/api/admin/backfill-app-names', async (req, res) => {
     }
 });
 
-// NEW: Revenue sync status endpoint
-app.get('/api/admin/revenue-status', (req, res) => {
+// Audit recent transactions for missed entries
+app.post('/api/admin/audit-transactions', async (req, res) => {
     try {
-        const status = getRevenueSyncSchedulerStatus();
+        console.log('Transaction audit triggered via API');
+        const result = await auditRecentTransactions();
+        res.json(result);
+    } catch (error) {
+        console.error('Transaction audit failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Revenue sync status endpoint (used by footer)
+app.get('/api/admin/revenue-status', async (req, res) => {
+    try {
+        const schedulerStatus = getRevenueSyncSchedulerStatus();
+        const syncState = getRevenueSyncState();
         const txCount = getTxidCount();
-        
+        const syncStatus = getSyncStatus('revenue');
+
+        // Fetch current block height (cached internally, fast)
+        let currentBlock = null;
+        try {
+            currentBlock = await fetchCurrentBlockHeight();
+        } catch (_) { /* non-critical */ }
+
         res.json({
-            ...status,
-            transactionCount: txCount
+            ...schedulerStatus,
+            transactionCount: txCount,
+            lastSyncBlock: syncStatus?.last_sync_block || null,
+            currentBlock,
+            isSyncing: syncState.isRunning,
+            lastCompleted: syncState.lastCompleted
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -462,12 +489,15 @@ app.post('/api/admin/test-services', async (req, res) => {
             });
         }
         
-        // Trigger the test services
-        await testAllServices();
-        
+        // Trigger the test services and a revenue sync in parallel
+        await Promise.all([
+            testAllServices(),
+            fetchRevenueStats()
+        ]);
+
         res.json({
             success: true,
-            message: 'All services tested successfully',
+            message: 'All services tested and revenue synced successfully',
             status: getServiceTestSchedulerStatus()
         });
     } catch (error) {
