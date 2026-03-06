@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, INITIAL_SYNC_LOOKBACK_BLOCKS } from '../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS } from '../config.js';
 import {
     updateCurrentMetrics,
     updateSyncStatus,
@@ -275,23 +275,46 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
         console.log(`Splitting ${totalBlocks.toLocaleString()} blocks into ${chunks.length} chunks of ${TXID_CHUNK_SIZE.toLocaleString()}`);
     }
 
+    let failedFromBlock = null;
+
     for (const [from, to] of chunks) {
-        try {
-            const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
+        const MAX_RETRIES = 3;
+        let chunkSuccess = false;
 
-            const response = await axios.get(url, { timeout: 60000 });
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
 
-            if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
-                const count = response.data.data.length;
-                if (count > 0) {
-                    console.log(`  blocks ${from}-${to}: ${count} txids found`);
+                const response = await axios.get(url, { timeout: 60000 });
+
+                if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+                    const count = response.data.data.length;
+                    if (count > 0) {
+                        console.log(`  blocks ${from}-${to}: ${count} txids found`);
+                    }
+                    allTxids.push(...response.data.data);
+                    chunkSuccess = true;
+                    break;
+                } else {
+                    console.warn(`  blocks ${from}-${to}: unexpected response (attempt ${attempt}/${MAX_RETRIES}) — status: ${response.data?.status}, msg: ${JSON.stringify(response.data?.data ?? response.data)}`);
                 }
-                allTxids.push(...response.data.data);
-            } else {
-                console.warn(`  blocks ${from}-${to}: unexpected response — status: ${response.data?.status}, msg: ${JSON.stringify(response.data?.data ?? response.data)}`);
+            } catch (error) {
+                console.error(`  blocks ${from}-${to}: ERROR (attempt ${attempt}/${MAX_RETRIES}) - ${error.message}`);
             }
-        } catch (error) {
-            console.error(`  blocks ${from}-${to}: ERROR - ${error.message}`);
+
+            // Exponential backoff before retry: 2s, 4s, 8s
+            if (attempt < MAX_RETRIES) {
+                const backoffMs = Math.pow(2, attempt) * 1000;
+                console.log(`  Retrying in ${backoffMs / 1000}s...`);
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+            }
+        }
+
+        if (!chunkSuccess) {
+            console.error(`  blocks ${from}-${to}: PERMANENTLY FAILED after ${MAX_RETRIES} attempts — txids from this range will be missing`);
+            if (failedFromBlock === null || from < failedFromBlock) {
+                failedFromBlock = from;
+            }
         }
 
         // Small delay between chunks to be API-friendly
@@ -301,7 +324,7 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
     }
 
     console.log(`Total txids fetched for ${address.substring(0, 15)}: ${allTxids.length}`);
-    return allTxids;
+    return { txids: allTxids, failedFromBlock };
 }
 
 /**
@@ -576,11 +599,12 @@ export async function progressiveSync() {
         // Use last_sync_block from sync_status (the highest block we've SCANNED, not just the
         // highest block we have a transaction for). This prevents re-scanning a growing gap
         // when there are no recent transactions.
+        // NOTE: Block 0 is not supported by getaddresstxids API — always start at 1 minimum.
         const syncStatus = getSyncStatus('revenue');
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock
-            ? Math.max(0, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
-            : Math.max(0, currentBlock - INITIAL_SYNC_LOOKBACK_BLOCKS);      // Controlled by config.js
+            ? Math.max(1, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
+            : 1;                                                             // Initial sync: scan from block 1 (full chain)
 
         console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
 
@@ -594,11 +618,18 @@ export async function progressiveSync() {
         let pendingPayments = [];   // buffer between DB flushes
         let totalNewPayments = 0;
         const DB_FLUSH_SIZE = 200;  // write to DB every 200 payments so graphs update progressively
+        let syncAborted = false;
+        let lowestFailedBlock = null;
 
         // Helper: flush pending payments to DB so they become visible immediately
         function flushPending() {
             if (pendingPayments.length === 0) return;
-            insertTransactionsBatch(pendingPayments);
+            const writeOk = insertTransactionsBatch(pendingPayments);
+            if (writeOk === false) {
+                console.error('Write lock lost — aborting sync to avoid data loss');
+                syncAborted = true;
+                return;
+            }
             totalNewPayments += pendingPayments.length;
             console.log(`  Flushed ${pendingPayments.length} payments to DB (total so far: ${totalNewPayments})`);
             pendingPayments = [];
@@ -606,9 +637,16 @@ export async function progressiveSync() {
 
         // 6. Process each tracked address
         for (const address of TARGET_ADDRESSES) {
+            if (syncAborted) break;
+
             console.log(`\nFetching txids for ${address.substring(0, 20)}...`);
 
-            const txids = await fetchAddressTxidsInRange(address, startBlock, currentBlock);
+            const { txids, failedFromBlock } = await fetchAddressTxidsInRange(address, startBlock, currentBlock);
+
+            // Track the lowest failed block across all addresses
+            if (failedFromBlock !== null && (lowestFailedBlock === null || failedFromBlock < lowestFailedBlock)) {
+                lowestFailedBlock = failedFromBlock;
+            }
 
             if (!txids || txids.length === 0) {
                 console.log('No transactions found in range');
@@ -658,6 +696,7 @@ export async function progressiveSync() {
                 // Flush to DB every DB_FLUSH_SIZE payments so the UI can show partial data
                 if (pendingPayments.length >= DB_FLUSH_SIZE) {
                     flushPending();
+                    if (syncAborted) break;
                 }
 
                 // Small delay between batches to be API-friendly
@@ -667,18 +706,26 @@ export async function progressiveSync() {
             }
 
             // Flush any remaining payments for this address before moving to the next
-            flushPending();
+            if (!syncAborted) flushPending();
         }
 
         // 7. Final flush (catches any remainder < DB_FLUSH_SIZE)
-        flushPending();
+        if (!syncAborted) flushPending();
 
         if (totalNewPayments === 0) {
             console.log('\nNo new transactions found (database is up to date)');
         }
 
-        // 8. Update sync status
-        updateSyncStatus('revenue', 'completed', null, currentBlock);
+        // 8. Update sync status — don't advance past failed chunks or aborted syncs
+        if (syncAborted) {
+            console.warn('Sync aborted due to write lock loss — last_sync_block NOT updated');
+        } else if (lowestFailedBlock !== null) {
+            const safeBlock = lowestFailedBlock - 1;
+            console.warn(`Some API chunks failed — advancing last_sync_block only to ${safeBlock} (failed at block ${lowestFailedBlock})`);
+            updateSyncStatus('revenue', 'completed', null, safeBlock);
+        } else {
+            updateSyncStatus('revenue', 'completed', null, currentBlock);
+        }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`\nBLOCK-RANGE SYNC COMPLETE`);
@@ -700,6 +747,85 @@ export async function progressiveSync() {
     } catch (error) {
         console.error('Block-range sync error:', error.message);
         throw error;
+    }
+}
+
+// ============================================
+// DAILY AUDIT — catch missed transactions
+// ============================================
+
+const AUDIT_LOOKBACK_BLOCKS = 1500; // ~2 days of blocks
+
+/**
+ * Audit recent transactions by re-fetching txids from the API and comparing against DB.
+ * Recovers any missed transactions without a full resync.
+ */
+export async function auditRecentTransactions() {
+    console.log('\nStarting TRANSACTION AUDIT...\n');
+    const startTime = Date.now();
+
+    try {
+        const fluxPrice = await fetchFluxPrice();
+        const currentBlock = await fetchCurrentBlockHeight();
+        const auditStart = Math.max(1, currentBlock - AUDIT_LOOKBACK_BLOCKS);
+
+        console.log(`Audit range: ${auditStart} -> ${currentBlock} (${AUDIT_LOOKBACK_BLOCKS} blocks)`);
+
+        await ensurePermanentMessagesCache();
+        const existingTxids = new Set(getAllTxids());
+
+        let missingFound = 0;
+        let recovered = 0;
+
+        for (const address of TARGET_ADDRESSES) {
+            const { txids } = await fetchAddressTxidsInRange(address, auditStart, currentBlock);
+            if (!txids || txids.length === 0) continue;
+
+            const missingTxids = txids.filter(txid => !existingTxids.has(txid));
+            if (missingTxids.length === 0) continue;
+
+            missingFound += missingTxids.length;
+            console.log(`Audit: ${missingTxids.length} missing txids found for ${address.substring(0, 15)}`);
+
+            // Process missing transactions in small batches
+            const BATCH_SIZE = 10;
+            for (let i = 0; i < missingTxids.length; i += BATCH_SIZE) {
+                const batch = missingTxids.slice(i, i + BATCH_SIZE);
+                const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
+                const payments = [];
+
+                for (let j = 0; j < batch.length; j++) {
+                    const tx = txResults[j];
+                    if (!tx || !tx.confirmations || tx.confirmations < 8) continue;
+
+                    const appHash = extractAppHashFromTx(tx);
+                    const appName = appHash ? lookupAppName(appHash) : null;
+                    const appType = appName ? lookupAppType(appName) : null;
+
+                    payments.push(...processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType));
+                }
+
+                if (payments.length > 0) {
+                    const writeOk = insertTransactionsBatch(payments);
+                    if (writeOk !== false) {
+                        recovered += payments.length;
+                    }
+                }
+
+                if (i + BATCH_SIZE < missingTxids.length) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+        }
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        console.log(`\nAUDIT COMPLETE — missing: ${missingFound}, recovered: ${recovered}, duration: ${duration}s\n`);
+
+        return { success: true, missingFound, recovered, duration };
+
+    } catch (error) {
+        console.error('Audit error:', error.message);
+        return { success: false, missingFound: 0, recovered: 0, duration: ((Date.now() - startTime) / 1000).toFixed(2), error: error.message };
     }
 }
 

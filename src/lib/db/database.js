@@ -692,12 +692,12 @@ export function insertTransaction(tx) {
 }
 
 export function insertTransactionsBatch(transactions) {
-    // ONLY CHANGE: Check if we can write
+    // Check if we can write — return false so callers know the batch was dropped
     if (!canWrite()) {
         console.warn('⚠️  Skipping batch - not the writer');
-        return;
+        return false;
     }
-    
+
     const stmt = db.prepare(`
         INSERT OR IGNORE INTO revenue_transactions
         (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
@@ -723,6 +723,7 @@ export function insertTransactionsBatch(transactions) {
 
     insertMany(transactions);
     console.log(`✅ Inserted ${transactions.length} transactions`);
+    return true;
 }
 
 // Returns distinct app names that have no app_type yet (for backfill)

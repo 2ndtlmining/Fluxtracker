@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
-  import { DollarSign, Gamepad2, Coins, Server, Cloud, Package } from 'lucide-svelte';
+  import { DollarSign, Gamepad2, Coins, Server, Cloud, Package, Download } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -745,7 +745,7 @@
           on:click={exportToCSV}
           title="Export chart data to CSV"
         >
-        <span class="export-icon">📥</span>
+        <Download size={14} strokeWidth={2} />
           <span class="export-text">CSV</span>
       </button>
       {/if}
