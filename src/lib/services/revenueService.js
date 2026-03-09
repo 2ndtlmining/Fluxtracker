@@ -754,7 +754,7 @@ export async function progressiveSync() {
 // DAILY AUDIT — catch missed transactions
 // ============================================
 
-const AUDIT_LOOKBACK_BLOCKS = 1500; // ~2 days of blocks
+const AUDIT_LOOKBACK_BLOCKS = 4320; // ~3 days of blocks
 
 /**
  * Audit recent transactions by re-fetching txids from the API and comparing against DB.
@@ -1046,8 +1046,11 @@ export async function fetchRevenueStats() {
         const nullAppNames = countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
         if (nullAppNames > 0) {
             console.log(`🔄 Auto-backfilling ${nullAppNames} recent transactions missing app_name...`);
-            await backfillAppNames(100, AUTO_BACKFILL_DAYS, true);
+            await backfillAppNames(500, AUTO_BACKFILL_DAYS, true);
         }
+
+        // Auto-backfill missing app_type (git/docker) for transactions that have app_name
+        await backfillAppTypes();
 
         // Calculate daily revenue
         const dailyRevenue = await calculateDailyRevenue();
