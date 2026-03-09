@@ -10,8 +10,8 @@ import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js'
 
 // Configuration
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;  // 5 minutes
-const AUDIT_INITIAL_DELAY_MS = 10 * 60 * 1000; // 10 minutes after startup
-const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const AUDIT_INITIAL_DELAY_MS = 5 * 60 * 1000; // 5 minutes after startup
+const AUDIT_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 // State tracking
 let intervalId = null;
