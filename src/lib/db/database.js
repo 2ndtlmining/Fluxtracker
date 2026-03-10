@@ -344,6 +344,15 @@ function createTables() {
     `);
 
     db.exec(`
+        CREATE TABLE IF NOT EXISTS flux_price_history (
+            date DATE NOT NULL PRIMARY KEY,
+            price_usd REAL NOT NULL,
+            source TEXT DEFAULT 'cryptocompare',
+            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        );
+    `);
+
+    db.exec(`
         CREATE TABLE IF NOT EXISTS sync_status (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             sync_type TEXT NOT NULL UNIQUE,
@@ -1068,17 +1077,109 @@ export function setNextSync(syncType, nextSyncTime) {
 }
 
 // ============================================
+// PRICE HISTORY OPERATIONS
+// ============================================
+
+export function insertPriceHistoryBatch(prices) {
+    if (!canWrite()) {
+        console.warn('Skipping price history insert - not the writer');
+        return false;
+    }
+
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO flux_price_history (date, price_usd, source)
+        VALUES (?, ?, ?)
+    `);
+
+    const insertMany = db.transaction((rows) => {
+        for (const row of rows) {
+            stmt.run(row.date, row.price_usd, row.source || 'cryptocompare');
+        }
+    });
+
+    insertMany(prices);
+    console.log(`Inserted/updated ${prices.length} price history rows`);
+    return true;
+}
+
+export function getPriceForDate(date) {
+    const stmt = db.prepare('SELECT price_usd FROM flux_price_history WHERE date = ?');
+    const row = stmt.get(date);
+    return row ? row.price_usd : null;
+}
+
+export function getPricesForDateRange(startDate, endDate) {
+    const stmt = db.prepare(`
+        SELECT date, price_usd FROM flux_price_history
+        WHERE date BETWEEN ? AND ?
+        ORDER BY date ASC
+    `);
+    return stmt.all(startDate, endDate);
+}
+
+export function getLatestPriceDate() {
+    const stmt = db.prepare('SELECT MAX(date) as latest_date FROM flux_price_history');
+    const row = stmt.get();
+    return row ? row.latest_date : null;
+}
+
+export function getOldestPriceDate() {
+    const stmt = db.prepare('SELECT MIN(date) as oldest_date FROM flux_price_history');
+    const row = stmt.get();
+    return row ? row.oldest_date : null;
+}
+
+export function getTransactionsWithNullUsd(limit = 1000) {
+    const stmt = db.prepare(`
+        SELECT txid, amount, date, timestamp FROM revenue_transactions
+        WHERE amount_usd IS NULL
+        ORDER BY block_height DESC
+        LIMIT ?
+    `);
+    return stmt.all(limit);
+}
+
+export function updateTransactionUsdBatch(updates) {
+    if (!canWrite()) {
+        console.warn('Skipping USD batch update - not the writer');
+        return false;
+    }
+
+    const stmt = db.prepare(`
+        UPDATE revenue_transactions SET amount_usd = ?
+        WHERE txid = ? AND amount_usd IS NULL
+    `);
+
+    const updateMany = db.transaction((rows) => {
+        for (const row of rows) {
+            stmt.run(row.amount_usd, row.txid);
+        }
+    });
+
+    updateMany(updates);
+    console.log(`Updated USD for ${updates.length} transactions`);
+    return true;
+}
+
+export function getPriceHistoryCount() {
+    const stmt = db.prepare('SELECT COUNT(*) as count FROM flux_price_history');
+    return stmt.get().count;
+}
+
+// ============================================
 // UTILITY FUNCTIONS - UNCHANGED
 // ============================================
 
 export function getDatabaseStats() {
     const snapshots = db.prepare('SELECT COUNT(*) as count FROM daily_snapshots').get();
     const transactions = db.prepare('SELECT COUNT(*) as count FROM revenue_transactions').get();
+    const priceHistory = db.prepare('SELECT COUNT(*) as count FROM flux_price_history').get();
     const dbSize = fs.statSync(dbPath).size;
 
     return {
         snapshots: snapshots.count,
         transactions: transactions.count,
+        priceHistory: priceHistory.count,
         dbSizeKB: Math.round(dbSize / 1024),
         dbPath,
         isWriter: isWriter,

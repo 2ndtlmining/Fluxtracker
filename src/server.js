@@ -57,6 +57,7 @@ import { testAllServices } from './lib/services/test-allServices.js';
 
 // Import backfill functions
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
+import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
 
 import { json } from '@sveltejs/kit';
 import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
@@ -269,6 +270,18 @@ app.post('/api/admin/audit-transactions', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Transaction audit failed:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Backfill USD amounts for transactions that have NULL amount_usd using historical prices
+app.post('/api/admin/backfill-usd', async (req, res) => {
+    try {
+        console.log('USD backfill triggered via API');
+        const result = await backfillNullUsdAmounts();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        console.error('USD backfill failed:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
