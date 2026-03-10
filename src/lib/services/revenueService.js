@@ -15,6 +15,7 @@ import {
     countTxidsWithoutAppName,
     updateAppNameForTxid
 } from '../db/database.js';
+import { syncPriceHistory, buildFullPriceMap } from './priceHistoryService.js';
 
 // ============================================
 // STATE TRACKING
@@ -509,7 +510,7 @@ function lookupAppType(appName) {
  * Process transaction and extract revenue for our tracked addresses.
  * Expects Flux daemon getrawtransaction format (vout.value already in FLUX).
  */
-function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName = null, appType = null) {
+function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName = null, appType = null, priceMap = null) {
     const transactions = [];
 
     if (!tx || !tx.vout) {
@@ -543,12 +544,17 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName =
                 );
                 if (isExcluded) continue;
 
-                // Only apply USD conversion if the transaction is recent (within 24 hours).
-                // For historical transactions the current price would be wrong — leave as null.
+                // USD conversion priority:
+                // 1. Recent tx (<24h) + live price available -> use live price
+                // 2. Historical price map has the date -> use historical price
+                // 3. No data -> NULL
+                let amountUSD = null;
                 const txAgeSeconds = Math.floor(Date.now() / 1000) - timestamp;
-                const amountUSD = (fluxPriceUSD && txAgeSeconds < 86400)
-                    ? amountFlux * fluxPriceUSD
-                    : null;
+                if (fluxPriceUSD && txAgeSeconds < 86400) {
+                    amountUSD = amountFlux * fluxPriceUSD;
+                } else if (priceMap && priceMap.has(date)) {
+                    amountUSD = amountFlux * priceMap.get(date);
+                }
 
                 transactions.push({
                     txid: tx.txid,
@@ -583,13 +589,23 @@ export async function progressiveSync() {
     const BATCH_SIZE = 10;
 
     try {
-        // 1. Fetch FLUX price
+        // 1. Sync historical price data (fast no-op if already current)
+        try {
+            await syncPriceHistory();
+        } catch (priceErr) {
+            console.warn('Price history sync failed (non-fatal):', priceErr.message);
+        }
+
+        // 1b. Fetch live FLUX price
         const fluxPrice = await fetchFluxPrice();
         if (fluxPrice) {
             console.log(`FLUX price: $${fluxPrice.toFixed(4)}`);
         } else {
             console.warn('Could not fetch FLUX price - USD values will be null');
         }
+
+        // 1c. Build historical price map for USD conversion of older transactions
+        const priceMap = buildFullPriceMap();
 
         // 2. Get current block height
         const currentBlock = await fetchCurrentBlockHeight();
@@ -685,7 +701,7 @@ export async function progressiveSync() {
                     const appName = appHash ? lookupAppName(appHash) : null;
                     const appType = appName ? lookupAppType(appName) : null;
 
-                    const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType);
+                    const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                     pendingPayments.push(...payments);
 
                     if (payments.length > 0) {
@@ -766,6 +782,7 @@ export async function auditRecentTransactions() {
 
     try {
         const fluxPrice = await fetchFluxPrice();
+        const priceMap = buildFullPriceMap();
         const currentBlock = await fetchCurrentBlockHeight();
         const auditStart = Math.max(1, currentBlock - AUDIT_LOOKBACK_BLOCKS);
 
@@ -802,7 +819,7 @@ export async function auditRecentTransactions() {
                     const appName = appHash ? lookupAppName(appHash) : null;
                     const appType = appName ? lookupAppType(appName) : null;
 
-                    payments.push(...processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType));
+                    payments.push(...processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap));
                 }
 
                 if (payments.length > 0) {

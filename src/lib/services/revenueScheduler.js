@@ -6,6 +6,7 @@
  */
 
 import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js';
+import { backfillNullUsdAmounts } from './priceHistoryService.js';
 
 
 // Configuration
@@ -70,6 +71,12 @@ async function runAudit() {
         isRunning = true;
         const result = await auditRecentTransactions();
         console.log(`Daily audit result: ${result.recovered} recovered, ${result.missingFound} missing found`);
+
+        // Backfill any transactions still missing USD values using historical prices
+        const backfill = await backfillNullUsdAmounts();
+        if (backfill.updated > 0) {
+            console.log(`USD backfill: ${backfill.updated} updated, ${backfill.skipped} skipped`);
+        }
     } catch (error) {
         console.error('Daily audit failed:', error.message);
     } finally {

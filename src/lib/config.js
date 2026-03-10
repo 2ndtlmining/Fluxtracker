@@ -83,6 +83,7 @@ export const API_ENDPOINTS = {
     PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
     PRICE_EXPLORER: 'https://explorer.runonflux.io/api/currency',
     PRICE_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/price?fsym=FLUX&tsyms=USD',
+    PRICE_HISTORY_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/v2/histoday?fsym=FLUX&tsym=USD&limit=2000',
     PRICE_FALLBACK: 'https://explorer.runonflux.io/api/currency',
 
     //cloud stats
