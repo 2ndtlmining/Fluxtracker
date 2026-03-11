@@ -544,6 +544,10 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName =
                 );
                 if (isExcluded) continue;
 
+                // Skip UTXO change: from_address == receiving address means this is
+                // just unspent change returning to the same wallet, not real revenue
+                if (trackedAddresses.includes(fromAddress)) continue;
+
                 // USD conversion priority:
                 // 1. Recent tx (<24h) + live price available -> use live price
                 // 2. Historical price map has the date -> use historical price

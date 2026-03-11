@@ -60,7 +60,7 @@ import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
 
 import { json } from '@sveltejs/kit';
-import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
+import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -502,10 +502,11 @@ app.post('/api/admin/test-services', async (req, res) => {
             });
         }
         
-        // Trigger the test services and a revenue sync in parallel
+        // Trigger the test services, revenue sync, and carousel update in parallel
         await Promise.all([
             testAllServices(),
-            fetchRevenueStats()
+            fetchRevenueStats(),
+            fetchCarouselData()
         ]);
 
         res.json({
