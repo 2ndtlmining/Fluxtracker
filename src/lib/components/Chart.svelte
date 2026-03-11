@@ -37,7 +37,9 @@
       color: 'rgb(0, 255, 255)',
       metrics: [
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
-        { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' }
+        { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
+        { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
+        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
       ]
     },
     gaming: {
@@ -139,9 +141,11 @@
   let lastMetric = selectedMetric;
   $: if (selectedMetric !== lastMetric && allSnapshots.length > 0) {
     // Check if switching between FLUX and USD revenue (requires re-fetch)
-    const needsRefetch = selectedCategory === 'revenue' && 
-                        ((lastMetric === 'daily_revenue' && selectedMetric === 'daily_revenue_usd') ||
-                         (lastMetric === 'daily_revenue_usd' && selectedMetric === 'daily_revenue'));
+    const fluxMetrics = ['daily_revenue', 'cumulative_revenue'];
+    const usdMetrics = ['daily_revenue_usd', 'cumulative_revenue_usd'];
+    const wasUSD = usdMetrics.includes(lastMetric);
+    const isNowUSD = usdMetrics.includes(selectedMetric);
+    const needsRefetch = selectedCategory === 'revenue' && wasUSD !== isNowUSD;
     
     if (needsRefetch) {
       console.log(`💱 Switching between FLUX/USD - re-fetching data from different endpoint`);
@@ -211,7 +215,7 @@
       if (selectedCategory === 'revenue') {
         // Check if USD metric is selected
         const metric = availableMetrics.find(m => m.id === selectedMetric);
-        const isUSD = metric && metric.id === 'daily_revenue_usd';
+        const isUSD = metric && (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd');
 
         const endpoint = isUSD
           ? `${API_URL}/api/history/revenue/daily-usd?limit=${limitParam}`
@@ -272,6 +276,27 @@
     }
   }
 
+  function formatDateLabel(date, index, allDates, mode) {
+    const baseOpts = { month: 'short', day: 'numeric' };
+    const base = date.toLocaleDateString('en-US', baseOpts);
+
+    // Check if data spans multiple years
+    const firstYear = new Date(allDates[0]).getFullYear();
+    const lastYear = new Date(allDates[allDates.length - 1]).getFullYear();
+    if (firstYear === lastYear) {
+      return mode === 'weekly' ? `Week of ${base}` : base;
+    }
+
+    // Multi-year: show year on first label and at year boundaries
+    const year = date.getFullYear();
+    const shortYear = `'${String(year).slice(2)}`;
+    const prevYear = index > 0 ? new Date(allDates[index - 1]).getFullYear() : null;
+    const showYear = index === 0 || year !== prevYear;
+
+    const label = showYear ? `${base} ${shortYear}` : base;
+    return mode === 'weekly' ? `Week of ${label}` : label;
+  }
+
   function processChartData() {
     if (!allSnapshots || allSnapshots.length === 0) {
       console.warn('⚠️ No snapshots available to process');
@@ -299,18 +324,19 @@
 
     if (selectedAggregation === 'daily') {
       // DAILY - Your existing logic
+      const allDateStrs = sortedSnapshots.map(s => s.date || s.snapshot_date);
       for (let i = 0; i < sortedSnapshots.length; i++) {
         const snapshot = sortedSnapshots[i];
         const dateStr = snapshot.date || snapshot.snapshot_date;
         if (!dateStr) continue;
-        
+
         const date = new Date(dateStr);
-        labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+        labels.push(formatDateLabel(date, i, allDateStrs, 'daily'));
         rawDates.push(dateStr);
-        
+
         let value = 0;
         if (selectedCategory === 'revenue') {
-          if (metric.id === 'daily_revenue_usd') {
+          if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
             // For USD, use the daily_revenue_usd field (handles NULL gracefully with || 0)
             value = snapshot.daily_revenue_usd || 0;
           } else {
@@ -336,7 +362,13 @@
       rawDates = monthlyData.rawDates;
     }
 
-    console.log(`✅ Processed ${data.length} ${selectedAggregation} data points`);
+    // Cumulative: convert daily values to running total
+    if (metric.cumulative) {
+      let runningTotal = 0;
+      data = data.map(v => { runningTotal += v; return runningTotal; });
+    }
+
+    console.log(`✅ Processed ${data.length} ${selectedAggregation} data points${metric.cumulative ? ' (cumulative)' : ''}`);
     console.log(`   First date: ${rawDates[0]}, Last date: ${rawDates[rawDates.length - 1]}`);
     console.log(`   First value: ${data[0]}, Last value: ${data[data.length - 1]}`);
 
@@ -361,7 +393,7 @@
       
       let value = 0;
       if (selectedCategory === 'revenue') {
-        if (metric.id === 'daily_revenue_usd') {
+        if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
           value = snapshot.daily_revenue_usd || 0;
         } else {
           value = snapshot.revenue || snapshot[metric.field] || 0;
@@ -369,7 +401,7 @@
       } else {
         value = snapshot[metric.field] || 0;
       }
-      
+
       if (!weeklyMap.has(weekKey)) {
         weeklyMap.set(weekKey, {
           total: 0,
@@ -393,9 +425,10 @@
     const sortedWeeks = Array.from(weeklyMap.entries())
       .sort((a, b) => new Date(a[0]) - new Date(b[0]));
     
-    const labels = sortedWeeks.map(([key, data]) => {
+    const weekKeys = sortedWeeks.map(([key]) => key);
+    const labels = sortedWeeks.map(([key, data], index) => {
       const date = new Date(key);
-      return `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      return formatDateLabel(date, index, weekKeys, 'weekly');
     });
     
     const data = sortedWeeks.map(([key, weekData]) => {
@@ -424,7 +457,7 @@
       
       let value = 0;
       if (selectedCategory === 'revenue') {
-        if (metric.id === 'daily_revenue_usd') {
+        if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
           value = snapshot.daily_revenue_usd || 0;
         } else {
           value = snapshot.revenue || snapshot[metric.field] || 0;
@@ -432,7 +465,7 @@
       } else {
         value = snapshot[metric.field] || 0;
       }
-      
+
       if (!monthlyMap.has(monthKey)) {
         monthlyMap.set(monthKey, {
           total: 0,

@@ -141,7 +141,7 @@
         FLUX<br/>TRACKER
       </h1>
       <div class="build-info">
-        Build: <span class="text-cyan">v.10 troubled cod</span>
+        Build: <span class="text-cyan">v.11 troubled cod</span>
       </div>
     </div>
     
