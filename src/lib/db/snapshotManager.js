@@ -4,12 +4,15 @@
 // ✅ Uses transaction-based revenue
 // ✅ Runs every 30 minutes
 
-import { 
-    createDailySnapshot, 
+import {
+    createDailySnapshot,
+    createRepoSnapshots,
+    getRepoSnapshotCountByDate,
     getCurrentMetrics,
     getSnapshotByDate,
     getRevenueForDateRange
 } from './database.js';
+import { getLatestRepoCounts } from '../services/cloudService.js';
 
 // ============================================
 // CONFIGURATION
@@ -28,19 +31,23 @@ let state = {
     lastSuccess: null,
     consecutiveFailures: 0,
     intervalId: null,
+    repoRetryId: null,       // Track retry timer to prevent unbounded retries
+    repoRetryCount: 0,       // Limit retries
 };
 
 export function getSnapshotState() {
-    return { ...state };
+    const { repoRetryId, ...safeState } = state;
+    return { ...safeState, repoRetryPending: !!repoRetryId };
 }
 
 export function getSnapshotSystemStatus() {
     const today = new Date().toISOString().split('T')[0];
     const todaySnapshot = getSnapshotByDate(today);
     
+    const { repoRetryId, ...safeState } = state;
     return {
         config: CONFIG,
-        state: state,
+        state: { ...safeState, repoRetryPending: !!repoRetryId },
         todaySnapshotExists: !!todaySnapshot,
         todaySnapshotDate: todaySnapshot?.snapshot_date || null,
         isHealthy: state.consecutiveFailures < 3
@@ -218,10 +225,23 @@ async function takeSnapshot() {
         };
         
         createDailySnapshot(snapshotData);
-        
+
+        // Save per-repo Docker image counts
+        const repoCounts = getLatestRepoCounts();
+        const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
+        if (repoKeyCount >= 10) {
+            const saved = createRepoSnapshots(snapshotDate, repoCounts);
+            console.log(`   Docker repos: ${saved} unique images tracked`);
+            state.repoRetryCount = 0;
+        } else if (repoKeyCount > 0) {
+            console.warn(`   Skipping repo snapshot - only ${repoKeyCount} images (expected 10+), likely partial API data`);
+        } else {
+            scheduleRepoRetry('takeSnapshot');
+        }
+
         state.lastSuccess = Date.now();
         state.consecutiveFailures = 0;
-        
+
         console.log(`✅ Snapshot created for ${snapshotDate}`);
         console.log(`   Revenue: ${snapshotData.daily_revenue.toFixed(2)} FLUX`);
         console.log(`   Nodes: ${snapshotData.node_total}, Apps: ${snapshotData.total_apps}`);
@@ -247,6 +267,22 @@ async function takeSnapshot() {
 // MAIN CHECK
 // ============================================
 
+const MAX_REPO_RETRIES = 5;
+
+function scheduleRepoRetry(source) {
+    if (state.repoRetryCount >= MAX_REPO_RETRIES) {
+        console.warn(`   Repo snapshot: gave up after ${MAX_REPO_RETRIES} retries (from ${source})`);
+        return;
+    }
+    state.repoRetryCount++;
+    console.log(`   Repo counts not available yet, retry ${state.repoRetryCount}/${MAX_REPO_RETRIES} in 2 minutes (from ${source})`);
+    if (state.repoRetryId) clearTimeout(state.repoRetryId);
+    state.repoRetryId = setTimeout(() => {
+        state.repoRetryId = null;
+        runCheck();
+    }, 2 * 60 * 1000);
+}
+
 async function runCheck() {
     const now = new Date();
     state.lastCheck = Date.now();
@@ -260,25 +296,43 @@ async function runCheck() {
     
     try {
         state.isRunning = true;
-        
+
         const check = shouldTakeSnapshot();
-        
+
         if (!check.should) {
             console.log(`⏸️  ${check.reason}`);
+
+            // Daily snapshot exists, but check if repo snapshots are missing
+            const today = new Date().toISOString().split('T')[0];
+            const repoCount = getRepoSnapshotCountByDate(today);
+            if (repoCount === 0) {
+                const repoCounts = getLatestRepoCounts();
+                const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
+                if (repoKeyCount >= 10) {
+                    const saved = createRepoSnapshots(today, repoCounts);
+                    console.log(`   Repo snapshots missing - created: ${saved} Docker images tracked for ${today}`);
+                    state.repoRetryCount = 0;
+                } else if (repoKeyCount > 0) {
+                    console.warn(`   Repo snapshots missing - only ${repoKeyCount} images available (expected 10+), skipping`);
+                } else {
+                    scheduleRepoRetry('runCheck');
+                }
+            }
+
             return;
         }
-        
+
         console.log(`✅ ${check.reason} - taking snapshot...`);
         const result = await takeSnapshot();
-        
+
         if (!result.success) {
             console.error(`❌ Snapshot failed: ${result.error}`);
-            
+
             if (state.consecutiveFailures >= 3) {
                 console.error(`🚨 ALERT: ${state.consecutiveFailures} consecutive failures!`);
             }
         }
-        
+
     } catch (error) {
         console.error('❌ Check error:', error);
         state.consecutiveFailures++;
@@ -314,15 +368,19 @@ export function stopSnapshotChecker() {
     if (state.intervalId) {
         clearInterval(state.intervalId);
         state.intervalId = null;
-        console.log('🛑 Snapshot checker stopped');
     }
+    if (state.repoRetryId) {
+        clearTimeout(state.repoRetryId);
+        state.repoRetryId = null;
+    }
+    console.log('Snapshot checker stopped');
 }
 
 export async function takeManualSnapshot() {
     console.log('🔧 Manual snapshot triggered...');
-    
+
     const check = shouldTakeSnapshot();
-    
+
     if (!check.should) {
         return {
             success: false,
@@ -330,6 +388,39 @@ export async function takeManualSnapshot() {
             reason: check.reason
         };
     }
-    
+
     return await takeSnapshot();
+}
+
+/**
+ * Take a repo-only snapshot for today, independent of daily snapshot.
+ * Useful for first-time population or testing.
+ */
+export function takeRepoSnapshot() {
+    const snapshotDate = new Date().toISOString().split('T')[0];
+    const repoCounts = getLatestRepoCounts();
+    const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
+
+    if (repoKeyCount === 0) {
+        return {
+            success: false,
+            reason: 'No repo count data available yet - cloud stats may not have run'
+        };
+    }
+
+    if (repoKeyCount < 10) {
+        return {
+            success: false,
+            reason: `Only ${repoKeyCount} images available (expected 10+) - likely partial API data`
+        };
+    }
+
+    const count = createRepoSnapshots(snapshotDate, repoCounts);
+    console.log(`Repo snapshot: ${count} unique Docker images tracked for ${snapshotDate}`);
+
+    return {
+        success: true,
+        snapshotDate,
+        repoCount: count
+    };
 }

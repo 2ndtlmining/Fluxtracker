@@ -127,6 +127,7 @@ export function initDatabase() {
         
         createTables();
         migrateRevenueTransactions();
+        migrateRepoSnapshots();
         initializeSyncStatus();
         
         // NEW: Try to acquire write lock
@@ -366,7 +367,39 @@ function createTables() {
         CREATE INDEX IF NOT EXISTS idx_sync_type ON sync_status(sync_type);
     `);
 
+    // Repo snapshots - normalized per-repo daily counts
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS repo_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date DATE NOT NULL,
+            image_name TEXT NOT NULL,
+            instance_count INTEGER NOT NULL DEFAULT 0,
+            category TEXT DEFAULT NULL,
+            created_at INTEGER NOT NULL,
+            UNIQUE(snapshot_date, image_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_repo_snapshot_date ON repo_snapshots(snapshot_date);
+        CREATE INDEX IF NOT EXISTS idx_repo_image_name ON repo_snapshots(image_name);
+        CREATE INDEX IF NOT EXISTS idx_repo_composite ON repo_snapshots(image_name, snapshot_date);
+        CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category);
+    `);
+
     console.log('✅ Database tables created');
+}
+
+function migrateRepoSnapshots() {
+    try {
+        const columns = db.pragma('table_info(repo_snapshots)');
+        if (columns.length === 0) return; // Table doesn't exist yet
+        const hasCategory = columns.some(col => col.name === 'category');
+        if (!hasCategory) {
+            db.exec('ALTER TABLE repo_snapshots ADD COLUMN category TEXT DEFAULT NULL');
+            db.exec('CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category)');
+            console.log('Migration: added category column to repo_snapshots');
+        }
+    } catch (error) {
+        console.warn('repo_snapshots migration check failed:', error.message);
+    }
 }
 
 function migrateRevenueTransactions() {
@@ -1174,17 +1207,89 @@ export function getDatabaseStats() {
     const snapshots = db.prepare('SELECT COUNT(*) as count FROM daily_snapshots').get();
     const transactions = db.prepare('SELECT COUNT(*) as count FROM revenue_transactions').get();
     const priceHistory = db.prepare('SELECT COUNT(*) as count FROM flux_price_history').get();
+    const repoSnapshots = db.prepare('SELECT COUNT(*) as count FROM repo_snapshots').get();
+    const distinctRepos = db.prepare('SELECT COUNT(DISTINCT image_name) as count FROM repo_snapshots').get();
     const dbSize = fs.statSync(dbPath).size;
 
     return {
         snapshots: snapshots.count,
         transactions: transactions.count,
         priceHistory: priceHistory.count,
+        repoSnapshots: repoSnapshots.count,
+        distinctRepos: distinctRepos.count,
         dbSizeKB: Math.round(dbSize / 1024),
         dbPath,
         isWriter: isWriter,
         instanceId: INSTANCE_ID
     };
+}
+
+// ============================================
+// REPO SNAPSHOTS
+// ============================================
+
+export function createRepoSnapshots(snapshotDate, repoCounts) {
+    if (!canWrite()) {
+        console.warn('Skipping repo snapshots - not the writer');
+        return 0;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const stmt = db.prepare(`
+        INSERT OR REPLACE INTO repo_snapshots (snapshot_date, image_name, instance_count, created_at)
+        VALUES (?, ?, ?, ?)
+    `);
+
+    const insertMany = db.transaction((entries) => {
+        for (const [imageName, count] of entries) {
+            stmt.run(snapshotDate, imageName, count, now);
+        }
+    });
+
+    const entries = Object.entries(repoCounts);
+    insertMany(entries);
+    return entries.length;
+}
+
+export function getRepoSnapshotCountByDate(date) {
+    const row = db.prepare(
+        'SELECT COUNT(*) as count FROM repo_snapshots WHERE snapshot_date = ?'
+    ).get(date);
+    return row ? row.count : 0;
+}
+
+export function getRepoHistory(imageName, limit = 90) {
+    const stmt = db.prepare(`
+        SELECT snapshot_date, instance_count
+        FROM repo_snapshots
+        WHERE image_name = ?
+        ORDER BY snapshot_date DESC
+        LIMIT ?
+    `);
+    return stmt.all(imageName, limit);
+}
+
+export function getDistinctRepos() {
+    const stmt = db.prepare(`
+        SELECT DISTINCT image_name FROM repo_snapshots ORDER BY image_name
+    `);
+    return stmt.all().map(row => row.image_name);
+}
+
+export function getLatestRepoSnapshot() {
+    const dateRow = db.prepare(`
+        SELECT MAX(snapshot_date) as latest_date FROM repo_snapshots
+    `).get();
+
+    if (!dateRow || !dateRow.latest_date) return [];
+
+    const stmt = db.prepare(`
+        SELECT image_name, instance_count
+        FROM repo_snapshots
+        WHERE snapshot_date = ?
+        ORDER BY instance_count DESC
+    `);
+    return stmt.all(dateRow.latest_date);
 }
 
 export function closeDatabase() {

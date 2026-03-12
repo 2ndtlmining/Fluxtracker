@@ -5,6 +5,16 @@ import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db
 // NOTE: API endpoints are now properly imported from API_ENDPOINTS in config.js
 // Previously these were local constants causing undefined variable errors
 
+// Module-level cache for per-repo counts
+let latestRepoCounts = null;
+
+/**
+ * Get the latest per-repo instance counts (populated by fetchAppCount)
+ */
+export function getLatestRepoCounts() {
+    return latestRepoCounts;
+}
+
 // Retry configuration
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 1000; // 1 second
@@ -337,27 +347,37 @@ async function fetchAppCount() {
             const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
             console.error(errorMessage);
             updateSyncStatus('cloud', 'failed', errorMessage);
-            return; // Exit the function early
+            throw new Error(errorMessage); // Throw so catch block returns cached/default values
         }
-        
-        const appsData = response.data.data;
-        
+
+        const appsData = response.data?.data;
+
+        if (!appsData || !Array.isArray(appsData) || appsData.length === 0) {
+            throw new Error('RUNNING_APPS API returned empty or invalid data');
+        }
+
         let totalAppsRaw = 0;      // Total including Watchtower
         let watchtowerCount = 0;
         let gitappsCount = 0;      // NEW: Count of Git apps (runonflux/orbit)
-        
+        const repoCountMap = new Map(); // Per-repo instance counts
+
         appsData.forEach(app => {
             if (app.apps && app.apps.runningapps) {
                 app.apps.runningapps.forEach(runningApp => {
                     totalAppsRaw++;
-                    
+
                     const image = runningApp.Image || '';
-                    
+
+                    // Count per Docker image
+                    if (image) {
+                        repoCountMap.set(image, (repoCountMap.get(image) || 0) + 1);
+                    }
+
                     // Count Watchtower apps
                     if (image.includes('containrrr/watchtower')) {
                         watchtowerCount++;
                     }
-                    
+
                     // NEW: Count Git apps (runonflux/orbit)
                     if (image.includes('runonflux/orbit')) {
                         gitappsCount++;
@@ -382,19 +402,25 @@ async function fetchAppCount() {
             ? parseFloat(((dockerappsCount / totalApps) * 100).toFixed(2))
             : 0;
         
+        // Cache per-repo counts for snapshot manager
+        const repoCounts = Object.fromEntries(repoCountMap);
+        latestRepoCounts = repoCounts;
+
         console.log('📊 App Breakdown:');
         console.log(`   Total Apps (excl. Watchtower): ${totalApps}`);
         console.log(`   Watchtower: ${watchtowerCount}`);
         console.log(`   Git Apps (runonflux/orbit): ${gitappsCount} (${gitappsPercent}%)`);
         console.log(`   Docker Apps: ${dockerappsCount} (${dockerappsPercent}%)`);
-        
+        console.log(`   Unique Docker images: ${repoCountMap.size}`);
+
         return {
             totalApps,
             watchtowerCount,
             gitappsCount,
             dockerappsCount,
             gitappsPercent,
-            dockerappsPercent
+            dockerappsPercent,
+            repoCounts
         };
         
     } catch (error) {

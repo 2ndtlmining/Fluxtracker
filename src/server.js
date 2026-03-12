@@ -18,14 +18,19 @@ import {
     getDailyRevenueUSDInRange,
     resetRevenueSyncBlock,
     getSyncStatus,
-    clearRevenueData
+    clearRevenueData,
+    getDistinctRepos,
+    getRepoHistory,
+    getLatestRepoSnapshot,
+    createRepoSnapshots
 } from './lib/db/database.js';
 
 // Import the NEW snapshot manager
-import { 
-    startSnapshotChecker, 
+import {
+    startSnapshotChecker,
     getSnapshotSystemStatus,
-    takeManualSnapshot
+    takeManualSnapshot,
+    takeRepoSnapshot
 } from './lib/db/snapshotManager.js';
 
 // Import the revenue scheduler (wraps your existing revenueService.js)
@@ -746,6 +751,38 @@ app.get('/api/history/snapshots', (req, res) => {
     }
 });
 
+// Docker repo history endpoints
+app.get('/api/history/repos/list', (req, res) => {
+    try {
+        const repos = getDistinctRepos();
+        res.json({ count: repos.length, data: repos });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/history/repos/history', (req, res) => {
+    try {
+        const { image, limit } = req.query;
+        if (!image) {
+            return res.status(400).json({ error: 'image query parameter is required' });
+        }
+        const history = getRepoHistory(image, parseInt(limit) || 90);
+        res.json({ count: history.length, data: history });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/history/repos/latest', (req, res) => {
+    try {
+        const repos = getLatestRepoSnapshot();
+        res.json({ count: repos.length, data: repos });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // IMPORTANT: Specific routes MUST come BEFORE parameterized routes
 // Transaction summary - MUST be before /api/transactions/:date
 app.get('/api/transactions/summary', (req, res) => {
@@ -1125,6 +1162,21 @@ app.post('/api/admin/snapshot', async (req, res) => {
             success: false,
             error: error.message 
         });
+    }
+});
+
+// Manual repo-only snapshot (works even if today's daily snapshot already exists)
+app.post('/api/admin/repo-snapshot', (req, res) => {
+    try {
+        console.log('Manual repo snapshot triggered via API');
+        const result = takeRepoSnapshot();
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
