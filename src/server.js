@@ -22,8 +22,16 @@ import {
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
-    createRepoSnapshots
+    createRepoSnapshots,
+    getTopReposByCategory,
+    getCategoryTotal,
+    getCategoryHistory,
+    getReposByCategory,
+    backfillRepoCategories,
+    recategorizeAllRepos
 } from './lib/db/database.js';
+
+import { getDisplayName, CATEGORY_CONFIG } from './lib/config.js';
 
 // Import the NEW snapshot manager
 import {
@@ -778,6 +786,124 @@ app.get('/api/history/repos/latest', (req, res) => {
     try {
         const repos = getLatestRepoSnapshot();
         res.json({ count: repos.length, data: repos });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// CATEGORY-BASED ENDPOINTS (from repo_snapshots)
+// ============================================
+
+// Top repos for a category (used by CategoryCard)
+app.get('/api/metrics/category/:category/top', (req, res) => {
+    try {
+        const { category } = req.params;
+        const limit = parseInt(req.query.limit) || 3;
+
+        if (!CATEGORY_CONFIG[category]) {
+            return res.status(400).json({ error: `Unknown category: ${category}` });
+        }
+
+        const { date, repos } = getTopReposByCategory(category, limit);
+        if (!date) {
+            return res.json({ category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [] });
+        }
+
+        const total = getCategoryTotal(category, date);
+
+        // Get comparison data from 7 days ago
+        const prevDate = new Date(date);
+        prevDate.setDate(prevDate.getDate() - 7);
+        const prevDateStr = prevDate.toISOString().split('T')[0];
+        const previousTotal = getCategoryTotal(category, prevDateStr);
+
+        // Get previous counts for the same repos
+        const previousRepos = repos.map(r => {
+            const prev = getTopReposByCategory(category, 999);
+            const prevRepo = prev.repos.find(pr => pr.image_name === r.image_name);
+            // Look up this specific repo on the previous date
+            const prevRow = (() => {
+                try {
+                    const history = getRepoHistory(r.image_name, 90);
+                    const match = history.find(h => h.snapshot_date === prevDateStr);
+                    return match ? match.instance_count : 0;
+                } catch { return 0; }
+            })();
+            return { image_name: r.image_name, instance_count: prevRow };
+        });
+
+        res.json({
+            category,
+            date,
+            total,
+            previousTotal,
+            repos: repos.map(r => ({
+                ...r,
+                displayName: getDisplayName(r.image_name)
+            })),
+            previousRepos
+        });
+    } catch (error) {
+        console.error(`Error in /api/metrics/category/${req.params.category}/top:`, error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Category history (aggregated daily totals, used by charts)
+app.get('/api/history/category/:category', (req, res) => {
+    try {
+        const { category } = req.params;
+        const limit = parseInt(req.query.limit) || 90;
+
+        if (!CATEGORY_CONFIG[category]) {
+            return res.status(400).json({ error: `Unknown category: ${category}` });
+        }
+
+        const history = getCategoryHistory(category, limit);
+        res.json({ count: history.length, data: history });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// List repos in a category (for chart dropdown)
+app.get('/api/history/category/:category/repos', (req, res) => {
+    try {
+        const { category } = req.params;
+        if (!CATEGORY_CONFIG[category]) {
+            return res.status(400).json({ error: `Unknown category: ${category}` });
+        }
+
+        const repos = getReposByCategory(category);
+        res.json({ count: repos.length, data: repos.map(r => ({
+            image_name: r.image_name,
+            displayName: getDisplayName(r.image_name)
+        })) });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: backfill repo categories (only NULL rows)
+app.post('/api/admin/backfill-repo-categories', (req, res) => {
+    try {
+        const count = backfillRepoCategories();
+        res.json({ success: true, message: `Processed ${count} distinct images` });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: full re-categorize (reset ALL categories then re-apply keywords)
+app.post('/api/admin/recategorize-repos', (req, res) => {
+    try {
+        const { resetCount, categorized } = recategorizeAllRepos();
+        res.json({
+            success: true,
+            message: `Reset ${resetCount} images, categorized ${Object.values(categorized).reduce((a,b) => a+b, 0)}`,
+            categorized
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { migrateSchema } from './schemaMigrator.js';
+import { categorizeImage } from '../config.js';
 
 // ============================================
 // CORRUPTION PREVENTION - MINIMAL ADDITIONS
@@ -168,6 +169,22 @@ export function initDatabase() {
         } catch (error) {
             console.warn('⚠️  Auto-migration skipped:', error.message);
             console.log('   Database will work, but new columns may need manual addition');
+        }
+
+        // Backfill repo categories for existing rows
+        try {
+            const uncategorized = db.prepare(
+                `SELECT COUNT(DISTINCT image_name) as count FROM repo_snapshots WHERE category IS NULL`
+            ).get();
+            if (uncategorized?.count > 0) {
+                console.log(`🔄 Backfilling categories for ${uncategorized.count} uncategorized images...`);
+                // Deferred to after module loads (backfillRepoCategories uses categorizeImage)
+                setTimeout(() => {
+                    try { backfillRepoCategories(); } catch(e) { console.warn('Backfill error:', e.message); }
+                }, 100);
+            }
+        } catch (e) {
+            console.warn('Category backfill check skipped:', e.message);
         }
 
         // NEW: Cleanup on exit
@@ -1236,13 +1253,14 @@ export function createRepoSnapshots(snapshotDate, repoCounts) {
 
     const now = Math.floor(Date.now() / 1000);
     const stmt = db.prepare(`
-        INSERT OR REPLACE INTO repo_snapshots (snapshot_date, image_name, instance_count, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT OR REPLACE INTO repo_snapshots (snapshot_date, image_name, instance_count, category, created_at)
+        VALUES (?, ?, ?, ?, ?)
     `);
 
     const insertMany = db.transaction((entries) => {
         for (const [imageName, count] of entries) {
-            stmt.run(snapshotDate, imageName, count, now);
+            const category = categorizeImage(imageName);
+            stmt.run(snapshotDate, imageName, count, category, now);
         }
     });
 
@@ -1259,14 +1277,25 @@ export function getRepoSnapshotCountByDate(date) {
 }
 
 export function getRepoHistory(imageName, limit = 90) {
-    const stmt = db.prepare(`
+    // If imageName has no tag (no ':'), match all tags via LIKE prefix
+    // This merges e.g. streamr/node:latest + streamr/node:v103.2.0
+    if (!imageName.includes(':')) {
+        return db.prepare(`
+            SELECT snapshot_date, SUM(instance_count) as instance_count
+            FROM repo_snapshots
+            WHERE image_name LIKE ? || ':%' OR image_name = ?
+            GROUP BY snapshot_date
+            ORDER BY snapshot_date DESC
+            LIMIT ?
+        `).all(imageName, imageName, limit);
+    }
+    return db.prepare(`
         SELECT snapshot_date, instance_count
         FROM repo_snapshots
         WHERE image_name = ?
         ORDER BY snapshot_date DESC
         LIMIT ?
-    `);
-    return stmt.all(imageName, limit);
+    `).all(imageName, limit);
 }
 
 export function getDistinctRepos() {
@@ -1290,6 +1319,120 @@ export function getLatestRepoSnapshot() {
         ORDER BY instance_count DESC
     `);
     return stmt.all(dateRow.latest_date);
+}
+
+// ============================================
+// CATEGORY-BASED REPO QUERIES
+// ============================================
+
+export function getTopReposByCategory(category, limit = 3) {
+    const dateRow = db.prepare(
+        `SELECT MAX(snapshot_date) as latest_date FROM repo_snapshots WHERE category = ?`
+    ).get(category);
+    if (!dateRow?.latest_date) return { date: null, repos: [] };
+
+    // Group by base image name (strip :tag) so streamr/node:latest and streamr/node:v103 merge
+    const repos = db.prepare(`
+        SELECT
+            CASE WHEN INSTR(image_name, ':') > 0
+                 THEN SUBSTR(image_name, 1, INSTR(image_name, ':') - 1)
+                 ELSE image_name
+            END as image_name,
+            SUM(instance_count) as instance_count
+        FROM repo_snapshots
+        WHERE category = ? AND snapshot_date = ?
+        GROUP BY 1
+        ORDER BY instance_count DESC
+        LIMIT ?
+    `).all(category, dateRow.latest_date, limit);
+
+    return { date: dateRow.latest_date, repos };
+}
+
+export function getCategoryTotal(category, date) {
+    const row = db.prepare(`
+        SELECT SUM(instance_count) as total
+        FROM repo_snapshots
+        WHERE category = ? AND snapshot_date = ?
+    `).get(category, date);
+    return row?.total || 0;
+}
+
+export function getCategoryHistory(category, limit = 90) {
+    return db.prepare(`
+        SELECT snapshot_date, SUM(instance_count) as total_count
+        FROM repo_snapshots
+        WHERE category = ?
+        GROUP BY snapshot_date
+        ORDER BY snapshot_date DESC
+        LIMIT ?
+    `).all(category, limit);
+}
+
+export function getReposByCategory(category) {
+    // Return deduplicated base image names (strip :tag)
+    return db.prepare(`
+        SELECT DISTINCT
+            CASE WHEN INSTR(image_name, ':') > 0
+                 THEN SUBSTR(image_name, 1, INSTR(image_name, ':') - 1)
+                 ELSE image_name
+            END as image_name
+        FROM repo_snapshots
+        WHERE category = ?
+        ORDER BY image_name
+    `).all(category);
+}
+
+export function backfillRepoCategories() {
+    if (!canWrite()) return 0;
+    const rows = db.prepare(
+        `SELECT DISTINCT image_name FROM repo_snapshots WHERE category IS NULL`
+    ).all();
+    if (rows.length === 0) return 0;
+
+    const stmt = db.prepare(
+        `UPDATE repo_snapshots SET category = ? WHERE image_name = ? AND category IS NULL`
+    );
+    const updateMany = db.transaction((rows) => {
+        let updated = 0;
+        for (const { image_name } of rows) {
+            const cat = categorizeImage(image_name);
+            if (cat) {
+                stmt.run(cat, image_name);
+                updated++;
+            }
+        }
+        return updated;
+    });
+    const updated = updateMany(rows);
+    console.log(`Backfilled categories for ${updated} of ${rows.length} distinct images`);
+    return rows.length;
+}
+
+export function recategorizeAllRepos() {
+    if (!canWrite()) return { resetCount: 0, categorized: {} };
+
+    // Reset all categories to NULL
+    const resetResult = db.prepare('UPDATE repo_snapshots SET category = NULL').run();
+    const resetCount = resetResult.changes;
+
+    // Re-apply categories using current keywords
+    const rows = db.prepare('SELECT DISTINCT image_name FROM repo_snapshots').all();
+    const stmt = db.prepare('UPDATE repo_snapshots SET category = ? WHERE image_name = ?');
+    const reCategorize = db.transaction(() => {
+        const counts = {};
+        for (const { image_name } of rows) {
+            const cat = categorizeImage(image_name);
+            if (cat) {
+                stmt.run(cat, image_name);
+                counts[cat] = (counts[cat] || 0) + 1;
+            }
+        }
+        return counts;
+    });
+    const categorized = reCategorize();
+    console.log(`Re-categorized ${rows.length} images:`, categorized);
+    return { resetCount: rows.length, categorized };
 }
 
 export function closeDatabase() {

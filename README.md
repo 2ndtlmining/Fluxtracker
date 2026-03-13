@@ -25,22 +25,126 @@ The Flux Performance Dashboard provides live insights into the Flux decentralize
 - **Stratus**: Premium nodes (8 cores, 64GB RAM, 880GB storage)
 - **Total Nodes**: Aggregate count across all tiers
 
-### Gaming Applications
-- **Minecraft**: Server instances running on Flux
-- **Palworld**: Multiplayer server instances
-- **Enshrouded**: Game server instances
-- **Total Gaming Apps**: Combined count of all gaming applications
+### Dynamic Category Cards (Gaming, Crypto, WordPress)
 
-### Cryptocurrency Nodes
-- **Presearch**: Decentralized search engine nodes
-- **Kaspa**: Kaspa blockchain full nodes
-- **Alephium**: Alephium blockchain nodes
-- **Ravencoin**: RVN full nodes
-- **Kadena**: Kadena blockchain nodes
-- **Streamr**: Decentralized data streaming nodes
-- **Bittensor**: AI/ML network nodes
-- **Timpi**: Privacy-focused search nodes (Collector & Geocore)
-- **Total Crypto Nodes**: Aggregate of all cryptocurrency nodes
+The dashboard automatically categorizes Docker images running on the Flux network into categories using keyword matching against the `repo_snapshots` table. The top 3 repos per category are shown on the dashboard cards, with 7-day comparison badges when historical data is available.
+
+Categories are defined in `src/lib/config.js` via `CATEGORY_CONFIG`. Adding a new category or keyword automatically includes matching repos - no code changes to components or services needed.
+
+#### Gaming Applications
+Keyword matches: `minecraft`, `palworld`, `enshrouded`, `valheim`, `satisfactory`, `ark-survival`, `rust-server`, `terraria`, `factorio`, `7daystodie`, `vrising`, `projectzomboid`, `conan-exiles`, `game-server`
+
+Currently tracked:
+- Minecraft (itzg/minecraft-server, itzg/minecraft-bedrock-server)
+- Valheim (mbround18/valheim)
+- Satisfactory (wolveix/satisfactory-server)
+- Enshrouded (sknnr/enshrouded-dedicated-server)
+- Terraria (littlestache/terraria)
+- Factorio (factoriotools/factorio)
+- Rust (littlestache/rust-server)
+
+#### Cryptocurrency Nodes
+Keyword matches: `presearch/node`, `streamr/node`, `streamr/broker-node`, `ravencoin`, `kadena-chainweb`, `alephium-standalone`, `alephium/explorer`, `bittensor`, `subtensor`, `timpi-collector`, `timpi-geocore`, `rusty-kaspad`, `bitcoin-core`, `bitcoin-cash-node`, `litecoin`, `dogecoin`, `zcash`, `monero`, `client-go:stable`, `fironode`, `neoxa-node`, `beldex`, `thornode`, `thorchain`
+
+Currently tracked:
+- Presearch (presearch/node)
+- Kaspa (kaspanet/rusty-kaspad)
+- Timpi Collector & Geocore (timpiltd/timpi-collector, timpiltd/timpi-geocore)
+- Streamr (streamr/node, streamr/broker-node)
+- Alephium (touilleio/alephium-standalone, alephium/explorer)
+- Bitcoin (ruimarinho/bitcoin-core)
+- Bitcoin Cash (zquestz/bitcoin-cash-node)
+- Ethereum (ethereum/client-go:stable)
+- Firo (runonflux/fironode)
+- Neoxa (runonflux/neoxa-node)
+- Beldex (beldex/beldex-master-node)
+- THORChain (thorchain/thornode)
+
+#### WordPress
+Keyword matches: `wordpress`, `wp-nginx`
+
+**Important:** Crypto keywords are intentionally specific (e.g., `presearch/node` not just `node`) to avoid false positives from Node.js apps or unrelated images. When adding new keywords, test with: `SELECT DISTINCT image_name FROM repo_snapshots WHERE image_name LIKE '%keyword%'`
+
+#### How categorization works
+
+1. **On snapshot creation**: `createRepoSnapshots()` calls `categorizeImage()` for each Docker image, storing the category in the `repo_snapshots.category` column
+2. **Keyword matching**: `categorizeImage()` checks if any keyword is a substring of the image name (case-insensitive)
+3. **Display names**: `getDisplayName()` converts Docker image names to clean labels (e.g., `kaspanet/rusty-kaspad:latest` -> `Kaspa`) using an override map with fallback cleanup
+4. **Backfill**: On startup, uncategorized rows are automatically backfilled. Manual trigger: `POST /api/admin/backfill-repo-categories`
+
+#### Updating categories
+
+All category configuration lives in a single file: `src/lib/config.js`. No component, database, or service changes are needed.
+
+**Step 1: Check what images exist on the network**
+
+Query uncategorized images to find candidates:
+```sql
+-- All uncategorized images with instance counts (latest snapshot)
+SELECT image_name, instance_count
+FROM repo_snapshots
+WHERE category IS NULL
+  AND snapshot_date = (SELECT MAX(snapshot_date) FROM repo_snapshots)
+ORDER BY instance_count DESC;
+
+-- Search for a specific keyword before adding it
+SELECT DISTINCT image_name FROM repo_snapshots WHERE image_name LIKE '%keyword%';
+```
+
+**Step 2: Edit keywords in `CATEGORY_CONFIG`**
+
+Add keywords to an existing category or create a new one:
+```javascript
+// src/lib/config.js
+export const CATEGORY_CONFIG = {
+    gaming: { label: 'Gaming', keywords: [..., 'new-game-server'], icon: 'Gamepad2' },
+    crypto: { label: 'Crypto Nodes', keywords: [..., 'new-coin/node'], icon: 'Coins' },
+    wordpress: { label: 'WordPress', keywords: [...], icon: 'Globe' },
+    // New category example:
+    // ai: { label: 'AI/ML', keywords: ['ollama', 'llama', 'stable-diffusion'], icon: 'Brain' }
+};
+```
+
+**Keyword tips:**
+- Be specific: use `presearch/node` not `node` (avoids matching Node.js apps)
+- Use image path fragments: `firoorg/firod` or just `firod` depending on uniqueness
+- Test with `LIKE '%keyword%'` first to check for false positives
+- Keywords are matched case-insensitively as substrings of the full image name
+
+**Step 3: Add a display name override**
+
+Without an override, `org/long-image-name-server:latest` becomes `Long Image Name` (auto-cleaned). Add an override for a cleaner label:
+```javascript
+// src/lib/config.js
+const DISPLAY_NAME_OVERRIDES = {
+    // key = image name without tag, value = display label
+    'org/new-image-name': 'Clean Name',
+    ...
+};
+```
+
+**Step 4: Re-categorize existing data**
+
+```bash
+# This resets NULL categories and applies current keywords
+curl -X POST http://YOUR_SERVER/api/admin/backfill-repo-categories
+```
+
+Note: this only updates rows where `category IS NULL`. To fully re-categorize after changing keywords (e.g., making a keyword more specific, removing a false positive, or adding a new category), use the full recategorize endpoint instead:
+```bash
+curl -X POST http://YOUR_SERVER/api/admin/recategorize-repos
+```
+This resets ALL categories to NULL and re-applies the current keywords from `CATEGORY_CONFIG`. The response shows how many images were categorized per category.
+
+**Step 5: Verify**
+
+```bash
+# Check what's in each category now
+curl http://YOUR_SERVER/api/metrics/category/gaming/top?limit=10
+curl http://YOUR_SERVER/api/metrics/category/crypto/top?limit=10
+```
+
+New snapshots (daily or manual via `POST /api/admin/repo-snapshot`) will automatically use the updated keywords. The dashboard cards and charts update immediately with no restart needed.
 
 ### Additional Metrics
 - **WordPress Instances**: Total WordPress sites hosted on Flux
@@ -299,9 +403,17 @@ const corsOptions = {
 - `GET /api/revenue/transactions?page=1&limit=50` - Paginated transaction history
 - `GET /api/revenue/daily?days=30` - Daily revenue aggregation
 
-### History Endpoints  
+### History Endpoints
 - `GET /api/history/snapshots?limit=30` - Recent snapshots
 - `GET /api/history/range?start=YYYY-MM-DD&end=YYYY-MM-DD` - Date range query
+- `GET /api/history/repos/list` - All distinct Docker images in repo_snapshots
+- `GET /api/history/repos/history?image=NAME&limit=90` - History for a specific image
+- `GET /api/history/repos/latest` - Latest snapshot for all repos
+
+### Category Endpoints (Dynamic)
+- `GET /api/metrics/category/:category/top?limit=3` - Top N repos for a category with 7-day comparison
+- `GET /api/history/category/:category?limit=90` - Aggregated daily totals for a category (for charts)
+- `GET /api/history/category/:category/repos` - List all repos in a category
 
 ### Admin Endpoints
 - `GET /api/admin/revenue-status` - Revenue sync scheduler health and transaction count
@@ -314,6 +426,9 @@ const corsOptions = {
 - `POST /api/admin/backfill-app-types` - Backfill missing app types (git/docker) for known app names
 - `POST /api/admin/backfill` - Regenerate daily snapshots from transaction data (last 365 days)
 - `POST /api/admin/snapshot` - Trigger manual daily snapshot
+- `POST /api/admin/repo-snapshot` - Trigger manual repo snapshot
+- `POST /api/admin/backfill-repo-categories` - Categorize repo_snapshots rows where category is NULL
+- `POST /api/admin/recategorize-repos` - Full reset + re-categorize ALL repo_snapshots using current keywords
 - `POST /api/admin/test-services` - Manually trigger service health tests
 
 ### Carousel Endpoint
