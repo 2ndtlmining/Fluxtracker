@@ -37,8 +37,11 @@
   let showRepoDropdown = false;
   let filteredRepoList = [];
 
+  // Dynamic category repos (gaming/crypto loaded from repo_snapshots)
+  let dynamicCategoryRepos = {};
+
   // Category definitions
-  const categories = {
+  let categories = {
     revenue: {
       label: 'Revenue',
       color: 'rgb(0, 255, 255)',
@@ -52,29 +55,17 @@
     gaming: {
       label: 'Gaming Apps',
       color: 'rgb(138, 43, 226)',
+      dynamic: true,
       metrics: [
-        { id: 'gaming_total', label: 'Total Gaming Apps', field: 'gaming_apps_total', format: 'number' },
-        { id: 'gaming_minecraft', label: 'Minecraft', field: 'gaming_minecraft', format: 'number' },
-        { id: 'gaming_palworld', label: 'Palworld', field: 'gaming_palworld', format: 'number' },
-        { id: 'gaming_enshrouded', label: 'Enshrouded', field: 'gaming_enshrouded', format: 'number' },
-        { id: 'gaming_valheim', label: 'Valheim', field: 'gaming_valheim', format: 'number' },
-        { id: 'gaming_satisfactory', label: 'Satisfactory', field: 'gaming_satisfactory', format: 'number' }
+        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' }
       ]
     },
     crypto: {
       label: 'Crypto Nodes',
       color: 'rgb(255, 165, 0)',
+      dynamic: true,
       metrics: [
-        { id: 'crypto_total', label: 'Total Crypto Nodes', field: 'crypto_nodes_total', format: 'number' },
-        { id: 'crypto_presearch', label: 'Presearch', field: 'crypto_presearch', format: 'number' },
-        { id: 'crypto_kadena', label: 'Kadena', field: 'crypto_kadena', format: 'number' },
-        { id: 'crypto_kaspa', label: 'Kaspa', field: 'crypto_kaspa', format: 'number' },
-        { id: 'crypto_streamr', label: 'Streamr', field: 'crypto_streamr', format: 'number' },
-        { id: 'crypto_ravencoin', label: 'Ravencoin', field: 'crypto_ravencoin', format: 'number' },
-        { id: 'crypto_alephium', label: 'Alephium', field: 'crypto_alephium', format: 'number' },
-        { id: 'crypto_bittensor', label: 'Bittensor', field: 'crypto_bittensor', format: 'number' },
-        { id: 'crypto_timpi_collector', label: 'Timpi Collector', field: 'crypto_timpi_collector', format: 'number' },
-        { id: 'crypto_timpi_geocore', label: 'Timpi Geocore', field: 'crypto_timpi_geocore', format: 'number' }
+        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' }
       ]
     },
     nodes: {
@@ -161,8 +152,11 @@
     const isNowUSD = usdMetrics.includes(selectedMetric);
     const needsRefetch = selectedCategory === 'revenue' && wasUSD !== isNowUSD;
     
-    if (needsRefetch) {
-      console.log(`💱 Switching between FLUX/USD - re-fetching data from different endpoint`);
+    // Dynamic categories need re-fetch per metric (each repo is a different API call)
+    const isDynamic = categories[selectedCategory]?.dynamic;
+
+    if (needsRefetch || isDynamic) {
+      console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
       lastMetric = selectedMetric;
       fetchAllData();
     } else {
@@ -203,8 +197,15 @@
     // Get API URL in browser context
     API_URL = getApiUrl();
     console.log('✅ Chart component using API URL:', API_URL);
-    
+
     console.log('📊 Chart component mounted');
+
+    // Pre-load dynamic category repos if starting on a dynamic category
+    const cat = categories[selectedCategory];
+    if (cat?.dynamic) {
+      await loadDynamicCategoryRepos(selectedCategory);
+    }
+
     await fetchAllData();
   });
 
@@ -225,8 +226,32 @@
 
       console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
 
-      // For DOCKER REPOS category, use repo-specific endpoints
-      if (selectedCategory === 'docker_repos') {
+      // For DYNAMIC categories (gaming/crypto), use repo_snapshots endpoints
+      const currentCat = categories[selectedCategory];
+      if (currentCat?.dynamic) {
+        const metric = availableMetrics.find(m => m.id === selectedMetric);
+
+        if (metric?.repoImage) {
+          // Individual repo history
+          const histRes = await fetch(`${API_URL}/api/history/repos/history?image=${encodeURIComponent(metric.repoImage)}&limit=${limitParam}`);
+          if (!histRes.ok) throw new Error(`API error: ${histRes.status}`);
+          const histResult = await histRes.json();
+          allSnapshots = (histResult.data || []).map(row => ({
+            snapshot_date: row.snapshot_date,
+            total_count: row.instance_count,
+            instance_count: row.instance_count
+          }));
+        } else {
+          // Category total (aggregate)
+          const histRes = await fetch(`${API_URL}/api/history/category/${selectedCategory}?limit=${limitParam}`);
+          if (!histRes.ok) throw new Error(`API error: ${histRes.status}`);
+          const histResult = await histRes.json();
+          allSnapshots = (histResult.data || []).map(row => ({
+            snapshot_date: row.snapshot_date,
+            total_count: row.total_count
+          }));
+        }
+      } else if (selectedCategory === 'docker_repos') {
         if (!selectedRepo) {
           // Fetch repo list for dropdown
           const listRes = await fetch(`${API_URL}/api/history/repos/list`);
@@ -678,7 +703,7 @@
     console.log('✅ Chart rendered successfully');
   }
 
-  function handleCategoryChange(categoryId) {
+  async function handleCategoryChange(categoryId) {
     console.log(`User clicked category: ${categoryId}`);
     selectedCategory = categoryId;
     // Reset repo state when switching away from docker_repos
@@ -687,8 +712,49 @@
       repoSearchQuery = '';
       showRepoDropdown = false;
     }
+
+    // For dynamic categories, populate repo metrics if not already loaded
+    const cat = categories[categoryId];
+    if (cat?.dynamic && !dynamicCategoryRepos[categoryId]) {
+      await loadDynamicCategoryRepos(categoryId);
+    }
+
     // Fetch new data when category changes (revenue vs snapshots)
     fetchAllData();
+  }
+
+  async function loadDynamicCategoryRepos(categoryId) {
+    try {
+      const res = await fetch(`${API_URL}/api/history/category/${categoryId}/repos`);
+      if (!res.ok) return;
+      const result = await res.json();
+      const repos = result.data || [];
+      dynamicCategoryRepos[categoryId] = repos;
+
+      // Build dynamic metrics: Total first, then individual repos
+      // API returns { image_name, displayName } objects
+      const repoMetrics = repos.map(repo => {
+        const imageName = typeof repo === 'string' ? repo : repo.image_name;
+        const label = (typeof repo === 'object' && repo.displayName) ? repo.displayName : imageName.split('/').pop().split(':')[0];
+        return {
+          id: `repo_${imageName}`,
+          label,
+          field: 'instance_count',
+          format: 'number',
+          repoImage: imageName
+        };
+      });
+
+      categories[categoryId].metrics = [
+        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' },
+        ...repoMetrics
+      ];
+
+      // Trigger reactivity
+      categories = categories;
+    } catch (err) {
+      console.error(`Failed to load repos for ${categoryId}:`, err);
+    }
   }
 
   function handleRepoSelect(repo) {

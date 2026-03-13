@@ -389,6 +389,117 @@ export function getApiUrlSSR() {
     return '';
 }
 
+// ============================================
+// DYNAMIC CATEGORY CONFIG (for repo_snapshots)
+// ============================================
+export const CATEGORY_CONFIG = {
+    gaming: {
+        label: 'Gaming',
+        keywords: ['minecraft', 'palworld', 'enshrouded', 'valheim', 'satisfactory',
+                   'ark-survival', 'arkserver', 'rust-server', 'terraria', 'factorio',
+                   '7daystodie', 'vrising', 'projectzomboid', 'conan-exiles',
+                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor'],
+        icon: 'Gamepad2'
+    },
+    crypto: {
+        label: 'Crypto Nodes',
+        // NOTE: Be specific! 'node' alone matches Node.js apps. Use full image paths where possible.
+        keywords: [
+            // Search/data nodes
+            'presearch/node', 'streamr/node', 'streamr/broker-node',
+            // PoW chains
+            'ravencoin', 'kadena-chainweb', 'bitcoin-core', 'bitcoin-cash-node',
+            'litecoin', 'dogecoin', 'zcash', 'monero', 'fironode', 'firod',
+            'neoxa-node', 'iron-fish/ironfish',
+            // PoS / Smart contract chains
+            'rusty-kaspad', 'alephium-standalone', 'alephium/explorer',
+            'bittensor', 'subtensor', 'client-go:stable', 'polkadot-docker',
+            'wanchain/client-go', 'thornode', 'thorchain',
+            // Other crypto services
+            'timpi-collector', 'timpi-geocore', 'beldex',
+            'mysteriumnetwork/myst',
+        ],
+        icon: 'Coins'
+    },
+    wordpress: {
+        label: 'WordPress',
+        keywords: ['wordpress', 'wp-nginx'],
+        icon: 'Globe'
+    }
+};
+
+// Map image name -> category using keyword substring match
+export function categorizeImage(imageName) {
+    const lower = imageName.toLowerCase();
+    for (const [category, config] of Object.entries(CATEGORY_CONFIG)) {
+        if (config.keywords.some(kw => lower.includes(kw))) {
+            return category;
+        }
+    }
+    return null;
+}
+
+// Clean display name: "runonflux/kadena-chainweb-node:latest" -> "Kadena"
+// Strips common suffixes like -server, -node, -docker, -dedicated, etc.
+const DISPLAY_NAME_OVERRIDES = {
+    'presearch/node': 'Presearch',
+    'kaspanet/rusty-kaspad': 'Kaspa',
+    'itzg/minecraft-server': 'Minecraft',
+    'itzg/minecraft-bedrock-server': 'Minecraft BE',
+    'thijsvanloef/palworld-server-docker': 'Palworld',
+    'jktuned/enshrouded-server': 'Enshrouded',
+    'sknnr/enshrouded-dedicated-server': 'Enshrouded',
+    'mbround18/valheim': 'Valheim',
+    'littlestache/valheim-flux': 'Valheim',
+    'wolveix/satisfactory-server': 'Satisfactory',
+    'opentensor/subtensor': 'Bittensor',
+    'timpiltd/timpi-collector': 'Timpi Collector',
+    'timpiltd/timpi-geocore': 'Timpi Geocore',
+    'runonflux/kadena-chainweb-node': 'Kadena',
+    'touilleio/alephium-standalone': 'Alephium',
+    'streamr/node': 'Streamr',
+    'dramirezrt/ravencoin-core-server': 'Ravencoin',
+    'runonflux/wp-nginx': 'WordPress',
+    'runonflux/fironode': 'Firo',
+    'runonflux/neoxa-node': 'Neoxa',
+    'ethereum/client-go': 'Ethereum',
+    'ruimarinho/bitcoin-core': 'Bitcoin',
+    'zquestz/bitcoin-cash-node': 'Bitcoin Cash',
+    'streamr/broker-node': 'Streamr Broker',
+    'beldex/beldex-master-node': 'Beldex',
+    'alephium/explorer-backend': 'Alephium Explorer BE',
+    'alephium/explorer': 'Alephium Explorer',
+    'thetrunk/alephium-standalone': 'Alephium',
+    'firoorg/firod': 'Firo',
+    'ghcr.io/iron-fish/ironfish': 'Iron Fish',
+    'runonflux/polkadot-docker': 'Polkadot',
+    'wanchain/client-go': 'Wanchain',
+    'mysteriumnetwork/myst': 'Mysterium',
+    'registry.gitlab.com/thorchain/thornode': 'THORChain',
+    'thmhoag/arkserver': 'ARK Survival',
+    'rouhim/arma-reforger-server': 'Arma Reforger',
+    'kagurazakanyaa/soulmask': 'Soulmask',
+    'littlestache/abioticfactorserver': 'Abiotic Factor',
+    'factoriotools/factorio': 'Factorio',
+    'littlestache/rust-server': 'Rust',
+    'littlestache/terraria': 'Terraria',
+};
+
+export function getDisplayName(imageName) {
+    // Check for exact overrides first (strip tag)
+    const noTag = imageName.split(':')[0];
+    if (DISPLAY_NAME_OVERRIDES[noTag]) {
+        return DISPLAY_NAME_OVERRIDES[noTag];
+    }
+
+    // Fallback: clean up the image name
+    let name = noTag.split('/').pop();
+    // Remove common suffixes
+    name = name.replace(/[-_](server|node|docker|dedicated|standalone|core|flux)$/gi, '');
+    name = name.replace(/[-_]/g, ' ').trim();
+    return name.replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // Fallback constants (do not use these directly - use getApiUrl() instead)
 export const API_BASE_URL = 'http://localhost:5173';  // Development fallback
 export const API_BASE_URL_SSR = '';  // No API calls during SSR

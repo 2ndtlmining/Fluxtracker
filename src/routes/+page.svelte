@@ -8,12 +8,12 @@
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
-  import GamingCard from '$lib/components/GamingCard.svelte';
-  import CryptoCard from '$lib/components/CryptoCard.svelte';
+  import CategoryCard from '$lib/components/CategoryCard.svelte';
   import AppsCard from '$lib/components/AppsCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   import WordpressIcon from '$lib/components/WordpressIcon.svelte';
+  import { Gamepad2, Coins } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
@@ -80,47 +80,7 @@
     trend: comparison.changes.nodes?.trend || 'neutral'
   } : null;
   
-  // Gaming comparison data
-  $: minecraftComparison = comparison ? {
-    change: comparison.changes.gaming?.minecraftChange || 0,
-    trend: comparison.changes.gaming?.minecraftTrend || 'neutral'
-  } : null;
-  
-  $: palworldComparison = comparison ? {
-    change: comparison.changes.gaming?.palworldChange || 0,
-    trend: comparison.changes.gaming?.palworldTrend || 'neutral'
-  } : null;
-  
-  $: enshroudedComparison = comparison ? {
-    change: comparison.changes.gaming?.enshroudedChange || 0,
-    trend: comparison.changes.gaming?.enshroudedTrend || 'neutral'
-  } : null;
-  
-  $: totalGamingComparison = comparison ? {
-    change: comparison.changes.gaming?.difference || 0,
-    trend: comparison.changes.gaming?.trend || 'neutral'
-  } : null;
-  
-  // Crypto comparison data
-  $: presearchComparison = comparison ? {
-    change: comparison.changes.crypto?.presearchChange || 0,
-    trend: comparison.changes.crypto?.presearchTrend || 'neutral'
-  } : null;
-  
-  $: kaspaComparison = comparison ? {
-    change: comparison.changes.crypto?.kaspaChange || 0,
-    trend: comparison.changes.crypto?.kaspaTrend || 'neutral'
-  } : null;
-  
-  $: alephiumComparison = comparison ? {
-    change: comparison.changes.crypto?.alephiumChange || 0,
-    trend: comparison.changes.crypto?.alephiumTrend || 'neutral'
-  } : null;
-  
-  $: totalCryptoComparison = comparison ? {
-    change: comparison.changes.crypto?.difference || 0,
-    trend: comparison.changes.crypto?.trend || 'neutral'
-  } : null;
+  // Gaming and Crypto comparisons now handled by CategoryCard component
   
   // Apps comparison data
   $: gitAppsComparison = comparison ? {
@@ -166,31 +126,7 @@
   }
 };
   
-  // Format gaming data for GamingCard
-  $: gamingData = metrics?.gaming ? {
-    minecraft: { count: metrics.gaming.minecraft || 0 },
-    palworld: { count: metrics.gaming.palworld || 0 },
-    enshrouded: { count: metrics.gaming.enshrouded || 0 },
-    total: metrics.gaming.total || 0
-  } : {
-    minecraft: { count: 0 },
-    palworld: { count: 0 },
-    enshrouded: { count: 0 },
-    total: 0
-  };
-  
-  // Format crypto data for CryptoCard
-  $: cryptoData = metrics?.crypto ? {
-    presearch: { count: metrics.crypto.presearch || 0 },
-    kaspa: { count: metrics.crypto.kaspa || 0 },
-    alephium: { count: metrics.crypto.alephium || 0 },
-    total: metrics.crypto.total || 0
-  } : {
-    presearch: { count: 0 },
-    kaspa: { count: 0 },
-    alephium: { count: 0 },
-    total: 0
-  };
+  // Gaming and Crypto data now fetched directly by CategoryCard component
   
   // Format apps data for AppsCard
   $: appsData = metrics?.apps ? {
@@ -455,31 +391,11 @@
     <h3 class="section-title">Additional Metrics</h3>
     
     <div class="stats-grid-wide">
-      <!-- Gaming Apps (NEW: Using GamingCard component) -->
-      <GamingCard
-        minecraft={gamingData.minecraft}
-        palworld={gamingData.palworld}
-        enshrouded={gamingData.enshrouded}
-        total={gamingData.total}
-        {minecraftComparison}
-        {palworldComparison}
-        {enshroudedComparison}
-        totalComparison={totalGamingComparison}
-        {loading}
-      />
-      
-      <!-- Crypto Nodes (NEW: Using CryptoCard component) -->
-      <CryptoCard
-        presearch={cryptoData.presearch}
-        kaspa={cryptoData.kaspa}
-        alephium={cryptoData.alephium}
-        total={cryptoData.total}
-        {presearchComparison}
-        {kaspaComparison}
-        {alephiumComparison}
-        totalComparison={totalCryptoComparison}
-        {loading}
-      />
+      <!-- Gaming Apps (Dynamic from repo_snapshots) -->
+      <CategoryCard category="gaming" label="Gaming App Instances" icon={Gamepad2} {loading} />
+
+      <!-- Crypto Nodes (Dynamic from repo_snapshots) -->
+      <CategoryCard category="crypto" label="Crypto Node Instances" icon={Coins} {loading} />
       
       <!-- WordPress Sites -->
       <StatCard
