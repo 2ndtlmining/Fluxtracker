@@ -19,6 +19,7 @@ let intervalId = null;
 let auditTimeoutId = null;
 let auditIntervalId = null;
 let isRunning = false;
+let auditPending = false;
 let lastRun = null;
 let consecutiveFailures = 0;
 
@@ -55,6 +56,13 @@ async function runSync() {
         }
     } finally {
         isRunning = false;
+
+        // If an audit was deferred while sync was running, run it now
+        if (auditPending) {
+            auditPending = false;
+            console.log('Running deferred audit (was queued during sync)...');
+            runAudit();
+        }
     }
 }
 
@@ -63,7 +71,8 @@ async function runSync() {
  */
 async function runAudit() {
     if (isRunning) {
-        console.log('Sync in progress — deferring audit');
+        console.log('Sync in progress — queuing audit to run after sync completes');
+        auditPending = true;
         return;
     }
 

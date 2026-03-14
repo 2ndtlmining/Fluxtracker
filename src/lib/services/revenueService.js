@@ -13,7 +13,13 @@ import {
     updateAppTypeForAppName,
     getTxidsWithoutAppName,
     countTxidsWithoutAppName,
-    updateAppNameForTxid
+    updateAppNameForTxid,
+    upsertFailedTxid,
+    getUnresolvedFailedTxids,
+    resolveFailedTxid,
+    getFailedTxidCount,
+    clearAbandonedFailedTxids,
+    isFailedTxid
 } from '../db/database.js';
 import { syncPriceHistory, buildFullPriceMap } from './priceHistoryService.js';
 
@@ -29,94 +35,25 @@ let revenueSyncState = {
 };
 
 // ============================================
-// FAILED TRANSACTION TRACKING
+// FAILED TRANSACTION TRACKING (DB-backed)
 // ============================================
-let failedTxids = new Map(); // txid -> { attempts: number, lastAttempt: timestamp, reason: string }
+// Failed txids are now persisted to the failed_txids table in SQLite.
+// This ensures they survive process restarts and are retried every sync cycle.
+// See database.js for CRUD functions: upsertFailedTxid, getUnresolvedFailedTxids,
+// resolveFailedTxid, getFailedTxidCount, isFailedTxid
 
 /**
- * Mark a transaction as failed
- */
-function markTxidAsFailed(txid, reason = 'fetch_failed') {
-    const existing = failedTxids.get(txid);
-    
-    if (existing) {
-        failedTxids.set(txid, {
-            attempts: existing.attempts + 1,
-            lastAttempt: Date.now(),
-            reason: reason
-        });
-    } else {
-        failedTxids.set(txid, {
-            attempts: 1,
-            lastAttempt: Date.now(),
-            reason: reason
-        });
-    }
-}
-
-/**
- * Check if a txid should be retried (not attempted recently)
- */
-function shouldRetryTxid(txid) {
-    const failed = failedTxids.get(txid);
-    if (!failed) return true; // Never tried, should try
-    
-    // If failed more than 5 times, give up
-    if (failed.attempts >= 5) {
-        return false;
-    }
-    
-    // Only retry if it's been at least 5 minutes since last attempt
-    const timeSinceLastAttempt = Date.now() - failed.lastAttempt;
-    const fiveMinutes = 5 * 60 * 1000;
-    
-    return timeSinceLastAttempt >= fiveMinutes;
-}
-
-/**
- * Get failed transaction statistics
+ * Get failed transaction statistics (compatible wrapper for existing call sites)
  */
 export function getFailedTxStats() {
-    const stats = {
-        totalFailed: failedTxids.size,
-        byAttempts: {},
-        recentlyFailed: []
-    };
-    
-    failedTxids.forEach((data, txid) => {
-        // Count by attempt number
-        if (!stats.byAttempts[data.attempts]) {
-            stats.byAttempts[data.attempts] = 0;
-        }
-        stats.byAttempts[data.attempts]++;
-        
-        // Track recent failures (last 10 minutes)
-        const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
-        if (data.lastAttempt > tenMinutesAgo) {
-            stats.recentlyFailed.push({
-                txid: txid.substring(0, 10) + '...',
-                attempts: data.attempts,
-                reason: data.reason
-            });
-        }
-    });
-    
-    return stats;
+    return { totalFailed: getFailedTxidCount() };
 }
 
 /**
- * Clear permanently failed transactions (after 5 attempts)
+ * Clear old resolved failed txids (compatible wrapper — called daily by server.js)
  */
 export function clearPermanentlyFailedTxids() {
-    let cleared = 0;
-    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    failedTxids.forEach((data, txid) => {
-        if (data.attempts >= 5 || data.lastAttempt < sevenDaysAgo) {
-            failedTxids.delete(txid);
-            cleared++;
-        }
-    });
-    return cleared;
+    return clearAbandonedFailedTxids(30);
 }
 
 /**
@@ -675,8 +612,8 @@ export async function progressiveSync() {
 
             console.log(`Found ${txids.length} transactions in range`);
 
-            // Filter out already-known and permanently-failed txids
-            const newTxids = txids.filter(txid => !existingTxids.has(txid) && shouldRetryTxid(txid));
+            // Filter out already-known txids (failed txids are retried — they're in the DB table now)
+            const newTxids = txids.filter(txid => !existingTxids.has(txid));
             console.log(`${newTxids.length} new transactions to process`);
 
             // Process in parallel batches
@@ -690,7 +627,7 @@ export async function progressiveSync() {
                     const tx = txResults[j];
 
                     if (!tx) {
-                        markTxidAsFailed(txid, 'fetch_failed');
+                        upsertFailedTxid(txid, address, 'fetch_failed');
                         continue;
                     }
 
@@ -707,6 +644,10 @@ export async function progressiveSync() {
 
                     const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                     pendingPayments.push(...payments);
+                    existingTxids.add(txid);
+
+                    // Mark as resolved if it was previously failed
+                    resolveFailedTxid(txid);
 
                     if (payments.length > 0) {
                         console.log(`Payment in ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX${appName ? ` (${appName})` : ''}`);
@@ -727,6 +668,59 @@ export async function progressiveSync() {
 
             // Flush any remaining payments for this address before moving to the next
             if (!syncAborted) flushPending();
+        }
+
+        // 6b. Retry previously failed txids from the DB.
+        //     This catches txids that were missed when the sync cursor advanced past their block range.
+        if (!syncAborted) {
+            const failedList = getUnresolvedFailedTxids(200);
+            if (failedList.length > 0) {
+                console.log(`\nRetrying ${failedList.length} previously failed txids...`);
+                let recovered = 0;
+                for (let i = 0; i < failedList.length; i += BATCH_SIZE) {
+                    const batch = failedList.slice(i, i + BATCH_SIZE);
+                    const txResults = await Promise.all(
+                        batch.map(f => fetchRawTransaction(f.txid))
+                    );
+                    for (let j = 0; j < batch.length; j++) {
+                        const { txid, address: failedAddr } = batch[j];
+                        const tx = txResults[j];
+
+                        if (!tx) {
+                            upsertFailedTxid(txid, failedAddr, 'fetch_failed');
+                            continue;
+                        }
+
+                        if (!tx.confirmations || tx.confirmations < 8) continue;
+
+                        // Skip if already in DB (might have been recovered by another path)
+                        if (existingTxids.has(txid)) {
+                            resolveFailedTxid(txid);
+                            continue;
+                        }
+
+                        const appHash = extractAppHashFromTx(tx);
+                        const appName = appHash ? lookupAppName(appHash) : null;
+                        const appType = appName ? lookupAppType(appName) : null;
+
+                        const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
+                        pendingPayments.push(...payments);
+                        resolveFailedTxid(txid);
+
+                        if (payments.length > 0) {
+                            recovered++;
+                            console.log(`  Recovered ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX`);
+                        }
+                    }
+
+                    if (i + BATCH_SIZE < failedList.length) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                }
+                if (recovered > 0) {
+                    console.log(`  Recovered ${recovered} previously failed transactions`);
+                }
+            }
         }
 
         // 7. Final flush (catches any remainder < DB_FLUSH_SIZE)
@@ -895,10 +889,10 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
 
     const total = countTxidsWithoutAppName(recentDays);
 
-    // Fetch extra candidates so we still fill the batch after filtering out known-dead txids
+    // Fetch extra candidates so we still fill the batch after filtering out known-no-hash txids
     const candidates = getTxidsWithoutAppName(skipFailed ? batchSize * 3 : batchSize, recentDays);
     const txids = skipFailed
-        ? candidates.filter(txid => shouldRetryTxid(txid)).slice(0, batchSize)
+        ? candidates.filter(txid => !isFailedTxid(txid)).slice(0, batchSize)
         : candidates;
 
     console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
@@ -922,8 +916,8 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
             const appHash = extractAppHashFromTx(tx);
             if (!appHash) {
                 // Direct FLUX payment — no OP_RETURN, will never have an app_name.
-                // Mark with max attempts so auto-backfill (skipFailed=true) skips it next time.
-                failedTxids.set(txid, { attempts: 5, lastAttempt: Date.now(), reason: 'no_hash' });
+                // Mark in DB so auto-backfill (skipFailed=true) skips it next time.
+                upsertFailedTxid(txid, '', 'no_hash');
                 noHash++;
                 continue;
             }
