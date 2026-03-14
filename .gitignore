@@ -28,3 +28,6 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/*.db-journal
+src/data/
+
+claude.md

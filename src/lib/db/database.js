@@ -297,6 +297,19 @@ function createTables() {
     `);
 
     db.exec(`
+        CREATE TABLE IF NOT EXISTS failed_txids (
+            txid TEXT NOT NULL UNIQUE,
+            address TEXT NOT NULL,
+            failure_reason TEXT NOT NULL DEFAULT 'fetch_failed',
+            attempt_count INTEGER NOT NULL DEFAULT 1,
+            first_seen INTEGER NOT NULL,
+            last_attempt INTEGER NOT NULL,
+            resolved INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_failed_txids_resolved ON failed_txids(resolved);
+    `);
+
+    db.exec(`
         CREATE TABLE IF NOT EXISTS current_metrics (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             last_update INTEGER NOT NULL,
@@ -1080,6 +1093,59 @@ export function deleteOldTransactions(daysToKeep = 365) {
     
     console.log(`🗑️  Deleted ${result.changes} old transactions (older than ${cutoffDateStr})`);
     return result.changes;
+}
+
+// ============================================
+// FAILED TXID TRACKING (persistent across restarts)
+// ============================================
+
+export function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
+    if (!canWrite()) return;
+    const now = Math.floor(Date.now() / 1000);
+    const stmt = db.prepare(`
+        INSERT INTO failed_txids (txid, address, failure_reason, attempt_count, first_seen, last_attempt, resolved)
+        VALUES (?, ?, ?, 1, ?, ?, 0)
+        ON CONFLICT(txid) DO UPDATE SET
+            attempt_count = attempt_count + 1,
+            last_attempt = ?,
+            failure_reason = ?,
+            resolved = 0
+    `);
+    stmt.run(txid, address, reason, now, now, now, reason);
+}
+
+export function getUnresolvedFailedTxids(limit = 200) {
+    const stmt = db.prepare(`
+        SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt
+        FROM failed_txids
+        WHERE resolved = 0
+        ORDER BY attempt_count ASC, last_attempt ASC
+        LIMIT ?
+    `);
+    return stmt.all(limit);
+}
+
+export function resolveFailedTxid(txid) {
+    if (!canWrite()) return;
+    const stmt = db.prepare('UPDATE failed_txids SET resolved = 1 WHERE txid = ?');
+    stmt.run(txid);
+}
+
+export function getFailedTxidCount() {
+    const stmt = db.prepare('SELECT COUNT(*) as count FROM failed_txids WHERE resolved = 0');
+    return stmt.get().count;
+}
+
+export function clearAbandonedFailedTxids(maxAgeDays = 30) {
+    if (!canWrite()) return 0;
+    const cutoff = Math.floor(Date.now() / 1000) - (maxAgeDays * 86400);
+    const stmt = db.prepare('DELETE FROM failed_txids WHERE resolved = 1 AND last_attempt < ?');
+    return stmt.run(cutoff).changes;
+}
+
+export function isFailedTxid(txid) {
+    const stmt = db.prepare('SELECT * FROM failed_txids WHERE txid = ? AND resolved = 0');
+    return stmt.get(txid) || null;
 }
 
 // ============================================
