@@ -1,38 +1,43 @@
 # Production Dockerfile for Flux Performance Dashboard
+# Multi-stage build — no native compilation deps in final image
 # Runs both Express API (port 3000) and SvelteKit Frontend (port 5173)
 
-FROM node:18-alpine
+# ========================================
+# Stage 1: Build
+# ========================================
+FROM node:20-alpine AS builder
 
-# Set working directory
 WORKDIR /app
-
-# Install system dependencies for better-sqlite3 and runtime utilities
-RUN apk add --no-cache \
-    python3 \
-    make \
-    g++ \
-    sqlite \
-    sqlite-dev \
-    pkgconfig \
-    build-base \
-    curl \
-    wget
 
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
-# Install all dependencies with proper environment for better-sqlite3
-ENV PYTHON=/usr/bin/python3
+# Install all dependencies (no native deps needed — pure JS + Supabase)
 RUN npm install --legacy-peer-deps
-
-# Rebuild better-sqlite3 for Alpine Linux
-RUN npm rebuild better-sqlite3
 
 # Copy source code
 COPY . .
 
 # Build the SvelteKit frontend for production
 RUN npm run build
+
+# ========================================
+# Stage 2: Runtime
+# ========================================
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Runtime utilities (curl used by startup.sh health check, wget by HEALTHCHECK)
+RUN apk add --no-cache curl wget
+
+# Copy package files and install production deps only
+COPY package*.json ./
+RUN npm install --legacy-peer-deps --omit=dev
+
+# Copy built output from builder
+COPY --from=builder /app/build ./build
+COPY --from=builder /app/src ./src
 
 # Copy startup script
 COPY startup.sh /app/startup.sh
@@ -41,12 +46,6 @@ RUN chmod +x /app/startup.sh
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S fluxapp -u 1001
-
-# Create data directory for SQLite database with proper permissions
-RUN mkdir -p /app/data && chown -R fluxapp:nodejs /app/data
-
-# Create database directory for better-sqlite3
-RUN mkdir -p /app/src/lib/db && chown -R fluxapp:nodejs /app/src/lib/db
 
 # Set ownership of the application
 RUN chown -R fluxapp:nodejs /app
@@ -59,24 +58,19 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 
 # ========================================
-# PORT CONFIGURATION - CRITICAL FIX
+# PORT CONFIGURATION
 # ========================================
-# IMPORTANT: We need separate variables because server.js reads PORT
-# Backend API port (Express server) - Don't use "PORT" here!
 ENV API_PORT=3000
-
-# Frontend port (SvelteKit) - This is what build/index.js will use
 ENV FRONTEND_PORT=5173
-
-# CORS origin (update this for production)
 ENV ORIGIN=http://localhost:5173
+
+# Supabase env vars are passed at runtime via docker run -e or Flux app spec
+# SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
 
 # ========================================
 # EXPOSE PORTS
 # ========================================
-# API port
 EXPOSE 3000
-# Frontend port
 EXPOSE 5173
 
 # Health check for the API server

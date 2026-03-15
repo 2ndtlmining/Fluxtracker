@@ -56,7 +56,6 @@
   onMount(() => {
     // Get API URL in browser context
     API_URL = getApiUrl();
-    console.log('✅ RevenueTransactions using API URL:', API_URL);
     
     fetchTransactions();
   });

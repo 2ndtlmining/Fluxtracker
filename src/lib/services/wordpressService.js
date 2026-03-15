@@ -93,8 +93,8 @@ export async function fetchWordPressStats() {
         };
         
         // Update database
-        updateCurrentMetrics(wordpressData);
-        updateSyncStatus('wordpress', 'completed');
+        await updateCurrentMetrics(wordpressData);
+        await updateSyncStatus('wordpress', 'completed');
         
         console.log('✅ WordPress stats updated:', wordpressData);
         
@@ -112,7 +112,7 @@ export async function fetchWordPressStats() {
             console.error('   Network error - could not reach API');
         }
         
-        updateSyncStatus('wordpress', 'failed', error.message);
+        await updateSyncStatus('wordpress', 'failed', error.message);
         throw error;
     }
 }

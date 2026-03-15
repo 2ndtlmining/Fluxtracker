@@ -1,199 +1,66 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { migrateSchema } from './schemaMigrator.js';
+import { supabase } from './supabaseClient.js';
 import { categorizeImage } from '../config.js';
 
 // ============================================
-// CORRUPTION PREVENTION - MINIMAL ADDITIONS
+// INITIALIZATION
 // ============================================
-const BUSY_TIMEOUT = 30000; // 30 seconds
-const INSTANCE_ID = `instance-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-let lockPath;
-let isWriter = false;
 
-// Ensure data directory exists
-const dataDir = path.join(process.cwd(), 'data');
-if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-}
-
-const dbPath = path.join(dataDir, 'flux-performance.db');
-lockPath = path.join(dataDir, '.db-write.lock');
-
-// Initialize database connection
-let db;
-
-// ============================================
-// WRITE LOCK (prevents corruption from G-sync)
-// ============================================
-function tryAcquireWriteLock() {
+export async function initDatabase() {
     try {
-        if (fs.existsSync(lockPath)) {
-            const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-            const lockAge = Date.now() - lockData.timestamp;
-            if (lockAge < 5 * 60 * 1000) { // Lock fresh (< 5 min)
-                return false;
-            }
-            fs.unlinkSync(lockPath); // Remove stale lock
-        }
-        
-        fs.writeFileSync(lockPath, JSON.stringify({
-            instanceId: INSTANCE_ID,
-            timestamp: Date.now()
-        }), { flag: 'wx' });
-        
-        console.log(`🔒 Write lock acquired: ${INSTANCE_ID}`);
-        return true;
-    } catch (error) {
-        return false;
-    }
-}
+        // Verify connection by reading the singleton current_metrics row
+        const { data, error } = await supabase
+            .from('current_metrics')
+            .select('id')
+            .eq('id', 1)
+            .single();
 
-function canWrite() {
-    if (!isWriter) {
-        isWriter = tryAcquireWriteLock();
-    }
-    
-    if (isWriter) {
-        try {
-            if (fs.existsSync(lockPath)) {
-                const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-                if (lockData.instanceId !== INSTANCE_ID) {
-                    isWriter = false;
-                    return false;
-                }
-            } else {
-                return tryAcquireWriteLock();
-            }
-        } catch (err) {
-            return false;
+        if (error && error.code !== 'PGRST116') {
+            throw new Error(`Supabase connection check failed: ${error.message}`);
         }
-    }
-    
-    return isWriter;
-}
 
-function releaseLock() {
-    try {
-        if (fs.existsSync(lockPath)) {
-            const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-            if (lockData.instanceId === INSTANCE_ID) {
-                fs.unlinkSync(lockPath);
-                console.log(`🔓 Write lock released: ${INSTANCE_ID}`);
-            }
+        // Ensure the singleton row exists
+        if (!data) {
+            await supabase
+                .from('current_metrics')
+                .upsert({ id: 1, last_update: 0 }, { onConflict: 'id' });
         }
-    } catch (error) {
-        // Ignore
-    }
-    isWriter = false;
-}
 
-// ============================================
-// YOUR ORIGINAL initDatabase() WITH MINIMAL CHANGES
-// ============================================
-export function initDatabase() {
-    try {
-        // CHANGED: Added timeout parameter
-        db = new Database(dbPath, { 
-            verbose: console.log,
-            timeout: BUSY_TIMEOUT  // ← ONLY CHANGE: 30 second timeout
-        });
-
-        console.log('🔍 Checking database integrity...');
-        const integrity = db.pragma('integrity_check');
-        
-        if (integrity[0].integrity_check === 'ok') {
-            console.log('✅ Database integrity: OK');
-        } else {
-            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.error('❌ DATABASE CORRUPTION DETECTED!');
-            console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-            console.error('Fix commands:');
-            console.error(`  1. cp ${dbPath} ${dbPath}.backup`);
-            console.error(`  2. rm ${dbPath}`);
-            console.error('  3. Restart server');
-            throw new Error('Database corrupted');
-        }
-        
-        // UNCHANGED: Your existing WAL setup
-        db.pragma('journal_mode = WAL');
-        db.pragma('synchronous = NORMAL');
-        db.pragma('cache_size = 32768'); // 128MB cache
-        
-        // NEW: Additional WAL settings for corruption prevention
-        db.pragma(`busy_timeout = ${BUSY_TIMEOUT}`);
-        db.pragma('wal_autocheckpoint = 1000');
-        db.pragma('locking_mode = NORMAL');
-        
-        createTables();
-        migrateRevenueTransactions();
-        migrateRepoSnapshots();
-        initializeSyncStatus();
-        
-        // NEW: Try to acquire write lock
-        if (tryAcquireWriteLock()) {
-            console.log('✅ Elected as WRITER - will handle database writes');
-            isWriter = true;
-        } else {
-            console.log('📖 READ-ONLY mode - another instance is the writer');
-            isWriter = false;
-        }
-        
-        // UNCHANGED: Your schema migration code
+        // Run schema migration (adds dynamic columns if needed)
         try {
             console.log('\n🔄 Checking for schema updates...');
-            
-            import('../config.js').then(async (config) => {
-                try {
-                    const migrationResult = await migrateSchema(config);
-                    
-                    if (migrationResult.success) {
-                        if (migrationResult.columnsAdded.length > 0) {
-                            console.log('✅ Schema updated with new columns');
-                        } else {
-                            console.log('✓ Schema is up to date');
-                        }
-                    } else {
-                        console.warn('⚠️  Schema migration had issues:', migrationResult.errors);
-                    }
-                } catch (migrationError) {
-                    console.warn('⚠️  Schema migration error:', migrationError.message);
-                    console.log('   Database will work, but new columns may need manual addition');
+            const config = await import('../config.js');
+            const { migrateSchema } = await import('./schemaMigrator.js');
+            const migrationResult = await migrateSchema(config);
+            if (migrationResult.success) {
+                if (migrationResult.columnsAdded.length > 0) {
+                    console.log('✅ Schema updated with new columns');
+                } else {
+                    console.log('✓ Schema is up to date');
                 }
-            }).catch(err => {
-                console.warn('⚠️  Could not load config for auto-migration:', err.message);
-                console.log('   Database will work, but schema migration skipped');
-            });
-            
-        } catch (error) {
-            console.warn('⚠️  Auto-migration skipped:', error.message);
-            console.log('   Database will work, but new columns may need manual addition');
+            } else {
+                console.warn('⚠️  Schema migration had issues:', migrationResult.errors);
+            }
+        } catch (migrationError) {
+            console.warn('⚠️  Schema migration error:', migrationError.message);
         }
 
         // Backfill repo categories for existing rows
         try {
-            const uncategorized = db.prepare(
-                `SELECT COUNT(DISTINCT image_name) as count FROM repo_snapshots WHERE category IS NULL`
-            ).get();
-            if (uncategorized?.count > 0) {
-                console.log(`🔄 Backfilling categories for ${uncategorized.count} uncategorized images...`);
-                // Deferred to after module loads (backfillRepoCategories uses categorizeImage)
-                setTimeout(() => {
-                    try { backfillRepoCategories(); } catch(e) { console.warn('Backfill error:', e.message); }
+            const { count } = await supabase
+                .from('repo_snapshots')
+                .select('image_name', { count: 'exact', head: true })
+                .is('category', null);
+            if (count > 0) {
+                console.log(`🔄 Backfilling categories for ${count} uncategorized images...`);
+                setTimeout(async () => {
+                    try { await backfillRepoCategories(); } catch(e) { console.warn('Backfill error:', e.message); }
                 }, 100);
             }
         } catch (e) {
             console.warn('Category backfill check skipped:', e.message);
         }
 
-        // NEW: Cleanup on exit
-        process.on('SIGINT', releaseLock);
-        process.on('SIGTERM', releaseLock);
-        process.on('exit', releaseLock);
-
-        console.log('✅ Database initialized successfully');
-        return db;
+        console.log('✅ Database initialized successfully (Supabase)');
     } catch (error) {
         console.error('❌ Database initialization error:', error);
         throw error;
@@ -201,287 +68,29 @@ export function initDatabase() {
 }
 
 // ============================================
-// ALL YOUR ORIGINAL FUNCTIONS - UNCHANGED
-// (except write functions have canWrite() check)
+// CURRENT METRICS OPERATIONS
 // ============================================
 
-function createTables() {
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS daily_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_date DATE NOT NULL UNIQUE,
-            timestamp INTEGER NOT NULL,
-            
-            -- Revenue Metrics
-            daily_revenue REAL NOT NULL DEFAULT 0,
-            flux_price_usd REAL,
-            
-            -- Cloud Utilization - Totals
-            total_cpu_cores INTEGER DEFAULT 0,
-            used_cpu_cores INTEGER DEFAULT 0,
-            cpu_utilization_percent REAL DEFAULT 0,
-            
-            total_ram_gb REAL DEFAULT 0,
-            used_ram_gb REAL DEFAULT 0,
-            ram_utilization_percent REAL DEFAULT 0,
-            
-            total_storage_gb REAL DEFAULT 0,
-            used_storage_gb REAL DEFAULT 0,
-            storage_utilization_percent REAL DEFAULT 0,
-            
-            -- App Counts
-            total_apps INTEGER DEFAULT 0,
-            watchtower_count INTEGER DEFAULT 0,
-            gitapps_count INTEGER DEFAULT 0,
-            dockerapps_count INTEGER DEFAULT 0,
-            gitapps_percent REAL DEFAULT 0,
-            dockerapps_percent REAL DEFAULT 0,
-            
-            -- Gaming
-            gaming_apps_total INTEGER DEFAULT 0,
-            gaming_palworld INTEGER DEFAULT 0,
-            gaming_enshrouded INTEGER DEFAULT 0,
-            gaming_minecraft INTEGER DEFAULT 0,
-            gaming_valheim INTEGER DEFAULT 0,
-            gaming_satisfactory INTEGER DEFAULT 0,
-            
-            -- Crypto Nodes
-            crypto_presearch INTEGER DEFAULT 0,
-            crypto_streamr INTEGER DEFAULT 0,
-            crypto_ravencoin INTEGER DEFAULT 0,
-            crypto_kadena INTEGER DEFAULT 0,
-            crypto_alephium INTEGER DEFAULT 0,
-            crypto_bittensor INTEGER DEFAULT 0,
-            crypto_timpi_collector INTEGER DEFAULT 0,
-            crypto_timpi_geocore INTEGER DEFAULT 0,
-            crypto_kaspa INTEGER DEFAULT 0,
-            crypto_nodes_total INTEGER DEFAULT 0,
-            
-            -- WordPress
-            wordpress_count INTEGER DEFAULT 0,
-            
-            -- Node Distribution
-            node_cumulus INTEGER DEFAULT 0,
-            node_nimbus INTEGER DEFAULT 0,
-            node_stratus INTEGER DEFAULT 0,
-            node_total INTEGER DEFAULT 0,
-            
-            -- Metadata
-            sync_status TEXT DEFAULT 'completed',
-            created_at INTEGER NOT NULL
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_snapshot_date ON daily_snapshots(snapshot_date);
-        CREATE INDEX IF NOT EXISTS idx_timestamp ON daily_snapshots(timestamp);
-    `);
+export async function getCurrentMetrics() {
+    const { data, error } = await supabase
+        .from('current_metrics')
+        .select('*')
+        .eq('id', 1)
+        .single();
 
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS revenue_transactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            txid TEXT NOT NULL UNIQUE,
-            address TEXT NOT NULL,
-            from_address TEXT DEFAULT 'Unknown',
-            amount REAL NOT NULL,
-            amount_usd REAL,
-            block_height INTEGER NOT NULL,
-            timestamp INTEGER NOT NULL,
-            date DATE NOT NULL,
-            app_name TEXT DEFAULT NULL
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_address ON revenue_transactions(address);
-        CREATE INDEX IF NOT EXISTS idx_from_address ON revenue_transactions(from_address);
-        CREATE INDEX IF NOT EXISTS idx_block_height ON revenue_transactions(block_height);
-        CREATE INDEX IF NOT EXISTS idx_date ON revenue_transactions(date);
-        CREATE INDEX IF NOT EXISTS idx_timestamp ON revenue_transactions(timestamp);
-    `);
-
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS failed_txids (
-            txid TEXT NOT NULL UNIQUE,
-            address TEXT NOT NULL,
-            failure_reason TEXT NOT NULL DEFAULT 'fetch_failed',
-            attempt_count INTEGER NOT NULL DEFAULT 1,
-            first_seen INTEGER NOT NULL,
-            last_attempt INTEGER NOT NULL,
-            resolved INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS idx_failed_txids_resolved ON failed_txids(resolved);
-    `);
-
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS current_metrics (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            last_update INTEGER NOT NULL,
-            
-            -- Revenue
-            current_revenue REAL DEFAULT 0,
-            flux_price_usd REAL,
-            
-            -- Cloud Utilization
-            total_cpu_cores INTEGER DEFAULT 0,
-            used_cpu_cores INTEGER DEFAULT 0,
-            cpu_utilization_percent REAL DEFAULT 0,
-            
-            total_ram_gb REAL DEFAULT 0,
-            used_ram_gb REAL DEFAULT 0,
-            ram_utilization_percent REAL DEFAULT 0,
-            
-            total_storage_gb REAL DEFAULT 0,
-            used_storage_gb REAL DEFAULT 0,
-            storage_utilization_percent REAL DEFAULT 0,
-            
-            -- App Counts
-            total_apps INTEGER DEFAULT 0,
-            watchtower_count INTEGER DEFAULT 0,
-            gitapps_count INTEGER DEFAULT 0,
-            dockerapps_count INTEGER DEFAULT 0,
-            gitapps_percent REAL DEFAULT 0,
-            dockerapps_percent REAL DEFAULT 0,
-            
-            -- Gaming
-            gaming_apps_total INTEGER DEFAULT 0,
-            gaming_palworld INTEGER DEFAULT 0,
-            gaming_enshrouded INTEGER DEFAULT 0,
-            gaming_minecraft INTEGER DEFAULT 0,
-            gaming_valheim INTEGER DEFAULT 0,
-            gaming_satisfactory INTEGER DEFAULT 0,
-            
-            -- Crypto Nodes
-            crypto_presearch INTEGER DEFAULT 0,
-            crypto_streamr INTEGER DEFAULT 0,
-            crypto_ravencoin INTEGER DEFAULT 0,
-            crypto_kadena INTEGER DEFAULT 0,
-            crypto_alephium INTEGER DEFAULT 0,
-            crypto_bittensor INTEGER DEFAULT 0,
-            crypto_timpi_collector INTEGER DEFAULT 0,
-            crypto_timpi_geocore INTEGER DEFAULT 0,
-            crypto_kaspa INTEGER DEFAULT 0,
-            crypto_nodes_total INTEGER DEFAULT 0,
-            
-            -- WordPress
-            wordpress_count INTEGER DEFAULT 0,
-            
-            -- Node Distribution
-            node_cumulus INTEGER DEFAULT 0,
-            node_nimbus INTEGER DEFAULT 0,
-            node_stratus INTEGER DEFAULT 0,
-            node_total INTEGER DEFAULT 0
-        );
-        
-        -- Insert default row if not exists
-        INSERT OR IGNORE INTO current_metrics (id, last_update) 
-        VALUES (1, 0);
-    `);
-
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS flux_price_history (
-            date DATE NOT NULL PRIMARY KEY,
-            price_usd REAL NOT NULL,
-            source TEXT DEFAULT 'cryptocompare',
-            created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-        );
-    `);
-
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS sync_status (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            sync_type TEXT NOT NULL UNIQUE,
-            last_sync INTEGER NOT NULL,
-            last_sync_block INTEGER,
-            next_sync INTEGER,
-            status TEXT DEFAULT 'pending',
-            error_message TEXT
-        );
-        
-        CREATE INDEX IF NOT EXISTS idx_sync_type ON sync_status(sync_type);
-    `);
-
-    // Repo snapshots - normalized per-repo daily counts
-    db.exec(`
-        CREATE TABLE IF NOT EXISTS repo_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            snapshot_date DATE NOT NULL,
-            image_name TEXT NOT NULL,
-            instance_count INTEGER NOT NULL DEFAULT 0,
-            category TEXT DEFAULT NULL,
-            created_at INTEGER NOT NULL,
-            UNIQUE(snapshot_date, image_name)
-        );
-        CREATE INDEX IF NOT EXISTS idx_repo_snapshot_date ON repo_snapshots(snapshot_date);
-        CREATE INDEX IF NOT EXISTS idx_repo_image_name ON repo_snapshots(image_name);
-        CREATE INDEX IF NOT EXISTS idx_repo_composite ON repo_snapshots(image_name, snapshot_date);
-        CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category);
-    `);
-
-    console.log('✅ Database tables created');
-}
-
-function migrateRepoSnapshots() {
-    try {
-        const columns = db.pragma('table_info(repo_snapshots)');
-        if (columns.length === 0) return; // Table doesn't exist yet
-        const hasCategory = columns.some(col => col.name === 'category');
-        if (!hasCategory) {
-            db.exec('ALTER TABLE repo_snapshots ADD COLUMN category TEXT DEFAULT NULL');
-            db.exec('CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category)');
-            console.log('Migration: added category column to repo_snapshots');
-        }
-    } catch (error) {
-        console.warn('repo_snapshots migration check failed:', error.message);
+    if (error) {
+        console.error('getCurrentMetrics error:', error.message);
+        return null;
     }
+    return data;
 }
 
-function migrateRevenueTransactions() {
-    try {
-        const columns = db.pragma('table_info(revenue_transactions)');
-        const hasAppName = columns.some(col => col.name === 'app_name');
-        if (!hasAppName) {
-            db.exec('ALTER TABLE revenue_transactions ADD COLUMN app_name TEXT DEFAULT NULL');
-            console.log('Migration: added app_name column to revenue_transactions');
-        }
-        const hasAppType = columns.some(col => col.name === 'app_type');
-        if (!hasAppType) {
-            db.exec('ALTER TABLE revenue_transactions ADD COLUMN app_type TEXT DEFAULT NULL');
-            console.log('Migration: added app_type column to revenue_transactions');
-        }
-    } catch (error) {
-        console.warn('revenue_transactions migration check failed:', error.message); // nosec
-    }
-}
+export async function updateCurrentMetrics(metrics) {
+    const current = await getCurrentMetrics();
+    if (!current) return;
 
-function initializeSyncStatus() {
-    const syncTypes = ['revenue', 'cloud', 'gaming', 'wordpress', 'nodes', 'crypto', 'daily_snapshot'];
-    const stmt = db.prepare(`
-        INSERT OR IGNORE INTO sync_status (sync_type, last_sync, status)
-        VALUES (?, 0, 'pending')
-    `);
-
-    syncTypes.forEach(type => stmt.run(type));
-    console.log('✅ Sync status initialized');
-}
-
-// ============================================
-// CURRENT METRICS OPERATIONS - UNCHANGED
-// ============================================
-
-export function getCurrentMetrics() {
-    const stmt = db.prepare('SELECT * FROM current_metrics WHERE id = 1');
-    console.log('Executing getCurrentMetrics query');
-    return stmt.get();
-}
-
-export function updateCurrentMetrics(metrics) {
-    // ONLY CHANGE: Check if we can write
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping metrics update - not the writer');
-        return;
-    }
-    
-    // YOUR ORIGINAL CODE BELOW - UNCHANGED
-    const current = getCurrentMetrics();
-    
     const mergedMetrics = {
+        last_update: Date.now(),
         current_revenue: metrics.current_revenue ?? current.current_revenue ?? null,
         flux_price_usd: metrics.flux_price_usd ?? current.flux_price_usd ?? null,
         total_cpu_cores: metrics.total_cpu_cores ?? current.total_cpu_cores ?? null,
@@ -522,788 +131,896 @@ export function updateCurrentMetrics(metrics) {
         node_total: metrics.node_total ?? current.node_total ?? null
     };
 
-    const stmt = db.prepare(`
-        UPDATE current_metrics SET
-            last_update = ?,
-            current_revenue = ?,
-            flux_price_usd = ?,
-            total_cpu_cores = ?,
-            used_cpu_cores = ?,
-            cpu_utilization_percent = ?,
-            total_ram_gb = ?,
-            used_ram_gb = ?,
-            ram_utilization_percent = ?,
-            total_storage_gb = ?,
-            used_storage_gb = ?,
-            storage_utilization_percent = ?,
-            total_apps = ?,
-            watchtower_count = ?,
-            gitapps_count = ?,
-            dockerapps_count = ?,
-            gitapps_percent = ?,
-            dockerapps_percent = ?,
-            gaming_apps_total = ?,
-            gaming_palworld = ?,
-            gaming_enshrouded = ?,
-            gaming_minecraft = ?,
-            gaming_valheim = ?,
-            gaming_satisfactory = ?,
-            crypto_presearch = ?,
-            crypto_streamr = ?,
-            crypto_ravencoin = ?,
-            crypto_kadena = ?,
-            crypto_alephium = ?,
-            crypto_bittensor = ?,
-            crypto_timpi_collector = ?,
-            crypto_timpi_geocore = ?,
-            crypto_kaspa = ?,
-            crypto_nodes_total = ?,
-            wordpress_count = ?,
-            node_cumulus = ?,
-            node_nimbus = ?,
-            node_stratus = ?,
-            node_total = ?
-        WHERE id = 1
-    `);
+    const { error } = await supabase
+        .from('current_metrics')
+        .update(mergedMetrics)
+        .eq('id', 1);
 
-    stmt.run(
-        Date.now(),
-        mergedMetrics.current_revenue,
-        mergedMetrics.flux_price_usd,
-        mergedMetrics.total_cpu_cores,
-        mergedMetrics.used_cpu_cores,
-        mergedMetrics.cpu_utilization_percent,
-        mergedMetrics.total_ram_gb,
-        mergedMetrics.used_ram_gb,
-        mergedMetrics.ram_utilization_percent,
-        mergedMetrics.total_storage_gb,
-        mergedMetrics.used_storage_gb,
-        mergedMetrics.storage_utilization_percent,
-        mergedMetrics.total_apps,
-        mergedMetrics.watchtower_count,
-        mergedMetrics.gitapps_count,
-        mergedMetrics.dockerapps_count,
-        mergedMetrics.gitapps_percent,
-        mergedMetrics.dockerapps_percent,
-        mergedMetrics.gaming_apps_total,
-        mergedMetrics.gaming_palworld,
-        mergedMetrics.gaming_enshrouded,
-        mergedMetrics.gaming_minecraft,
-        mergedMetrics.gaming_valheim,
-        mergedMetrics.gaming_satisfactory,
-        mergedMetrics.crypto_presearch,
-        mergedMetrics.crypto_streamr,
-        mergedMetrics.crypto_ravencoin,
-        mergedMetrics.crypto_kadena,
-        mergedMetrics.crypto_alephium,
-        mergedMetrics.crypto_bittensor,
-        mergedMetrics.crypto_timpi_collector,
-        mergedMetrics.crypto_timpi_geocore,
-        mergedMetrics.crypto_kaspa,
-        mergedMetrics.crypto_nodes_total,
-        mergedMetrics.wordpress_count,
-        mergedMetrics.node_cumulus,
-        mergedMetrics.node_nimbus,
-        mergedMetrics.node_stratus,
-        mergedMetrics.node_total
-    );
-    console.log('✅ Current metrics updated');
+    if (error) {
+        console.error('updateCurrentMetrics error:', error.message);
+    } else {
+        console.log('✅ Current metrics updated');
+    }
 }
 
 // ============================================
-// DAILY SNAPSHOTS OPERATIONS - MINIMAL CHANGES
+// DAILY SNAPSHOTS OPERATIONS
 // ============================================
 
-export function createDailySnapshot(snapshot) {
-    // ONLY CHANGE: Check if we can write
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping snapshot - not the writer');
-        return;
+export async function createDailySnapshot(snapshot) {
+    const row = {
+        snapshot_date: snapshot.snapshot_date,
+        timestamp: snapshot.timestamp,
+        daily_revenue: snapshot.daily_revenue,
+        flux_price_usd: snapshot.flux_price_usd,
+        total_cpu_cores: snapshot.total_cpu_cores,
+        used_cpu_cores: snapshot.used_cpu_cores,
+        cpu_utilization_percent: snapshot.cpu_utilization_percent,
+        total_ram_gb: snapshot.total_ram_gb,
+        used_ram_gb: snapshot.used_ram_gb,
+        ram_utilization_percent: snapshot.ram_utilization_percent,
+        total_storage_gb: snapshot.total_storage_gb,
+        used_storage_gb: snapshot.used_storage_gb,
+        storage_utilization_percent: snapshot.storage_utilization_percent,
+        total_apps: snapshot.total_apps,
+        watchtower_count: snapshot.watchtower_count,
+        gitapps_count: snapshot.gitapps_count,
+        dockerapps_count: snapshot.dockerapps_count,
+        gitapps_percent: snapshot.gitapps_percent,
+        dockerapps_percent: snapshot.dockerapps_percent,
+        gaming_apps_total: snapshot.gaming_apps_total,
+        gaming_palworld: snapshot.gaming_palworld,
+        gaming_enshrouded: snapshot.gaming_enshrouded,
+        gaming_minecraft: snapshot.gaming_minecraft,
+        gaming_valheim: snapshot.gaming_valheim,
+        gaming_satisfactory: snapshot.gaming_satisfactory,
+        crypto_presearch: snapshot.crypto_presearch,
+        crypto_streamr: snapshot.crypto_streamr,
+        crypto_ravencoin: snapshot.crypto_ravencoin,
+        crypto_kadena: snapshot.crypto_kadena,
+        crypto_alephium: snapshot.crypto_alephium,
+        crypto_bittensor: snapshot.crypto_bittensor,
+        crypto_timpi_collector: snapshot.crypto_timpi_collector,
+        crypto_timpi_geocore: snapshot.crypto_timpi_geocore,
+        crypto_kaspa: snapshot.crypto_kaspa,
+        crypto_nodes_total: snapshot.crypto_nodes_total,
+        wordpress_count: snapshot.wordpress_count,
+        node_cumulus: snapshot.node_cumulus,
+        node_nimbus: snapshot.node_nimbus,
+        node_stratus: snapshot.node_stratus,
+        node_total: snapshot.node_total,
+        sync_status: snapshot.sync_status || 'completed',
+        created_at: Date.now()
+    };
+
+    const { error } = await supabase
+        .from('daily_snapshots')
+        .upsert(row, { onConflict: 'snapshot_date' });
+
+    if (error) {
+        console.error('createDailySnapshot error:', error.message);
+    } else {
+        console.log(`✅ Snapshot created for ${snapshot.snapshot_date}`);
     }
-    
-    // YOUR ORIGINAL CODE BELOW - UNCHANGED
-    const stmt = db.prepare(`
-        INSERT OR REPLACE INTO daily_snapshots (
-            snapshot_date, timestamp,
-            daily_revenue, flux_price_usd,
-            total_cpu_cores, used_cpu_cores, cpu_utilization_percent,
-            total_ram_gb, used_ram_gb, ram_utilization_percent,
-            total_storage_gb, used_storage_gb, storage_utilization_percent,
-            total_apps, watchtower_count,gitapps_count, dockerapps_count, gitapps_percent, dockerapps_percent,
-            gaming_apps_total, gaming_palworld, gaming_enshrouded, gaming_minecraft,gaming_valheim,gaming_satisfactory,
-            crypto_presearch, crypto_streamr, crypto_ravencoin, crypto_kadena,
-            crypto_alephium, crypto_bittensor, crypto_timpi_collector, crypto_timpi_geocore,
-            crypto_kaspa, crypto_nodes_total,
-            wordpress_count,
-            node_cumulus, node_nimbus, node_stratus, node_total,
-            sync_status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-        snapshot.snapshot_date,
-        snapshot.timestamp,
-        snapshot.daily_revenue,
-        snapshot.flux_price_usd,
-        snapshot.total_cpu_cores,
-        snapshot.used_cpu_cores,
-        snapshot.cpu_utilization_percent,
-        snapshot.total_ram_gb,
-        snapshot.used_ram_gb,
-        snapshot.ram_utilization_percent,
-        snapshot.total_storage_gb,
-        snapshot.used_storage_gb,
-        snapshot.storage_utilization_percent,
-        snapshot.total_apps,
-        snapshot.watchtower_count,
-        snapshot.gitapps_count,
-        snapshot.dockerapps_count,
-        snapshot.gitapps_percent,
-        snapshot.dockerapps_percent,
-        snapshot.gaming_apps_total,
-        snapshot.gaming_palworld,
-        snapshot.gaming_enshrouded,
-        snapshot.gaming_minecraft,
-        snapshot.gaming_valheim,
-        snapshot.gaming_satisfactory,
-        snapshot.crypto_presearch,
-        snapshot.crypto_streamr,
-        snapshot.crypto_ravencoin,
-        snapshot.crypto_kadena,
-        snapshot.crypto_alephium,
-        snapshot.crypto_bittensor,
-        snapshot.crypto_timpi_collector,
-        snapshot.crypto_timpi_geocore,
-        snapshot.crypto_kaspa,
-        snapshot.crypto_nodes_total,
-        snapshot.wordpress_count,
-        snapshot.node_cumulus,
-        snapshot.node_nimbus,
-        snapshot.node_stratus,
-        snapshot.node_total,
-        snapshot.sync_status || 'completed',
-        Date.now()
-    );
-
-    console.log(`✅ Snapshot created for ${snapshot.snapshot_date}`);
 }
 
-export function getSnapshotByDate(date) {
-    const stmt = db.prepare('SELECT * FROM daily_snapshots WHERE snapshot_date = ?');
-    return stmt.get(date);
-}
+export async function getSnapshotByDate(date) {
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .select('*')
+        .eq('snapshot_date', date)
+        .single();
 
-export function getLastNSnapshots(n = 30) {
-    const stmt = db.prepare(`
-        SELECT * FROM daily_snapshots 
-        ORDER BY snapshot_date DESC 
-        LIMIT ?
-    `);
-    return stmt.all(n);
-}
-
-export function getSnapshotsInRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT * FROM daily_snapshots 
-        WHERE snapshot_date BETWEEN ? AND ?
-        ORDER BY snapshot_date ASC
-    `);
-    return stmt.all(startDate, endDate);
-}
-
-export function getAllSnapshots() {
-    const stmt = db.prepare('SELECT * FROM daily_snapshots ORDER BY snapshot_date DESC');
-    return stmt.all();
-}
-
-export function deleteOldSnapshots(daysToKeep = 365) {
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping delete - not the writer');
-        return 0;
+    if (error && error.code !== 'PGRST116') {
+        console.error('getSnapshotByDate error:', error.message);
     }
-    
+    return data || null;
+}
+
+export async function getLastNSnapshots(n = 30) {
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .select('*')
+        .order('snapshot_date', { ascending: false })
+        .limit(n);
+
+    if (error) {
+        console.error('getLastNSnapshots error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function getSnapshotsInRange(startDate, endDate) {
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .select('*')
+        .gte('snapshot_date', startDate)
+        .lte('snapshot_date', endDate)
+        .order('snapshot_date', { ascending: true });
+
+    if (error) {
+        console.error('getSnapshotsInRange error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function getAllSnapshots() {
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .select('*')
+        .order('snapshot_date', { ascending: false });
+
+    if (error) {
+        console.error('getAllSnapshots error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function deleteOldSnapshots(daysToKeep = 365) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
-    const stmt = db.prepare('DELETE FROM daily_snapshots WHERE snapshot_date < ?');
-    const result = stmt.run(cutoffDateStr);
-    
-    console.log(`🗑️  Deleted ${result.changes} old snapshots (older than ${cutoffDateStr})`);
-    return result.changes;
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .delete()
+        .lt('snapshot_date', cutoffDateStr)
+        .select('id');
+
+    const count = data?.length || 0;
+    if (error) {
+        console.error('deleteOldSnapshots error:', error.message);
+    } else {
+        console.log(`🗑️  Deleted ${count} old snapshots (older than ${cutoffDateStr})`);
+    }
+    return count;
 }
 
 // ============================================
-// REVENUE TRANSACTIONS OPERATIONS - MINIMAL CHANGES
+// REVENUE TRANSACTIONS OPERATIONS
 // ============================================
 
-export function insertTransaction(tx) {
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping transaction - not the writer');
-        return;
-    }
-    
-    const stmt = db.prepare(`
-        INSERT OR IGNORE INTO revenue_transactions
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+export async function insertTransaction(tx) {
+    const { error } = await supabase
+        .from('revenue_transactions')
+        .upsert({
+            txid: tx.txid,
+            address: tx.address,
+            from_address: tx.from_address || 'Unknown',
+            amount: tx.amount,
+            amount_usd: tx.amount_usd || null,
+            block_height: tx.block_height,
+            timestamp: tx.timestamp,
+            date: tx.date,
+            app_name: tx.app_name || null,
+            app_type: tx.app_type || null
+        }, { onConflict: 'txid', ignoreDuplicates: true });
 
-    stmt.run(
-        tx.txid,
-        tx.address,
-        tx.from_address || 'Unknown',
-        tx.amount,
-        tx.amount_usd || null,
-        tx.block_height,
-        tx.timestamp,
-        tx.date,
-        tx.app_name || null,
-        tx.app_type || null
-    );
+    if (error) {
+        console.error('insertTransaction error:', error.message);
+    }
 }
 
-export function insertTransactionsBatch(transactions) {
-    // Check if we can write — return false so callers know the batch was dropped
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping batch - not the writer');
-        return false;
-    }
+export async function insertTransactionsBatch(transactions) {
+    if (!transactions || transactions.length === 0) return true;
 
-    const stmt = db.prepare(`
-        INSERT OR IGNORE INTO revenue_transactions
-        (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
+    const rows = transactions.map(tx => ({
+        txid: tx.txid,
+        address: tx.address,
+        from_address: tx.from_address || 'Unknown',
+        amount: tx.amount,
+        amount_usd: tx.amount_usd || null,
+        block_height: tx.block_height,
+        timestamp: tx.timestamp,
+        date: tx.date,
+        app_name: tx.app_name || null,
+        app_type: tx.app_type || null
+    }));
 
-    const insertMany = db.transaction((txs) => {
-        for (const tx of txs) {
-            stmt.run(
-                tx.txid,
-                tx.address,
-                tx.from_address || 'Unknown',
-                tx.amount,
-                tx.amount_usd || null,
-                tx.block_height,
-                tx.timestamp,
-                tx.date,
-                tx.app_name || null,
-                tx.app_type || null
-            );
+    // Chunk into batches of 500 to respect Supabase limits
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('revenue_transactions')
+            .upsert(chunk, { onConflict: 'txid', ignoreDuplicates: true });
+
+        if (error) {
+            console.error(`insertTransactionsBatch chunk error (offset ${i}):`, error.message);
+            return false;
         }
-    });
+    }
 
-    insertMany(transactions);
     console.log(`✅ Inserted ${transactions.length} transactions`);
     return true;
 }
 
-// Returns distinct app names that have no app_type yet (for backfill)
-export function getUndeterminedAppNames() {
-    const stmt = db.prepare(`
-        SELECT DISTINCT app_name FROM revenue_transactions
-        WHERE app_name IS NOT NULL AND app_name != '' AND app_type IS NULL
-    `);
-    return stmt.all().map(row => row.app_name);
-}
+export async function getUndeterminedAppNames() {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('app_name')
+        .not('app_name', 'is', null)
+        .neq('app_name', '')
+        .is('app_type', null);
 
-// Sets app_type for all rows matching a given app_name (only where still NULL)
-export function updateAppTypeForAppName(appName, appType) {
-    const stmt = db.prepare(`
-        UPDATE revenue_transactions SET app_type = ? WHERE app_name = ? AND app_type IS NULL
-    `);
-    stmt.run(appType, appName);
-}
-
-// Returns txids for transactions that have no app_name yet (for app_name backfill)
-// Pass recentDays to limit to recent rows only (prevents endlessly retrying old direct payments)
-export function getTxidsWithoutAppName(limit = 500, recentDays = null) {
-    const dateFilter = recentDays
-        ? `AND date >= date('now', '-${Math.floor(recentDays)} days')`
-        : '';
-    const stmt = db.prepare(`
-        SELECT txid FROM revenue_transactions
-        WHERE app_name IS NULL ${dateFilter}
-        ORDER BY block_height DESC
-        LIMIT ?
-    `);
-    return stmt.all(limit).map(row => row.txid);
-}
-
-// Returns count of transactions with no app_name
-// Pass recentDays to limit to recent rows only (same scope as getTxidsWithoutAppName)
-export function countTxidsWithoutAppName(recentDays = null) {
-    const dateFilter = recentDays
-        ? `AND date >= date('now', '-${Math.floor(recentDays)} days')`
-        : '';
-    const stmt = db.prepare(`
-        SELECT COUNT(*) as count FROM revenue_transactions WHERE app_name IS NULL ${dateFilter}
-    `);
-    return stmt.get().count;
-}
-
-// Sets app_name and app_type for a single txid (only where app_name is still NULL)
-export function updateAppNameForTxid(txid, appName, appType) {
-    if (!canWrite()) {
-        console.warn('Skipping app_name update - not the writer');
-        return;
+    if (error) {
+        console.error('getUndeterminedAppNames error:', error.message);
+        return [];
     }
-    const stmt = db.prepare(`
-        UPDATE revenue_transactions SET app_name = ?, app_type = ?
-        WHERE txid = ? AND app_name IS NULL
-    `);
-    stmt.run(appName, appType, txid);
+
+    // Deduplicate
+    const unique = [...new Set((data || []).map(r => r.app_name))];
+    return unique;
 }
 
-export function getTransactionsByDate(date) {
-    const stmt = db.prepare('SELECT * FROM revenue_transactions WHERE date = ?');
-    return stmt.all(date);
+export async function updateAppTypeForAppName(appName, appType) {
+    const { error } = await supabase
+        .from('revenue_transactions')
+        .update({ app_type: appType })
+        .eq('app_name', appName)
+        .is('app_type', null);
+
+    if (error) {
+        console.error('updateAppTypeForAppName error:', error.message);
+    }
 }
 
-export function getTransactionsByBlockRange(startBlock, endBlock) {
-    const stmt = db.prepare(`
-        SELECT * FROM revenue_transactions
-        WHERE block_height BETWEEN ? AND ?
-        ORDER BY block_height DESC
-    `);
-    return stmt.all(startBlock, endBlock);
+export async function getTxidsWithoutAppName(limit = 500, recentDays = null) {
+    let query = supabase
+        .from('revenue_transactions')
+        .select('txid')
+        .is('app_name', null)
+        .order('block_height', { ascending: false })
+        .limit(limit);
+
+    if (recentDays) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - Math.floor(recentDays));
+        query = query.gte('date', cutoff.toISOString().split('T')[0]);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+        console.error('getTxidsWithoutAppName error:', error.message);
+        return [];
+    }
+    return (data || []).map(r => r.txid);
 }
 
-export function getRevenueForDateRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT SUM(amount) as total_revenue
-        FROM revenue_transactions
-        WHERE date BETWEEN ? AND ?
-    `);
-    const result = stmt.get(startDate, endDate);
-    return result?.total_revenue || 0;
+export async function countTxidsWithoutAppName(recentDays = null) {
+    let query = supabase
+        .from('revenue_transactions')
+        .select('*', { count: 'exact', head: true })
+        .is('app_name', null);
+
+    if (recentDays) {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - Math.floor(recentDays));
+        query = query.gte('date', cutoff.toISOString().split('T')[0]);
+    }
+
+    const { count, error } = await query;
+    if (error) {
+        console.error('countTxidsWithoutAppName error:', error.message);
+        return 0;
+    }
+    return count || 0;
 }
 
-export function getPaymentCountForDateRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT COUNT(*) as payment_count
-        FROM revenue_transactions
-        WHERE date BETWEEN ? AND ?
-    `);
-    const result = stmt.get(startDate, endDate);
-    return result?.payment_count || 0;
+export async function updateAppNameForTxid(txid, appName, appType) {
+    const { error } = await supabase
+        .from('revenue_transactions')
+        .update({ app_name: appName, app_type: appType })
+        .eq('txid', txid)
+        .is('app_name', null);
+
+    if (error) {
+        console.error('updateAppNameForTxid error:', error.message);
+    }
 }
 
-export function getRevenueForBlockRange(startBlock, endBlock) {
-    const stmt = db.prepare(`
-        SELECT SUM(amount) as total_revenue
-        FROM revenue_transactions
-        WHERE block_height BETWEEN ? AND ?
-    `);
-    const result = stmt.get(startBlock, endBlock);
-    return result?.total_revenue || 0;
+export async function getTransactionsByDate(date) {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('*')
+        .eq('date', date)
+        .limit(10000);
+
+    if (error) {
+        console.error('getTransactionsByDate error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
-export function getLastSyncedBlock() {
-    const stmt = db.prepare(`
-        SELECT MAX(block_height) as last_block
-        FROM revenue_transactions
-    `);
-    const result = stmt.get();
-    return result?.last_block || null;
+export async function getTransactionsByBlockRange(startBlock, endBlock) {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('*')
+        .gte('block_height', startBlock)
+        .lte('block_height', endBlock)
+        .order('block_height', { ascending: false })
+        .limit(10000);
+
+    if (error) {
+        console.error('getTransactionsByBlockRange error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
-export function getAllTxids() {
-    const stmt = db.prepare('SELECT txid FROM revenue_transactions');
-    return stmt.all().map(row => row.txid);
+export async function getRevenueForDateRange(startDate, endDate) {
+    // Use existing RPC function for server-side aggregation (avoids 1000-row limit)
+    const { data, error } = await supabase.rpc('get_daily_revenue_in_range', {
+        p_start: startDate,
+        p_end: endDate
+    });
+
+    if (error) {
+        console.error('getRevenueForDateRange error:', error.message);
+        return 0;
+    }
+    // Sum the daily totals
+    return (data || []).reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
 }
 
-export function getTxidCount() {
-    const stmt = db.prepare('SELECT COUNT(*) as count FROM revenue_transactions');
-    const result = stmt.get();
-    return result?.count || 0;
+export async function getPaymentCountForDateRange(startDate, endDate) {
+    const { count, error } = await supabase
+        .from('revenue_transactions')
+        .select('*', { count: 'exact', head: true })
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+    if (error) {
+        console.error('getPaymentCountForDateRange error:', error.message);
+        return 0;
+    }
+    return count || 0;
 }
 
-export function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null) {
+export async function getRevenueForBlockRange(startBlock, endBlock) {
+    // Paginate to avoid 1000-row default limit
+    let total = 0;
+    let offset = 0;
+    const pageSize = 1000;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('amount')
+            .gte('block_height', startBlock)
+            .lte('block_height', endBlock)
+            .range(offset, offset + pageSize - 1);
+
+        if (error) {
+            console.error('getRevenueForBlockRange error:', error.message);
+            return total;
+        }
+        if (!data || data.length === 0) break;
+
+        total += data.reduce((sum, row) => sum + (row.amount || 0), 0);
+        if (data.length < pageSize) break;
+        offset += pageSize;
+    }
+    return total;
+}
+
+export async function getLastSyncedBlock() {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('block_height')
+        .order('block_height', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('getLastSyncedBlock error:', error.message);
+    }
+    return data?.block_height || null;
+}
+
+export async function getTxidCount() {
+    const { count, error } = await supabase
+        .from('revenue_transactions')
+        .select('*', { count: 'exact', head: true });
+
+    if (error) {
+        console.error('getTxidCount error:', error.message);
+        return 0;
+    }
+    return count || 0;
+}
+
+export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null) {
     const offset = (page - 1) * limit;
 
-    let whereClause = '';
-    let params = [];
+    const { data, error } = await supabase.rpc('get_transactions_paginated', {
+        p_search: search || null,
+        p_app: appName || null,
+        p_limit: limit,
+        p_offset: offset
+    });
 
-    if (appName && appName.trim() !== '') {
-        // Exact match for app drill-down
-        whereClause = 'WHERE app_name = ?';
-        params = [appName.trim()];
-    } else if (search && search.trim() !== '') {
-        const searchTerm = `%${search.trim()}%`;
-        whereClause = `WHERE
-            txid LIKE ? OR
-            address LIKE ? OR
-            from_address LIKE ? OR
-            CAST(amount AS TEXT) LIKE ? OR
-            date LIKE ? OR
-            app_name LIKE ?`;
-        params = [searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm];
+    if (error) {
+        console.error('getTransactionsPaginated error:', error.message);
+        return { transactions: [], total: 0, page, limit, offset };
     }
-    
-    const countStmt = db.prepare(`
-        SELECT COUNT(*) as count 
-        FROM revenue_transactions 
-        ${whereClause}
-    `);
-    const countResult = params.length > 0 ? countStmt.get(...params) : countStmt.get();
-    const total = countResult?.count || 0;
-    
-    const dataStmt = db.prepare(`
-        SELECT * FROM revenue_transactions 
-        ${whereClause}
-        ORDER BY block_height DESC, timestamp DESC
-        LIMIT ? OFFSET ?
-    `);
-    
-    const queryParams = params.length > 0 ? [...params, limit, offset] : [limit, offset];
-    const transactions = dataStmt.all(...queryParams);
-    
+
+    const total = data?.[0]?.total_count || 0;
+
     return {
-        transactions,
-        total,
+        transactions: (data || []).map(r => {
+            const { total_count, ...rest } = r;
+            return rest;
+        }),
+        total: Number(total),
         page,
         limit,
         offset
     };
 }
 
-export function getAppAnalytics(page = 1, limit = 50, search = '') {
+export async function getAppAnalytics(page = 1, limit = 50, search = '') {
     const offset = (page - 1) * limit;
 
-    let whereClause = "WHERE app_name IS NOT NULL AND app_name != ''";
-    let params = [];
+    const { data, error } = await supabase.rpc('get_app_analytics', {
+        p_search: search || null,
+        p_limit: limit,
+        p_offset: offset
+    });
 
-    if (search && search.trim() !== '') {
-        whereClause += " AND app_name LIKE ?";
-        params.push(`%${search.trim()}%`);
+    if (error) {
+        console.error('getAppAnalytics error:', error.message);
+        return { apps: [], total: 0, page, limit, offset };
     }
 
-    const countStmt = db.prepare(`
-        SELECT COUNT(DISTINCT app_name) as count
-        FROM revenue_transactions
-        ${whereClause}
-    `);
-    const countResult = params.length > 0 ? countStmt.get(...params) : countStmt.get();
-    const total = countResult?.count || 0;
+    const total = data?.[0]?.total_count || 0;
 
-    const dataStmt = db.prepare(`
-        SELECT
-            app_name,
-            COUNT(*) as transaction_count,
-            SUM(amount) as total_revenue,
-            AVG(amount) as avg_payment,
-            MIN(date) as first_payment,
-            MAX(date) as last_payment
-        FROM revenue_transactions
-        ${whereClause}
-        GROUP BY app_name
-        ORDER BY total_revenue DESC
-        LIMIT ? OFFSET ?
-    `);
-
-    const queryParams = params.length > 0 ? [...params, limit, offset] : [limit, offset];
-    const apps = dataStmt.all(...queryParams);
-
-    return { apps, total, page, limit, offset };
+    return {
+        apps: (data || []).map(r => {
+            const { total_count, ...rest } = r;
+            return rest;
+        }),
+        total: Number(total),
+        page,
+        limit,
+        offset
+    };
 }
 
-export function getDailyRevenueFromTransactions(days = 30) {
-    const stmt = db.prepare(`
-        SELECT 
-            date,
-            SUM(amount) as daily_revenue
-        FROM revenue_transactions
-        WHERE date >= date('now', '-' || ? || ' days')
-        GROUP BY date
-        ORDER BY date ASC
-    `);
-    
-    const results = stmt.all(days);
-    console.log(`✅ Retrieved daily revenue for ${results.length} days from transactions`);
-    return results;
-}
+export async function getDailyRevenueFromTransactions(days = 30) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const startDate = cutoff.toISOString().split('T')[0];
 
-export function getDailyRevenueInRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT 
-            date,
-            SUM(amount) as daily_revenue
-        FROM revenue_transactions
-        WHERE date BETWEEN ? AND ?
-        GROUP BY date
-        ORDER BY date ASC
-    `);
-    
-    const results = stmt.all(startDate, endDate);
-    console.log(`✅ Retrieved daily revenue for ${results.length} days from transactions (${startDate} to ${endDate})`);
-    return results;
-}
+    const { data, error } = await supabase.rpc('get_daily_revenue', {
+        start_date: startDate
+    });
 
-// USD Revenue aggregation functions
-export function getDailyRevenueUSDFromTransactions(days = 30) {
-    const stmt = db.prepare(`
-        SELECT 
-            date,
-            SUM(COALESCE(amount_usd, 0)) as daily_revenue_usd,
-            COUNT(CASE WHEN amount_usd IS NOT NULL THEN 1 END) as usd_count,
-            COUNT(*) as total_count
-        FROM revenue_transactions
-        WHERE date >= date('now', '-' || ? || ' days')
-        GROUP BY date
-        ORDER BY date ASC
-    `);
-    
-    const results = stmt.all(days);
-    console.log(`✅ Retrieved daily USD revenue for ${results.length} days from transactions`);
-    return results;
-}
-
-export function getDailyRevenueUSDInRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT 
-            date,
-            SUM(COALESCE(amount_usd, 0)) as daily_revenue_usd,
-            COUNT(CASE WHEN amount_usd IS NOT NULL THEN 1 END) as usd_count,
-            COUNT(*) as total_count
-        FROM revenue_transactions
-        WHERE date BETWEEN ? AND ?
-        GROUP BY date
-        ORDER BY date ASC
-    `);
-    
-    const results = stmt.all(startDate, endDate);
-    console.log(`✅ Retrieved daily USD revenue for ${results.length} days from transactions (${startDate} to ${endDate})`);
-    return results;
-}
-
-
-export function deleteOldTransactions(daysToKeep = 365) {
-    if (!canWrite()) {
-        console.warn('⚠️  Skipping delete - not the writer');
-        return 0;
+    if (error) {
+        console.error('getDailyRevenueFromTransactions error:', error.message);
+        return [];
     }
-    
+    console.log(`✅ Retrieved daily revenue for ${(data || []).length} days from transactions`);
+    return data || [];
+}
+
+export async function getDailyRevenueInRange(startDate, endDate) {
+    const { data, error } = await supabase.rpc('get_daily_revenue_in_range', {
+        p_start: startDate,
+        p_end: endDate
+    });
+
+    if (error) {
+        console.error('getDailyRevenueInRange error:', error.message);
+        return [];
+    }
+    console.log(`✅ Retrieved daily revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
+    return data || [];
+}
+
+export async function getDailyRevenueUSDFromTransactions(days = 30) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    const startDate = cutoff.toISOString().split('T')[0];
+
+    const { data, error } = await supabase.rpc('get_daily_revenue_usd', {
+        start_date: startDate
+    });
+
+    if (error) {
+        console.error('getDailyRevenueUSDFromTransactions error:', error.message);
+        return [];
+    }
+    console.log(`✅ Retrieved daily USD revenue for ${(data || []).length} days from transactions`);
+    return data || [];
+}
+
+export async function getDailyRevenueUSDInRange(startDate, endDate) {
+    const { data, error } = await supabase.rpc('get_daily_revenue_usd_in_range', {
+        p_start: startDate,
+        p_end: endDate
+    });
+
+    if (error) {
+        console.error('getDailyRevenueUSDInRange error:', error.message);
+        return [];
+    }
+    console.log(`✅ Retrieved daily USD revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
+    return data || [];
+}
+
+export async function deleteOldTransactions(daysToKeep = 365) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
 
-    const stmt = db.prepare('DELETE FROM revenue_transactions WHERE date < ?');
-    const result = stmt.run(cutoffDateStr);
-    
-    console.log(`🗑️  Deleted ${result.changes} old transactions (older than ${cutoffDateStr})`);
-    return result.changes;
-}
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .delete()
+        .lt('date', cutoffDateStr)
+        .select('id');
 
-// ============================================
-// FAILED TXID TRACKING (persistent across restarts)
-// ============================================
-
-export function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
-    if (!canWrite()) return;
-    const now = Math.floor(Date.now() / 1000);
-    const stmt = db.prepare(`
-        INSERT INTO failed_txids (txid, address, failure_reason, attempt_count, first_seen, last_attempt, resolved)
-        VALUES (?, ?, ?, 1, ?, ?, 0)
-        ON CONFLICT(txid) DO UPDATE SET
-            attempt_count = attempt_count + 1,
-            last_attempt = ?,
-            failure_reason = ?,
-            resolved = 0
-    `);
-    stmt.run(txid, address, reason, now, now, now, reason);
-}
-
-export function getUnresolvedFailedTxids(limit = 200) {
-    const stmt = db.prepare(`
-        SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt
-        FROM failed_txids
-        WHERE resolved = 0
-        ORDER BY attempt_count ASC, last_attempt ASC
-        LIMIT ?
-    `);
-    return stmt.all(limit);
-}
-
-export function resolveFailedTxid(txid) {
-    if (!canWrite()) return;
-    const stmt = db.prepare('UPDATE failed_txids SET resolved = 1 WHERE txid = ?');
-    stmt.run(txid);
-}
-
-export function getFailedTxidCount() {
-    const stmt = db.prepare('SELECT COUNT(*) as count FROM failed_txids WHERE resolved = 0');
-    return stmt.get().count;
-}
-
-export function clearAbandonedFailedTxids(maxAgeDays = 30) {
-    if (!canWrite()) return 0;
-    const cutoff = Math.floor(Date.now() / 1000) - (maxAgeDays * 86400);
-    const stmt = db.prepare('DELETE FROM failed_txids WHERE resolved = 1 AND last_attempt < ?');
-    return stmt.run(cutoff).changes;
-}
-
-export function isFailedTxid(txid) {
-    const stmt = db.prepare('SELECT * FROM failed_txids WHERE txid = ? AND resolved = 0');
-    return stmt.get(txid) || null;
-}
-
-// ============================================
-// SYNC STATUS OPERATIONS - MINIMAL CHANGES
-// ============================================
-
-export function getSyncStatus(syncType) {
-    const stmt = db.prepare('SELECT * FROM sync_status WHERE sync_type = ?');
-    return stmt.get(syncType);
-}
-
-export function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {
-    if (!canWrite()) return;
-    
-    const stmt = db.prepare(`
-        UPDATE sync_status SET
-            last_sync = ?,
-            last_sync_block = ?,
-            status = ?,
-            error_message = ?
-        WHERE sync_type = ?
-    `);
-
-    stmt.run(Date.now(), lastBlock, status, errorMessage, syncType);
-}
-
-export function resetRevenueSyncBlock() {
-    // Admin operation — bypass canWrite() so it always executes regardless of writer election
-    db.prepare('UPDATE sync_status SET last_sync_block = NULL WHERE sync_type = ?').run('revenue');
-}
-
-export function clearRevenueData() {
-    // Admin operation — wipes all revenue transactions and resets sync so a full resync runs
-    const count = db.prepare('SELECT COUNT(*) as cnt FROM revenue_transactions').get().cnt;
-    db.prepare('DELETE FROM revenue_transactions').run();
-    db.prepare('UPDATE sync_status SET last_sync_block = NULL, last_sync = 0, status = ? WHERE sync_type = ?').run('pending', 'revenue');
+    const count = data?.length || 0;
+    if (error) {
+        console.error('deleteOldTransactions error:', error.message);
+    } else {
+        console.log(`🗑️  Deleted ${count} old transactions (older than ${cutoffDateStr})`);
+    }
     return count;
 }
 
-export function setNextSync(syncType, nextSyncTime) {
-    if (!canWrite()) return;
-    
-    const stmt = db.prepare('UPDATE sync_status SET next_sync = ? WHERE sync_type = ?');
-    stmt.run(nextSyncTime, syncType);
+// ============================================
+// FAILED TXID TRACKING
+// ============================================
+
+export async function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
+    const now = Math.floor(Date.now() / 1000);
+
+    // Two-step approach: check if exists, then insert or update
+    const { data: existing } = await supabase
+        .from('failed_txids')
+        .select('txid, attempt_count')
+        .eq('txid', txid)
+        .single();
+
+    if (existing) {
+        await supabase
+            .from('failed_txids')
+            .update({
+                attempt_count: existing.attempt_count + 1,
+                last_attempt: now,
+                failure_reason: reason,
+                resolved: 0
+            })
+            .eq('txid', txid);
+    } else {
+        await supabase
+            .from('failed_txids')
+            .insert({
+                txid,
+                address,
+                failure_reason: reason,
+                attempt_count: 1,
+                first_seen: now,
+                last_attempt: now,
+                resolved: 0
+            });
+    }
+}
+
+export async function getUnresolvedFailedTxids(limit = 200) {
+    const { data, error } = await supabase
+        .from('failed_txids')
+        .select('txid, address, failure_reason, attempt_count, first_seen, last_attempt')
+        .eq('resolved', 0)
+        .order('attempt_count', { ascending: true })
+        .order('last_attempt', { ascending: true })
+        .limit(limit);
+
+    if (error) {
+        console.error('getUnresolvedFailedTxids error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function resolveFailedTxid(txid) {
+    const { error } = await supabase
+        .from('failed_txids')
+        .update({ resolved: 1 })
+        .eq('txid', txid);
+
+    if (error) {
+        console.error('resolveFailedTxid error:', error.message);
+    }
+}
+
+export async function getFailedTxidCount() {
+    const { count, error } = await supabase
+        .from('failed_txids')
+        .select('*', { count: 'exact', head: true })
+        .eq('resolved', 0);
+
+    if (error) {
+        console.error('getFailedTxidCount error:', error.message);
+        return 0;
+    }
+    return count || 0;
+}
+
+export async function clearAbandonedFailedTxids(maxAgeDays = 30) {
+    const cutoff = Math.floor(Date.now() / 1000) - (maxAgeDays * 86400);
+
+    const { data, error } = await supabase
+        .from('failed_txids')
+        .delete()
+        .eq('resolved', 1)
+        .lt('last_attempt', cutoff)
+        .select('txid');
+
+    if (error) {
+        console.error('clearAbandonedFailedTxids error:', error.message);
+        return 0;
+    }
+    return data?.length || 0;
+}
+
+export async function isFailedTxid(txid) {
+    const { data, error } = await supabase
+        .from('failed_txids')
+        .select('*')
+        .eq('txid', txid)
+        .eq('resolved', 0)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('isFailedTxid error:', error.message);
+    }
+    return data || null;
+}
+
+// ============================================
+// SYNC STATUS OPERATIONS
+// ============================================
+
+export async function getSyncStatus(syncType) {
+    const { data, error } = await supabase
+        .from('sync_status')
+        .select('*')
+        .eq('sync_type', syncType)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('getSyncStatus error:', error.message);
+    }
+    return data || null;
+}
+
+export async function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {
+    const { error } = await supabase
+        .from('sync_status')
+        .update({
+            last_sync: Date.now(),
+            last_sync_block: lastBlock,
+            status,
+            error_message: errorMessage
+        })
+        .eq('sync_type', syncType);
+
+    if (error) {
+        console.error('updateSyncStatus error:', error.message);
+    }
+}
+
+export async function resetRevenueSyncBlock() {
+    const { error } = await supabase
+        .from('sync_status')
+        .update({ last_sync_block: null })
+        .eq('sync_type', 'revenue');
+
+    if (error) {
+        console.error('resetRevenueSyncBlock error:', error.message);
+    }
+}
+
+export async function clearRevenueData() {
+    const { count } = await supabase
+        .from('revenue_transactions')
+        .select('*', { count: 'exact', head: true });
+
+    await supabase
+        .from('revenue_transactions')
+        .delete()
+        .neq('id', 0); // delete all
+
+    await supabase
+        .from('sync_status')
+        .update({ last_sync_block: null, last_sync: 0, status: 'pending' })
+        .eq('sync_type', 'revenue');
+
+    return count || 0;
+}
+
+export async function setNextSync(syncType, nextSyncTime) {
+    const { error } = await supabase
+        .from('sync_status')
+        .update({ next_sync: nextSyncTime })
+        .eq('sync_type', syncType);
+
+    if (error) {
+        console.error('setNextSync error:', error.message);
+    }
 }
 
 // ============================================
 // PRICE HISTORY OPERATIONS
 // ============================================
 
-export function insertPriceHistoryBatch(prices) {
-    if (!canWrite()) {
-        console.warn('Skipping price history insert - not the writer');
-        return false;
+export async function insertPriceHistoryBatch(prices) {
+    if (!prices || prices.length === 0) return true;
+
+    const rows = prices.map(p => ({
+        date: p.date,
+        price_usd: p.price_usd,
+        source: p.source || 'cryptocompare'
+    }));
+
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('flux_price_history')
+            .upsert(chunk, { onConflict: 'date' });
+
+        if (error) {
+            console.error(`insertPriceHistoryBatch chunk error (offset ${i}):`, error.message);
+            return false;
+        }
     }
 
-    const stmt = db.prepare(`
-        INSERT OR REPLACE INTO flux_price_history (date, price_usd, source)
-        VALUES (?, ?, ?)
-    `);
-
-    const insertMany = db.transaction((rows) => {
-        for (const row of rows) {
-            stmt.run(row.date, row.price_usd, row.source || 'cryptocompare');
-        }
-    });
-
-    insertMany(prices);
     console.log(`Inserted/updated ${prices.length} price history rows`);
     return true;
 }
 
-export function getPriceForDate(date) {
-    const stmt = db.prepare('SELECT price_usd FROM flux_price_history WHERE date = ?');
-    const row = stmt.get(date);
-    return row ? row.price_usd : null;
+export async function getPriceForDate(date) {
+    const { data, error } = await supabase
+        .from('flux_price_history')
+        .select('price_usd')
+        .eq('date', date)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('getPriceForDate error:', error.message);
+    }
+    return data ? data.price_usd : null;
 }
 
-export function getPricesForDateRange(startDate, endDate) {
-    const stmt = db.prepare(`
-        SELECT date, price_usd FROM flux_price_history
-        WHERE date BETWEEN ? AND ?
-        ORDER BY date ASC
-    `);
-    return stmt.all(startDate, endDate);
+export async function getPricesForDateRange(startDate, endDate) {
+    const { data, error } = await supabase
+        .from('flux_price_history')
+        .select('date, price_usd')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date', { ascending: true });
+
+    if (error) {
+        console.error('getPricesForDateRange error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
-export function getLatestPriceDate() {
-    const stmt = db.prepare('SELECT MAX(date) as latest_date FROM flux_price_history');
-    const row = stmt.get();
-    return row ? row.latest_date : null;
+export async function getLatestPriceDate() {
+    const { data, error } = await supabase
+        .from('flux_price_history')
+        .select('date')
+        .order('date', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('getLatestPriceDate error:', error.message);
+    }
+    return data ? data.date : null;
 }
 
-export function getOldestPriceDate() {
-    const stmt = db.prepare('SELECT MIN(date) as oldest_date FROM flux_price_history');
-    const row = stmt.get();
-    return row ? row.oldest_date : null;
+export async function getOldestPriceDate() {
+    const { data, error } = await supabase
+        .from('flux_price_history')
+        .select('date')
+        .order('date', { ascending: true })
+        .limit(1)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        console.error('getOldestPriceDate error:', error.message);
+    }
+    return data ? data.date : null;
 }
 
-export function getTransactionsWithNullUsd(limit = 1000) {
-    const stmt = db.prepare(`
-        SELECT txid, amount, date, timestamp FROM revenue_transactions
-        WHERE amount_usd IS NULL
-        ORDER BY block_height DESC
-        LIMIT ?
-    `);
-    return stmt.all(limit);
+export async function getTransactionsWithNullUsd(limit = 1000) {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('txid, amount, date, timestamp')
+        .is('amount_usd', null)
+        .order('block_height', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('getTransactionsWithNullUsd error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
-export function updateTransactionUsdBatch(updates) {
-    if (!canWrite()) {
-        console.warn('Skipping USD batch update - not the writer');
-        return false;
+export async function updateTransactionUsdBatch(updates) {
+    if (!updates || updates.length === 0) return true;
+
+    // Batch update: Supabase doesn't support batch update by different PKs natively,
+    // so we do individual updates in chunks
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+        const chunk = updates.slice(i, i + CHUNK_SIZE);
+        const promises = chunk.map(u =>
+            supabase
+                .from('revenue_transactions')
+                .update({ amount_usd: u.amount_usd })
+                .eq('txid', u.txid)
+                .is('amount_usd', null)
+        );
+        const results = await Promise.all(promises);
+        const firstError = results.find(r => r.error);
+        if (firstError?.error) {
+            console.error('updateTransactionUsdBatch error:', firstError.error.message);
+            return false;
+        }
     }
 
-    const stmt = db.prepare(`
-        UPDATE revenue_transactions SET amount_usd = ?
-        WHERE txid = ? AND amount_usd IS NULL
-    `);
-
-    const updateMany = db.transaction((rows) => {
-        for (const row of rows) {
-            stmt.run(row.amount_usd, row.txid);
-        }
-    });
-
-    updateMany(updates);
     console.log(`Updated USD for ${updates.length} transactions`);
     return true;
 }
 
-export function getPriceHistoryCount() {
-    const stmt = db.prepare('SELECT COUNT(*) as count FROM flux_price_history');
-    return stmt.get().count;
+export async function getPriceHistoryCount() {
+    const { count, error } = await supabase
+        .from('flux_price_history')
+        .select('*', { count: 'exact', head: true });
+
+    if (error) {
+        console.error('getPriceHistoryCount error:', error.message);
+        return 0;
+    }
+    return count || 0;
 }
 
 // ============================================
-// UTILITY FUNCTIONS - UNCHANGED
+// UTILITY FUNCTIONS
 // ============================================
 
-export function getDatabaseStats() {
-    const snapshots = db.prepare('SELECT COUNT(*) as count FROM daily_snapshots').get();
-    const transactions = db.prepare('SELECT COUNT(*) as count FROM revenue_transactions').get();
-    const priceHistory = db.prepare('SELECT COUNT(*) as count FROM flux_price_history').get();
-    const repoSnapshots = db.prepare('SELECT COUNT(*) as count FROM repo_snapshots').get();
-    const distinctRepos = db.prepare('SELECT COUNT(DISTINCT image_name) as count FROM repo_snapshots').get();
-    const dbSize = fs.statSync(dbPath).size;
+export async function getDatabaseStats() {
+    const [snapshots, transactions, priceHistory, repoSnapshots, distinctRepos] = await Promise.all([
+        supabase.from('daily_snapshots').select('*', { count: 'exact', head: true }),
+        supabase.from('revenue_transactions').select('*', { count: 'exact', head: true }),
+        supabase.from('flux_price_history').select('*', { count: 'exact', head: true }),
+        supabase.from('repo_snapshots').select('*', { count: 'exact', head: true }),
+        supabase.rpc('get_distinct_repo_count').then(({ data }) => {
+            return { count: data || 0 };
+        })
+    ]);
 
     return {
-        snapshots: snapshots.count,
-        transactions: transactions.count,
-        priceHistory: priceHistory.count,
-        repoSnapshots: repoSnapshots.count,
-        distinctRepos: distinctRepos.count,
-        dbSizeKB: Math.round(dbSize / 1024),
-        dbPath,
-        isWriter: isWriter,
-        instanceId: INSTANCE_ID
+        snapshots: snapshots.count || 0,
+        transactions: transactions.count || 0,
+        priceHistory: priceHistory.count || 0,
+        repoSnapshots: repoSnapshots.count || 0,
+        distinctRepos: distinctRepos.count || 0,
+        dbSizeKB: null, // No local file - use Supabase dashboard for DB size
+        dbPath: 'supabase',
+        isWriter: true,
+        instanceId: 'supabase'
     };
 }
 
@@ -1311,205 +1028,242 @@ export function getDatabaseStats() {
 // REPO SNAPSHOTS
 // ============================================
 
-export function createRepoSnapshots(snapshotDate, repoCounts) {
-    if (!canWrite()) {
-        console.warn('Skipping repo snapshots - not the writer');
-        return 0;
+export async function createRepoSnapshots(snapshotDate, repoCounts) {
+    const now = Math.floor(Date.now() / 1000);
+    const entries = Object.entries(repoCounts);
+    if (entries.length === 0) return 0;
+
+    const rows = entries.map(([imageName, count]) => ({
+        snapshot_date: snapshotDate,
+        image_name: imageName,
+        instance_count: count,
+        category: categorizeImage(imageName),
+        created_at: now
+    }));
+
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('repo_snapshots')
+            .upsert(chunk, { onConflict: 'snapshot_date,image_name' });
+
+        if (error) {
+            console.error(`createRepoSnapshots chunk error (offset ${i}):`, error.message);
+        }
     }
 
-    const now = Math.floor(Date.now() / 1000);
-    const stmt = db.prepare(`
-        INSERT OR REPLACE INTO repo_snapshots (snapshot_date, image_name, instance_count, category, created_at)
-        VALUES (?, ?, ?, ?, ?)
-    `);
-
-    const insertMany = db.transaction((entries) => {
-        for (const [imageName, count] of entries) {
-            const category = categorizeImage(imageName);
-            stmt.run(snapshotDate, imageName, count, category, now);
-        }
-    });
-
-    const entries = Object.entries(repoCounts);
-    insertMany(entries);
     return entries.length;
 }
 
-export function getRepoSnapshotCountByDate(date) {
-    const row = db.prepare(
-        'SELECT COUNT(*) as count FROM repo_snapshots WHERE snapshot_date = ?'
-    ).get(date);
-    return row ? row.count : 0;
-}
+export async function getRepoSnapshotCountByDate(date) {
+    const { count, error } = await supabase
+        .from('repo_snapshots')
+        .select('*', { count: 'exact', head: true })
+        .eq('snapshot_date', date);
 
-export function getRepoHistory(imageName, limit = 90) {
-    // If imageName has no tag (no ':'), match all tags via LIKE prefix
-    // This merges e.g. streamr/node:latest + streamr/node:v103.2.0
-    if (!imageName.includes(':')) {
-        return db.prepare(`
-            SELECT snapshot_date, SUM(instance_count) as instance_count
-            FROM repo_snapshots
-            WHERE image_name LIKE ? || ':%' OR image_name = ?
-            GROUP BY snapshot_date
-            ORDER BY snapshot_date DESC
-            LIMIT ?
-        `).all(imageName, imageName, limit);
+    if (error) {
+        console.error('getRepoSnapshotCountByDate error:', error.message);
+        return 0;
     }
-    return db.prepare(`
-        SELECT snapshot_date, instance_count
-        FROM repo_snapshots
-        WHERE image_name = ?
-        ORDER BY snapshot_date DESC
-        LIMIT ?
-    `).all(imageName, limit);
+    return count || 0;
 }
 
-export function getDistinctRepos() {
-    const stmt = db.prepare(`
-        SELECT DISTINCT image_name FROM repo_snapshots ORDER BY image_name
-    `);
-    return stmt.all().map(row => row.image_name);
+export async function getRepoHistory(imageName, limit = 90) {
+    // If imageName has no tag (no ':'), merge all tags via RPC
+    if (!imageName.includes(':')) {
+        const { data, error } = await supabase.rpc('get_repo_history_merged', {
+            p_image: imageName,
+            lim: limit
+        });
+
+        if (error) {
+            console.error('getRepoHistory (merged) error:', error.message);
+            return [];
+        }
+        return data || [];
+    }
+
+    const { data, error } = await supabase
+        .from('repo_snapshots')
+        .select('snapshot_date, instance_count')
+        .eq('image_name', imageName)
+        .order('snapshot_date', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('getRepoHistory error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
-export function getLatestRepoSnapshot() {
-    const dateRow = db.prepare(`
-        SELECT MAX(snapshot_date) as latest_date FROM repo_snapshots
-    `).get();
+export async function getDistinctRepos() {
+    const { data, error } = await supabase.rpc('get_distinct_repos');
 
-    if (!dateRow || !dateRow.latest_date) return [];
+    if (error) {
+        console.error('getDistinctRepos error:', error.message);
+        return [];
+    }
 
-    const stmt = db.prepare(`
-        SELECT image_name, instance_count
-        FROM repo_snapshots
-        WHERE snapshot_date = ?
-        ORDER BY instance_count DESC
-    `);
-    return stmt.all(dateRow.latest_date);
+    return (data || []).map(r => r.image_name);
+}
+
+export async function getLatestRepoSnapshot() {
+    // Get the latest date
+    const { data: dateRow, error: dateError } = await supabase
+        .from('repo_snapshots')
+        .select('snapshot_date')
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (dateError || !dateRow) return [];
+
+    const { data, error } = await supabase
+        .from('repo_snapshots')
+        .select('image_name, instance_count')
+        .eq('snapshot_date', dateRow.snapshot_date)
+        .order('instance_count', { ascending: false });
+
+    if (error) {
+        console.error('getLatestRepoSnapshot error:', error.message);
+        return [];
+    }
+    return data || [];
 }
 
 // ============================================
 // CATEGORY-BASED REPO QUERIES
 // ============================================
 
-export function getTopReposByCategory(category, limit = 3) {
-    const dateRow = db.prepare(
-        `SELECT MAX(snapshot_date) as latest_date FROM repo_snapshots WHERE category = ?`
-    ).get(category);
-    if (!dateRow?.latest_date) return { date: null, repos: [] };
-
-    // Group by base image name (strip :tag) so streamr/node:latest and streamr/node:v103 merge
-    const repos = db.prepare(`
-        SELECT
-            CASE WHEN INSTR(image_name, ':') > 0
-                 THEN SUBSTR(image_name, 1, INSTR(image_name, ':') - 1)
-                 ELSE image_name
-            END as image_name,
-            SUM(instance_count) as instance_count
-        FROM repo_snapshots
-        WHERE category = ? AND snapshot_date = ?
-        GROUP BY 1
-        ORDER BY instance_count DESC
-        LIMIT ?
-    `).all(category, dateRow.latest_date, limit);
-
-    return { date: dateRow.latest_date, repos };
-}
-
-export function getCategoryTotal(category, date) {
-    const row = db.prepare(`
-        SELECT SUM(instance_count) as total
-        FROM repo_snapshots
-        WHERE category = ? AND snapshot_date = ?
-    `).get(category, date);
-    return row?.total || 0;
-}
-
-export function getCategoryHistory(category, limit = 90) {
-    return db.prepare(`
-        SELECT snapshot_date, SUM(instance_count) as total_count
-        FROM repo_snapshots
-        WHERE category = ?
-        GROUP BY snapshot_date
-        ORDER BY snapshot_date DESC
-        LIMIT ?
-    `).all(category, limit);
-}
-
-export function getReposByCategory(category) {
-    // Return deduplicated base image names (strip :tag)
-    return db.prepare(`
-        SELECT DISTINCT
-            CASE WHEN INSTR(image_name, ':') > 0
-                 THEN SUBSTR(image_name, 1, INSTR(image_name, ':') - 1)
-                 ELSE image_name
-            END as image_name
-        FROM repo_snapshots
-        WHERE category = ?
-        ORDER BY image_name
-    `).all(category);
-}
-
-export function backfillRepoCategories() {
-    if (!canWrite()) return 0;
-    const rows = db.prepare(
-        `SELECT DISTINCT image_name FROM repo_snapshots WHERE category IS NULL`
-    ).all();
-    if (rows.length === 0) return 0;
-
-    const stmt = db.prepare(
-        `UPDATE repo_snapshots SET category = ? WHERE image_name = ? AND category IS NULL`
-    );
-    const updateMany = db.transaction((rows) => {
-        let updated = 0;
-        for (const { image_name } of rows) {
-            const cat = categorizeImage(image_name);
-            if (cat) {
-                stmt.run(cat, image_name);
-                updated++;
-            }
-        }
-        return updated;
+export async function getTopReposByCategory(category, limit = 3) {
+    const { data, error } = await supabase.rpc('get_top_repos_by_category', {
+        cat: category,
+        lim: limit
     });
-    const updated = updateMany(rows);
-    console.log(`Backfilled categories for ${updated} of ${rows.length} distinct images`);
-    return rows.length;
-}
 
-export function recategorizeAllRepos() {
-    if (!canWrite()) return { resetCount: 0, categorized: {} };
-
-    // Reset all categories to NULL
-    const resetResult = db.prepare('UPDATE repo_snapshots SET category = NULL').run();
-    const resetCount = resetResult.changes;
-
-    // Re-apply categories using current keywords
-    const rows = db.prepare('SELECT DISTINCT image_name FROM repo_snapshots').all();
-    const stmt = db.prepare('UPDATE repo_snapshots SET category = ? WHERE image_name = ?');
-    const reCategorize = db.transaction(() => {
-        const counts = {};
-        for (const { image_name } of rows) {
-            const cat = categorizeImage(image_name);
-            if (cat) {
-                stmt.run(cat, image_name);
-                counts[cat] = (counts[cat] || 0) + 1;
-            }
-        }
-        return counts;
-    });
-    const categorized = reCategorize();
-    console.log(`Re-categorized ${rows.length} images:`, categorized);
-    return { resetCount: rows.length, categorized };
-}
-
-export function closeDatabase() {
-    if (db) {
-        releaseLock();
-        db.close();
-        console.log('✅ Database connection closed');
+    if (error) {
+        console.error('getTopReposByCategory error:', error.message);
+        return { date: null, repos: [] };
     }
+
+    // Get the latest date for this category
+    const { data: dateRow } = await supabase
+        .from('repo_snapshots')
+        .select('snapshot_date')
+        .eq('category', category)
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+        .single();
+
+    return {
+        date: dateRow?.snapshot_date || null,
+        repos: data || []
+    };
+}
+
+export async function getCategoryTotal(category, date) {
+    const { data, error } = await supabase
+        .from('repo_snapshots')
+        .select('instance_count')
+        .eq('category', category)
+        .eq('snapshot_date', date);
+
+    if (error) {
+        console.error('getCategoryTotal error:', error.message);
+        return 0;
+    }
+    return (data || []).reduce((sum, r) => sum + (r.instance_count || 0), 0);
+}
+
+export async function getCategoryHistory(category, limit = 90) {
+    const { data, error } = await supabase.rpc('get_category_history', {
+        cat: category,
+        lim: limit
+    });
+
+    if (error) {
+        console.error('getCategoryHistory error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function getReposByCategory(category) {
+    const { data, error } = await supabase.rpc('get_repos_by_category', {
+        cat: category
+    });
+
+    if (error) {
+        console.error('getReposByCategory error:', error.message);
+        return [];
+    }
+    return data || [];
+}
+
+export async function backfillRepoCategories() {
+    const { data: rows, error } = await supabase
+        .from('repo_snapshots')
+        .select('image_name')
+        .is('category', null);
+
+    if (error || !rows || rows.length === 0) return 0;
+
+    // Deduplicate
+    const uniqueImages = [...new Set(rows.map(r => r.image_name))];
+    let updated = 0;
+
+    for (const imageName of uniqueImages) {
+        const cat = categorizeImage(imageName);
+        if (cat) {
+            await supabase
+                .from('repo_snapshots')
+                .update({ category: cat })
+                .eq('image_name', imageName)
+                .is('category', null);
+            updated++;
+        }
+    }
+
+    console.log(`Backfilled categories for ${updated} of ${uniqueImages.length} distinct images`);
+    return uniqueImages.length;
+}
+
+export async function recategorizeAllRepos() {
+    // Reset all categories to NULL
+    await supabase
+        .from('repo_snapshots')
+        .update({ category: null })
+        .neq('id', 0); // update all
+
+    // Get all distinct images
+    const { data: rows } = await supabase
+        .from('repo_snapshots')
+        .select('image_name');
+
+    const uniqueImages = [...new Set((rows || []).map(r => r.image_name))];
+    const counts = {};
+
+    for (const imageName of uniqueImages) {
+        const cat = categorizeImage(imageName);
+        if (cat) {
+            await supabase
+                .from('repo_snapshots')
+                .update({ category: cat })
+                .eq('image_name', imageName);
+            counts[cat] = (counts[cat] || 0) + 1;
+        }
+    }
+
+    console.log(`Re-categorized ${uniqueImages.length} images:`, counts);
+    return { resetCount: uniqueImages.length, categorized: counts };
+}
+
+export async function closeDatabase() {
+    // No-op for Supabase - connection is managed by the client
+    console.log('✅ Supabase client does not require explicit close');
 }
 
 // Initialize database on module load
-initDatabase();
-
-export default db;
+await initDatabase();

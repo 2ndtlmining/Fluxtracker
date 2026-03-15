@@ -24,7 +24,7 @@ export async function fetchCryptoStats() {
             if (response.data && response.data.status === 'error' && response.data.data) {
                 const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
                 console.error(errorMessage);
-                updateSyncStatus('crypto', 'failed', errorMessage);
+                await updateSyncStatus('crypto', 'failed', errorMessage);
                 return; // Exit the function early
             }
 
@@ -68,8 +68,8 @@ export async function fetchCryptoStats() {
                 };
 
                 // Update database
-                updateCurrentMetrics(cryptoData);
-                updateSyncStatus('crypto', 'completed');
+                await updateCurrentMetrics(cryptoData);
+                await updateSyncStatus('crypto', 'completed');
 
                 console.log('✅ Crypto stats updated:', cryptoData);
 
@@ -90,7 +90,7 @@ export async function fetchCryptoStats() {
             console.error(`❌ Attempt ${retries}/${MAX_RETRIES} Error fetching crypto stats:`, error.message);
 
             if (retries >= MAX_RETRIES) {
-                updateSyncStatus('crypto', 'failed', error.message);
+                await updateSyncStatus('crypto', 'failed', error.message);
                 throw new Error(error.message);
             }
 

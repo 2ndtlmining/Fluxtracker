@@ -8,7 +8,7 @@ import { getRevenueForDateRange, createDailySnapshot, getSnapshotByDate, getCurr
  * Creates one snapshot per day using the SUM of transactions for that day
  * Uses zeros for all other metrics to avoid confusion with historical data
  */
-export function backfillRevenueSnapshots(fromDate, toDate) {
+export async function backfillRevenueSnapshots(fromDate, toDate) {
     console.log(`\n📊 Backfilling revenue snapshots from ${fromDate} to ${toDate}`);
     
     let created = 0;
@@ -22,15 +22,15 @@ export function backfillRevenueSnapshots(fromDate, toDate) {
         const dateStr = d.toISOString().split('T')[0];
         
         // Check if snapshot already exists
-        const existing = getSnapshotByDate(dateStr);
+        const existing = await getSnapshotByDate(dateStr);
         if (existing) {
             skipped++;
             continue;
         }
-        
+
         // Get revenue for this specific day
-        const dailyRevenue = getRevenueForDateRange(dateStr, dateStr);
-        
+        const dailyRevenue = await getRevenueForDateRange(dateStr, dateStr);
+
         // Create snapshot with ONLY revenue data - all other metrics set to 0
         // This avoids confusion by not pretending we have historical metrics
         const snapshot = {
@@ -76,10 +76,10 @@ export function backfillRevenueSnapshots(fromDate, toDate) {
             created_at: Date.now()
         };
         
-        createDailySnapshot(snapshot);
+        await createDailySnapshot(snapshot);
         created++;
     }
-    
+
     return { created, skipped };
 }
 
@@ -87,21 +87,21 @@ export function backfillRevenueSnapshots(fromDate, toDate) {
  * Take a manual snapshot using current metrics and today's revenue
  * This is different from backfill - it uses REAL current data
  */
-export function takeManualSnapshot() {
+export async function takeManualSnapshot() {
     const today = new Date().toISOString().split('T')[0];
-    
+
     // Check if today's snapshot already exists
-    const existing = getSnapshotByDate(today);
+    const existing = await getSnapshotByDate(today);
     if (existing) {
         console.log(`⚠️  Snapshot for ${today} already exists`);
         return existing;
     }
-    
+
     // Get today's revenue
-    const dailyRevenue = getRevenueForDateRange(today, today);
-    
+    const dailyRevenue = await getRevenueForDateRange(today, today);
+
     // Get current metrics for today's snapshot
-    const current = getCurrentMetrics();
+    const current = await getCurrentMetrics();
     
     const snapshot = {
         snapshot_date: today,
@@ -142,7 +142,7 @@ export function takeManualSnapshot() {
         created_at: Date.now()
     };
     
-    createDailySnapshot(snapshot);
+    await createDailySnapshot(snapshot);
     console.log(`✅ Created snapshot for ${today}`);
     return snapshot;
 }
@@ -150,14 +150,14 @@ export function takeManualSnapshot() {
 /**
  * Get analytics comparison for a given period
  */
-export function getAnalyticsComparison(days) {
+export async function getAnalyticsComparison(days) {
     const today = new Date().toISOString().split('T')[0];
     const compareDate = new Date();
     compareDate.setDate(compareDate.getDate() - days);
     const compareDateStr = compareDate.toISOString().split('T')[0];
-    
-    const todaySnapshot = getSnapshotByDate(today);
-    const compareSnapshot = getSnapshotByDate(compareDateStr);
+
+    const todaySnapshot = await getSnapshotByDate(today);
+    const compareSnapshot = await getSnapshotByDate(compareDateStr);
     
     if (!todaySnapshot || !compareSnapshot) {
         return null;
@@ -215,7 +215,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             console.log(`Creating snapshots from ${fromDateStr} to ${toDateStr}...\n`);
             console.log('Note: Historical snapshots will have 0 for all metrics except revenue\n');
             
-            const result = backfillRevenueSnapshots(fromDateStr, toDateStr);
+            const result = await backfillRevenueSnapshots(fromDateStr, toDateStr);
             
             console.log(`\n✅ Backfill Complete!`);
             console.log(`   • Created: ${result.created} new snapshots`);
@@ -227,7 +227,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log('Note: Today\'s snapshot will use actual current metrics\n');
             
-            const todaySnapshot = takeManualSnapshot();
+            const todaySnapshot = await takeManualSnapshot();
             
             console.log(`\n✅ Today's Snapshot Created!`);
             console.log(`   • Date: ${todaySnapshot.snapshot_date}`);
@@ -248,7 +248,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             ];
             
             for (const period of periods) {
-                const comparison = getAnalyticsComparison(period.days);
+                const comparison = await getAnalyticsComparison(period.days);
                 
                 if (comparison && comparison.changes.revenue) {
                     const rev = comparison.changes.revenue;

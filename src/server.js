@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+dotenv.config(); // fallback to .env
 import express from 'express';
 import cors from 'cors';
 import {
@@ -42,7 +45,7 @@ import {
 } from './lib/db/snapshotManager.js';
 
 // Import the revenue scheduler (wraps your existing revenueService.js)
-import { 
+import {
     startRevenueSync,
     getRevenueSyncSchedulerStatus
 } from './lib/services/revenueScheduler.js';
@@ -72,7 +75,6 @@ import { testAllServices } from './lib/services/test-allServices.js';
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
 
-import { json } from '@sveltejs/kit';
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 
 const app = express();
@@ -129,10 +131,10 @@ app.use((req, res, next) => {
     if (!LOGGING_CONFIG.enableRequestLogging) {
         return next();
     }
-    
+
     // Skip logging based on configuration
     const path = req.path.toLowerCase();
-    
+
     if (LOGGING_CONFIG.logErrorsOnly) {
         // Only log on response if there's an error
         const originalSend = res.send;
@@ -144,26 +146,26 @@ app.use((req, res, next) => {
         };
         return next();
     }
-    
+
     // Skip specific endpoints based on config
     if (!LOGGING_CONFIG.logHealthChecks && path.includes('/health')) return next();
     if (!LOGGING_CONFIG.logStatsEndpoints && path.includes('/stats')) return next();
     if (!LOGGING_CONFIG.logMetricsEndpoints && path.includes('/metrics')) return next();
     if (!LOGGING_CONFIG.logComparisonEndpoints && path.includes('/comparison')) return next();
-    
+
     // Log the request
     console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
     next();
 });
 
 // Health check (enhanced with snapshot system status)
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
     try {
-        const snapshotStatus = getSnapshotSystemStatus();
-        
-        res.json({ 
-            status: 'ok', 
-            timestamp: Date.now(), 
+        const snapshotStatus = await getSnapshotSystemStatus();
+
+        res.json({
+            status: 'ok',
+            timestamp: Date.now(),
             uptime: process.uptime(),
             snapshot: {
                 healthy: snapshotStatus.isHealthy,
@@ -174,9 +176,9 @@ app.get('/api/health', (req, res) => {
             }
         });
     } catch (error) {
-        res.json({ 
-            status: 'ok', 
-            timestamp: Date.now(), 
+        res.json({
+            status: 'ok',
+            timestamp: Date.now(),
             uptime: process.uptime(),
             snapshot: {
                 error: 'Unable to get snapshot status'
@@ -186,9 +188,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // NEW: Snapshot system status endpoint
-app.get('/api/admin/snapshot-status', (req, res) => {
+app.get('/api/admin/snapshot-status', async (req, res) => {
     try {
-        const status = getSnapshotSystemStatus();
+        const status = await getSnapshotSystemStatus();
         res.json(status);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -199,31 +201,31 @@ app.get('/api/admin/snapshot-status', (req, res) => {
 app.post('/api/admin/revenue-sync', async (req, res) => {
     try {
         console.log('🔧 Manual revenue sync triggered via API');
-        
+
         // Trigger the revenue sync
         await fetchRevenueStats();
-        
+
         // Get transaction count after sync
-        const txCount = getTxidCount();
-        
-        res.json({ 
+        const txCount = await getTxidCount();
+
+        res.json({
             success: true,
             message: 'Revenue sync completed',
             transactionCount: txCount
         });
     } catch (error) {
         console.error('❌ Manual revenue sync failed:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            error: error.message 
+            error: error.message
         });
     }
 });
 
 // Clear all revenue data and reset sync — triggers a full resync on next cycle
-app.post('/api/admin/clear-revenue-data', (req, res) => {
+app.post('/api/admin/clear-revenue-data', async (req, res) => {
     try {
-        const deleted = clearRevenueData();
+        const deleted = await clearRevenueData();
         console.log(`🗑️  Cleared ${deleted} revenue transactions — full resync will run on next cycle`);
         res.json({ success: true, deleted, message: `Cleared ${deleted} transactions. Resync will start on next cycle.` });
     } catch (error) {
@@ -232,10 +234,10 @@ app.post('/api/admin/clear-revenue-data', (req, res) => {
 });
 
 // Reset revenue sync block to trigger full history re-scan from genesis on next sync
-app.post('/api/admin/reset-revenue-sync', (req, res) => {
+app.post('/api/admin/reset-revenue-sync', async (req, res) => {
     try {
-        resetRevenueSyncBlock();
-        const verified = getSyncStatus('revenue');
+        await resetRevenueSyncBlock();
+        const verified = await getSyncStatus('revenue');
         const didReset = verified?.last_sync_block === null;
         console.log(`🔄 Revenue sync block reset — last_sync_block is now ${verified?.last_sync_block}`);
         res.json({
@@ -304,8 +306,8 @@ app.get('/api/admin/revenue-status', async (req, res) => {
     try {
         const schedulerStatus = getRevenueSyncSchedulerStatus();
         const syncState = getRevenueSyncState();
-        const txCount = getTxidCount();
-        const syncStatus = getSyncStatus('revenue');
+        const txCount = await getTxidCount();
+        const syncStatus = await getSyncStatus('revenue');
 
         // Fetch current block height (cached internally, fast)
         let currentBlock = null;
@@ -334,29 +336,29 @@ app.get('/api/admin/revenue-status', async (req, res) => {
 app.get('/api/revenue/:period', async (req, res) => {
     try {
         const period = req.params.period.toLowerCase();
-        const currentMetrics = getCurrentMetrics();
+        const currentMetrics = await getCurrentMetrics();
         const fluxPrice = currentMetrics?.flux_price_usd || 0;
-        
+
         let currentRevenue, currentPayments, previousRevenue, previousPayments;
         let currentStart, currentEnd, previousStart, previousEnd;
-        
+
         const now = new Date();
-        
+
         switch(period) {
             case 'daily':
                 // Today
                 currentStart = currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = getPaymentCountForDateRange(currentStart, currentEnd);
-                
+                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
+                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
+
                 // Yesterday
                 const yesterday = new Date(now);
                 yesterday.setDate(yesterday.getDate() - 1);
                 previousStart = previousEnd = yesterday.toISOString().split('T')[0];
-                previousRevenue = getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = getPaymentCountForDateRange(previousStart, previousEnd);
+                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
+                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
                 break;
-                
+
             case 'weekly':
                 // This week (Monday to Sunday)
                 const currentWeekStart = new Date(now);
@@ -365,9 +367,9 @@ app.get('/api/revenue/:period', async (req, res) => {
                 currentWeekStart.setDate(currentWeekStart.getDate() - daysToMonday);
                 currentStart = currentWeekStart.toISOString().split('T')[0];
                 currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = getPaymentCountForDateRange(currentStart, currentEnd);
-                
+                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
+                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
+
                 // Last week (Monday to Sunday)
                 const lastWeekStart = new Date(currentWeekStart);
                 lastWeekStart.setDate(lastWeekStart.getDate() - 7);
@@ -375,36 +377,36 @@ app.get('/api/revenue/:period', async (req, res) => {
                 const lastWeekEnd = new Date(lastWeekStart);
                 lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
                 previousEnd = lastWeekEnd.toISOString().split('T')[0];
-                previousRevenue = getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = getPaymentCountForDateRange(previousStart, previousEnd);
+                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
+                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
                 break;
-                
+
             case 'monthly':
                 // This month
                 const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
                 currentStart = firstDayOfMonth.toISOString().split('T')[0];
                 currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = getPaymentCountForDateRange(currentStart, currentEnd);
-                
+                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
+                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
+
                 // Last month
                 const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
                 previousStart = firstDayOfLastMonth.toISOString().split('T')[0];
                 const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
                 previousEnd = lastDayOfLastMonth.toISOString().split('T')[0];
-                previousRevenue = getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = getPaymentCountForDateRange(previousStart, previousEnd);
+                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
+                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
                 break;
-                
+
             case 'quarterly':
                 // This quarter
                 const currentQuarter = Math.floor(now.getMonth() / 3);
                 const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
                 currentStart = quarterStart.toISOString().split('T')[0];
                 currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = getPaymentCountForDateRange(currentStart, currentEnd);
-                
+                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
+                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
+
                 // Last quarter
                 const lastQuarterStart = new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1);
                 if (currentQuarter === 0) {
@@ -415,42 +417,42 @@ app.get('/api/revenue/:period', async (req, res) => {
                 previousStart = lastQuarterStart.toISOString().split('T')[0];
                 const lastQuarterEnd = new Date(lastQuarterStart.getFullYear(), lastQuarterStart.getMonth() + 3, 0);
                 previousEnd = lastQuarterEnd.toISOString().split('T')[0];
-                previousRevenue = getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = getPaymentCountForDateRange(previousStart, previousEnd);
+                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
+                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
                 break;
-                
+
             case 'yearly':
                 // This year
                 const yearStart = new Date(now.getFullYear(), 0, 1);
                 currentStart = yearStart.toISOString().split('T')[0];
                 currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = getPaymentCountForDateRange(currentStart, currentEnd);
-                
+                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
+                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
+
                 // Last year
                 const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
                 previousStart = lastYearStart.toISOString().split('T')[0];
                 const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31);
                 previousEnd = lastYearEnd.toISOString().split('T')[0];
-                previousRevenue = getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = getPaymentCountForDateRange(previousStart, previousEnd);
+                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
+                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
                 break;
-                
+
             default:
                 return res.status(400).json({ error: 'Invalid period. Use: daily, weekly, monthly, quarterly, or yearly' });
         }
-        
+
         // Calculate change percentage
         let changePercent = 0;
         let trend = 'neutral';
-        
+
         if (previousRevenue > 0) {
             changePercent = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
             trend = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'neutral';
         }
-        
+
         const currentUsd = currentRevenue * fluxPrice;
-        
+
         res.json({
             period: period,
             current: {
@@ -486,12 +488,12 @@ app.get('/api/revenue/:period', async (req, res) => {
             },
             timestamp: Date.now()
         });
-        
+
     } catch (error) {
         console.error(`❌ Error in revenue/${req.params.period} endpoint:`, error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Failed to fetch revenue',
-            details: error.message 
+            details: error.message
         });
     }
 });
@@ -501,10 +503,10 @@ app.get('/api/revenue/:period', async (req, res) => {
 app.post('/api/admin/test-services', async (req, res) => {
     try {
         console.log('🔧 Manual test services triggered via API');
-        
+
         // Check if tests are already running
         const status = getServiceTestSchedulerStatus();
-        
+
         if (status.isTestInProgress) {
             console.log('⚠️  Tests already in progress, skipping...');
             return res.json({
@@ -514,7 +516,7 @@ app.post('/api/admin/test-services', async (req, res) => {
                 status
             });
         }
-        
+
         // Trigger the test services, revenue sync, and carousel update in parallel
         await Promise.all([
             testAllServices(),
@@ -551,23 +553,23 @@ app.get('/api/admin/test-status', (req, res) => {
 app.post('/api/admin/backfill', async (req, res) => {
     try {
         console.log('🔄 Backfill triggered via API');
-        
+
         // Calculate dynamic date range
         const toDate = new Date();
         toDate.setDate(toDate.getDate() - 1); // Yesterday
         const toDateStr = toDate.toISOString().split('T')[0];
-        
+
         const fromDate = new Date();
         fromDate.setDate(fromDate.getDate() - 365); // 365 days ago
         const fromDateStr = fromDate.toISOString().split('T')[0];
-        
+
         console.log(`📊 Backfilling from ${fromDateStr} to ${toDateStr}`);
-        
+
         // Run the backfill
-        const result = backfillRevenueSnapshots(fromDateStr, toDateStr);
-        
+        const result = await backfillRevenueSnapshots(fromDateStr, toDateStr);
+
         console.log(`✅ Backfill complete: Created ${result.created}, Skipped ${result.skipped}`);
-        
+
         res.json({
             success: true,
             message: 'Backfill completed successfully',
@@ -588,14 +590,14 @@ app.post('/api/admin/backfill', async (req, res) => {
 });
 
 // Database stats
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
     try {
-        const stats = getDatabaseStats();
-        
+        const stats = await getDatabaseStats();
+
         // Get the last snapshot date
-        const lastSnapshot = getLastNSnapshots(1);
+        const lastSnapshot = await getLastNSnapshots(1);
         const lastSnapshotDate = lastSnapshot.length > 0 ? lastSnapshot[0].snapshot_date : null;
-        
+
         res.json({
             ...stats,
             lastSnapshotDate
@@ -606,16 +608,16 @@ app.get('/api/stats', (req, res) => {
 });
 
 // Current metrics
-app.get('/api/metrics/current', (req, res) => {
+app.get('/api/metrics/current', async (req, res) => {
     try {
         console.log('Fetching current metrics');
-        const metrics = getCurrentMetrics();
+        const metrics = await getCurrentMetrics();
         if (!metrics) return res.status(404).json({ error: 'No metrics found' });
-        
+
         // Get today's date for payment count
         const today = new Date().toISOString().split('T')[0];
-        const paymentCount = getPaymentCountForDateRange(today, today);
-        
+        const paymentCount = await getPaymentCountForDateRange(today, today);
+
         res.json({
             lastUpdate: metrics.last_update,
             revenue: {
@@ -629,8 +631,8 @@ app.get('/api/metrics/current', (req, res) => {
                 ram: { total: metrics.total_ram_gb, used: metrics.used_ram_gb, utilization: metrics.ram_utilization_percent },
                 storage: { total: metrics.total_storage_gb, used: metrics.used_storage_gb, utilization: metrics.storage_utilization_percent }
             },
-            apps: { 
-                total: metrics.total_apps, 
+            apps: {
+                total: metrics.total_apps,
                 watchtower: metrics.watchtower_count,
                 gitapps: metrics.gitapps_count || 0,
                 dockerapps: metrics.dockerapps_count || 0,
@@ -647,39 +649,16 @@ app.get('/api/metrics/current', (req, res) => {
     }
 });
 
-// DISABLED: This old endpoint is replaced by the more complete one below
-/*
-
-app.get('/api/analytics/comparison/:days', async (req, res) => {
-    try {
-        const days = parseInt(req.params.days) || 1;
-        const { getAnalyticsComparison } = await import('./lib/db/snapshot.js');
-        const comparison = getAnalyticsComparison(days);
-        
-        if (!comparison) {
-            return res.status(404).json({ 
-                error: 'No comparison data available'
-            });
-        }
-        
-        res.json(comparison);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-*/
-
 // Enhanced endpoint with full snapshot data for charts
-app.get('/api/history/snapshots/full', (req, res) => {
+app.get('/api/history/snapshots/full', async (req, res) => {
     try {
         const { limit, start_date, end_date } = req.query;
-        
+
         // Get snapshots using existing function
-        const snapshots = (start_date && end_date) 
-            ? getSnapshotsInRange(start_date, end_date)
-            : getLastNSnapshots(parseInt(limit) || 30);
-        
+        const snapshots = (start_date && end_date)
+            ? await getSnapshotsInRange(start_date, end_date)
+            : await getLastNSnapshots(parseInt(limit) || 30);
+
         // Return FULL snapshot data (not summarized)
         res.json({
             count: snapshots.length,
@@ -691,16 +670,16 @@ app.get('/api/history/snapshots/full', (req, res) => {
 });
 
 // NEW: Endpoint to get daily revenue from transactions (not snapshots)
-app.get('/api/history/revenue/daily', (req, res) => {
+app.get('/api/history/revenue/daily', async (req, res) => {
     try {
         console.log('Fetching daily revenue from transactions');
         const { limit, start_date, end_date } = req.query;
-        
+
         // Get daily revenue aggregated from transactions
         const revenueData = (start_date && end_date)
-            ? getDailyRevenueInRange(start_date, end_date)
-            : getDailyRevenueFromTransactions(parseInt(limit) || 30);
-        
+            ? await getDailyRevenueInRange(start_date, end_date)
+            : await getDailyRevenueFromTransactions(parseInt(limit) || 30);
+
         res.json({
             count: revenueData.length,
             data: revenueData
@@ -711,16 +690,16 @@ app.get('/api/history/revenue/daily', (req, res) => {
 });
 
 // Endpoint to get daily revenue in USD from transactions
-app.get('/api/history/revenue/daily-usd', (req, res) => {
+app.get('/api/history/revenue/daily-usd', async (req, res) => {
     try {
         console.log('Fetching daily USD revenue from transactions');
         const { limit, start_date, end_date } = req.query;
-        
+
         // Get daily USD revenue aggregated from transactions
         const revenueData = (start_date && end_date)
-            ? getDailyRevenueUSDInRange(start_date, end_date)
-            : getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
-        
+            ? await getDailyRevenueUSDInRange(start_date, end_date)
+            : await getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
+
         res.json({
             count: revenueData.length,
             data: revenueData
@@ -731,23 +710,23 @@ app.get('/api/history/revenue/daily-usd', (req, res) => {
 });
 
 // Historical snapshots
-app.get('/api/history/snapshots', (req, res) => {
+app.get('/api/history/snapshots', async (req, res) => {
     try {
         console.log('Fetching snapshots');
         const { limit, start_date, end_date } = req.query;
-        const snapshots = (start_date && end_date) 
-            ? getSnapshotsInRange(start_date, end_date)
-            : getLastNSnapshots(parseInt(limit) || 30);
-        
+        const snapshots = (start_date && end_date)
+            ? await getSnapshotsInRange(start_date, end_date)
+            : await getLastNSnapshots(parseInt(limit) || 30);
+
         res.json({
             count: snapshots.length,
             data: snapshots.map(s => ({
                 date: s.snapshot_date,
                 revenue: s.daily_revenue,
                 nodes: { total: s.node_total, cumulus: s.node_cumulus, nimbus: s.node_nimbus },
-                apps: { 
-                    total: s.total_apps, 
-                    gaming: s.gaming_apps_total, 
+                apps: {
+                    total: s.total_apps,
+                    gaming: s.gaming_apps_total,
                     crypto: s.crypto_nodes_total,
                     gitapps: s.gitapps_count || 0,
                     dockerapps: s.dockerapps_count || 0
@@ -760,31 +739,31 @@ app.get('/api/history/snapshots', (req, res) => {
 });
 
 // Docker repo history endpoints
-app.get('/api/history/repos/list', (req, res) => {
+app.get('/api/history/repos/list', async (req, res) => {
     try {
-        const repos = getDistinctRepos();
+        const repos = await getDistinctRepos();
         res.json({ count: repos.length, data: repos });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/history/repos/history', (req, res) => {
+app.get('/api/history/repos/history', async (req, res) => {
     try {
         const { image, limit } = req.query;
         if (!image) {
             return res.status(400).json({ error: 'image query parameter is required' });
         }
-        const history = getRepoHistory(image, parseInt(limit) || 90);
+        const history = await getRepoHistory(image, parseInt(limit) || 90);
         res.json({ count: history.length, data: history });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-app.get('/api/history/repos/latest', (req, res) => {
+app.get('/api/history/repos/latest', async (req, res) => {
     try {
-        const repos = getLatestRepoSnapshot();
+        const repos = await getLatestRepoSnapshot();
         res.json({ count: repos.length, data: repos });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -796,7 +775,7 @@ app.get('/api/history/repos/latest', (req, res) => {
 // ============================================
 
 // Top repos for a category (used by CategoryCard)
-app.get('/api/metrics/category/:category/top', (req, res) => {
+app.get('/api/metrics/category/:category/top', async (req, res) => {
     try {
         const { category } = req.params;
         const limit = parseInt(req.query.limit) || 3;
@@ -805,33 +784,30 @@ app.get('/api/metrics/category/:category/top', (req, res) => {
             return res.status(400).json({ error: `Unknown category: ${category}` });
         }
 
-        const { date, repos } = getTopReposByCategory(category, limit);
+        const { date, repos } = await getTopReposByCategory(category, limit);
         if (!date) {
             return res.json({ category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [] });
         }
 
-        const total = getCategoryTotal(category, date);
+        const total = await getCategoryTotal(category, date);
 
         // Get comparison data from 7 days ago
         const prevDate = new Date(date);
         prevDate.setDate(prevDate.getDate() - 7);
         const prevDateStr = prevDate.toISOString().split('T')[0];
-        const previousTotal = getCategoryTotal(category, prevDateStr);
+        const previousTotal = await getCategoryTotal(category, prevDateStr);
 
         // Get previous counts for the same repos
-        const previousRepos = repos.map(r => {
-            const prev = getTopReposByCategory(category, 999);
-            const prevRepo = prev.repos.find(pr => pr.image_name === r.image_name);
-            // Look up this specific repo on the previous date
-            const prevRow = (() => {
-                try {
-                    const history = getRepoHistory(r.image_name, 90);
-                    const match = history.find(h => h.snapshot_date === prevDateStr);
-                    return match ? match.instance_count : 0;
-                } catch { return 0; }
-            })();
-            return { image_name: r.image_name, instance_count: prevRow };
-        });
+        const previousRepos = [];
+        for (const r of repos) {
+            let prevRow = 0;
+            try {
+                const history = await getRepoHistory(r.image_name, 90);
+                const match = history.find(h => h.snapshot_date === prevDateStr);
+                prevRow = match ? match.instance_count : 0;
+            } catch { prevRow = 0; }
+            previousRepos.push({ image_name: r.image_name, instance_count: prevRow });
+        }
 
         res.json({
             category,
@@ -851,7 +827,7 @@ app.get('/api/metrics/category/:category/top', (req, res) => {
 });
 
 // Category history (aggregated daily totals, used by charts)
-app.get('/api/history/category/:category', (req, res) => {
+app.get('/api/history/category/:category', async (req, res) => {
     try {
         const { category } = req.params;
         const limit = parseInt(req.query.limit) || 90;
@@ -860,7 +836,7 @@ app.get('/api/history/category/:category', (req, res) => {
             return res.status(400).json({ error: `Unknown category: ${category}` });
         }
 
-        const history = getCategoryHistory(category, limit);
+        const history = await getCategoryHistory(category, limit);
         res.json({ count: history.length, data: history });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -868,14 +844,14 @@ app.get('/api/history/category/:category', (req, res) => {
 });
 
 // List repos in a category (for chart dropdown)
-app.get('/api/history/category/:category/repos', (req, res) => {
+app.get('/api/history/category/:category/repos', async (req, res) => {
     try {
         const { category } = req.params;
         if (!CATEGORY_CONFIG[category]) {
             return res.status(400).json({ error: `Unknown category: ${category}` });
         }
 
-        const repos = getReposByCategory(category);
+        const repos = await getReposByCategory(category);
         res.json({ count: repos.length, data: repos.map(r => ({
             image_name: r.image_name,
             displayName: getDisplayName(r.image_name)
@@ -886,9 +862,9 @@ app.get('/api/history/category/:category/repos', (req, res) => {
 });
 
 // Admin: backfill repo categories (only NULL rows)
-app.post('/api/admin/backfill-repo-categories', (req, res) => {
+app.post('/api/admin/backfill-repo-categories', async (req, res) => {
     try {
-        const count = backfillRepoCategories();
+        const count = await backfillRepoCategories();
         res.json({ success: true, message: `Processed ${count} distinct images` });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -896,9 +872,9 @@ app.post('/api/admin/backfill-repo-categories', (req, res) => {
 });
 
 // Admin: full re-categorize (reset ALL categories then re-apply keywords)
-app.post('/api/admin/recategorize-repos', (req, res) => {
+app.post('/api/admin/recategorize-repos', async (req, res) => {
     try {
-        const { resetCount, categorized } = recategorizeAllRepos();
+        const { resetCount, categorized } = await recategorizeAllRepos();
         res.json({
             success: true,
             message: `Reset ${resetCount} images, categorized ${Object.values(categorized).reduce((a,b) => a+b, 0)}`,
@@ -911,19 +887,19 @@ app.post('/api/admin/recategorize-repos', (req, res) => {
 
 // IMPORTANT: Specific routes MUST come BEFORE parameterized routes
 // Transaction summary - MUST be before /api/transactions/:date
-app.get('/api/transactions/summary', (req, res) => {
+app.get('/api/transactions/summary', async (req, res) => {
     try {
         console.log('Fetching Transaction summary');
         const today = new Date().toISOString().split('T')[0];
         const sevenDays = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
         const thirtyDays = new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
-        
+
         res.json({
-            totalTransactions: getTxidCount(),
+            totalTransactions: await getTxidCount(),
             revenue: {
-                today: getRevenueForDateRange(today, today),
-                last7Days: getRevenueForDateRange(sevenDays, today),
-                last30Days: getRevenueForDateRange(thirtyDays, today)
+                today: await getRevenueForDateRange(today, today),
+                last7Days: await getRevenueForDateRange(sevenDays, today),
+                last30Days: await getRevenueForDateRange(thirtyDays, today)
             }
         });
     } catch (error) {
@@ -932,15 +908,15 @@ app.get('/api/transactions/summary', (req, res) => {
 });
 
 // Paginated transactions with search - MUST be before /api/transactions/:date
-app.get('/api/transactions/paginated', (req, res) => {
+app.get('/api/transactions/paginated', async (req, res) => {
     try {
         console.log('Starting transaction pagination');
         const page = Math.max(parseInt(req.query.page) || 1, 1);
-        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 100000);
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
         const search = req.query.search || '';
         const appName = req.query.appName || null;
 
-        const result = getTransactionsPaginated(page, limit, search, appName);
+        const result = await getTransactionsPaginated(page, limit, search, appName);
 
         res.json({
             transactions: result.transactions,
@@ -955,13 +931,13 @@ app.get('/api/transactions/paginated', (req, res) => {
 });
 
 // App Revenue Analytics - grouped by app_name
-app.get('/api/analytics/apps', (req, res) => {
+app.get('/api/analytics/apps', async (req, res) => {
     try {
         const page = Math.max(parseInt(req.query.page) || 1, 1);
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
         const search = req.query.search || '';
 
-        const result = getAppAnalytics(page, limit, search);
+        const result = await getAppAnalytics(page, limit, search);
 
         res.json({
             apps: result.apps,
@@ -976,11 +952,11 @@ app.get('/api/analytics/apps', (req, res) => {
 });
 
 // Transactions by date - MUST come AFTER specific routes
-app.get('/api/transactions/:date', (req, res) => {
+app.get('/api/transactions/:date', async (req, res) => {
     try {
         console.log('Fetching transactions by date');
-        const transactions = getTransactionsByDate(req.params.date);
-        
+        const transactions = await getTransactionsByDate(req.params.date);
+
         res.json({
             date: req.params.date,
             count: transactions.length,
@@ -998,21 +974,21 @@ app.get('/api/transactions/:date', (req, res) => {
 });
 
 // Gaming category
-app.get('/api/categories/gaming', (req, res) => {
+app.get('/api/categories/gaming', async (req, res) => {
     try {
         console.log('Fetching gaming category');
-        const current = getCurrentMetrics();
-        const snapshots = getLastNSnapshots(parseInt(req.query.days) || 30);
-        
+        const current = await getCurrentMetrics();
+        const snapshots = await getLastNSnapshots(parseInt(req.query.days) || 30);
+
         res.json({
             current: {
                 total: current.gaming_apps_total,
                 palworld: current.gaming_palworld,
                 minecraft: current.gaming_minecraft
             },
-            history: snapshots.reverse().map(s => ({ 
-                date: s.snapshot_date, 
-                total: s.gaming_apps_total 
+            history: snapshots.reverse().map(s => ({
+                date: s.snapshot_date,
+                total: s.gaming_apps_total
             }))
         });
     } catch (error) {
@@ -1021,10 +997,10 @@ app.get('/api/categories/gaming', (req, res) => {
 });
 
 // Crypto category
-app.get('/api/categories/crypto', (req, res) => {
+app.get('/api/categories/crypto', async (req, res) => {
     try {
         console.log('Fetching Crypto category');
-        const current = getCurrentMetrics();
+        const current = await getCurrentMetrics();
         res.json({
             current: {
                 total: current.crypto_nodes_total,
@@ -1038,11 +1014,11 @@ app.get('/api/categories/crypto', (req, res) => {
     }
 });
 
-// Nodes category  
-app.get('/api/categories/nodes', (req, res) => {
+// Nodes category
+app.get('/api/categories/nodes', async (req, res) => {
     try {
         console.log('Fetching Node category');
-        const current = getCurrentMetrics();
+        const current = await getCurrentMetrics();
         res.json({
             current: {
                 total: current.node_total,
@@ -1061,63 +1037,63 @@ app.get('/api/categories/nodes', (req, res) => {
 // This version TRANSFORMS getCurrentMetrics() to match the structure your frontend expects
 // Replace the endpoint starting at line ~547 in server.js with this code
 
-app.get('/api/analytics/comparison/:days', (req, res) => {
+app.get('/api/analytics/comparison/:days', async (req, res) => {
     try {
         const days = parseInt(req.params.days);
-        
+
         if (isNaN(days) || days < 1) {
             return res.status(400).json({ error: 'Invalid days parameter' });
         }
-        
-        const rawCurrent = getCurrentMetrics();
+
+        const rawCurrent = await getCurrentMetrics();
         if (!rawCurrent) {
             return res.status(404).json({ error: 'No current metrics found' });
         }
-        
+
         // CRITICAL: Transform raw database columns into nested structure
         // This matches what the OLD endpoint returned from snapshot.js
         const current = {
-            nodes: { 
-                total: rawCurrent.node_total, 
-                cumulus: rawCurrent.node_cumulus, 
-                nimbus: rawCurrent.node_nimbus, 
-                stratus: rawCurrent.node_stratus 
+            nodes: {
+                total: rawCurrent.node_total,
+                cumulus: rawCurrent.node_cumulus,
+                nimbus: rawCurrent.node_nimbus,
+                stratus: rawCurrent.node_stratus
             },
-            apps: { 
+            apps: {
                 total: rawCurrent.total_apps,
                 gitapps: rawCurrent.gitapps_count || 0,
                 dockerapps: rawCurrent.dockerapps_count || 0
             },
-            gaming: { 
-                total: rawCurrent.gaming_apps_total, 
-                minecraft: rawCurrent.gaming_minecraft, 
-                palworld: rawCurrent.gaming_palworld, 
-                enshrouded: rawCurrent.gaming_enshrouded 
+            gaming: {
+                total: rawCurrent.gaming_apps_total,
+                minecraft: rawCurrent.gaming_minecraft,
+                palworld: rawCurrent.gaming_palworld,
+                enshrouded: rawCurrent.gaming_enshrouded
             },
-            crypto: { 
-                total: rawCurrent.crypto_nodes_total, 
-                presearch: rawCurrent.crypto_presearch, 
-                kaspa: rawCurrent.crypto_kaspa, 
-                alephium: rawCurrent.crypto_alephium 
+            crypto: {
+                total: rawCurrent.crypto_nodes_total,
+                presearch: rawCurrent.crypto_presearch,
+                kaspa: rawCurrent.crypto_kaspa,
+                alephium: rawCurrent.crypto_alephium
             },
             cloud: {
                 cpu: { utilization: rawCurrent.cpu_utilization_percent },
                 ram: { utilization: rawCurrent.ram_utilization_percent },
                 storage: { utilization: rawCurrent.storage_utilization_percent }
             },
-            wordpress: { 
-                count: rawCurrent.wordpress_count 
+            wordpress: {
+                count: rawCurrent.wordpress_count
             }
         };
-        
+
         // Get dates for comparison
         const today = new Date().toISOString().split('T')[0];
         const targetDate = new Date();
         targetDate.setDate(targetDate.getDate() - days);
         const targetDateStr = targetDate.toISOString().split('T')[0];
-        
+
         console.log(`📊 Comparison: Today=${today}, Target=${targetDateStr} (${days} days ago)`);
-        
+
         // Calculate changes
         const calculateChange = (current, past) => {
             if (!past || past === 0) return { change: 0, trend: 'neutral' };
@@ -1127,25 +1103,25 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 trend: change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
             };
         };
-        
+
         // SPECIAL HANDLING FOR REVENUE
-        const todayRevenue = getRevenueForDateRange(today, today);
-        const comparisonRevenue = getRevenueForDateRange(targetDateStr, targetDateStr);
-        
+        const todayRevenue = await getRevenueForDateRange(today, today);
+        const comparisonRevenue = await getRevenueForDateRange(targetDateStr, targetDateStr);
+
         let revenueComparison;
         if (comparisonRevenue > 0) {
             revenueComparison = calculateChange(todayRevenue, comparisonRevenue);
         } else {
-            revenueComparison = { 
-                change: 0, 
+            revenueComparison = {
+                change: 0,
                 trend: 'neutral',
                 note: `No revenue data for ${targetDateStr}`
             };
         }
-        
+
         // For other metrics, we need snapshot data
-        const pastSnapshot = getSnapshotByDate(targetDateStr);
-        
+        const pastSnapshot = await getSnapshotByDate(targetDateStr);
+
         // Build response
         const response = {
             period: days,
@@ -1155,17 +1131,17 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 revenue: revenueComparison
             }
         };
-        
+
         // Add other metrics only if snapshot exists
         if (pastSnapshot) {
             console.log(`✓ Found snapshot for ${targetDateStr}`);
-            
+
             // Node comparisons with individual breakdowns
             const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
             const cumulusChange = (current.nodes?.cumulus || 0) - (pastSnapshot.node_cumulus || 0);
             const nimbusChange = (current.nodes?.nimbus || 0) - (pastSnapshot.node_nimbus || 0);
             const stratusChange = (current.nodes?.stratus || 0) - (pastSnapshot.node_stratus || 0);
-            
+
             response.changes.nodes = {
                 ...nodeChange,
                 difference: (current.nodes?.total || 0) - (pastSnapshot.node_total || 0),
@@ -1176,65 +1152,65 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 stratusChange: stratusChange,
                 stratusTrend: stratusChange > 0 ? 'up' : stratusChange < 0 ? 'down' : 'neutral'
             };
-            
+
             response.changes.apps = {
                 ...calculateChange(current.apps?.total || 0, pastSnapshot.total_apps),
                 difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0),
                 gitChange: (current.apps?.gitapps || 0) - (pastSnapshot.gitapps_count || 0),
-                gitTrend: (current.apps?.gitapps || 0) > (pastSnapshot.gitapps_count || 0) ? 'up' : 
+                gitTrend: (current.apps?.gitapps || 0) > (pastSnapshot.gitapps_count || 0) ? 'up' :
                          (current.apps?.gitapps || 0) < (pastSnapshot.gitapps_count || 0) ? 'down' : 'neutral',
                 dockerChange: (current.apps?.dockerapps || 0) - (pastSnapshot.dockerapps_count || 0),
-                dockerTrend: (current.apps?.dockerapps || 0) > (pastSnapshot.dockerapps_count || 0) ? 'up' : 
+                dockerTrend: (current.apps?.dockerapps || 0) > (pastSnapshot.dockerapps_count || 0) ? 'up' :
                             (current.apps?.dockerapps || 0) < (pastSnapshot.dockerapps_count || 0) ? 'down' : 'neutral'
             };
-            
+
             // CLOUD COMPARISONS - Now using transformed data
             response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
             response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
             response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
-            
+
             // Gaming comparisons with individual breakdowns
             response.changes.gaming = {
                 ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
                 difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0),
                 minecraftChange: (current.gaming?.minecraft || 0) - (pastSnapshot.gaming_minecraft || 0),
-                minecraftTrend: (current.gaming?.minecraft || 0) > (pastSnapshot.gaming_minecraft || 0) ? 'up' : 
+                minecraftTrend: (current.gaming?.minecraft || 0) > (pastSnapshot.gaming_minecraft || 0) ? 'up' :
                                (current.gaming?.minecraft || 0) < (pastSnapshot.gaming_minecraft || 0) ? 'down' : 'neutral',
                 palworldChange: (current.gaming?.palworld || 0) - (pastSnapshot.gaming_palworld || 0),
-                palworldTrend: (current.gaming?.palworld || 0) > (pastSnapshot.gaming_palworld || 0) ? 'up' : 
+                palworldTrend: (current.gaming?.palworld || 0) > (pastSnapshot.gaming_palworld || 0) ? 'up' :
                               (current.gaming?.palworld || 0) < (pastSnapshot.gaming_palworld || 0) ? 'down' : 'neutral',
                 enshroudedChange: (current.gaming?.enshrouded || 0) - (pastSnapshot.gaming_enshrouded || 0),
-                enshroudedTrend: (current.gaming?.enshrouded || 0) > (pastSnapshot.gaming_enshrouded || 0) ? 'up' : 
+                enshroudedTrend: (current.gaming?.enshrouded || 0) > (pastSnapshot.gaming_enshrouded || 0) ? 'up' :
                                 (current.gaming?.enshrouded || 0) < (pastSnapshot.gaming_enshrouded || 0) ? 'down' : 'neutral'
             };
-            
+
             // Crypto comparisons with individual breakdowns
             response.changes.crypto = {
                 ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
                 difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0),
                 presearchChange: (current.crypto?.presearch || 0) - (pastSnapshot.crypto_presearch || 0),
-                presearchTrend: (current.crypto?.presearch || 0) > (pastSnapshot.crypto_presearch || 0) ? 'up' : 
+                presearchTrend: (current.crypto?.presearch || 0) > (pastSnapshot.crypto_presearch || 0) ? 'up' :
                                (current.crypto?.presearch || 0) < (pastSnapshot.crypto_presearch || 0) ? 'down' : 'neutral',
                 kaspaChange: (current.crypto?.kaspa || 0) - (pastSnapshot.crypto_kaspa || 0),
-                kaspaTrend: (current.crypto?.kaspa || 0) > (pastSnapshot.crypto_kaspa || 0) ? 'up' : 
+                kaspaTrend: (current.crypto?.kaspa || 0) > (pastSnapshot.crypto_kaspa || 0) ? 'up' :
                            (current.crypto?.kaspa || 0) < (pastSnapshot.crypto_kaspa || 0) ? 'down' : 'neutral',
                 alephiumChange: (current.crypto?.alephium || 0) - (pastSnapshot.crypto_alephium || 0),
-                alephiumTrend: (current.crypto?.alephium || 0) > (pastSnapshot.crypto_alephium || 0) ? 'up' : 
+                alephiumTrend: (current.crypto?.alephium || 0) > (pastSnapshot.crypto_alephium || 0) ? 'up' :
                               (current.crypto?.alephium || 0) < (pastSnapshot.crypto_alephium || 0) ? 'down' : 'neutral'
             };
-            
+
             response.changes.wordpress = {
                 ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
                 difference: (current.wordpress?.count || 0) - (pastSnapshot.wordpress_count || 0)
             };
-            
+
         } else {
             console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
             console.log(`✓  Revenue comparison still available using transaction data`);
-            
+
             response.partialData = true;
             response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
-            
+
             // Calculate Git/Docker comparison even without past snapshot (compare against 0)
             response.changes.apps = {
                 change: 0,
@@ -1245,17 +1221,17 @@ app.get('/api/analytics/comparison/:days', (req, res) => {
                 dockerChange: current.apps?.dockerapps || 0,
                 dockerTrend: (current.apps?.dockerapps || 0) > 0 ? 'up' : 'neutral'
             };
-            
+
         }
-        
+
         res.json(response);
-        
+
     } catch (error) {
         console.error('❌ Comparison endpoint error:', error);
         console.error('   Stack:', error.stack);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Internal server error',
-            details: error.message 
+            details: error.message
         });
     }
 });
@@ -1265,9 +1241,9 @@ app.post('/api/admin/snapshot', async (req, res) => {
     try {
         console.log('📸 Manual snapshot triggered via API');
         const result = await takeManualSnapshot();
-        
+
         if (result.success) {
-            res.json({ 
+            res.json({
                 success: true,
                 snapshot_date: result.snapshotDate,
                 revenue: result.data.daily_revenue,
@@ -1284,18 +1260,18 @@ app.post('/api/admin/snapshot', async (req, res) => {
             });
         }
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            error: error.message 
+            error: error.message
         });
     }
 });
 
 // Manual repo-only snapshot (works even if today's daily snapshot already exists)
-app.post('/api/admin/repo-snapshot', (req, res) => {
+app.post('/api/admin/repo-snapshot', async (req, res) => {
     try {
         console.log('Manual repo snapshot triggered via API');
-        const result = takeRepoSnapshot();
+        const result = await takeRepoSnapshot();
         if (result.success) {
             res.json(result);
         } else {
@@ -1309,7 +1285,7 @@ app.post('/api/admin/repo-snapshot', (req, res) => {
 app.get('/api/carousel/stats', (req, res) => {
     try {
         const result = getCachedCarouselData();  // ✅ New function
-        
+
         res.json({
             stats: result.stats || [],  // ✅ New field name
             cached: result.cached,
@@ -1317,11 +1293,11 @@ app.get('/api/carousel/stats', (req, res) => {
             fresh: result.fresh,
             timestamp: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('❌ Error in carousel API:', error);
-        
-        res.status(500).json({ 
+
+        res.status(500).json({
             error: 'Failed to fetch carousel stats',
             message: error.message,
             stats: [],
@@ -1334,7 +1310,7 @@ app.get('/api/carousel/stats', (req, res) => {
 app.get('/api/carousel/deployed', async (req, res) => {
     try {
         const result = await getCachedDeployedApps();
-        
+
         res.json({
             stats: result.stats || [],
             cached: result.cached,
@@ -1342,11 +1318,11 @@ app.get('/api/carousel/deployed', async (req, res) => {
             fresh: result.fresh,
             timestamp: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('❌ Error in deployed apps API:', error);
-        
-        res.status(500).json({ 
+
+        res.status(500).json({
             error: 'Failed to fetch deployed apps',
             message: error.message,
             stats: [],
@@ -1385,7 +1361,7 @@ app.listen(PORT, '0.0.0.0', () => {
 ║  CORS enabled for domain and IP access            ║
 ╚═══════════════════════════════════════════════════╝
     `);
-    
+
     // Start the revenue sync scheduler (runs every 5 minutes)
     try {
         startRevenueSync();
@@ -1396,13 +1372,12 @@ app.listen(PORT, '0.0.0.0', () => {
         console.error('❌ Could not initialize sync:', error.message);
         console.error('⚠️  System will continue but with missing data!');
     }
-
     // Start the test scheduler (runs every hour)
     try {
         console.log('✅ Service test scheduler initialized');
         console.log('   Test interval: 1 hour');
         startServiceTests();
-        
+
     } catch (error) {
         console.error('❌ Could not initialize test scheduler:', error.message);
         console.error('⚠️  System will continue but tests may not run!');
@@ -1428,14 +1403,14 @@ app.listen(PORT, '0.0.0.0', () => {
     }
 
     // Run failed txid cleanup daily
-    setInterval(() => {
-        const cleared = clearPermanentlyFailedTxids();
+    setInterval(async () => {
+        const cleared = await clearPermanentlyFailedTxids();
         if (cleared > 0) console.log(`🧹 Cleared ${cleared} permanently failed txids`);
     }, 24 * 60 * 60 * 1000);
 
     console.log('\n🎉 All services started successfully!');
     console.log('──────────────────────────────────────────────────\n');
-    
+
     // Log the current logging configuration
     console.log('📋 Logging Configuration:');
     console.log(`   Request Logging: ${LOGGING_CONFIG.enableRequestLogging ? '✅ Enabled' : '❌ Disabled'}`);

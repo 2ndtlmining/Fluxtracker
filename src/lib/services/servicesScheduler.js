@@ -53,15 +53,6 @@ async function runTests() {
     }
 }
 
-async function updateCarousel() {
-    console.log('🎠 Updating carousel data...');
-    await Promise.all([
-        fetchCarouselData(),        // Network stats
-        fetchLatestDeployedApps()   // Deployed apps
-    ]);
-    console.log('✅ Carousel data updated');
-}
-
 /**
  * Run carousel update
  */

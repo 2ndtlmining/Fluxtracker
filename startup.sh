@@ -4,6 +4,9 @@
 
 set -e
 
+# Exit if either child process dies
+trap 'kill $API_PID $FRONTEND_PID 2>/dev/null; exit 1' TERM INT
+
 echo "🚀 Starting Flux Performance Dashboard..."
 echo "========================================"
 
@@ -38,8 +41,5 @@ echo "   API: http://localhost:${API_PORT:-3000}"
 echo "   Frontend: http://localhost:${FRONTEND_PORT:-5173}"
 echo "========================================"
 
-# Wait for any process to exit
-wait -n
-
-# Exit with status of process that exited first
-exit $?
+# Wait for both processes — if either exits, the trap handles cleanup
+wait $API_PID $FRONTEND_PID

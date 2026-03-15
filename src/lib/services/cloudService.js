@@ -47,8 +47,8 @@ async function retryApiCall(apiCall, retries = MAX_RETRIES) {
 /**
  * Get cached cloud data from database
  */
-function getCachedCloudData() {
-    const cachedMetrics = getCurrentMetrics();
+async function getCachedCloudData() {
+    const cachedMetrics = await getCurrentMetrics();
     
     if (cachedMetrics && 
         cachedMetrics.total_cpu_cores > 0 && 
@@ -102,16 +102,16 @@ export async function fetchCloudStats() {
             console.warn(`⚠️  API calls failed: ${apiError.message}`);
             
             // Try to use cached data
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (API unavailable)');
-                updateSyncStatus('cloud', 'failed', `API error - using cached data: ${apiError.message}`, null);
+                await updateSyncStatus('cloud', 'failed', `API error - using cached data: ${apiError.message}`, null);
                 return cached;
             }
-            
+
             // No cache available - this is first run
             console.error('❌ No cached data available and API failed on first run');
-            updateSyncStatus('cloud', 'failed', `API error on first run: ${apiError.message}`, null);
+            await updateSyncStatus('cloud', 'failed', `API error on first run: ${apiError.message}`, null);
             throw new Error(`Cloud API failed and no cached data available: ${apiError.message}`);
         }
         
@@ -139,10 +139,10 @@ export async function fetchCloudStats() {
             
             console.warn('⚠️  API returned empty data');
             
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (API returned empty data)');
-                updateSyncStatus('cloud', 'failed', 'API returned empty data - using cached', null);
+                await updateSyncStatus('cloud', 'failed', 'API returned empty data - using cached', null);
                 return cached;
             }
             
@@ -180,10 +180,10 @@ export async function fetchCloudStats() {
         if (validResourceNodes === 0) {
             console.warn('⚠️  No valid resource data from nodes');
             
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (no valid resource data)');
-                updateSyncStatus('cloud', 'failed', 'No valid resource data - using cached', null);
+                await updateSyncStatus('cloud', 'failed', 'No valid resource data - using cached', null);
                 return cached;
             }
             
@@ -228,10 +228,10 @@ export async function fetchCloudStats() {
         if (validBenchmarkNodes === 0 || totalCores === 0 || totalRam === 0 || totalSsd === 0) {
             console.warn(`⚠️  Invalid benchmark totals - Cores: ${totalCores}, RAM: ${totalRam}, SSD: ${totalSsd}`);
             
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (invalid benchmark data)');
-                updateSyncStatus('cloud', 'failed', 'Invalid benchmark data - using cached', null);
+                await updateSyncStatus('cloud', 'failed', 'Invalid benchmark data - using cached', null);
                 return cached;
             }
             
@@ -248,10 +248,10 @@ export async function fetchCloudStats() {
         if (totalRamGB < 10) {
             console.warn(`⚠️  Total RAM seems too low: ${totalRamGB} GB`);
             
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (suspicious RAM value)');
-                updateSyncStatus('cloud', 'failed', `Suspicious RAM value: ${totalRamGB} GB - using cached`, null);
+                await updateSyncStatus('cloud', 'failed', `Suspicious RAM value: ${totalRamGB} GB - using cached`, null);
                 return cached;
             }
         }
@@ -293,10 +293,10 @@ export async function fetchCloudStats() {
         if (cloudData.total_cpu_cores === 0 || cloudData.total_ram_gb === 0 || cloudData.total_storage_gb === 0) {
             console.warn('⚠️  Calculated data has zeros');
             
-            const cached = getCachedCloudData();
+            const cached = await getCachedCloudData();
             if (cached) {
                 console.log('📦 Using cached cloud stats (calculated zeros)');
-                updateSyncStatus('cloud', 'failed', 'Calculated data has zeros - using cached', null);
+                await updateSyncStatus('cloud', 'failed', 'Calculated data has zeros - using cached', null);
                 return cached;
             }
             
@@ -304,8 +304,8 @@ export async function fetchCloudStats() {
         }
         
         // All validations passed - save to database
-        updateCurrentMetrics(cloudData);
-        updateSyncStatus('cloud', 'completed', null, null);
+        await updateCurrentMetrics(cloudData);
+        await updateSyncStatus('cloud', 'completed', null, null);
         console.log('✅ Cloud stats updated successfully:', cloudData);
         
         return cloudData;
@@ -314,15 +314,15 @@ export async function fetchCloudStats() {
         console.error('❌ Error in fetchCloudStats:', error.message);
         
         // Final fallback - try cached data one more time
-        const cached = getCachedCloudData();
+        const cached = await getCachedCloudData();
         if (cached) {
             console.log('📦 Using cached cloud stats (final fallback)');
-            updateSyncStatus('cloud', 'failed', `Error: ${error.message} - using cached`, null);
+            await updateSyncStatus('cloud', 'failed', `Error: ${error.message} - using cached`, null);
             return cached;
         }
-        
+
         // No cache available at all
-        updateSyncStatus('cloud', 'failed', error.message, null);
+        await updateSyncStatus('cloud', 'failed', error.message, null);
         throw new Error(`Cloud stats completely failed: ${error.message}`);
     }
 }
@@ -346,7 +346,7 @@ async function fetchAppCount() {
         if (response.data && response.data.status === 'error' && response.data.data) {
             const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
             console.error(errorMessage);
-            updateSyncStatus('cloud', 'failed', errorMessage);
+            await updateSyncStatus('cloud', 'failed', errorMessage);
             throw new Error(errorMessage); // Throw so catch block returns cached/default values
         }
 
@@ -427,7 +427,7 @@ async function fetchAppCount() {
         console.warn('⚠️  Could not fetch app count, using cached');
         
         // Return cached values
-        const cachedMetrics = getCurrentMetrics();
+        const cachedMetrics = await getCurrentMetrics();
         if (cachedMetrics && cachedMetrics.total_apps !== undefined) {
             return {
                 totalApps: cachedMetrics.total_apps,

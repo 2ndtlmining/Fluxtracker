@@ -7,7 +7,6 @@ import {
     insertTransactionsBatch,
     getRevenueForDateRange,
     getPaymentCountForDateRange,
-    getAllTxids,
     getTxidCount,
     getUndeterminedAppNames,
     updateAppTypeForAppName,
@@ -37,7 +36,7 @@ let revenueSyncState = {
 // ============================================
 // FAILED TRANSACTION TRACKING (DB-backed)
 // ============================================
-// Failed txids are now persisted to the failed_txids table in SQLite.
+// Failed txids are now persisted to the failed_txids table in the database.
 // This ensures they survive process restarts and are retried every sync cycle.
 // See database.js for CRUD functions: upsertFailedTxid, getUnresolvedFailedTxids,
 // resolveFailedTxid, getFailedTxidCount, isFailedTxid
@@ -45,15 +44,15 @@ let revenueSyncState = {
 /**
  * Get failed transaction statistics (compatible wrapper for existing call sites)
  */
-export function getFailedTxStats() {
-    return { totalFailed: getFailedTxidCount() };
+export async function getFailedTxStats() {
+    return { totalFailed: await getFailedTxidCount() };
 }
 
 /**
  * Clear old resolved failed txids (compatible wrapper — called daily by server.js)
  */
-export function clearPermanentlyFailedTxids() {
-    return clearAbandonedFailedTxids(30);
+export async function clearPermanentlyFailedTxids() {
+    return await clearAbandonedFailedTxids(30);
 }
 
 /**
@@ -122,7 +121,7 @@ export async function fetchFluxPrice() {
         if (response.data?.zelcash?.usd) {
             const price = response.data.zelcash.usd;
             console.log(`FLUX Price (CoinGecko): $${price}`);
-            updateCurrentMetrics({ flux_price_usd: price });
+            await updateCurrentMetrics({ flux_price_usd: price });
             return price;
         }
     } catch (e) {
@@ -136,7 +135,7 @@ export async function fetchFluxPrice() {
             const price = parseFloat(response.data.rate);
             if (price > 0) {
                 console.log(`FLUX Price (Explorer): $${price}`);
-                updateCurrentMetrics({ flux_price_usd: price });
+                await updateCurrentMetrics({ flux_price_usd: price });
                 return price;
             }
         }
@@ -151,7 +150,7 @@ export async function fetchFluxPrice() {
             const price = parseFloat(response.data.USD);
             if (price > 0) {
                 console.log(`FLUX Price (CryptoCompare): $${price}`);
-                updateCurrentMetrics({ flux_price_usd: price });
+                await updateCurrentMetrics({ flux_price_usd: price });
                 return price;
             }
         }
@@ -546,7 +545,7 @@ export async function progressiveSync() {
         }
 
         // 1c. Build historical price map for USD conversion of older transactions
-        const priceMap = buildFullPriceMap();
+        const priceMap = await buildFullPriceMap();
 
         // 2. Get current block height
         const currentBlock = await fetchCurrentBlockHeight();
@@ -557,7 +556,7 @@ export async function progressiveSync() {
         // highest block we have a transaction for). This prevents re-scanning a growing gap
         // when there are no recent transactions.
         // NOTE: Block 0 is not supported by getaddresstxids API — always start at 1 minimum.
-        const syncStatus = getSyncStatus('revenue');
+        const syncStatus = await getSyncStatus('revenue');
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock
             ? Math.max(1, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
@@ -568,10 +567,6 @@ export async function progressiveSync() {
         // 4. Ensure app name cache is fresh
         await ensurePermanentMessagesCache();
 
-        // 5. Get existing txids
-        const existingTxids = new Set(getAllTxids());
-        console.log(`Database has ${existingTxids.size} existing transactions`);
-
         let pendingPayments = [];   // buffer between DB flushes
         let totalNewPayments = 0;
         const DB_FLUSH_SIZE = 200;  // write to DB every 200 payments so graphs update progressively
@@ -579,11 +574,11 @@ export async function progressiveSync() {
         let lowestFailedBlock = null;
 
         // Helper: flush pending payments to DB so they become visible immediately
-        function flushPending() {
+        async function flushPending() {
             if (pendingPayments.length === 0) return;
-            const writeOk = insertTransactionsBatch(pendingPayments);
+            const writeOk = await insertTransactionsBatch(pendingPayments);
             if (writeOk === false) {
-                console.error('Write lock lost — aborting sync to avoid data loss');
+                console.error('Database write error — aborting sync to avoid data loss');
                 syncAborted = true;
                 return;
             }
@@ -610,15 +605,11 @@ export async function progressiveSync() {
                 continue;
             }
 
-            console.log(`Found ${txids.length} transactions in range`);
+            console.log(`Found ${txids.length} transactions to process`);
 
-            // Filter out already-known txids (failed txids are retried — they're in the DB table now)
-            const newTxids = txids.filter(txid => !existingTxids.has(txid));
-            console.log(`${newTxids.length} new transactions to process`);
-
-            // Process in parallel batches
-            for (let i = 0; i < newTxids.length; i += BATCH_SIZE) {
-                const batch = newTxids.slice(i, i + BATCH_SIZE);
+            // Process in parallel batches (dedup handled by ON CONFLICT DO NOTHING on upsert)
+            for (let i = 0; i < txids.length; i += BATCH_SIZE) {
+                const batch = txids.slice(i, i + BATCH_SIZE);
 
                 const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
 
@@ -627,7 +618,7 @@ export async function progressiveSync() {
                     const tx = txResults[j];
 
                     if (!tx) {
-                        upsertFailedTxid(txid, address, 'fetch_failed');
+                        await upsertFailedTxid(txid, address, 'fetch_failed');
                         continue;
                     }
 
@@ -644,10 +635,9 @@ export async function progressiveSync() {
 
                     const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                     pendingPayments.push(...payments);
-                    existingTxids.add(txid);
 
                     // Mark as resolved if it was previously failed
-                    resolveFailedTxid(txid);
+                    await resolveFailedTxid(txid);
 
                     if (payments.length > 0) {
                         console.log(`Payment in ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX${appName ? ` (${appName})` : ''}`);
@@ -656,24 +646,24 @@ export async function progressiveSync() {
 
                 // Flush to DB every DB_FLUSH_SIZE payments so the UI can show partial data
                 if (pendingPayments.length >= DB_FLUSH_SIZE) {
-                    flushPending();
+                    await flushPending();
                     if (syncAborted) break;
                 }
 
                 // Small delay between batches to be API-friendly
-                if (i + BATCH_SIZE < newTxids.length) {
+                if (i + BATCH_SIZE < txids.length) {
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
             }
 
             // Flush any remaining payments for this address before moving to the next
-            if (!syncAborted) flushPending();
+            if (!syncAborted) await flushPending();
         }
 
         // 6b. Retry previously failed txids from the DB.
         //     This catches txids that were missed when the sync cursor advanced past their block range.
         if (!syncAborted) {
-            const failedList = getUnresolvedFailedTxids(200);
+            const failedList = await getUnresolvedFailedTxids(200);
             if (failedList.length > 0) {
                 console.log(`\nRetrying ${failedList.length} previously failed txids...`);
                 let recovered = 0;
@@ -687,17 +677,11 @@ export async function progressiveSync() {
                         const tx = txResults[j];
 
                         if (!tx) {
-                            upsertFailedTxid(txid, failedAddr, 'fetch_failed');
+                            await upsertFailedTxid(txid, failedAddr, 'fetch_failed');
                             continue;
                         }
 
                         if (!tx.confirmations || tx.confirmations < 8) continue;
-
-                        // Skip if already in DB (might have been recovered by another path)
-                        if (existingTxids.has(txid)) {
-                            resolveFailedTxid(txid);
-                            continue;
-                        }
 
                         const appHash = extractAppHashFromTx(tx);
                         const appName = appHash ? lookupAppName(appHash) : null;
@@ -705,7 +689,7 @@ export async function progressiveSync() {
 
                         const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                         pendingPayments.push(...payments);
-                        resolveFailedTxid(txid);
+                        await resolveFailedTxid(txid);
 
                         if (payments.length > 0) {
                             recovered++;
@@ -724,7 +708,7 @@ export async function progressiveSync() {
         }
 
         // 7. Final flush (catches any remainder < DB_FLUSH_SIZE)
-        if (!syncAborted) flushPending();
+        if (!syncAborted) await flushPending();
 
         if (totalNewPayments === 0) {
             console.log('\nNo new transactions found (database is up to date)');
@@ -732,20 +716,20 @@ export async function progressiveSync() {
 
         // 8. Update sync status — don't advance past failed chunks or aborted syncs
         if (syncAborted) {
-            console.warn('Sync aborted due to write lock loss — last_sync_block NOT updated');
+            console.warn('Sync aborted due to database error — last_sync_block NOT updated');
         } else if (lowestFailedBlock !== null) {
             const safeBlock = lowestFailedBlock - 1;
             console.warn(`Some API chunks failed — advancing last_sync_block only to ${safeBlock} (failed at block ${lowestFailedBlock})`);
-            updateSyncStatus('revenue', 'completed', null, safeBlock);
+            await updateSyncStatus('revenue', 'completed', null, safeBlock);
         } else {
-            updateSyncStatus('revenue', 'completed', null, currentBlock);
+            await updateSyncStatus('revenue', 'completed', null, currentBlock);
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
         console.log(`\nBLOCK-RANGE SYNC COMPLETE`);
-        console.log(`  Duration: ${duration}s | New payments: ${totalNewPayments} | Total: ${getTxidCount()}`);
+        console.log(`  Duration: ${duration}s | New payments: ${totalNewPayments} | Total: ${await getTxidCount()}`);
 
-        const failedStats = getFailedTxStats();
+        const failedStats = await getFailedTxStats();
         if (failedStats.totalFailed > 0) {
             console.log(`  Failed txids: ${failedStats.totalFailed} (will retry)`);
         }
@@ -780,32 +764,28 @@ export async function auditRecentTransactions() {
 
     try {
         const fluxPrice = await fetchFluxPrice();
-        const priceMap = buildFullPriceMap();
+        const priceMap = await buildFullPriceMap();
         const currentBlock = await fetchCurrentBlockHeight();
         const auditStart = Math.max(1, currentBlock - AUDIT_LOOKBACK_BLOCKS);
 
         console.log(`Audit range: ${auditStart} -> ${currentBlock} (${AUDIT_LOOKBACK_BLOCKS} blocks)`);
 
         await ensurePermanentMessagesCache();
-        const existingTxids = new Set(getAllTxids());
 
-        let missingFound = 0;
+        let totalProcessed = 0;
         let recovered = 0;
 
         for (const address of TARGET_ADDRESSES) {
             const { txids } = await fetchAddressTxidsInRange(address, auditStart, currentBlock);
             if (!txids || txids.length === 0) continue;
 
-            const missingTxids = txids.filter(txid => !existingTxids.has(txid));
-            if (missingTxids.length === 0) continue;
+            totalProcessed += txids.length;
+            console.log(`Audit: checking ${txids.length} txids for ${address.substring(0, 15)}`);
 
-            missingFound += missingTxids.length;
-            console.log(`Audit: ${missingTxids.length} missing txids found for ${address.substring(0, 15)}`);
-
-            // Process missing transactions in small batches
+            // Process transactions in small batches (dedup handled by ON CONFLICT DO NOTHING)
             const BATCH_SIZE = 10;
-            for (let i = 0; i < missingTxids.length; i += BATCH_SIZE) {
-                const batch = missingTxids.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < txids.length; i += BATCH_SIZE) {
+                const batch = txids.slice(i, i + BATCH_SIZE);
                 const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
                 const payments = [];
 
@@ -821,26 +801,26 @@ export async function auditRecentTransactions() {
                 }
 
                 if (payments.length > 0) {
-                    const writeOk = insertTransactionsBatch(payments);
+                    const writeOk = await insertTransactionsBatch(payments);
                     if (writeOk !== false) {
                         recovered += payments.length;
                     }
                 }
 
-                if (i + BATCH_SIZE < missingTxids.length) {
+                if (i + BATCH_SIZE < txids.length) {
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
             }
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`\nAUDIT COMPLETE — missing: ${missingFound}, recovered: ${recovered}, duration: ${duration}s\n`);
+        console.log(`\nAUDIT COMPLETE — processed: ${totalProcessed}, recovered: ${recovered}, duration: ${duration}s\n`);
 
-        return { success: true, missingFound, recovered, duration };
+        return { success: true, totalProcessed, recovered, duration };
 
     } catch (error) {
         console.error('Audit error:', error.message);
-        return { success: false, missingFound: 0, recovered: 0, duration: ((Date.now() - startTime) / 1000).toFixed(2), error: error.message };
+        return { success: false, totalProcessed: 0, recovered: 0, duration: ((Date.now() - startTime) / 1000).toFixed(2), error: error.message };
     }
 }
 
@@ -856,7 +836,7 @@ export async function auditRecentTransactions() {
 export async function backfillAppTypes() {
     await ensurePermanentMessagesCache();
 
-    const appNames = getUndeterminedAppNames();
+    const appNames = await getUndeterminedAppNames();
     console.log(`🔄 Backfilling app_type for ${appNames.length} distinct app names...`);
 
     let updated = 0;
@@ -865,7 +845,7 @@ export async function backfillAppTypes() {
     for (const appName of appNames) {
         const type = lookupAppType(appName);
         if (type) {
-            updateAppTypeForAppName(appName, type);
+            await updateAppTypeForAppName(appName, type);
             updated++;
         } else {
             unknown++;
@@ -887,13 +867,23 @@ export async function backfillAppTypes() {
 export async function backfillAppNames(batchSize = 500, recentDays = null, skipFailed = false) {
     await ensurePermanentMessagesCache();
 
-    const total = countTxidsWithoutAppName(recentDays);
+    const total = await countTxidsWithoutAppName(recentDays);
 
     // Fetch extra candidates so we still fill the batch after filtering out known-no-hash txids
-    const candidates = getTxidsWithoutAppName(skipFailed ? batchSize * 3 : batchSize, recentDays);
-    const txids = skipFailed
-        ? candidates.filter(txid => !isFailedTxid(txid)).slice(0, batchSize)
-        : candidates;
+    const candidates = await getTxidsWithoutAppName(skipFailed ? batchSize * 3 : batchSize, recentDays);
+    let txids;
+    if (skipFailed) {
+        const filtered = [];
+        for (const txid of candidates) {
+            if (!(await isFailedTxid(txid))) {
+                filtered.push(txid);
+                if (filtered.length >= batchSize) break;
+            }
+        }
+        txids = filtered;
+    } else {
+        txids = candidates;
+    }
 
     console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
 
@@ -917,7 +907,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
             if (!appHash) {
                 // Direct FLUX payment — no OP_RETURN, will never have an app_name.
                 // Mark in DB so auto-backfill (skipFailed=true) skips it next time.
-                upsertFailedTxid(txid, '', 'no_hash');
+                await upsertFailedTxid(txid, '', 'no_hash');
                 noHash++;
                 continue;
             }
@@ -926,7 +916,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
             if (!appName) { noName++; continue; }
 
             const appType = lookupAppType(appName);
-            updateAppNameForTxid(txid, appName, appType);
+            await updateAppNameForTxid(txid, appName, appType);
             updated++;
         }
 
@@ -951,13 +941,13 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
 async function calculateDailyRevenue() {
     try {
         const today = new Date().toISOString().split('T')[0];
-        const revenue = getRevenueForDateRange(today, today);
-        
+        const revenue = await getRevenueForDateRange(today, today);
+
         console.log(`📊 Today's revenue (${today}): ${revenue.toFixed(2)} FLUX`);
-        
-        updateCurrentMetrics({ 
+
+        await updateCurrentMetrics({
             last_update: Date.now(),
-            current_revenue: revenue 
+            current_revenue: revenue
         });
         
         return revenue;
@@ -971,7 +961,7 @@ async function calculateDailyRevenue() {
 /**
  * Calculate revenue for a specific timeframe
  */
-function calculateRevenueByTimeframe(timeframe = 'day') {
+async function calculateRevenueByTimeframe(timeframe = 'day') {
     try {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -1001,8 +991,8 @@ function calculateRevenueByTimeframe(timeframe = 'day') {
         startDate.setDate(startDate.getDate() - daysAgo);
         const startDateStr = startDate.toISOString().split('T')[0];
         
-        const revenue = getRevenueForDateRange(startDateStr, today);
-        
+        const revenue = await getRevenueForDateRange(startDateStr, today);
+
         console.log(`📊 ${timeframe.toUpperCase()} Revenue (${startDateStr} to ${today}): ${revenue.toFixed(2)} FLUX`);
         
         return revenue;
@@ -1016,14 +1006,14 @@ function calculateRevenueByTimeframe(timeframe = 'day') {
 /**
  * Get revenue breakdown by timeframe
  */
-export function getRevenueBreakdown() {
+export async function getRevenueBreakdown() {
     try {
         return {
-            day: calculateRevenueByTimeframe('day'),
-            week: calculateRevenueByTimeframe('week'),
-            month: calculateRevenueByTimeframe('month'),
-            quarter: calculateRevenueByTimeframe('quarter'),
-            year: calculateRevenueByTimeframe('year')
+            day: await calculateRevenueByTimeframe('day'),
+            week: await calculateRevenueByTimeframe('week'),
+            month: await calculateRevenueByTimeframe('month'),
+            quarter: await calculateRevenueByTimeframe('quarter'),
+            year: await calculateRevenueByTimeframe('year')
         };
     } catch (error) {
         console.error('❌ Error getting revenue breakdown:', error.message);
@@ -1058,7 +1048,7 @@ export async function fetchRevenueStats() {
         // payments with no OP_RETURN hash that will never resolve. Use the manual
         // admin endpoint (/api/admin/backfill-app-names) to process all NULLs.
         const AUTO_BACKFILL_DAYS = 30;
-        const nullAppNames = countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
+        const nullAppNames = await countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
         if (nullAppNames > 0) {
             console.log(`🔄 Auto-backfilling ${nullAppNames} recent transactions missing app_name...`);
             await backfillAppNames(500, AUTO_BACKFILL_DAYS, true);
@@ -1084,7 +1074,7 @@ export async function fetchRevenueStats() {
         console.error('❌ Error fetching revenue stats:', error.message);
         setRevenueSyncError(error);
         setRevenueSyncRunning(false);
-        updateSyncStatus('revenue', 'failed', error.message, null);
+        await updateSyncStatus('revenue', 'failed', error.message, null);
         throw error;
     }
 }
@@ -1164,7 +1154,7 @@ export async function initialSync() {
         console.log(`\n✅ INITIAL SYNC COMPLETE`);
         console.log(`   Total transactions imported: ${totalImported}`);
         console.log(`   Iterations: ${iterations}`);
-        console.log(`   Total in database: ${getTxidCount()}\n`);
+        console.log(`   Total in database: ${await getTxidCount()}\n`);
         
         setRevenueSyncRunning(false);
         return {
@@ -1177,7 +1167,7 @@ export async function initialSync() {
         console.error('❌ Initial sync failed:', error.message);
         setRevenueSyncError(error);
         setRevenueSyncRunning(false);
-        updateSyncStatus('revenue', 'failed', error.message, null);
+        await updateSyncStatus('revenue', 'failed', error.message, null);
         throw error;
     }
 }
@@ -1200,8 +1190,8 @@ export async function calculateMonthlyRevenue() {
         const today = now.toISOString().split('T')[0];
         
         // Calculate revenue for current month
-        const revenue = getRevenueForDateRange(startDate, today);
-        
+        const revenue = await getRevenueForDateRange(startDate, today);
+
         console.log(`📊 MONTHLY Revenue (${startDate} to ${today}): ${revenue.toFixed(2)} FLUX`);
         
         return revenue;
@@ -1228,8 +1218,8 @@ export async function calculatePreviousMonthRevenue() {
         const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
         
         // Calculate revenue for previous month
-        const revenue = getRevenueForDateRange(startDate, endDate);
-        
+        const revenue = await getRevenueForDateRange(startDate, endDate);
+
         console.log(`📊 PREVIOUS MONTH Revenue (${startDate} to ${endDate}): ${revenue.toFixed(2)} FLUX`);
         
         return revenue;
@@ -1255,8 +1245,8 @@ export async function getMonthlyPaymentCount() {
         const today = now.toISOString().split('T')[0];
         
         // Get payment count for current month
-        const count = getPaymentCountForDateRange(startDate, today);
-        
+        const count = await getPaymentCountForDateRange(startDate, today);
+
         console.log(`📊 MONTHLY Payment Count (${startDate} to ${today}): ${count}`);
         
         return count;
@@ -1283,8 +1273,8 @@ export async function getPreviousMonthPaymentCount() {
         const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
         
         // Get payment count for previous month
-        const count = getPaymentCountForDateRange(startDate, endDate);
-        
+        const count = await getPaymentCountForDateRange(startDate, endDate);
+
         console.log(`📊 PREVIOUS MONTH Payment Count (${startDate} to ${endDate}): ${count}`);
         
         return count;
@@ -1304,8 +1294,8 @@ export async function calculateYesterdayRevenue() {
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
         
-        const revenue = getRevenueForDateRange(yesterdayStr, yesterdayStr);
-        
+        const revenue = await getRevenueForDateRange(yesterdayStr, yesterdayStr);
+
         console.log(`📊 YESTERDAY Revenue (${yesterdayStr}): ${revenue.toFixed(2)} FLUX`);
         
         return revenue;
@@ -1325,8 +1315,8 @@ export async function getYesterdayPaymentCount() {
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
         
-        const count = getPaymentCountForDateRange(yesterdayStr, yesterdayStr);
-        
+        const count = await getPaymentCountForDateRange(yesterdayStr, yesterdayStr);
+
         console.log(`📊 YESTERDAY Payment Count (${yesterdayStr}): ${count}`);
         
         return count;

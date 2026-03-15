@@ -29,8 +29,8 @@ export async function fetchNodeStats() {
         };
         
         // Update current metrics in database
-        updateCurrentMetrics(nodeData);
-        updateSyncStatus('nodes', 'completed');
+        await updateCurrentMetrics(nodeData);
+        await updateSyncStatus('nodes', 'completed');
         
         console.log('✅ Node stats updated:', nodeData);
         
@@ -38,7 +38,7 @@ export async function fetchNodeStats() {
         
     } catch (error) {
         console.error('❌ Error fetching node stats:', error.message);
-        updateSyncStatus('nodes', 'failed', error.message);
+        await updateSyncStatus('nodes', 'failed', error.message);
         throw error;
     }
 }

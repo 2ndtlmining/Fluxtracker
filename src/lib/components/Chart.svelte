@@ -196,9 +196,6 @@
   onMount(async () => {
     // Get API URL in browser context
     API_URL = getApiUrl();
-    console.log('✅ Chart component using API URL:', API_URL);
-
-    console.log('📊 Chart component mounted');
 
     // Pre-load dynamic category repos if starting on a dynamic category
     const cat = categories[selectedCategory];
