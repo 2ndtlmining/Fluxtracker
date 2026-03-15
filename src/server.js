@@ -77,6 +77,8 @@ import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 
+import os from 'os';
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -148,7 +150,7 @@ app.use((req, res, next) => {
     }
 
     // Skip specific endpoints based on config
-    if (!LOGGING_CONFIG.logHealthChecks && path.includes('/health')) return next();
+    if (!LOGGING_CONFIG.logHealthChecks && (path.includes('/health') || path.includes('/header'))) return next();
     if (!LOGGING_CONFIG.logStatsEndpoints && path.includes('/stats')) return next();
     if (!LOGGING_CONFIG.logMetricsEndpoints && path.includes('/metrics')) return next();
     if (!LOGGING_CONFIG.logComparisonEndpoints && path.includes('/comparison')) return next();
@@ -184,6 +186,52 @@ app.get('/api/health', async (req, res) => {
                 error: 'Unable to get snapshot status'
             }
         });
+    }
+});
+
+// Consolidated header stats endpoint (replaces separate /api/health + /api/stats calls from header)
+app.get('/api/header', async (req, res) => {
+    try {
+        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus] = await Promise.all([
+            getCurrentMetrics(),
+            getDatabaseStats(),
+            getLastNSnapshots(1),
+            getSyncStatus('revenue'),
+            getTxidCount(),
+            getSnapshotSystemStatus()
+        ]);
+
+        let blockHeight = null;
+        try {
+            blockHeight = await fetchCurrentBlockHeight();
+        } catch (_) {}
+
+        res.json({
+            network: {
+                fluxPriceUsd: metrics?.flux_price_usd || null,
+                blockHeight,
+                totalNodes: metrics?.node_total || 0,
+                totalApps: metrics?.total_apps || 0
+            },
+            tracker: {
+                uptime: process.uptime(),
+                snapshots: stats?.snapshots || 0,
+                lastSnapshotDate: lastSnapshots?.[0]?.snapshot_date || null,
+                snapshotHealthy: snapshotStatus?.isHealthy ?? true,
+                transactions: txCount || 0,
+                lastSyncBlock: syncStatus?.last_sync_block || null
+            },
+            host: {
+                platform: os.platform(),
+                nodeVersion: process.version,
+                cpuCores: os.cpus().length,
+                totalMemMB: Math.round(os.totalmem() / 1048576),
+                usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
+                memPercent: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
