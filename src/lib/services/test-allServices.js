@@ -44,7 +44,7 @@ async function testAllServices() {
         // Show final results
         console.log('\n📈 Final Database State');
         console.log('='.repeat(60));
-        const metrics = getCurrentMetrics();
+        const metrics = await getCurrentMetrics();
         console.log(JSON.stringify(metrics, null, 2));
         
         console.log('\n✅ All services tested successfully!\n');

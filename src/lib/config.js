@@ -372,22 +372,10 @@ export function getApiUrl() {
     // Use the SAME origin (protocol + hostname + port) as the frontend
     // The SvelteKit server will proxy /api/* requests to the Express backend
     const origin = window.location.origin;
-    
-    console.log('[config] Using same-origin API (proxied):', origin);
-    console.log('[config] Frontend URL:', window.location.href);
-    console.log('[config] API requests will go to:', `${origin}/api/*`);
-    console.log('[config] SvelteKit will proxy these to: http://localhost:3000/api/*');
-    
     return origin;
 }
 
-/**
- * Alternative function for SSR contexts (server-side rendering)
- * Returns empty string since API calls should only happen client-side
- */
-export function getApiUrlSSR() {
-    return '';
-}
+
 
 // ============================================
 // DYNAMIC CATEGORY CONFIG (for repo_snapshots)
@@ -500,6 +488,3 @@ export function getDisplayName(imageName) {
     return name.replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// Fallback constants (do not use these directly - use getApiUrl() instead)
-export const API_BASE_URL = 'http://localhost:5173';  // Development fallback
-export const API_BASE_URL_SSR = '';  // No API calls during SSR

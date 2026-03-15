@@ -43,11 +43,8 @@ Thumbs.db
 logs
 *.log
 
-# Database (if you want a fresh DB in container)
-# Uncomment if you don't want to copy existing DB
-# *.db
-# *.db-shm
-# *.db-wal
+# Data directory (runtime data, historical JSON)
+data/
 
 # Temporary files
 tmp

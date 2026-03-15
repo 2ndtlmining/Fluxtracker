@@ -1,6 +1,6 @@
 import cron from 'node-cron';
-import { 
-    createDailySnapshot, 
+import {
+    createDailySnapshot,
     getCurrentMetrics,
     getSnapshotByDate,
     deleteOldSnapshots,
@@ -13,49 +13,49 @@ import {
  * Takes a daily snapshot at midnight UTC
  * Runs automatically via cron job
  */
-export function takeSnapshot() {
+export async function takeSnapshot() {
     try {
         console.log('📸 Taking daily snapshot...');
-        
+
         const now = new Date();
         const snapshotDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
-        
+
         // Check if snapshot already exists for today
-        const existingSnapshot = getSnapshotByDate(snapshotDate);
+        const existingSnapshot = await getSnapshotByDate(snapshotDate);
         if (existingSnapshot) {
             console.log(`⚠️  Snapshot already exists for ${snapshotDate}`);
             return existingSnapshot;
         }
-        
+
         // Get current metrics from the database
-        const currentMetrics = getCurrentMetrics();
-        
+        const currentMetrics = await getCurrentMetrics();
+
         if (!currentMetrics) {
             throw new Error('No current metrics available to snapshot');
         }
-        
+
         // Prepare snapshot data
         const snapshotData = {
             snapshot_date: snapshotDate,
             timestamp: Math.floor(now.getTime() / 1000),
-            
+
             // Revenue - use current_revenue from current_metrics
             daily_revenue: currentMetrics.current_revenue || 0,
             flux_price_usd: currentMetrics.flux_price_usd || null,
-            
+
             // Cloud Utilization
             total_cpu_cores: currentMetrics.total_cpu_cores || 0,
             used_cpu_cores: currentMetrics.used_cpu_cores || 0,
             cpu_utilization_percent: currentMetrics.cpu_utilization_percent || 0,
-            
+
             total_ram_gb: currentMetrics.total_ram_gb || 0,
             used_ram_gb: currentMetrics.used_ram_gb || 0,
             ram_utilization_percent: currentMetrics.ram_utilization_percent || 0,
-            
+
             total_storage_gb: currentMetrics.total_storage_gb || 0,
             used_storage_gb: currentMetrics.used_storage_gb || 0,
             storage_utilization_percent: currentMetrics.storage_utilization_percent || 0,
-            
+
             // Apps
             total_apps: currentMetrics.total_apps || 0,
             watchtower_count: currentMetrics.watchtower_count || 0,
@@ -63,15 +63,15 @@ export function takeSnapshot() {
             dockerapps_count: currentMetrics.dockerapps_count || 0,
             gitapps_percent: currentMetrics.gitapps_percent || 0,
             dockerapps_percent: currentMetrics.dockerapps_percent || 0,
-            
+
             // Gaming
             gaming_apps_total: currentMetrics.gaming_apps_total || 0,
             gaming_palworld: currentMetrics.gaming_palworld || 0,
             gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
             gaming_minecraft: currentMetrics.gaming_minecraft || 0,
             gaming_valheim: currentMetrics.gaming_valheim || 0,
-            gaming_satisfactory: currentMetrics.gaming_satisfactory || 0, 
-            
+            gaming_satisfactory: currentMetrics.gaming_satisfactory || 0,
+
             // Crypto Nodes
             crypto_presearch: currentMetrics.crypto_presearch || 0,
             crypto_streamr: currentMetrics.crypto_streamr || 0,
@@ -83,32 +83,32 @@ export function takeSnapshot() {
             crypto_timpi_geocore: currentMetrics.crypto_timpi_geocore || 0,
             crypto_kaspa: currentMetrics.crypto_kaspa || 0,
             crypto_nodes_total: currentMetrics.crypto_nodes_total || 0,
-            
+
             // WordPress
             wordpress_count: currentMetrics.wordpress_count || 0,
-            
+
             // Nodes
             node_cumulus: currentMetrics.node_cumulus || 0,
             node_nimbus: currentMetrics.node_nimbus || 0,
             node_stratus: currentMetrics.node_stratus || 0,
             node_total: currentMetrics.node_total || 0,
-            
+
             sync_status: 'completed'
         };
-        
+
         // Create the snapshot
-        createDailySnapshot(snapshotData);
-        
+        await createDailySnapshot(snapshotData);
+
         // Update sync status
-        updateSyncStatus('daily_snapshot', 'completed');
-        
+        await updateSyncStatus('daily_snapshot', 'completed');
+
         console.log(`✅ Daily snapshot created successfully for ${snapshotDate}`);
-        
+
         return snapshotData;
-        
+
     } catch (error) {
         console.error('❌ Error taking snapshot:', error);
-        updateSyncStatus('daily_snapshot', 'failed', error.message);
+        await updateSyncStatus('daily_snapshot', 'failed', error.message);
         throw error;
     }
 }
@@ -118,44 +118,44 @@ export function takeSnapshot() {
  * This function creates historical snapshots using revenue transaction data
  * Use this once to populate snapshots for dates where you have revenue but no snapshots
  */
-export function backfillRevenueSnapshots(startDate, endDate) {
+export async function backfillRevenueSnapshots(startDate, endDate) {
     console.log(`📊 Backfilling snapshots from ${startDate} to ${endDate}...`);
-    
+
     try {
         const start = new Date(startDate);
         const end = new Date(endDate);
         let created = 0;
         let skipped = 0;
-        
+
         // Iterate through each day
         for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
             const dateStr = date.toISOString().split('T')[0];
-            
+
             // Check if snapshot already exists
-            const existing = getSnapshotByDate(dateStr);
+            const existing = await getSnapshotByDate(dateStr);
             if (existing) {
                 skipped++;
                 continue;
             }
-            
+
             // Get revenue for this specific date
-            const dailyRevenue = getRevenueForDateRange(dateStr, dateStr);
-            
+            const dailyRevenue = await getRevenueForDateRange(dateStr, dateStr);
+
             // Skip if no revenue data for this date
             if (!dailyRevenue || dailyRevenue === 0) {
                 continue;
             }
-            
+
             // Create snapshot with revenue data
             // Note: Other metrics will be 0 since we don't have historical data for them
             const snapshotData = {
                 snapshot_date: dateStr,
                 timestamp: Math.floor(date.getTime() / 1000),
-                
+
                 // Revenue from transactions
                 daily_revenue: dailyRevenue,
                 flux_price_usd: null, // No historical price data
-                
+
                 // All other metrics set to 0 (we don't have historical data)
                 total_cpu_cores: 0,
                 used_cpu_cores: 0,
@@ -195,15 +195,15 @@ export function backfillRevenueSnapshots(startDate, endDate) {
                 node_total: 0,
                 sync_status: 'backfilled'
             };
-            
-            createDailySnapshot(snapshotData);
+
+            await createDailySnapshot(snapshotData);
             created++;
         }
-        
+
         console.log(`✅ Backfill complete: ${created} snapshots created, ${skipped} skipped (already existed)`);
-        
+
         return { created, skipped };
-        
+
     } catch (error) {
         console.error('❌ Error during backfill:', error);
         throw error;
@@ -213,30 +213,30 @@ export function backfillRevenueSnapshots(startDate, endDate) {
 /**
  * Manual snapshot (can be triggered anytime for testing)
  */
-export function takeManualSnapshot() {
+export async function takeManualSnapshot() {
     console.log('🔧 Taking manual snapshot...');
-    return takeSnapshot();
+    return await takeSnapshot();
 }
 
 /**
  * Cleanup old data (snapshots and transactions older than retention period)
  */
-export function cleanupOldData(retentionDays = 365) {
+export async function cleanupOldData(retentionDays = 365) {
     console.log(`🗑️  Cleaning up data older than ${retentionDays} days...`);
-    
+
     try {
-        const snapshotsDeleted = deleteOldSnapshots(retentionDays);
-        const transactionsDeleted = deleteOldTransactions(retentionDays);
-        
+        const snapshotsDeleted = await deleteOldSnapshots(retentionDays);
+        const transactionsDeleted = await deleteOldTransactions(retentionDays);
+
         console.log(`✅ Cleanup complete:`);
         console.log(`   Snapshots deleted: ${snapshotsDeleted}`);
         console.log(`   Transactions deleted: ${transactionsDeleted}`);
-        
+
         return {
             snapshotsDeleted,
             transactionsDeleted
         };
-        
+
     } catch (error) {
         console.error('❌ Error during cleanup:', error);
         throw error;
@@ -248,13 +248,13 @@ export function cleanupOldData(retentionDays = 365) {
  */
 export function scheduleSnapshotJob() {
     // Run at 00:05 UTC (5 minutes after midnight)
-    const job = cron.schedule('5 0 * * *', () => {
+    const job = cron.schedule('5 0 * * *', async () => {
         console.log('\n⏰ Scheduled snapshot job triggered');
-        takeSnapshot();
+        await takeSnapshot();
     }, {
         timezone: 'UTC'
     });
-    
+
     console.log('📅 Snapshot job scheduled (runs at 00:05 UTC daily)');
     return job;
 }
@@ -264,13 +264,13 @@ export function scheduleSnapshotJob() {
  */
 export function scheduleCleanupJob() {
     // Run every Sunday at 3 AM UTC
-    const job = cron.schedule('0 3 * * 0', () => {
+    const job = cron.schedule('0 3 * * 0', async () => {
         console.log('\n🗑️  Scheduled cleanup job triggered');
-        cleanupOldData(365); // Keep 1 year of data
+        await cleanupOldData(365); // Keep 1 year of data
     }, {
         timezone: 'UTC'
     });
-    
+
     console.log('📅 Cleanup job scheduled (runs Sundays at 03:00 UTC)');
     return job;
 }
@@ -279,44 +279,44 @@ export function scheduleCleanupJob() {
  * NEW: Compare current metrics vs snapshot from X days ago
  * UPDATED: Now includes CPU, RAM, and Storage comparisons
  */
-export function getComparisonWithCurrent(daysAgo) {
+export async function getComparisonWithCurrent(daysAgo) {
     // Get current live metrics
-    const currentMetrics = getCurrentMetrics();
-    
+    const currentMetrics = await getCurrentMetrics();
+
     if (!currentMetrics) {
         console.warn('⚠️  No current metrics available');
         return null;
     }
-    
+
     // Calculate the comparison date
     const compareDate = new Date();
     compareDate.setDate(compareDate.getDate() - daysAgo);
     const compareDateStr = compareDate.toISOString().split('T')[0];
-    
+
     // Get snapshot from X days ago
-    const pastSnapshot = getSnapshotByDate(compareDateStr);
-    
+    const pastSnapshot = await getSnapshotByDate(compareDateStr);
+
     if (!pastSnapshot) {
         console.warn(`⚠️  No snapshot found for ${compareDateStr}`);
         return null;
     }
-    
+
     const calculateChange = (oldVal, newVal) => {
         if (oldVal === 0) return newVal > 0 ? 100 : 0;
         return ((newVal - oldVal) / oldVal) * 100;
     };
-    
+
     const calculateDifference = (oldVal, newVal) => {
         return newVal - oldVal;
     };
-    
+
     // FIXED: Get today's date for transaction-based revenue comparison
     const today = new Date().toISOString().split('T')[0];
-    
+
     // Get actual daily revenue from transactions for both dates
-    const todayRevenue = getRevenueForDateRange(today, today);
-    const pastRevenue = getRevenueForDateRange(compareDateStr, compareDateStr);
-    
+    const todayRevenue = await getRevenueForDateRange(today, today);
+    const pastRevenue = await getRevenueForDateRange(compareDateStr, compareDateStr);
+
     // Compare current metrics to past snapshot
     return {
         revenue: {
@@ -381,23 +381,23 @@ export function getComparisonWithCurrent(daysAgo) {
  * DEPRECATED: Compare two snapshots (old method)
  * Kept for backward compatibility but not recommended
  */
-export function getComparisonMetrics(date1, date2) {
-    const snapshot1 = getSnapshotByDate(date1);
-    const snapshot2 = getSnapshotByDate(date2);
-    
+export async function getComparisonMetrics(date1, date2) {
+    const snapshot1 = await getSnapshotByDate(date1);
+    const snapshot2 = await getSnapshotByDate(date2);
+
     if (!snapshot1 || !snapshot2) {
         return null;
     }
-    
+
     const calculateChange = (oldVal, newVal) => {
         if (oldVal === 0) return newVal > 0 ? 100 : 0;
         return ((newVal - oldVal) / oldVal) * 100;
     };
-    
+
     const calculateDifference = (oldVal, newVal) => {
         return newVal - oldVal;
     };
-    
+
     return {
         revenue: {
             old: snapshot1.daily_revenue,
@@ -412,10 +412,10 @@ export function getComparisonMetrics(date1, date2) {
             difference: calculateDifference(snapshot1.total_apps, snapshot2.total_apps),
             // Git/Docker app breakdown
             gitChange: calculateDifference(snapshot1.gitapps_count ?? 0, snapshot2.gitapps_count ?? 0),
-            gitTrend: calculateDifference(snapshot1.gitapps_count || 0, snapshot2.gitapps_count || 0) > 0 ? 'up' : 
+            gitTrend: calculateDifference(snapshot1.gitapps_count || 0, snapshot2.gitapps_count || 0) > 0 ? 'up' :
                      calculateDifference(snapshot1.gitapps_count || 0, snapshot2.gitapps_count || 0) < 0 ? 'down' : 'neutral',
             dockerChange: calculateDifference(snapshot1.dockerapps_count ?? 0, snapshot2.dockerapps_count ?? 0),
-            dockerTrend: calculateDifference(snapshot1.dockerapps_count || 0, snapshot2.dockerapps_count || 0) > 0 ? 'up' : 
+            dockerTrend: calculateDifference(snapshot1.dockerapps_count || 0, snapshot2.dockerapps_count || 0) > 0 ? 'up' :
                         calculateDifference(snapshot1.dockerapps_count || 0, snapshot2.dockerapps_count || 0) < 0 ? 'down' : 'neutral'
         },
         gaming: {
@@ -449,7 +449,7 @@ export function getComparisonMetrics(date1, date2) {
  * DEPRECATED: Get metrics for specific time period (old method)
  * Kept for backward compatibility
  */
-export function getTimeframeMetrics(timeframe = 'day') {
+export async function getTimeframeMetrics(timeframe = 'day') {
     // Convert number to string, or handle invalid input
     if (typeof timeframe === 'number') {
         // If it's a number, use it directly as days
@@ -458,25 +458,25 @@ export function getTimeframeMetrics(timeframe = 'day') {
         const compareDate = new Date(now);
         compareDate.setDate(compareDate.getDate() - timeframe);
         const compareDateStr = compareDate.toISOString().split('T')[0];
-        
-        const comparison = getComparisonMetrics(compareDateStr, today);
-        
+
+        const comparison = await getComparisonMetrics(compareDateStr, today);
+
         // If today's snapshot doesn't exist yet, try yesterday
         if (!comparison) {
             const yesterday = new Date(now);
             yesterday.setDate(yesterday.getDate() - 1);
             const yesterdayStr = yesterday.toISOString().split('T')[0];
-            
+
             const fallbackCompareDate = new Date(yesterday);
             fallbackCompareDate.setDate(fallbackCompareDate.getDate() - timeframe);
             const fallbackCompareDateStr = fallbackCompareDate.toISOString().split('T')[0];
-            
-            return getComparisonMetrics(fallbackCompareDateStr, yesterdayStr);
+
+            return await getComparisonMetrics(fallbackCompareDateStr, yesterdayStr);
         }
-        
+
         return comparison;
     }
-    
+
     if (typeof timeframe !== 'string' || !timeframe) {
         console.warn('Invalid timeframe provided. Defaulting to "day".');
         timeframe = 'day';
@@ -484,7 +484,7 @@ export function getTimeframeMetrics(timeframe = 'day') {
 
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    
+
     let daysAgo;
     switch (timeframe.toLowerCase()) {
         case 'day':
@@ -510,27 +510,27 @@ export function getTimeframeMetrics(timeframe = 'day') {
         default:
             daysAgo = parseInt(timeframe) || 1; // Allow numeric input
     }
-    
+
     const compareDate = new Date(now);
     compareDate.setDate(compareDate.getDate() - daysAgo);
     const compareDateStr = compareDate.toISOString().split('T')[0];
-    
+
     // Get comparison
-    const comparison = getComparisonMetrics(compareDateStr, today);
-    
+    const comparison = await getComparisonMetrics(compareDateStr, today);
+
     // If today's snapshot doesn't exist yet, try yesterday
     if (!comparison) {
         const yesterday = new Date(now);
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
-        
+
         const fallbackCompareDate = new Date(yesterday);
         fallbackCompareDate.setDate(fallbackCompareDate.getDate() - daysAgo);
         const fallbackCompareDateStr = fallbackCompareDate.toISOString().split('T')[0];
-        
-        return getComparisonMetrics(fallbackCompareDateStr, yesterdayStr);
+
+        return await getComparisonMetrics(fallbackCompareDateStr, yesterdayStr);
     }
-    
+
     return comparison;
 }
 
@@ -539,12 +539,12 @@ export function getTimeframeMetrics(timeframe = 'day') {
  */
 export function initializeSnapshotJobs() {
     console.log('🚀 Initializing snapshot jobs...');
-    
+
     const snapshotJob = scheduleSnapshotJob();
     const cleanupJob = scheduleCleanupJob();
-    
+
     console.log('✅ All snapshot jobs initialized');
-    
+
     return {
         snapshotJob,
         cleanupJob
@@ -555,14 +555,14 @@ export function initializeSnapshotJobs() {
  * UPDATED: Get analytics for comparison API
  * Now includes cloud resource comparisons (CPU, RAM, Storage)
  */
-export function getAnalyticsComparison(days) {
+export async function getAnalyticsComparison(days) {
     // Use the new comparison method
-    const comparison = getComparisonWithCurrent(days);
-    
+    const comparison = await getComparisonWithCurrent(days);
+
     if (!comparison) {
         return null;
     }
-    
+
     // Format for frontend
     return {
         period: days,

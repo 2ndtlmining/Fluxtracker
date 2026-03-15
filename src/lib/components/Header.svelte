@@ -27,12 +27,11 @@
   onMount(async () => {
     // Get API URL in browser context
     API_URL = getApiUrl();
-    console.log('✅ Header using API URL:', API_URL);
     
     await fetchSystemStats();
     
-    // Update every 5 seconds
-    interval = setInterval(fetchSystemStats, 5000);
+    // Update every 30 seconds (system stats change slowly)
+    interval = setInterval(fetchSystemStats, 30000);
   });
   
   onDestroy(() => {

@@ -76,8 +76,8 @@ async function getSharedFluxApiData() {
         return cachedFluxApiData;
     }
     const [blockHeightResponse, appsResponse] = await Promise.all([
-        axios.get('https://api.runonflux.io/daemon/getblockcount', { timeout: 15000 }),
-        axios.get('https://api.runonflux.io/apps/globalappsspecifications', { timeout: 15000 })
+        axios.get(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000 }),
+        axios.get(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000 })
     ]);
     cachedFluxApiData = {
         currentBlockHeight: blockHeightResponse.data?.data || 0,
@@ -294,7 +294,7 @@ async function fetchTopApps() {
 async function fetchTopBenchmarks() {
     try {
         const response = await axios.get(
-            'https://stats.runonflux.io/fluxinfo?projection=benchmark',
+            API_ENDPOINTS.API_NODE_BENCHMARKS,
             { timeout: 15000 }
         );
         

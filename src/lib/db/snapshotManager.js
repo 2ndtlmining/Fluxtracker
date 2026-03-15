@@ -40,10 +40,10 @@ export function getSnapshotState() {
     return { ...safeState, repoRetryPending: !!repoRetryId };
 }
 
-export function getSnapshotSystemStatus() {
+export async function getSnapshotSystemStatus() {
     const today = new Date().toISOString().split('T')[0];
-    const todaySnapshot = getSnapshotByDate(today);
-    
+    const todaySnapshot = await getSnapshotByDate(today);
+
     const { repoRetryId, ...safeState } = state;
     return {
         config: CONFIG,
@@ -103,42 +103,42 @@ function areMetricsPopulated(metrics) {
 // SNAPSHOT CREATION
 // ============================================
 
-function shouldTakeSnapshot() {
+async function shouldTakeSnapshot() {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
-    
+
     // Check if today's snapshot exists
-    const existingSnapshot = getSnapshotByDate(today);
+    const existingSnapshot = await getSnapshotByDate(today);
     if (existingSnapshot) {
         return {
             should: false,
             reason: `Snapshot already exists for ${today}`
         };
     }
-    
+
     // Check grace period after midnight
     const currentHour = now.getUTCHours();
     const currentMinute = now.getUTCMinutes();
     const minutesSinceMidnight = currentHour * 60 + currentMinute;
-    
+
     if (minutesSinceMidnight < CONFIG.GRACE_PERIOD_MINUTES) {
         return {
             should: false,
             reason: `Within grace period (${CONFIG.GRACE_PERIOD_MINUTES} min after midnight)`
         };
     }
-    
+
     // Validate metrics
-    const currentMetrics = getCurrentMetrics();
+    const currentMetrics = await getCurrentMetrics();
     const metricsCheck = areMetricsPopulated(currentMetrics);
-    
+
     if (!metricsCheck.valid) {
         return {
             should: false,
             reason: `Metrics not ready: ${metricsCheck.reason}`
         };
     }
-    
+
     return {
         should: true,
         reason: `Ready: ${metricsCheck.reason}`
@@ -152,14 +152,14 @@ async function takeSnapshot() {
         const now = new Date();
         const snapshotDate = now.toISOString().split('T')[0];
         
-        const currentMetrics = getCurrentMetrics();
-        
+        const currentMetrics = await getCurrentMetrics();
+
         if (!currentMetrics) {
             throw new Error('No current metrics available');
         }
-        
+
         // Get actual revenue from transactions for TODAY
-        const actualRevenue = getRevenueForDateRange(snapshotDate, snapshotDate);
+        const actualRevenue = await getRevenueForDateRange(snapshotDate, snapshotDate);
         
         console.log(`   💰 Revenue for ${snapshotDate}: ${actualRevenue.toFixed(2)} FLUX`);
         
@@ -224,13 +224,13 @@ async function takeSnapshot() {
             sync_status: 'completed'
         };
         
-        createDailySnapshot(snapshotData);
+        await createDailySnapshot(snapshotData);
 
         // Save per-repo Docker image counts
         const repoCounts = getLatestRepoCounts();
         const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
         if (repoKeyCount >= 10) {
-            const saved = createRepoSnapshots(snapshotDate, repoCounts);
+            const saved = await createRepoSnapshots(snapshotDate, repoCounts);
             console.log(`   Docker repos: ${saved} unique images tracked`);
             state.repoRetryCount = 0;
         } else if (repoKeyCount > 0) {
@@ -297,19 +297,19 @@ async function runCheck() {
     try {
         state.isRunning = true;
 
-        const check = shouldTakeSnapshot();
+        const check = await shouldTakeSnapshot();
 
         if (!check.should) {
             console.log(`⏸️  ${check.reason}`);
 
             // Daily snapshot exists, but check if repo snapshots are missing
             const today = new Date().toISOString().split('T')[0];
-            const repoCount = getRepoSnapshotCountByDate(today);
+            const repoCount = await getRepoSnapshotCountByDate(today);
             if (repoCount === 0) {
                 const repoCounts = getLatestRepoCounts();
                 const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
                 if (repoKeyCount >= 10) {
-                    const saved = createRepoSnapshots(today, repoCounts);
+                    const saved = await createRepoSnapshots(today, repoCounts);
                     console.log(`   Repo snapshots missing - created: ${saved} Docker images tracked for ${today}`);
                     state.repoRetryCount = 0;
                 } else if (repoKeyCount > 0) {
@@ -379,7 +379,7 @@ export function stopSnapshotChecker() {
 export async function takeManualSnapshot() {
     console.log('🔧 Manual snapshot triggered...');
 
-    const check = shouldTakeSnapshot();
+    const check = await shouldTakeSnapshot();
 
     if (!check.should) {
         return {
@@ -396,7 +396,7 @@ export async function takeManualSnapshot() {
  * Take a repo-only snapshot for today, independent of daily snapshot.
  * Useful for first-time population or testing.
  */
-export function takeRepoSnapshot() {
+export async function takeRepoSnapshot() {
     const snapshotDate = new Date().toISOString().split('T')[0];
     const repoCounts = getLatestRepoCounts();
     const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
@@ -415,7 +415,7 @@ export function takeRepoSnapshot() {
         };
     }
 
-    const count = createRepoSnapshots(snapshotDate, repoCounts);
+    const count = await createRepoSnapshots(snapshotDate, repoCounts);
     console.log(`Repo snapshot: ${count} unique Docker images tracked for ${snapshotDate}`);
 
     return {

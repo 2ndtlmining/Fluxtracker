@@ -141,7 +141,6 @@
   
  onMount(async () => {
   API_URL = getApiUrl();
-  console.log('✅ Using API URL:', API_URL);
   
   // Load all data in parallel
   await Promise.all([

@@ -1,92 +1,65 @@
-// flux-performance-dashboard/src/lib/db/schemaMigrator.js
+// Schema Migrator - Supabase (PostgreSQL) version
+// Automatically detects when new repos are added to config
+// and creates the necessary database columns.
 
-/**
- * SCHEMA MIGRATOR - AUTOMATIC COLUMN DETECTION & CREATION
- * 
- * This module automatically detects when new repos are added to config
- * and creates the necessary database columns WITHOUT losing any data.
- * 
- * Features:
- * - Runs automatically on server startup
- * - Can be triggered via API endpoint
- * - Safe: Uses ALTER TABLE which preserves all existing data
- * - Idempotent: Safe to run multiple times
- * - Transaction-based: All-or-nothing approach
- * 
- * UPDATED: Now handles both config-based columns AND fixed app-level columns
- */
+import { supabase } from './supabaseClient.js';
+import pg from 'pg';
 
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-
-const dataDir = path.join(process.cwd(), 'data');
-const dbPath = path.join(dataDir, 'flux-performance.db');
-
-/**
- * FIXED COLUMNS - Core app-level metrics that should always exist
- * These are NOT in config but are essential to the app
- */
 const FIXED_COLUMNS = [
-    // Git/Docker app tracking
     { name: 'gitapps_count', type: 'INTEGER DEFAULT 0' },
     { name: 'dockerapps_count', type: 'INTEGER DEFAULT 0' },
-    { name: 'gitapps_percent', type: 'REAL DEFAULT 0' },
-    { name: 'dockerapps_percent', type: 'REAL DEFAULT 0' },
-    
-    // Add any other fixed columns here in the future
-    // { name: 'some_new_metric', type: 'INTEGER DEFAULT 0' },
+    { name: 'gitapps_percent', type: 'DOUBLE PRECISION DEFAULT 0' },
+    { name: 'dockerapps_percent', type: 'DOUBLE PRECISION DEFAULT 0' },
 ];
 
-/**
- * Get all current columns in a table
- */
-function getTableColumns(db, tableName) {
-    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-    return columns.map(col => col.name);
+async function getTableColumns(tableName) {
+    // Query the table with limit 1 and inspect the returned keys
+    const { data: sample, error } = await supabase.from(tableName).select('*').limit(1);
+    if (error) {
+        console.warn(`getTableColumns(${tableName}): ${error.message}`);
+        return [];
+    }
+    if (sample && sample.length > 0) {
+        return Object.keys(sample[0]);
+    }
+    // Table exists but is empty — insert a dummy row, read columns, then delete
+    // This shouldn't happen for current_metrics/daily_snapshots (always have data)
+    return [];
 }
 
-/**
- * Check if a column exists in a table
- */
-function columnExists(db, tableName, columnName) {
-    const columns = getTableColumns(db, tableName);
+async function columnExists(tableName, columnName) {
+    const columns = await getTableColumns(tableName);
     return columns.includes(columnName);
 }
 
-/**
- * Add a column to a table (safe - preserves all data)
- */
-function addColumn(db, tableName, columnName, columnType = 'INTEGER DEFAULT 0') {
+async function addColumn(tableName, columnName, columnType = 'INTEGER DEFAULT 0') {
+    // DDL (ALTER TABLE) requires a direct PostgreSQL connection — PostgREST can't run DDL
+    const dbUrl = process.env.SUPABASE_DB_URL
+        || process.env.SUPABASE_URL?.replace(':54321', ':54322')?.replace('http://', 'postgresql://postgres:postgres@') + '/postgres';
+
+    const client = new pg.Client({ connectionString: dbUrl });
     try {
-        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType};`);
-        return true;
+        await client.connect();
+        const sql = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS ${columnName} ${columnType}`;
+        await client.query(sql);
     } catch (error) {
-        if (error.message.includes('duplicate column name')) {
-            // Column already exists - this is fine
-            return false;
+        if (error.message?.includes('already exists')) {
+            // Column already exists — this is fine
+        } else {
+            console.warn(`addColumn warning for ${tableName}.${columnName}:`, error.message);
         }
-        throw error;
+    } finally {
+        await client.end();
     }
+    return true;
 }
 
-/**
- * Extract all repo dbKeys from a config array
- */
 function extractRepoKeys(repoConfig) {
-    if (!Array.isArray(repoConfig)) {
-        return [];
-    }
+    if (!Array.isArray(repoConfig)) return [];
     return repoConfig.map(repo => repo.dbKey).filter(Boolean);
 }
 
-/**
- * MAIN MIGRATION FUNCTION
- * Analyzes config and ensures all columns exist
- */
 export async function migrateSchema(config) {
-    const db = new Database(dbPath);
-    
     const results = {
         success: true,
         columnsAdded: [],
@@ -94,218 +67,122 @@ export async function migrateSchema(config) {
         errors: [],
         timestamp: new Date().toISOString()
     };
-    
+
     try {
         console.log('\n🔄 Starting schema migration...');
-        
-        // ============================================
-        // STEP 1: Extract repo-based columns from config
-        // ============================================
+
         const allRepoKeys = [
             ...extractRepoKeys(config.GAMING_REPOS || []),
             ...extractRepoKeys(config.CRYPTO_REPOS || []),
             ...extractRepoKeys(config.OTHER_REPOS || [])
         ];
-        
+
         console.log(`   Found ${allRepoKeys.length} repo keys in config`);
         console.log(`   Found ${FIXED_COLUMNS.length} fixed app-level columns`);
-        
-        // Tables that need to track these columns
+
         const targetTables = ['current_metrics', 'daily_snapshots'];
-        
-        // Begin transaction for safety
-        db.exec('BEGIN TRANSACTION');
-        
-        try {
-            // ============================================
-            // STEP 2: Add FIXED app-level columns first
-            // ============================================
-            console.log('\n   📊 Checking FIXED app-level columns...');
-            
-            for (const tableName of targetTables) {
-                for (const fixedCol of FIXED_COLUMNS) {
-                    if (columnExists(db, tableName, fixedCol.name)) {
-                        console.log(`      ✓ ${tableName}.${fixedCol.name} - exists`);
-                        results.columnsExisting.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
-                    } else {
-                        console.log(`      + ${tableName}.${fixedCol.name} - adding...`);
-                        addColumn(db, tableName, fixedCol.name, fixedCol.type);
-                        console.log(`      ✅ ${tableName}.${fixedCol.name} - added successfully`);
-                        results.columnsAdded.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
-                    }
+
+        // Check fixed columns
+        for (const tableName of targetTables) {
+            for (const fixedCol of FIXED_COLUMNS) {
+                const exists = await columnExists(tableName, fixedCol.name);
+                if (exists) {
+                    results.columnsExisting.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
+                } else {
+                    await addColumn(tableName, fixedCol.name, fixedCol.type);
+                    results.columnsAdded.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
+                    console.log(`      ✅ ${tableName}.${fixedCol.name} - added`);
                 }
             }
-            
-            // ============================================
-            // STEP 3: Add config-based repo columns
-            // ============================================
-            if (allRepoKeys.length > 0) {
-                console.log('\n   📋 Checking CONFIG-based repo columns...');
-                
-                for (const tableName of targetTables) {
-                    for (const repoKey of allRepoKeys) {
-                        if (columnExists(db, tableName, repoKey)) {
-                            console.log(`      ✓ ${tableName}.${repoKey} - exists`);
-                            results.columnsExisting.push({ table: tableName, column: repoKey, type: 'config' });
-                        } else {
-                            console.log(`      + ${tableName}.${repoKey} - adding...`);
-                            addColumn(db, tableName, repoKey, 'INTEGER DEFAULT 0');
-                            console.log(`      ✅ ${tableName}.${repoKey} - added successfully`);
-                            results.columnsAdded.push({ table: tableName, column: repoKey, type: 'config' });
-                        }
-                    }
-                }
-            } else {
-                console.log('\n   ℹ️  No repo keys found in config, skipping config-based columns');
-            }
-            
-            // Commit transaction
-            db.exec('COMMIT');
-            console.log('\n✅ Schema migration completed successfully');
-            
-        } catch (error) {
-            // Rollback on any error
-            db.exec('ROLLBACK');
-            throw error;
         }
-        
-        // Summary
+
+        // Check config-based repo columns
+        if (allRepoKeys.length > 0) {
+            for (const tableName of targetTables) {
+                for (const repoKey of allRepoKeys) {
+                    const exists = await columnExists(tableName, repoKey);
+                    if (exists) {
+                        results.columnsExisting.push({ table: tableName, column: repoKey, type: 'config' });
+                    } else {
+                        await addColumn(tableName, repoKey, 'INTEGER DEFAULT 0');
+                        results.columnsAdded.push({ table: tableName, column: repoKey, type: 'config' });
+                        console.log(`      ✅ ${tableName}.${repoKey} - added`);
+                    }
+                }
+            }
+        }
+
         if (results.columnsAdded.length > 0) {
-            console.log(`\n📊 Migration Summary:`);
-            console.log(`   New columns added: ${results.columnsAdded.length}`);
-            console.log(`   Existing columns: ${results.columnsExisting.length}`);
-            
-            const fixedAdded = results.columnsAdded.filter(c => c.type === 'fixed');
-            const configAdded = results.columnsAdded.filter(c => c.type === 'config');
-            
-            if (fixedAdded.length > 0) {
-                console.log(`\n   Fixed app-level columns added (${fixedAdded.length}):`);
-                fixedAdded.forEach(({ table, column }) => {
-                    console.log(`      • ${table}.${column}`);
-                });
-            }
-            
-            if (configAdded.length > 0) {
-                console.log(`\n   Config-based columns added (${configAdded.length}):`);
-                configAdded.forEach(({ table, column }) => {
-                    console.log(`      • ${table}.${column}`);
-                });
-            }
+            console.log(`\n✅ Schema migration completed: ${results.columnsAdded.length} new columns added`);
         } else {
             console.log('\n✓ Schema is up to date, no changes needed');
         }
-        
+
     } catch (error) {
         console.error('\n❌ Schema migration failed:', error.message);
         results.success = false;
         results.errors.push(error.message);
-        throw error;
-    } finally {
-        db.close();
     }
-    
+
     return results;
 }
 
-/**
- * SAFE MIGRATION - Validates before making changes
- */
 export async function validateAndMigrate(config) {
     try {
-        // First, validate the config structure
         if (!config || typeof config !== 'object') {
             throw new Error('Invalid config: must be an object');
         }
-        
-        // Run the migration
         const results = await migrateSchema(config);
-        
-        return {
-            success: true,
-            message: 'Schema migration completed',
-            ...results
-        };
-        
+        return { success: true, message: 'Schema migration completed', ...results };
     } catch (error) {
-        return {
-            success: false,
-            message: 'Schema migration failed',
-            error: error.message,
-            timestamp: new Date().toISOString()
-        };
+        return { success: false, message: 'Schema migration failed', error: error.message, timestamp: new Date().toISOString() };
     }
 }
 
-/**
- * GET SCHEMA INFO - For debugging/monitoring
- */
-export function getSchemaInfo() {
-    const db = new Database(dbPath);
-    
-    try {
-        const info = {
-            current_metrics: getTableColumns(db, 'current_metrics'),
-            daily_snapshots: getTableColumns(db, 'daily_snapshots'),
-            fixed_columns: FIXED_COLUMNS.map(c => c.name),
-            timestamp: new Date().toISOString()
-        };
-        
-        return info;
-        
-    } catch (error) {
-        throw error;
-    } finally {
-        db.close();
-    }
+export async function getSchemaInfo() {
+    const currentMetricsCols = await getTableColumns('current_metrics');
+    const dailySnapshotsCols = await getTableColumns('daily_snapshots');
+
+    return {
+        current_metrics: currentMetricsCols,
+        daily_snapshots: dailySnapshotsCols,
+        fixed_columns: FIXED_COLUMNS.map(c => c.name),
+        timestamp: new Date().toISOString()
+    };
 }
 
-/**
- * DETECT MISSING COLUMNS - Compare config vs database
- */
-export function detectMissingColumns(config) {
-    const db = new Database(dbPath);
-    
-    try {
-        const allRepoKeys = [
-            ...extractRepoKeys(config.GAMING_REPOS || []),
-            ...extractRepoKeys(config.CRYPTO_REPOS || []),
-            ...extractRepoKeys(config.OTHER_REPOS || [])
-        ];
-        
-        const missing = {
-            current_metrics: [],
-            daily_snapshots: []
-        };
-        
-        // Check fixed columns
-        for (const fixedCol of FIXED_COLUMNS) {
-            if (!columnExists(db, 'current_metrics', fixedCol.name)) {
-                missing.current_metrics.push({ name: fixedCol.name, type: 'fixed' });
-            }
-            if (!columnExists(db, 'daily_snapshots', fixedCol.name)) {
-                missing.daily_snapshots.push({ name: fixedCol.name, type: 'fixed' });
-            }
+export async function detectMissingColumns(config) {
+    const allRepoKeys = [
+        ...extractRepoKeys(config.GAMING_REPOS || []),
+        ...extractRepoKeys(config.CRYPTO_REPOS || []),
+        ...extractRepoKeys(config.OTHER_REPOS || [])
+    ];
+
+    const missing = { current_metrics: [], daily_snapshots: [] };
+
+    for (const fixedCol of FIXED_COLUMNS) {
+        if (!(await columnExists('current_metrics', fixedCol.name))) {
+            missing.current_metrics.push({ name: fixedCol.name, type: 'fixed' });
         }
-        
-        // Check config-based repo columns
-        for (const repoKey of allRepoKeys) {
-            if (!columnExists(db, 'current_metrics', repoKey)) {
-                missing.current_metrics.push({ name: repoKey, type: 'config' });
-            }
-            if (!columnExists(db, 'daily_snapshots', repoKey)) {
-                missing.daily_snapshots.push({ name: repoKey, type: 'config' });
-            }
+        if (!(await columnExists('daily_snapshots', fixedCol.name))) {
+            missing.daily_snapshots.push({ name: fixedCol.name, type: 'fixed' });
         }
-        
-        return {
-            hasMissingColumns: missing.current_metrics.length > 0 || missing.daily_snapshots.length > 0,
-            missing,
-            fixedColumnCount: FIXED_COLUMNS.length,
-            configRepoCount: allRepoKeys.length,
-            timestamp: new Date().toISOString()
-        };
-        
-    } finally {
-        db.close();
     }
+
+    for (const repoKey of allRepoKeys) {
+        if (!(await columnExists('current_metrics', repoKey))) {
+            missing.current_metrics.push({ name: repoKey, type: 'config' });
+        }
+        if (!(await columnExists('daily_snapshots', repoKey))) {
+            missing.daily_snapshots.push({ name: repoKey, type: 'config' });
+        }
+    }
+
+    return {
+        hasMissingColumns: missing.current_metrics.length > 0 || missing.daily_snapshots.length > 0,
+        missing,
+        fixedColumnCount: FIXED_COLUMNS.length,
+        configRepoCount: allRepoKeys.length,
+        timestamp: new Date().toISOString()
+    };
 }

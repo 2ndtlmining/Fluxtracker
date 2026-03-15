@@ -20,12 +20,12 @@ import {
  * On first run, fetches up to 2000 days of history (CryptoCompare limit per call).
  */
 export async function syncPriceHistory() {
-    const latestDate = getLatestPriceDate();
+    const latestDate = await getLatestPriceDate();
     const today = new Date().toISOString().split('T')[0];
 
     if (latestDate === today) {
         console.log('Price history already up to date');
-        return { added: 0, total: getPriceHistoryCount() };
+        return { added: 0, total: await getPriceHistoryCount() };
     }
 
     console.log(`Syncing price history (latest stored: ${latestDate || 'none'})...`);
@@ -67,15 +67,15 @@ export async function syncPriceHistory() {
 
         if (prices.length === 0) {
             console.log('No new price data to insert');
-            return { added: 0, total: getPriceHistoryCount() };
+            return { added: 0, total: await getPriceHistoryCount() };
         }
 
-        const ok = insertPriceHistoryBatch(prices);
+        const ok = await insertPriceHistoryBatch(prices);
         if (!ok) {
-            return { added: 0, error: 'write lock not held' };
+            return { added: 0, error: 'database not available' };
         }
 
-        const total = getPriceHistoryCount();
+        const total = await getPriceHistoryCount();
         console.log(`Price history synced: ${prices.length} new days added (${total} total)`);
         return { added: prices.length, total };
 
@@ -99,8 +99,8 @@ export async function syncPriceHistory() {
  * Build a Map<dateString, priceUSD> for O(1) lookup during transaction processing.
  * Loads prices from the DB for the given range.
  */
-export function buildPriceMap(startDate, endDate) {
-    const rows = getPricesForDateRange(startDate, endDate);
+export async function buildPriceMap(startDate, endDate) {
+    const rows = await getPricesForDateRange(startDate, endDate);
     const map = new Map();
     for (const row of rows) {
         map.set(row.date, row.price_usd);
@@ -113,11 +113,11 @@ export function buildPriceMap(startDate, endDate) {
  * Build a price map covering all available price history.
  * Used when the date range of transactions isn't known upfront.
  */
-export function buildFullPriceMap() {
-    const oldest = getOldestPriceDate();
+export async function buildFullPriceMap() {
+    const oldest = await getOldestPriceDate();
     const today = new Date().toISOString().split('T')[0];
     if (!oldest) return new Map();
-    return buildPriceMap(oldest, today);
+    return await buildPriceMap(oldest, today);
 }
 
 // ============================================
@@ -134,7 +134,7 @@ export async function backfillNullUsdAmounts() {
     // Ensure price history is current
     await syncPriceHistory();
 
-    const priceMap = buildFullPriceMap();
+    const priceMap = await buildFullPriceMap();
     if (priceMap.size === 0) {
         console.warn('No price history available - cannot backfill');
         return { updated: 0, skipped: 0, missingPriceDates: [] };
@@ -147,7 +147,7 @@ export async function backfillNullUsdAmounts() {
 
     // Process in batches to avoid loading all NULL transactions at once
     while (true) {
-        const txs = getTransactionsWithNullUsd(BATCH_SIZE);
+        const txs = await getTransactionsWithNullUsd(BATCH_SIZE);
         if (txs.length === 0) break;
 
         const updates = [];
@@ -165,9 +165,9 @@ export async function backfillNullUsdAmounts() {
         }
 
         if (updates.length > 0) {
-            const ok = updateTransactionUsdBatch(updates);
+            const ok = await updateTransactionUsdBatch(updates);
             if (!ok) {
-                console.warn('Write lock lost during backfill');
+                console.warn('Database error during backfill');
                 break;
             }
             updated += updates.length;

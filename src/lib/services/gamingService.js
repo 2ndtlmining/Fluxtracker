@@ -24,7 +24,7 @@ export async function fetchGamingStats() {
             if (response.data && response.data.status === 'error' && response.data.data) {
                 const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
                 console.error(errorMessage);
-                updateSyncStatus('gaming', 'failed', errorMessage);
+                await updateSyncStatus('gaming', 'failed', errorMessage);
                 return; // Exit the function early
             }
 
@@ -68,8 +68,8 @@ export async function fetchGamingStats() {
                 };
 
                 // Update database
-                updateCurrentMetrics(gamingData);
-                updateSyncStatus('gaming', 'completed');
+                await updateCurrentMetrics(gamingData);
+                await updateSyncStatus('gaming', 'completed');
 
                 console.log('✅ Gaming stats updated:', gamingData);
 
@@ -90,7 +90,7 @@ export async function fetchGamingStats() {
             console.error(`❌ Attempt ${retries}/${MAX_RETRIES} Error fetching gaming stats:`, error.message);
 
             if (retries >= MAX_RETRIES) {
-                updateSyncStatus('gaming', 'failed', error.message);
+                await updateSyncStatus('gaming', 'failed', error.message);
                 throw new Error(error.message);
             }
 
