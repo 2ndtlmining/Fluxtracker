@@ -184,7 +184,7 @@
 
   function formatTime(timestamp) {
     if (!timestamp) return '-';
-    return new Date(timestamp * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return new Date(timestamp * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' });
   }
 
   function getExplorerUrl(txid) {
@@ -468,7 +468,7 @@
                 <th>AMOUNT_FLUX</th>
                 <th>AMOUNT_USD</th>
                 <th>DATE</th>
-                <th>TIME</th>
+                <th>TIME (UTC)</th>
                 <th>BLOCK</th>
               </tr>
             </thead>
@@ -659,7 +659,7 @@
               <thead>
                 <tr>
                   <th>DATE</th>
-                  <th>TIME</th>
+                  <th>TIME (UTC)</th>
                   <th>TRANSACTION_ID</th>
                   <th>FROM_ADDRESS</th>
                   <th>AMOUNT</th>
