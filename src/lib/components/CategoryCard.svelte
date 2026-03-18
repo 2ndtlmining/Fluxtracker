@@ -49,7 +49,7 @@
   onMount(() => {
     API_URL = getApiUrl();
     fetchCategoryData();
-    interval = setInterval(fetchCategoryData, 60000);
+    interval = setInterval(fetchCategoryData, 30 * 60 * 1000); // 30 min — data changes daily
   });
 
   onDestroy(() => {

@@ -269,7 +269,7 @@ export const UI_CONFIG = {
     defaultCurrency: 'FLUX',             // Default currency display
     enableCurrencyToggle: true,          // Allow USD/FLUX toggle
     theme: 'terminal',                   // Terminal theme (like your existing app)
-    refreshInterval: 30000,              // UI refresh rate (30 seconds)
+    refreshInterval: 60000,              // UI refresh rate (60 seconds)
     
     // Dashboard colors (matching your terminal theme)
     colors: {

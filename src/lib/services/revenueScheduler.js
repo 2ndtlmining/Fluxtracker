@@ -7,6 +7,7 @@
 
 import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js';
 import { backfillNullUsdAmounts } from './priceHistoryService.js';
+import { shouldAllowRequest, recordSuccess, recordFailure } from '../db/circuitBreaker.js';
 
 
 // Configuration
@@ -29,28 +30,36 @@ let consecutiveFailures = 0;
 async function runSync() {
     const now = new Date();
     console.log(`\n⏰ Revenue sync scheduled run at ${now.toISOString()}`);
-    
+
     // Prevent concurrent runs
     if (isRunning) {
         console.log('⏭️  Previous sync still running, skipping...');
         return;
     }
-    
+
+    // Check circuit breaker before hitting DB
+    if (!shouldAllowRequest()) {
+        console.log('🔌 Circuit breaker OPEN — skipping revenue sync');
+        return;
+    }
+
     try {
         isRunning = true;
-        
+
         // Call your existing fetchRevenueStats function
         await fetchRevenueStats();
-        
+
         lastRun = Date.now();
         consecutiveFailures = 0;
-        
+        recordSuccess();
+
         console.log('✅ Revenue sync completed\n');
-        
+
     } catch (error) {
         console.error('❌ Revenue sync failed:', error.message);
         consecutiveFailures++;
-        
+        recordFailure();
+
         if (consecutiveFailures >= 3) {
             console.error(`🚨 ALERT: ${consecutiveFailures} consecutive revenue sync failures!`);
         }
@@ -70,6 +79,11 @@ async function runSync() {
  * Run a daily audit to catch any missed transactions
  */
 async function runAudit() {
+    if (!shouldAllowRequest()) {
+        console.log('🔌 Circuit breaker OPEN — skipping audit');
+        return;
+    }
+
     if (isRunning) {
         console.log('Sync in progress — queuing audit to run after sync completes');
         auditPending = true;
@@ -86,8 +100,10 @@ async function runAudit() {
         if (backfill.updated > 0) {
             console.log(`USD backfill: ${backfill.updated} updated, ${backfill.skipped} skipped`);
         }
+        recordSuccess();
     } catch (error) {
         console.error('Daily audit failed:', error.message);
+        recordFailure();
     } finally {
         isRunning = false;
     }

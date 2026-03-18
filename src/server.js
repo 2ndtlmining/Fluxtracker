@@ -31,14 +31,21 @@ import {
     getCategoryHistory,
     getReposByCategory,
     backfillRepoCategories,
-    recategorizeAllRepos
+    recategorizeAllRepos,
+    ensureInitialized,
+    isDbReady,
+    probeDb
 } from './lib/db/database.js';
+
+import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } from './lib/db/circuitBreaker.js';
+import { switchToFailover, getActiveInstanceName, hasFailover } from './lib/db/supabaseClient.js';
 
 import { getDisplayName, CATEGORY_CONFIG } from './lib/config.js';
 
 // Import the NEW snapshot manager
 import {
     startSnapshotChecker,
+    stopSnapshotChecker,
     getSnapshotSystemStatus,
     takeManualSnapshot,
     takeRepoSnapshot
@@ -47,6 +54,7 @@ import {
 // Import the revenue scheduler (wraps your existing revenueService.js)
 import {
     startRevenueSync,
+    stopRevenueSync,
     getRevenueSyncSchedulerStatus
 } from './lib/services/revenueScheduler.js';
 
@@ -77,10 +85,68 @@ import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 
+import { isBackupEnabled, getBackupStatus, performBackup, listBackups, restoreFromBackup } from './lib/services/backupService.js';
+
 import os from 'os';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ============================================
+// RESPONSE CACHE — stale-while-revalidate
+// ============================================
+function createCache(ttlMs) {
+    const store = new Map();
+    return {
+        get(key) {
+            const entry = store.get(key);
+            if (entry && Date.now() - entry.time < ttlMs) return entry.data;
+            return null;
+        },
+        getStale(key) {
+            const entry = store.get(key);
+            return entry ? entry.data : null;
+        },
+        set(key, data) {
+            store.set(key, { data, time: Date.now() });
+        }
+    };
+}
+
+const headerCache = createCache(30_000);      // 30s
+const metricsCache = createCache(60_000);     // 60s
+const revenueCache = createCache(300_000);    // 5 min
+const analyticsCache = createCache(300_000);  // 5 min
+const categoryCache = createCache(300_000);   // 5 min
+
+// ============================================
+// DB FALLBACK HELPER — circuit breaker + stale cache
+// ============================================
+async function withDbFallback(cache, cacheKey, res, fetchFn) {
+    // 1. Return fresh cache if available
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json(cached);
+
+    // 2. If circuit is open, return stale cache or 503
+    if (!shouldAllowRequest()) {
+        const stale = cache.getStale(cacheKey);
+        if (stale) return res.status(503).json({ ...stale, _stale: true, _circuitOpen: true });
+        return res.status(503).json({ error: 'Database unavailable', _circuitOpen: true });
+    }
+
+    // 3. Fetch from DB
+    try {
+        const data = await fetchFn();
+        recordSuccess();
+        cache.set(cacheKey, data);
+        return res.json(data);
+    } catch (error) {
+        recordFailure();
+        const stale = cache.getStale(cacheKey);
+        if (stale) return res.status(503).json({ ...stale, _stale: true });
+        return res.status(503).json({ error: error.message });
+    }
+}
 
 // ============================================
 // LOGGING CONFIGURATION
@@ -160,38 +226,73 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health check (enhanced with snapshot system status)
+// Liveness probe — always 200 if process is running (Docker HEALTHCHECK target)
+app.get('/api/health/live', (_req, res) => {
+    res.json({ status: 'alive', timestamp: Date.now(), uptime: process.uptime() });
+});
+
+// Readiness probe — actively pings DB, 200 if reachable, 503 if not
+app.get('/api/health/ready', async (_req, res) => {
+    const reachable = await probeDb();
+    const circuit = getCircuitState();
+    const status = reachable ? 'ready' : 'degraded';
+    const code = reachable ? 200 : 503;
+
+    res.status(code).json({
+        status,
+        timestamp: Date.now(),
+        db: {
+            reachable,
+            initialized: isDbReady(),
+            circuit: circuit.state,
+            failureCount: circuit.failureCount,
+            activeInstance: getActiveInstanceName()
+        }
+    });
+});
+
+// Combined health check — honest about DB status
 app.get('/api/health', async (req, res) => {
+    const reachable = await probeDb();
+    const circuit = getCircuitState();
+    let snapshotInfo;
     try {
         const snapshotStatus = await getSnapshotSystemStatus();
-
-        res.json({
-            status: 'ok',
-            timestamp: Date.now(),
-            uptime: process.uptime(),
-            snapshot: {
-                healthy: snapshotStatus.isHealthy,
-                todaySnapshotExists: snapshotStatus.todaySnapshotExists,
-                consecutiveFailures: snapshotStatus.state.consecutiveFailures,
-                lastCheck: snapshotStatus.state.lastCheck,
-                lastSuccess: snapshotStatus.state.lastSuccess
-            }
-        });
-    } catch (error) {
-        res.json({
-            status: 'ok',
-            timestamp: Date.now(),
-            uptime: process.uptime(),
-            snapshot: {
-                error: 'Unable to get snapshot status'
-            }
-        });
+        snapshotInfo = {
+            healthy: snapshotStatus.isHealthy,
+            todaySnapshotExists: snapshotStatus.todaySnapshotExists,
+            consecutiveFailures: snapshotStatus.state.consecutiveFailures,
+            lastCheck: snapshotStatus.state.lastCheck,
+            lastSuccess: snapshotStatus.state.lastSuccess
+        };
+    } catch {
+        snapshotInfo = { error: 'Unable to get snapshot status' };
     }
+
+    const backupStatus = getBackupStatus();
+
+    res.json({
+        status: reachable ? 'ok' : 'degraded',
+        timestamp: Date.now(),
+        uptime: process.uptime(),
+        db: {
+            status: reachable ? 'connected' : 'unreachable',
+            circuit: circuit.state,
+            activeInstance: getActiveInstanceName()
+        },
+        snapshot: snapshotInfo,
+        backup: {
+            enabled: backupStatus.enabled,
+            healthy: backupStatus.isHealthy,
+            lastBackup: backupStatus.lastBackup,
+            ageHours: backupStatus.ageHours
+        }
+    });
 });
 
 // Consolidated header stats endpoint (replaces separate /api/health + /api/stats calls from header)
 app.get('/api/header', async (req, res) => {
-    try {
+    return withDbFallback(headerCache, 'header', res, async () => {
         const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus] = await Promise.all([
             getCurrentMetrics(),
             getDatabaseStats(),
@@ -206,7 +307,7 @@ app.get('/api/header', async (req, res) => {
             blockHeight = await fetchCurrentBlockHeight();
         } catch (_) {}
 
-        res.json({
+        return {
             network: {
                 fluxPriceUsd: metrics?.flux_price_usd || null,
                 blockHeight,
@@ -229,10 +330,8 @@ app.get('/api/header', async (req, res) => {
                 usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
                 memPercent: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100)
             }
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // NEW: Snapshot system status endpoint
@@ -657,16 +756,14 @@ app.get('/api/stats', async (req, res) => {
 
 // Current metrics
 app.get('/api/metrics/current', async (req, res) => {
-    try {
-        console.log('Fetching current metrics');
+    return withDbFallback(metricsCache, 'current', res, async () => {
         const metrics = await getCurrentMetrics();
-        if (!metrics) return res.status(404).json({ error: 'No metrics found' });
+        if (!metrics) throw new Error('No metrics found');
 
-        // Get today's date for payment count
         const today = new Date().toISOString().split('T')[0];
         const paymentCount = await getPaymentCountForDateRange(today, today);
 
-        res.json({
+        return {
             lastUpdate: metrics.last_update,
             revenue: {
                 current: metrics.current_revenue,
@@ -691,10 +788,8 @@ app.get('/api/metrics/current', async (req, res) => {
             crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kaspa: metrics.crypto_kaspa, alephium: metrics.crypto_alephium },
             wordpress: { count: metrics.wordpress_count },
             nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total }
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // Enhanced endpoint with full snapshot data for charts
@@ -719,54 +814,41 @@ app.get('/api/history/snapshots/full', async (req, res) => {
 
 // NEW: Endpoint to get daily revenue from transactions (not snapshots)
 app.get('/api/history/revenue/daily', async (req, res) => {
-    try {
-        console.log('Fetching daily revenue from transactions');
-        const { limit, start_date, end_date } = req.query;
+    const { limit, start_date, end_date } = req.query;
+    const cacheKey = `daily:${start_date || ''}:${end_date || ''}:${limit || 30}`;
 
-        // Get daily revenue aggregated from transactions
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
         const revenueData = (start_date && end_date)
             ? await getDailyRevenueInRange(start_date, end_date)
             : await getDailyRevenueFromTransactions(parseInt(limit) || 30);
-
-        res.json({
-            count: revenueData.length,
-            data: revenueData
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        return { count: revenueData.length, data: revenueData };
+    });
 });
 
 // Endpoint to get daily revenue in USD from transactions
 app.get('/api/history/revenue/daily-usd', async (req, res) => {
-    try {
-        console.log('Fetching daily USD revenue from transactions');
-        const { limit, start_date, end_date } = req.query;
+    const { limit, start_date, end_date } = req.query;
+    const cacheKey = `daily-usd:${start_date || ''}:${end_date || ''}:${limit || 30}`;
 
-        // Get daily USD revenue aggregated from transactions
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
         const revenueData = (start_date && end_date)
             ? await getDailyRevenueUSDInRange(start_date, end_date)
             : await getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
-
-        res.json({
-            count: revenueData.length,
-            data: revenueData
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        return { count: revenueData.length, data: revenueData };
+    });
 });
 
 // Historical snapshots
 app.get('/api/history/snapshots', async (req, res) => {
-    try {
-        console.log('Fetching snapshots');
-        const { limit, start_date, end_date } = req.query;
+    const { limit, start_date, end_date } = req.query;
+    const cacheKey = `snapshots:${start_date || ''}:${end_date || ''}:${limit || 30}`;
+
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
         const snapshots = (start_date && end_date)
             ? await getSnapshotsInRange(start_date, end_date)
             : await getLastNSnapshots(parseInt(limit) || 30);
 
-        res.json({
+        return {
             count: snapshots.length,
             data: snapshots.map(s => ({
                 date: s.snapshot_date,
@@ -780,10 +862,8 @@ app.get('/api/history/snapshots', async (req, res) => {
                     dockerapps: s.dockerapps_count || 0
                 }
             }))
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // Docker repo history endpoints
@@ -824,17 +904,19 @@ app.get('/api/history/repos/latest', async (req, res) => {
 
 // Top repos for a category (used by CategoryCard)
 app.get('/api/metrics/category/:category/top', async (req, res) => {
-    try {
-        const { category } = req.params;
-        const limit = parseInt(req.query.limit) || 3;
+    const { category } = req.params;
+    const limit = parseInt(req.query.limit) || 3;
 
-        if (!CATEGORY_CONFIG[category]) {
-            return res.status(400).json({ error: `Unknown category: ${category}` });
-        }
+    if (!CATEGORY_CONFIG[category]) {
+        return res.status(400).json({ error: `Unknown category: ${category}` });
+    }
 
+    const cacheKey = `${category}:${limit}`;
+
+    return withDbFallback(categoryCache, cacheKey, res, async () => {
         const { date, repos } = await getTopReposByCategory(category, limit);
         if (!date) {
-            return res.json({ category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [] });
+            return { category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [] };
         }
 
         const total = await getCategoryTotal(category, date);
@@ -857,7 +939,7 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
             previousRepos.push({ image_name: r.image_name, instance_count: prevRow });
         }
 
-        res.json({
+        return {
             category,
             date,
             total,
@@ -867,11 +949,8 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
                 displayName: getDisplayName(r.image_name)
             })),
             previousRepos
-        });
-    } catch (error) {
-        console.error(`Error in /api/metrics/category/${req.params.category}/top:`, error);
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // Category history (aggregated daily totals, used by charts)
@@ -980,23 +1059,21 @@ app.get('/api/transactions/paginated', async (req, res) => {
 
 // App Revenue Analytics - grouped by app_name
 app.get('/api/analytics/apps', async (req, res) => {
-    try {
-        const page = Math.max(parseInt(req.query.page) || 1, 1);
-        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
-        const search = req.query.search || '';
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
+    const search = req.query.search || '';
+    const cacheKey = `apps:${page}:${limit}:${search}`;
 
+    return withDbFallback(analyticsCache, cacheKey, res, async () => {
         const result = await getAppAnalytics(page, limit, search);
-
-        res.json({
+        return {
             apps: result.apps,
             total: result.total,
             page,
             limit,
             totalPages: Math.ceil(result.total / limit)
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // Transactions by date - MUST come AFTER specific routes
@@ -1396,47 +1473,88 @@ app.get('/api/carousel/expiring', async (req, res) => {
     }
 });
 
+// ============================================
+// FAILOVER ADMIN ENDPOINT
+// ============================================
+app.post('/api/admin/failover', (req, res) => {
+    if (!hasFailover()) {
+        return res.status(400).json({
+            success: false,
+            reason: 'No failover instance configured. Set SUPABASE_FAILOVER_URL and SUPABASE_FAILOVER_KEY.'
+        });
+    }
+    const result = switchToFailover();
+    res.json(result);
+});
+
+app.get('/api/admin/failover-status', (_req, res) => {
+    res.json({
+        activeInstance: getActiveInstanceName(),
+        failoverConfigured: hasFailover(),
+        circuit: getCircuitState()
+    });
+});
+
+// ============================================
+// BACKUP ENDPOINTS
+// ============================================
+
+app.get('/api/admin/backup-status', (_req, res) => {
+    res.json(getBackupStatus());
+});
+
+app.post('/api/admin/backup', async (_req, res) => {
+    if (!isBackupEnabled()) {
+        return res.status(400).json({ enabled: false, error: 'Backup not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME.' });
+    }
+    const result = await performBackup();
+    res.status(result.success ? 200 : 500).json(result);
+});
+
+app.get('/api/admin/backups', async (_req, res) => {
+    const result = await listBackups();
+    res.status(result.success ? 200 : 500).json(result);
+});
+
+app.post('/api/admin/restore', async (req, res) => {
+    const { date } = req.body || {};
+    if (!date) {
+        return res.status(400).json({ success: false, error: 'Missing "date" in request body (YYYY-MM-DD)' });
+    }
+    const result = await restoreFromBackup(date);
+    res.status(result.success ? 200 : 500).json(result);
+});
+
 // 404 handler
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`
-╔═══════════════════════════════════════════════════╗
-║  FLUX DASHBOARD API - PORT ${PORT}              ║
-║  Listening on: 0.0.0.0:${PORT}                   ║
-║  Auto-Running Services: Revenue + Snapshots       ║
-║  CORS enabled for domain and IP access            ║
-╚═══════════════════════════════════════════════════╝
-    `);
-
+// ============================================
+// START SERVER — Express starts immediately, DB init is non-blocking
+// ============================================
+function startSchedulers() {
     // Start the revenue sync scheduler (runs every 5 minutes)
     try {
         startRevenueSync();
         console.log('✅ Revenue sync scheduler initialized');
         console.log('   Sync interval: 5 minutes');
-        console.log('   Uses your existing revenueService.js');
     } catch (error) {
         console.error('❌ Could not initialize sync:', error.message);
-        console.error('⚠️  System will continue but with missing data!');
     }
     // Start the test scheduler (runs every hour)
     try {
         console.log('✅ Service test scheduler initialized');
         console.log('   Test interval: 1 hour');
         startServiceTests();
-
     } catch (error) {
         console.error('❌ Could not initialize test scheduler:', error.message);
-        console.error('⚠️  System will continue but tests may not run!');
     }
 
-    // NEW: Start the carousel updates
+    // Start the carousel updates
     try {
-    console.log('🎠 Carousel update scheduler initialized');
-    startCarouselUpdates();
+        console.log('🎠 Carousel update scheduler initialized');
+        startCarouselUpdates();
     } catch (error) {
-    console.error('❌ Could not initialize carousel:', error.message);
+        console.error('❌ Could not initialize carousel:', error.message);
     }
 
     // Start the snapshot checker (runs every 30 minutes)
@@ -1447,20 +1565,58 @@ app.listen(PORT, '0.0.0.0', () => {
         console.log('   Grace period: 5 minutes after midnight');
     } catch (error) {
         console.error('❌ Could not initialize snapshot checker:', error.message);
-        console.error('⚠️  System will continue but snapshots may not be taken!');
     }
 
     // Run failed txid cleanup daily
     setInterval(async () => {
-        const cleared = await clearPermanentlyFailedTxids();
-        if (cleared > 0) console.log(`🧹 Cleared ${cleared} permanently failed txids`);
+        try {
+            const cleared = await clearPermanentlyFailedTxids();
+            if (cleared > 0) console.log(`🧹 Cleared ${cleared} permanently failed txids`);
+        } catch {}
     }, 24 * 60 * 60 * 1000);
+}
 
-    console.log('\n🎉 All services started successfully!');
-    console.log('──────────────────────────────────────────────────\n');
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`
+╔═══════════════════════════════════════════════════╗
+║  FLUX DASHBOARD API - PORT ${PORT}              ║
+║  Listening on: 0.0.0.0:${PORT}                   ║
+║  Auto-Running Services: Revenue + Snapshots       ║
+║  CORS enabled for domain and IP access            ║
+╚═══════════════════════════════════════════════════╝
+    `);
 
-    // Log the current logging configuration
-    console.log('📋 Logging Configuration:');
+    // Initialize database with retry (non-crashing)
+    const dbOk = await ensureInitialized();
+
+    if (dbOk) {
+        console.log('✅ Database ready — starting all schedulers');
+        startSchedulers();
+    } else {
+        console.warn('⚠️  Database not reachable — server is running in DEGRADED mode');
+        console.warn('   API endpoints will serve stale cache or 503');
+        console.warn('   Schedulers will start once DB becomes available');
+
+        // Keep retrying DB init in the background (with concurrency guard)
+        let initRetryRunning = false;
+        const retryInterval = setInterval(async () => {
+            if (initRetryRunning) return;
+            initRetryRunning = true;
+            try {
+                console.log('🔄 Retrying database connection...');
+                const ok = await ensureInitialized();
+                if (ok) {
+                    clearInterval(retryInterval);
+                    console.log('✅ Database connected — starting schedulers now');
+                    startSchedulers();
+                }
+            } finally {
+                initRetryRunning = false;
+            }
+        }, 60_000); // retry every 60s
+    }
+
+    console.log('\n📋 Logging Configuration:');
     console.log(`   Request Logging: ${LOGGING_CONFIG.enableRequestLogging ? '✅ Enabled' : '❌ Disabled'}`);
     console.log(`   Health Checks: ${LOGGING_CONFIG.logHealthChecks ? '✅ Logged' : '❌ Silent'}`);
     console.log(`   Stats Endpoints: ${LOGGING_CONFIG.logStatsEndpoints ? '✅ Logged' : '❌ Silent'}`);
@@ -1470,17 +1626,16 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log('──────────────────────────────────────────────────\n');
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('🛑 SIGTERM received, shutting down gracefully...');
+// Graceful shutdown — stop all schedulers
+function shutdownGracefully(signal) {
+    console.log(`🛑 ${signal} received, shutting down gracefully...`);
     stopCarouselUpdates();
+    stopRevenueSync();
+    stopSnapshotChecker();
     process.exit(0);
-});
+}
 
-process.on('SIGINT', () => {
-    console.log('🛑 SIGINT received, shutting down gracefully...');
-    stopCarouselUpdates();
-    process.exit(0);
-});
+process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
+process.on('SIGINT', () => shutdownGracefully('SIGINT'));
 
 export default app;
