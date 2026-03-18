@@ -979,10 +979,19 @@ app.get('/api/history/category/:category/repos', async (req, res) => {
         }
 
         const repos = await getReposByCategory(category);
-        res.json({ count: repos.length, data: repos.map(r => ({
-            image_name: r.image_name,
-            displayName: getDisplayName(r.image_name)
-        })) });
+
+        // Deduplicate by displayName — multiple images can map to the same game/app
+        // (e.g. mbround18/valheim, littlestache/valheim-flux both → "Valheim")
+        const seen = new Map();
+        for (const r of repos) {
+            const displayName = getDisplayName(r.image_name);
+            if (!seen.has(displayName)) {
+                seen.set(displayName, { image_name: r.image_name, displayName });
+            }
+        }
+        const deduplicated = [...seen.values()];
+
+        res.json({ count: deduplicated.length, data: deduplicated });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -1586,8 +1595,14 @@ app.listen(PORT, '0.0.0.0', async () => {
 ╚═══════════════════════════════════════════════════╝
     `);
 
-    // Initialize database with retry (non-crashing)
+    // Initialize database with retry (non-crashing) — creates schema
     const dbOk = await ensureInitialized();
+
+    // Bootstrap from R2 if SQLite mode (after DB init so schema exists)
+    if (dbOk && (process.env.DB_TYPE || '').toLowerCase() === 'sqlite') {
+        const { runBootstrap } = await import('./lib/services/bootstrapService.js');
+        await runBootstrap();
+    }
 
     if (dbOk) {
         console.log('✅ Database ready — starting all schedulers');

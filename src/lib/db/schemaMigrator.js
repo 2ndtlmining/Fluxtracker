@@ -1,9 +1,8 @@
-// Schema Migrator - Supabase (PostgreSQL) version
+// Schema Migrator — supports both Supabase (PostgreSQL) and SQLite
 // Automatically detects when new repos are added to config
 // and creates the necessary database columns.
 
-import { supabase } from './supabaseClient.js';
-import pg from 'pg';
+const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
 
 const FIXED_COLUMNS = [
     { name: 'gitapps_count', type: 'INTEGER DEFAULT 0' },
@@ -12,8 +11,33 @@ const FIXED_COLUMNS = [
     { name: 'dockerapps_percent', type: 'DOUBLE PRECISION DEFAULT 0' },
 ];
 
-async function getTableColumns(tableName) {
-    // Query the table with limit 1 and inspect the returned keys
+// ============================================
+// SQLite column detection + addition
+// ============================================
+
+async function sqliteGetTableColumns(db, tableName) {
+    const rows = db.pragma(`table_info(${tableName})`);
+    return rows.map(r => r.name);
+}
+
+async function sqliteAddColumn(db, tableName, columnName, columnType = 'INTEGER DEFAULT 0') {
+    try {
+        db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+    } catch (error) {
+        if (error.message?.includes('duplicate column name')) {
+            // Column already exists — this is fine
+        } else {
+            console.warn(`addColumn warning for ${tableName}.${columnName}:`, error.message);
+        }
+    }
+    return true;
+}
+
+// ============================================
+// Supabase column detection + addition
+// ============================================
+
+async function supabaseGetTableColumns(supabase, tableName) {
     const { data: sample, error } = await supabase.from(tableName).select('*').limit(1);
     if (error) {
         console.warn(`getTableColumns(${tableName}): ${error.message}`);
@@ -22,22 +46,15 @@ async function getTableColumns(tableName) {
     if (sample && sample.length > 0) {
         return Object.keys(sample[0]);
     }
-    // Table exists but is empty — insert a dummy row, read columns, then delete
-    // This shouldn't happen for current_metrics/daily_snapshots (always have data)
     return [];
 }
 
-async function columnExists(tableName, columnName) {
-    const columns = await getTableColumns(tableName);
-    return columns.includes(columnName);
-}
-
-async function addColumn(tableName, columnName, columnType = 'INTEGER DEFAULT 0') {
-    // DDL (ALTER TABLE) requires a direct PostgreSQL connection — PostgREST can't run DDL
+async function supabaseAddColumn(tableName, columnName, columnType = 'INTEGER DEFAULT 0') {
+    const pg = await import('pg');
     const dbUrl = process.env.SUPABASE_DB_URL
         || process.env.SUPABASE_URL?.replace(':54321', ':54322')?.replace('http://', 'postgresql://postgres:postgres@') + '/postgres';
 
-    const client = new pg.Client({ connectionString: dbUrl });
+    const client = new pg.default.Client({ connectionString: dbUrl });
     try {
         await client.connect();
         const sql = `ALTER TABLE ${tableName} ADD COLUMN IF NOT EXISTS ${columnName} ${columnType}`;
@@ -54,12 +71,31 @@ async function addColumn(tableName, columnName, columnType = 'INTEGER DEFAULT 0'
     return true;
 }
 
+// ============================================
+// Shared logic
+// ============================================
+
 function extractRepoKeys(repoConfig) {
     if (!Array.isArray(repoConfig)) return [];
     return repoConfig.map(repo => repo.dbKey).filter(Boolean);
 }
 
-export async function migrateSchema(config) {
+async function getColumns(tableName, ctx) {
+    if (dbType === 'sqlite') {
+        return sqliteGetTableColumns(ctx, tableName);
+    }
+    return supabaseGetTableColumns(ctx, tableName);
+}
+
+async function addCol(tableName, columnName, columnType, ctx) {
+    if (dbType === 'sqlite') {
+        return sqliteAddColumn(ctx, tableName, columnName, columnType);
+    }
+    return supabaseAddColumn(tableName, columnName, columnType);
+}
+
+export async function migrateSchema(config, ctx) {
+    // ctx: for SQLite = the db instance, for Supabase = the supabase client (or auto-imported)
     const results = {
         success: true,
         columnsAdded: [],
@@ -70,6 +106,12 @@ export async function migrateSchema(config) {
 
     try {
         console.log('\n🔄 Starting schema migration...');
+
+        // For Supabase, auto-import the client if ctx not passed
+        if (dbType !== 'sqlite' && !ctx) {
+            const { supabase } = await import('./supabaseClient.js');
+            ctx = supabase;
+        }
 
         const allRepoKeys = [
             ...extractRepoKeys(config.GAMING_REPOS || []),
@@ -84,12 +126,12 @@ export async function migrateSchema(config) {
 
         // Check fixed columns
         for (const tableName of targetTables) {
+            const columns = await getColumns(tableName, ctx);
             for (const fixedCol of FIXED_COLUMNS) {
-                const exists = await columnExists(tableName, fixedCol.name);
-                if (exists) {
+                if (columns.includes(fixedCol.name)) {
                     results.columnsExisting.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
                 } else {
-                    await addColumn(tableName, fixedCol.name, fixedCol.type);
+                    await addCol(tableName, fixedCol.name, fixedCol.type, ctx);
                     results.columnsAdded.push({ table: tableName, column: fixedCol.name, type: 'fixed' });
                     console.log(`      ✅ ${tableName}.${fixedCol.name} - added`);
                 }
@@ -99,12 +141,12 @@ export async function migrateSchema(config) {
         // Check config-based repo columns
         if (allRepoKeys.length > 0) {
             for (const tableName of targetTables) {
+                const columns = await getColumns(tableName, ctx);
                 for (const repoKey of allRepoKeys) {
-                    const exists = await columnExists(tableName, repoKey);
-                    if (exists) {
+                    if (columns.includes(repoKey)) {
                         results.columnsExisting.push({ table: tableName, column: repoKey, type: 'config' });
                     } else {
-                        await addColumn(tableName, repoKey, 'INTEGER DEFAULT 0');
+                        await addCol(tableName, repoKey, 'INTEGER DEFAULT 0', ctx);
                         results.columnsAdded.push({ table: tableName, column: repoKey, type: 'config' });
                         console.log(`      ✅ ${tableName}.${repoKey} - added`);
                     }
@@ -127,21 +169,21 @@ export async function migrateSchema(config) {
     return results;
 }
 
-export async function validateAndMigrate(config) {
+export async function validateAndMigrate(config, ctx) {
     try {
         if (!config || typeof config !== 'object') {
             throw new Error('Invalid config: must be an object');
         }
-        const results = await migrateSchema(config);
+        const results = await migrateSchema(config, ctx);
         return { success: true, message: 'Schema migration completed', ...results };
     } catch (error) {
         return { success: false, message: 'Schema migration failed', error: error.message, timestamp: new Date().toISOString() };
     }
 }
 
-export async function getSchemaInfo() {
-    const currentMetricsCols = await getTableColumns('current_metrics');
-    const dailySnapshotsCols = await getTableColumns('daily_snapshots');
+export async function getSchemaInfo(ctx) {
+    const currentMetricsCols = await getColumns('current_metrics', ctx);
+    const dailySnapshotsCols = await getColumns('daily_snapshots', ctx);
 
     return {
         current_metrics: currentMetricsCols,
@@ -151,7 +193,13 @@ export async function getSchemaInfo() {
     };
 }
 
-export async function detectMissingColumns(config) {
+export async function detectMissingColumns(config, ctx) {
+    // For Supabase, auto-import the client if ctx not passed
+    if (dbType !== 'sqlite' && !ctx) {
+        const { supabase } = await import('./supabaseClient.js');
+        ctx = supabase;
+    }
+
     const allRepoKeys = [
         ...extractRepoKeys(config.GAMING_REPOS || []),
         ...extractRepoKeys(config.CRYPTO_REPOS || []),
@@ -160,21 +208,17 @@ export async function detectMissingColumns(config) {
 
     const missing = { current_metrics: [], daily_snapshots: [] };
 
-    for (const fixedCol of FIXED_COLUMNS) {
-        if (!(await columnExists('current_metrics', fixedCol.name))) {
-            missing.current_metrics.push({ name: fixedCol.name, type: 'fixed' });
+    for (const tableName of ['current_metrics', 'daily_snapshots']) {
+        const columns = await getColumns(tableName, ctx);
+        for (const fixedCol of FIXED_COLUMNS) {
+            if (!columns.includes(fixedCol.name)) {
+                missing[tableName].push({ name: fixedCol.name, type: 'fixed' });
+            }
         }
-        if (!(await columnExists('daily_snapshots', fixedCol.name))) {
-            missing.daily_snapshots.push({ name: fixedCol.name, type: 'fixed' });
-        }
-    }
-
-    for (const repoKey of allRepoKeys) {
-        if (!(await columnExists('current_metrics', repoKey))) {
-            missing.current_metrics.push({ name: repoKey, type: 'config' });
-        }
-        if (!(await columnExists('daily_snapshots', repoKey))) {
-            missing.daily_snapshots.push({ name: repoKey, type: 'config' });
+        for (const repoKey of allRepoKeys) {
+            if (!columns.includes(repoKey)) {
+                missing[tableName].push({ name: repoKey, type: 'config' });
+            }
         }
     }
 
