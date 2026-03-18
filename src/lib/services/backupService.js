@@ -19,8 +19,10 @@ import {
 import {
     exportAllDailySnapshots,
     exportAllRepoSnapshots,
+    exportAllPriceHistory,
     upsertDailySnapshots,
-    upsertRepoSnapshots
+    upsertRepoSnapshots,
+    upsertPriceHistory
 } from '../db/database.js';
 
 // ============================================
@@ -118,6 +120,9 @@ export async function performBackup() {
         console.log('Backup: exporting repo_snapshots...');
         const repoRows = await exportAllRepoSnapshots();
 
+        console.log('Backup: exporting flux_price_history...');
+        const priceRows = await exportAllPriceHistory();
+
         // Upload daily_snapshots
         const dailyPayload = JSON.stringify({
             table: 'daily_snapshots',
@@ -148,6 +153,21 @@ export async function performBackup() {
             ContentType: 'application/json'
         }));
 
+        // Upload flux_price_history
+        const pricePayload = JSON.stringify({
+            table: 'flux_price_history',
+            exportedAt: now,
+            rowCount: priceRows.length,
+            rows: priceRows
+        });
+
+        await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: `backups/${dateStr}/flux_price_history.json`,
+            Body: pricePayload,
+            ContentType: 'application/json'
+        }));
+
         // Prune old backups
         const pruned = await pruneOldBackups(client, bucket);
 
@@ -161,7 +181,8 @@ export async function performBackup() {
             date: dateStr,
             tables: {
                 daily_snapshots: dailyRows.length,
-                repo_snapshots: repoRows.length
+                repo_snapshots: repoRows.length,
+                flux_price_history: priceRows.length
             },
             pruned
         };
@@ -233,6 +254,19 @@ export async function restoreFromBackup(date) {
         }));
         const repoJson = JSON.parse(await repoObj.Body.transformToString());
 
+        // Download flux_price_history (optional — older backups may not have it)
+        let priceJson = null;
+        try {
+            console.log(`Restore: downloading flux_price_history from ${date}...`);
+            const priceObj = await client.send(new GetObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${date}/flux_price_history.json`
+            }));
+            priceJson = JSON.parse(await priceObj.Body.transformToString());
+        } catch {
+            console.log('Restore: no price history backup found (skipping)');
+        }
+
         // Upsert into DB
         console.log(`Restore: upserting ${dailyJson.rowCount} daily snapshots...`);
         const dailyCount = await upsertDailySnapshots(dailyJson.rows);
@@ -240,12 +274,19 @@ export async function restoreFromBackup(date) {
         console.log(`Restore: upserting ${repoJson.rowCount} repo snapshots...`);
         const repoCount = await upsertRepoSnapshots(repoJson.rows);
 
+        let priceCount = 0;
+        if (priceJson) {
+            console.log(`Restore: upserting ${priceJson.rowCount} price history rows...`);
+            priceCount = await upsertPriceHistory(priceJson.rows);
+        }
+
         return {
             success: true,
             date,
             restored: {
                 daily_snapshots: dailyCount,
-                repo_snapshots: repoCount
+                repo_snapshots: repoCount,
+                flux_price_history: priceCount
             }
         };
 
