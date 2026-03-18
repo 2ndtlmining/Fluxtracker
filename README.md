@@ -13,6 +13,8 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 - **CSV export** -- Download revenue transaction data as CSV
 - **Carousel dashboard** -- Live feed of recently deployed and expiring apps on the network
 - **Automated sync** -- Background schedulers for revenue sync (5 min), service tests (1 hr), carousel updates (1 hr), and daily snapshots
+- **Automated backups** -- Daily backup of critical snapshot tables to Cloudflare R2 with 30-day retention and one-click restore
+- **Auto-failover** -- Circuit breaker automatically switches to a failover Supabase instance when the primary is unreachable
 
 ## Tech Stack
 
@@ -21,6 +23,7 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 | Frontend   | SvelteKit 5 (Svelte 5, Vite 6)                      |
 | Backend    | Express.js 4                                         |
 | Database   | Supabase (PostgreSQL) via `@supabase/supabase-js` v2 |
+| Backup     | Cloudflare R2 via `@aws-sdk/client-s3`               |
 | Charts     | Chart.js 4                                           |
 | Icons      | Lucide Svelte + custom Simple Icons components       |
 | Runtime    | Node.js 20                                           |
@@ -86,6 +89,22 @@ Optional:
 |------------------|----------------------------------------------------------|
 | `SUPABASE_ANON_KEY` | Anon key (not used by backend, included for reference) |
 | `VITE_API_URL`   | Override API URL for frontend (default: same-origin proxy) |
+
+Optional -- Failover (auto-switch when primary DB is unreachable):
+
+| Variable                  | Description                          |
+|---------------------------|--------------------------------------|
+| `SUPABASE_FAILOVER_URL`  | Failover Supabase project URL        |
+| `SUPABASE_FAILOVER_KEY`  | Failover service role key            |
+
+Optional -- Backup to Cloudflare R2 (all 4 required to enable backups):
+
+| Variable              | Description                                           |
+|-----------------------|-------------------------------------------------------|
+| `R2_ENDPOINT`         | R2 endpoint (`https://<account-id>.r2.cloudflarestorage.com`) |
+| `R2_ACCESS_KEY_ID`    | R2 API token access key                               |
+| `R2_SECRET_ACCESS_KEY`| R2 API token secret key                                |
+| `R2_BUCKET_NAME`      | R2 bucket name (e.g. `fluxtracker-backups`)            |
 
 ### Database Setup
 
@@ -252,6 +271,56 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | POST   | `/api/admin/repo-snapshot`            | Trigger manual repo-only snapshot              |
 | POST   | `/api/admin/test-services`            | Trigger all service tests + revenue sync       |
 | POST   | `/api/admin/audit-transactions`       | Audit recent transactions for missed entries   |
+| GET    | `/api/admin/backup-status`            | Backup configuration and health status         |
+| POST   | `/api/admin/backup`                   | Trigger manual backup to R2                    |
+| GET    | `/api/admin/backups`                  | List available backup dates in R2              |
+| POST   | `/api/admin/restore`                  | Restore from backup (`{ "date": "YYYY-MM-DD" }`) |
+| POST   | `/api/admin/failover`                 | Manually switch between primary/failover DB    |
+| GET    | `/api/admin/failover-status`          | Active instance and circuit breaker state      |
+
+## Backup & Resilience
+
+### Automated Backups (Cloudflare R2)
+
+The `daily_snapshots` and `repo_snapshots` tables contain irreplaceable point-in-time data that cannot be re-derived from blockchain or external APIs. Backups protect against data loss if the Supabase instance is lost.
+
+- **Trigger**: Automatically after each successful daily snapshot (fire-and-forget, never blocks the snapshot)
+- **Manual**: `POST /api/admin/backup`
+- **Storage**: Cloudflare R2 at `backups/{YYYY-MM-DD}/daily_snapshots.json` + `repo_snapshots.json`
+- **Retention**: 30 days (older backups pruned automatically)
+- **Restore**: `POST /api/admin/restore` with `{ "date": "2026-03-18" }` -- upserts data into the current DB
+- **Health**: Backup is "healthy" if not configured (not expected) OR last backup is less than 48 hours old
+- **No-op without config**: If R2 env vars are not set, backup is silently disabled -- no errors, no log spam
+
+### Auto-Failover
+
+If a failover Supabase instance is configured (`SUPABASE_FAILOVER_URL` + `SUPABASE_FAILOVER_KEY`):
+
+- The circuit breaker monitors consecutive DB failures (threshold: 5)
+- On the first transition to OPEN state, the app automatically switches to the failover instance
+- All existing `supabase.from(...)` calls route transparently through a Proxy
+- Manual toggle: `POST /api/admin/failover`
+- Status: `GET /api/admin/failover-status`
+
+### Circuit Breaker
+
+States: CLOSED (normal) -> OPEN (DB unreachable, all requests blocked) -> HALF_OPEN (probing with one request)
+
+- Failure threshold: 5 consecutive failures
+- Cooldown: 60 seconds before probing
+
+### Health Endpoint
+
+`GET /api/health` returns combined status:
+
+```json
+{
+  "status": "ok",
+  "db": { "status": "connected", "circuit": "CLOSED", "activeInstance": "primary" },
+  "snapshot": { "healthy": true, "todaySnapshotExists": true },
+  "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "ageHours": 2.1 }
+}
+```
 
 ## Deployment
 
@@ -299,6 +368,12 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 | `API_PORT`                  | No       | Express port (default: 3000)    |
 | `FRONTEND_PORT`             | No       | SvelteKit port (default: 5173)  |
 | `NODE_ENV`                  | No       | Set to `production` in Docker   |
+| `SUPABASE_FAILOVER_URL`    | No       | Failover Supabase URL           |
+| `SUPABASE_FAILOVER_KEY`    | No       | Failover service role key       |
+| `R2_ENDPOINT`               | No       | Cloudflare R2 endpoint          |
+| `R2_ACCESS_KEY_ID`          | No       | R2 access key                   |
+| `R2_SECRET_ACCESS_KEY`      | No       | R2 secret key                   |
+| `R2_BUCKET_NAME`            | No       | R2 bucket name                  |
 
 ## Scripts
 
@@ -338,11 +413,13 @@ src/
       supabaseClient.js        # Supabase client initialization
       database.js              # All database CRUD operations
       schemaMigrator.js        # Dynamic column migrations
-      snapshotManager.js       # Daily snapshot scheduler
+      snapshotManager.js       # Daily snapshot scheduler + backup trigger
+      circuitBreaker.js        # Circuit breaker with auto-failover
       snapshot.js              # Snapshot data access
     services/
       revenueService.js        # Blockchain transaction sync logic
       revenueScheduler.js      # Revenue sync interval manager
+      backupService.js         # Cloudflare R2 backup/restore service
       cloudService.js          # Cloud utilization metrics (CPU, RAM, Storage)
       nodeService.js           # Flux node counts (Cumulus, Nimbus, Stratus)
       gamingService.js         # Gaming app instance tracking

@@ -13,6 +13,8 @@ import {
     getRevenueForDateRange
 } from './database.js';
 import { getLatestRepoCounts } from '../services/cloudService.js';
+import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
+import { isBackupEnabled, performBackup } from '../services/backupService.js';
 
 // ============================================
 // CONFIGURATION
@@ -245,7 +247,15 @@ async function takeSnapshot() {
         console.log(`✅ Snapshot created for ${snapshotDate}`);
         console.log(`   Revenue: ${snapshotData.daily_revenue.toFixed(2)} FLUX`);
         console.log(`   Nodes: ${snapshotData.node_total}, Apps: ${snapshotData.total_apps}`);
-        
+
+        // Fire-and-forget backup after successful snapshot
+        if (isBackupEnabled()) {
+            performBackup().then(result => {
+                if (result.success) console.log(`Backup: ${result.tables.daily_snapshots} daily + ${result.tables.repo_snapshots} repo rows`);
+                else console.warn(`Backup failed: ${result.error}`);
+            }).catch(err => console.warn(`Backup error: ${err.message}`));
+        }
+
         return {
             success: true,
             snapshotDate,
@@ -286,20 +296,27 @@ function scheduleRepoRetry(source) {
 async function runCheck() {
     const now = new Date();
     state.lastCheck = Date.now();
-    
+
     console.log(`\n⏰ Snapshot check at ${now.toISOString()}`);
-    
+
     if (state.isRunning) {
         console.log('⏸️  Previous check still running, skipping...');
         return;
     }
-    
+
+    // Check circuit breaker before hitting DB
+    if (!shouldAllowRequest()) {
+        console.log('🔌 Circuit breaker OPEN — skipping snapshot check');
+        return;
+    }
+
     try {
         state.isRunning = true;
 
         const check = await shouldTakeSnapshot();
 
         if (!check.should) {
+            recordSuccess(); // DB was reachable even if no snapshot needed
             console.log(`⏸️  ${check.reason}`);
 
             // Daily snapshot exists, but check if repo snapshots are missing
@@ -325,8 +342,11 @@ async function runCheck() {
         console.log(`✅ ${check.reason} - taking snapshot...`);
         const result = await takeSnapshot();
 
-        if (!result.success) {
+        if (result.success) {
+            recordSuccess();
+        } else {
             console.error(`❌ Snapshot failed: ${result.error}`);
+            recordFailure();
 
             if (state.consecutiveFailures >= 3) {
                 console.error(`🚨 ALERT: ${state.consecutiveFailures} consecutive failures!`);
@@ -336,6 +356,7 @@ async function runCheck() {
     } catch (error) {
         console.error('❌ Check error:', error);
         state.consecutiveFailures++;
+        recordFailure();
     } finally {
         state.isRunning = false;
     }

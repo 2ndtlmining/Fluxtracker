@@ -73,9 +73,9 @@ ENV ORIGIN=http://localhost:5173
 EXPOSE 3000
 EXPOSE 5173
 
-# Health check for the API server
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+# Liveness check — only verifies process is running, not DB connectivity
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health/live || exit 1
 
 # Start both services using the startup script
 CMD ["/app/startup.sh"]

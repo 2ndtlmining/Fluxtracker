@@ -5,6 +5,40 @@ import { categorizeImage } from '../config.js';
 // INITIALIZATION
 // ============================================
 
+let _dbReady = false;
+
+export function isDbReady() {
+    return _dbReady;
+}
+
+/**
+ * Active health probe — lightweight query with a short timeout.
+ * Returns true if DB responds, false otherwise. Updates _dbReady.
+ */
+export async function probeDb() {
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5s timeout
+
+        const { error } = await supabase
+            .from('current_metrics')
+            .select('id', { count: 'exact', head: true })
+            .abortSignal(controller.signal);
+
+        clearTimeout(timeout);
+
+        if (error) {
+            _dbReady = false;
+            return false;
+        }
+        _dbReady = true;
+        return true;
+    } catch {
+        _dbReady = false;
+        return false;
+    }
+}
+
 export async function initDatabase() {
     try {
         // Verify connection by reading the singleton current_metrics row
@@ -24,6 +58,10 @@ export async function initDatabase() {
                 .from('current_metrics')
                 .upsert({ id: 1, last_update: 0 }, { onConflict: 'id' });
         }
+
+        // NOTE: Partial index idx_rt_usd_null added via migration 004_partial_index_usd_null.sql
+        // Run it in Supabase SQL editor if not applied yet:
+        //   CREATE INDEX IF NOT EXISTS idx_rt_usd_null ON revenue_transactions(txid) WHERE amount_usd IS NULL;
 
         // Run schema migration (adds dynamic columns if needed)
         try {
@@ -60,11 +98,39 @@ export async function initDatabase() {
             console.warn('Category backfill check skipped:', e.message);
         }
 
+        _dbReady = true;
         console.log('✅ Database initialized successfully (Supabase)');
     } catch (error) {
+        _dbReady = false;
         console.error('❌ Database initialization error:', error);
         throw error;
     }
+}
+
+/**
+ * Initialize database with retry and exponential backoff.
+ * Up to 10 attempts (~5 minutes total). Does not throw — returns success/failure.
+ */
+export async function ensureInitialized() {
+    const MAX_ATTEMPTS = 10;
+    let delay = 2000; // start at 2s
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            await initDatabase();
+            return true;
+        } catch (error) {
+            console.warn(`⚠️  DB init attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error.message}`);
+            if (attempt < MAX_ATTEMPTS) {
+                console.log(`   Retrying in ${Math.round(delay / 1000)}s...`);
+                await new Promise(r => setTimeout(r, delay));
+                delay = Math.min(delay * 2, 60_000); // cap at 60s
+            }
+        }
+    }
+
+    console.error('❌ Database initialization failed after all retry attempts');
+    return false;
 }
 
 // ============================================
@@ -1260,10 +1326,76 @@ export async function recategorizeAllRepos() {
     return { resetCount: uniqueImages.length, categorized: counts };
 }
 
+// ============================================
+// BACKUP EXPORT / IMPORT
+// ============================================
+
+export async function exportAllDailySnapshots() {
+    const { data, error } = await supabase
+        .from('daily_snapshots')
+        .select('*')
+        .order('snapshot_date', { ascending: true });
+
+    if (error) throw new Error(`Export daily_snapshots failed: ${error.message}`);
+    return data || [];
+}
+
+export async function exportAllRepoSnapshots() {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('repo_snapshots')
+            .select('*')
+            .order('snapshot_date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Export repo_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
+export async function upsertDailySnapshots(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const { error } = await supabase
+        .from('daily_snapshots')
+        .upsert(rows, { onConflict: 'snapshot_date' });
+
+    if (error) throw new Error(`Upsert daily_snapshots failed: ${error.message}`);
+    return rows.length;
+}
+
+export async function upsertRepoSnapshots(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const CHUNK_SIZE = 500;
+    let total = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('repo_snapshots')
+            .upsert(chunk, { onConflict: 'snapshot_date,image_name' });
+
+        if (error) throw new Error(`Upsert repo_snapshots chunk ${i} failed: ${error.message}`);
+        total += chunk.length;
+    }
+
+    return total;
+}
+
 export async function closeDatabase() {
     // No-op for Supabase - connection is managed by the client
     console.log('✅ Supabase client does not require explicit close');
 }
 
-// Initialize database on module load
-await initDatabase();
+// NOTE: No top-level await — caller must use ensureInitialized() for resilient startup
