@@ -98,6 +98,11 @@ export function getBackupStatus() {
 }
 
 export async function performBackup() {
+    // SQLite instances are consumers, not producers — only Supabase pushes backups
+    if ((process.env.DB_TYPE || 'supabase').toLowerCase() === 'sqlite') {
+        return { success: false, error: 'Backup disabled in SQLite mode' };
+    }
+
     if (!isBackupEnabled()) {
         return { success: false, error: 'Backup not configured' };
     }
@@ -113,77 +118,99 @@ export async function performBackup() {
         const dateStr = new Date().toISOString().split('T')[0];
         const now = new Date().toISOString();
 
-        // Export tables
-        console.log('Backup: exporting daily_snapshots...');
-        const dailyRows = await exportAllDailySnapshots();
+        const tableCounts = {};
+        const tableErrors = [];
 
-        console.log('Backup: exporting repo_snapshots...');
-        const repoRows = await exportAllRepoSnapshots();
+        // Upload each table independently — one failure doesn't block the others
+        // daily_snapshots
+        try {
+            console.log('Backup: exporting daily_snapshots...');
+            const dailyRows = await exportAllDailySnapshots();
+            const dailyPayload = JSON.stringify({
+                table: 'daily_snapshots',
+                exportedAt: now,
+                rowCount: dailyRows.length,
+                rows: dailyRows
+            });
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${dateStr}/daily_snapshots.json`,
+                Body: dailyPayload,
+                ContentType: 'application/json'
+            }));
+            tableCounts.daily_snapshots = dailyRows.length;
+            console.log(`Backup: daily_snapshots uploaded (${dailyRows.length} rows)`);
+        } catch (error) {
+            tableErrors.push(`daily_snapshots: ${error.message}`);
+            console.error('Backup: daily_snapshots failed:', error.message);
+        }
 
-        console.log('Backup: exporting flux_price_history...');
-        const priceRows = await exportAllPriceHistory();
+        // repo_snapshots
+        try {
+            console.log('Backup: exporting repo_snapshots...');
+            const repoRows = await exportAllRepoSnapshots();
+            const repoPayload = JSON.stringify({
+                table: 'repo_snapshots',
+                exportedAt: now,
+                rowCount: repoRows.length,
+                rows: repoRows
+            });
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${dateStr}/repo_snapshots.json`,
+                Body: repoPayload,
+                ContentType: 'application/json'
+            }));
+            tableCounts.repo_snapshots = repoRows.length;
+            console.log(`Backup: repo_snapshots uploaded (${repoRows.length} rows)`);
+        } catch (error) {
+            tableErrors.push(`repo_snapshots: ${error.message}`);
+            console.error('Backup: repo_snapshots failed:', error.message);
+        }
 
-        // Upload daily_snapshots
-        const dailyPayload = JSON.stringify({
-            table: 'daily_snapshots',
-            exportedAt: now,
-            rowCount: dailyRows.length,
-            rows: dailyRows
-        });
-
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: `backups/${dateStr}/daily_snapshots.json`,
-            Body: dailyPayload,
-            ContentType: 'application/json'
-        }));
-
-        // Upload repo_snapshots
-        const repoPayload = JSON.stringify({
-            table: 'repo_snapshots',
-            exportedAt: now,
-            rowCount: repoRows.length,
-            rows: repoRows
-        });
-
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: `backups/${dateStr}/repo_snapshots.json`,
-            Body: repoPayload,
-            ContentType: 'application/json'
-        }));
-
-        // Upload flux_price_history
-        const pricePayload = JSON.stringify({
-            table: 'flux_price_history',
-            exportedAt: now,
-            rowCount: priceRows.length,
-            rows: priceRows
-        });
-
-        await client.send(new PutObjectCommand({
-            Bucket: bucket,
-            Key: `backups/${dateStr}/flux_price_history.json`,
-            Body: pricePayload,
-            ContentType: 'application/json'
-        }));
+        // flux_price_history
+        try {
+            console.log('Backup: exporting flux_price_history...');
+            const priceRows = await exportAllPriceHistory();
+            const pricePayload = JSON.stringify({
+                table: 'flux_price_history',
+                exportedAt: now,
+                rowCount: priceRows.length,
+                rows: priceRows
+            });
+            await client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${dateStr}/flux_price_history.json`,
+                Body: pricePayload,
+                ContentType: 'application/json'
+            }));
+            tableCounts.flux_price_history = priceRows.length;
+            console.log(`Backup: flux_price_history uploaded (${priceRows.length} rows)`);
+        } catch (error) {
+            tableErrors.push(`flux_price_history: ${error.message}`);
+            console.error('Backup: flux_price_history failed:', error.message);
+        }
 
         // Prune old backups
         const pruned = await pruneOldBackups(client, bucket);
 
-        lastBackup = Date.now();
-        lastBackupDate = dateStr;
-        lastError = null;
-        consecutiveFailures = 0;
+        // At least one table must succeed for the backup to count
+        const anySuccess = Object.keys(tableCounts).length > 0;
+        if (anySuccess) {
+            lastBackup = Date.now();
+            lastBackupDate = dateStr;
+            lastError = tableErrors.length > 0 ? tableErrors.join('; ') : null;
+            consecutiveFailures = 0;
+        } else {
+            consecutiveFailures++;
+            lastError = tableErrors.join('; ');
+        }
 
         return {
-            success: true,
+            success: anySuccess,
             date: dateStr,
-            tables: {
-                daily_snapshots: dailyRows.length,
-                repo_snapshots: repoRows.length,
-                flux_price_history: priceRows.length
-            },
+            tables: tableCounts,
+            errors: tableErrors.length > 0 ? tableErrors : undefined,
             pruned
         };
 

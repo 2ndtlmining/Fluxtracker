@@ -22,7 +22,7 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 |------------|------------------------------------------------------|
 | Frontend   | SvelteKit 5 (Svelte 5, Vite 6)                      |
 | Backend    | Express.js 4                                         |
-| Database   | Supabase (PostgreSQL) via `@supabase/supabase-js` v2 |
+| Database   | Supabase (PostgreSQL) or SQLite via `better-sqlite3`  |
 | Backup     | Cloudflare R2 via `@aws-sdk/client-s3`               |
 | Charts     | Chart.js 4                                           |
 | Icons      | Lucide Svelte + custom Simple Icons components       |
@@ -59,7 +59,22 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 
 Both processes run inside a single Docker container. SvelteKit serves the frontend on port 5173 and proxies all `/api/*` requests to the Express backend on port 3000 via `hooks.server.js`. In production on Flux Cloud, only one port (37000) is exposed externally and mapped to the SvelteKit server.
 
-Database operations use the Supabase JS client with the `service_role` key, which bypasses Row Level Security. Complex aggregation queries (daily revenue, app analytics, paginated transactions) are implemented as PostgreSQL RPC functions for performance.
+### Database Modes
+
+The app supports two database backends via an adapter layer (`src/lib/db/database.js`):
+
+- **Supabase mode** (`DB_TYPE=supabase`, default) — The primary instance connects to Supabase (PostgreSQL). Complex queries use RPC functions. Backs up critical tables to Cloudflare R2.
+- **SQLite mode** (`DB_TYPE=sqlite`) — Docker/Flux instances use a local embedded SQLite database. On first start, optionally bootstraps historical data from R2. All RPC functions are translated to equivalent raw SQL.
+
+```
+PRIMARY (local)                          DOCKER/FLUX INSTANCES
++----------------------+                 +----------------------+
+|  DB_TYPE=supabase    |   R2 Backup     |  DB_TYPE=sqlite      |
+|  Supabase instance   | --------------> |                      |
+|  Backs up to R2      |                 |  Bootstrap from R2   |
+|                      |                 |  Run independently   |
++----------------------+                 +----------------------+
+```
 
 ## Getting Started
 
@@ -76,19 +91,19 @@ Copy the example file and fill in your Supabase credentials:
 cp .env.example .env
 ```
 
-Required variables:
+Database mode:
+
+| Variable   | Description                              | Default     |
+|------------|------------------------------------------|-------------|
+| `DB_TYPE`  | `supabase` or `sqlite`                   | `supabase`  |
+| `DB_PATH`  | SQLite file path (SQLite mode only)      | `data/fluxtracker.sqlite3` |
+
+Required for Supabase mode (`DB_TYPE=supabase` or unset):
 
 | Variable                    | Description                     |
 |-----------------------------|---------------------------------|
 | `SUPABASE_URL`              | Your Supabase project URL       |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
-
-Optional:
-
-| Variable         | Description                                              |
-|------------------|----------------------------------------------------------|
-| `SUPABASE_ANON_KEY` | Anon key (not used by backend, included for reference) |
-| `VITE_API_URL`   | Override API URL for frontend (default: same-origin proxy) |
 
 Optional -- Failover (auto-switch when primary DB is unreachable):
 
@@ -97,14 +112,23 @@ Optional -- Failover (auto-switch when primary DB is unreachable):
 | `SUPABASE_FAILOVER_URL`  | Failover Supabase project URL        |
 | `SUPABASE_FAILOVER_KEY`  | Failover service role key            |
 
-Optional -- Backup to Cloudflare R2 (all 4 required to enable backups):
+Optional -- Backup to Cloudflare R2 (primary instance, all 4 required):
 
 | Variable              | Description                                           |
 |-----------------------|-------------------------------------------------------|
 | `R2_ENDPOINT`         | R2 endpoint (`https://<account-id>.r2.cloudflarestorage.com`) |
-| `R2_ACCESS_KEY_ID`    | R2 API token access key                               |
+| `R2_ACCESS_KEY_ID`    | R2 API token access key (read-write)                  |
 | `R2_SECRET_ACCESS_KEY`| R2 API token secret key                                |
 | `R2_BUCKET_NAME`      | R2 bucket name (e.g. `fluxtracker-backups`)            |
+
+Optional -- Bootstrap from R2 (Docker/SQLite instances, all 4 required):
+
+| Variable                       | Description                     |
+|--------------------------------|---------------------------------|
+| `BOOTSTRAP_R2_ENDPOINT`       | R2 endpoint                     |
+| `BOOTSTRAP_R2_ACCESS_KEY_ID`  | R2 API token access key (read-only recommended) |
+| `BOOTSTRAP_R2_SECRET_ACCESS_KEY` | R2 API token secret key      |
+| `BOOTSTRAP_R2_BUCKET_NAME`    | R2 bucket name                  |
 
 ### Database Setup
 
@@ -333,11 +357,28 @@ docker build -t fluxtracker .
 ### Docker Run
 
 ```bash
+# Supabase mode (primary instance)
 docker run -d \
-  -p 3000:3000 \
-  -p 5173:5173 \
+  -p 3000:3000 -p 5173:5173 \
   -e SUPABASE_URL=https://your-project.supabase.co \
-  -e SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJI... \
+  -e SUPABASE_SERVICE_ROLE_KEY=... \
+  fluxtracker
+
+# SQLite mode with bootstrap from R2
+docker run -d \
+  -p 3000:3000 -p 5173:5173 \
+  -e DB_TYPE=sqlite \
+  -e BOOTSTRAP_R2_ENDPOINT=... \
+  -e BOOTSTRAP_R2_ACCESS_KEY_ID=... \
+  -e BOOTSTRAP_R2_SECRET_ACCESS_KEY=... \
+  -e BOOTSTRAP_R2_BUCKET_NAME=... \
+  fluxtracker
+
+# SQLite mode with persistent storage
+docker run -d \
+  -v ./data:/app/data \
+  -p 3000:3000 -p 5173:5173 \
+  -e DB_TYPE=sqlite \
   fluxtracker
 ```
 
@@ -363,17 +404,19 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 
 | Variable                    | Required | Description                     |
 |-----------------------------|----------|---------------------------------|
-| `SUPABASE_URL`              | Yes      | Supabase project URL            |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes      | Service role key (bypasses RLS) |
-| `API_PORT`                  | No       | Express port (default: 3000)    |
-| `FRONTEND_PORT`             | No       | SvelteKit port (default: 5173)  |
-| `NODE_ENV`                  | No       | Set to `production` in Docker   |
-| `SUPABASE_FAILOVER_URL`    | No       | Failover Supabase URL           |
-| `SUPABASE_FAILOVER_KEY`    | No       | Failover service role key       |
-| `R2_ENDPOINT`               | No       | Cloudflare R2 endpoint          |
-| `R2_ACCESS_KEY_ID`          | No       | R2 access key                   |
+| `DB_TYPE`                   | No       | `supabase` (default) or `sqlite` |
+| `SUPABASE_URL`              | Supabase mode | Supabase project URL       |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase mode | Service role key           |
+| `BOOTSTRAP_R2_ENDPOINT`    | No       | R2 endpoint for bootstrap       |
+| `BOOTSTRAP_R2_ACCESS_KEY_ID` | No     | R2 read-only access key         |
+| `BOOTSTRAP_R2_SECRET_ACCESS_KEY` | No | R2 read-only secret key         |
+| `BOOTSTRAP_R2_BUCKET_NAME` | No       | R2 bucket name                  |
+| `R2_ENDPOINT`               | No       | R2 endpoint for backups (primary only) |
+| `R2_ACCESS_KEY_ID`          | No       | R2 read-write access key        |
 | `R2_SECRET_ACCESS_KEY`      | No       | R2 secret key                   |
 | `R2_BUCKET_NAME`            | No       | R2 bucket name                  |
+| `API_PORT`                  | No       | Express port (default: 3000)    |
+| `FRONTEND_PORT`             | No       | SvelteKit port (default: 5173)  |
 
 ## Scripts
 
@@ -410,9 +453,12 @@ src/
     config.js                  # All configuration (addresses, intervals, categories, API URLs)
     components/                # Svelte components (StatCard, Chart, RevenueTransactions, etc.)
     db/
-      supabaseClient.js        # Supabase client initialization
-      database.js              # All database CRUD operations
-      schemaMigrator.js        # Dynamic column migrations
+      database.js              # Adapter router (selects Supabase or SQLite)
+      adapters/
+        supabaseAdapter.js     # Supabase (PostgreSQL) implementation
+        sqliteAdapter.js       # SQLite (better-sqlite3) implementation
+      supabaseClient.js        # Supabase client initialization (guarded for SQLite mode)
+      schemaMigrator.js        # Dynamic column migrations (both backends)
       snapshotManager.js       # Daily snapshot scheduler + backup trigger
       circuitBreaker.js        # Circuit breaker with auto-failover
       snapshot.js              # Snapshot data access
@@ -420,6 +466,7 @@ src/
       revenueService.js        # Blockchain transaction sync logic
       revenueScheduler.js      # Revenue sync interval manager
       backupService.js         # Cloudflare R2 backup/restore service
+      bootstrapService.js      # R2 bootstrap for SQLite mode (first-start data import)
       cloudService.js          # Cloud utilization metrics (CPU, RAM, Storage)
       nodeService.js           # Flux node counts (Cumulus, Nimbus, Stratus)
       gamingService.js         # Gaming app instance tracking

@@ -2,8 +2,11 @@
 // CIRCUIT BREAKER — prevents hammering a dead DB
 // ============================================
 // States: CLOSED (normal) → OPEN (tripped) → HALF_OPEN (probing)
+// In SQLite mode the DB is local — circuit breaker is always CLOSED.
 
 import { switchToFailover, hasFailover } from './supabaseClient.js';
+
+const isSqlite = (process.env.DB_TYPE || 'supabase').toLowerCase() === 'sqlite';
 
 const FAILURE_THRESHOLD = 5;
 const COOLDOWN_MS = 60_000; // 60 seconds
@@ -13,6 +16,8 @@ let failureCount = 0;
 let lastFailureTime = 0;
 
 export function shouldAllowRequest() {
+    if (isSqlite) return true; // local DB — always available
+
     if (state === 'CLOSED') return true;
 
     if (state === 'OPEN') {

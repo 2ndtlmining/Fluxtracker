@@ -1,5 +1,5 @@
 # Production Dockerfile for Flux Performance Dashboard
-# Multi-stage build — no native compilation deps in final image
+# Multi-stage build — supports both Supabase and SQLite modes
 # Runs both Express API (port 3000) and SvelteKit Frontend (port 5173)
 
 # ========================================
@@ -7,12 +7,15 @@
 # ========================================
 FROM node:20-alpine AS builder
 
+# Build tools for native modules (better-sqlite3)
+RUN apk add --no-cache python3 make g++
+
 WORKDIR /app
 
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
-# Install all dependencies (no native deps needed — pure JS + Supabase)
+# Install all dependencies (includes better-sqlite3 native compilation)
 RUN npm install --legacy-peer-deps
 
 # Copy source code
@@ -31,23 +34,26 @@ WORKDIR /app
 # Runtime utilities (curl used by startup.sh health check, wget by HEALTHCHECK)
 RUN apk add --no-cache curl wget
 
-# Copy package files and install production deps only
-COPY package*.json ./
-RUN npm install --legacy-peer-deps --omit=dev
+# Copy pre-compiled node_modules from builder (includes native better-sqlite3)
+COPY --from=builder /app/node_modules ./node_modules
 
 # Copy built output from builder
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/src ./src
+COPY --from=builder /app/package.json ./package.json
 
 # Copy startup script
 COPY startup.sh /app/startup.sh
 RUN chmod +x /app/startup.sh
 
+# Create data directory for SQLite (used when DB_TYPE=sqlite)
+RUN mkdir -p /app/data
+
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S fluxapp -u 1001
 
-# Set ownership of the application
+# Set ownership of the application (including data dir)
 RUN chown -R fluxapp:nodejs /app
 
 # Switch to non-root user
@@ -64,8 +70,8 @@ ENV API_PORT=3000
 ENV FRONTEND_PORT=5173
 ENV ORIGIN=http://localhost:5173
 
-# Supabase env vars are passed at runtime via docker run -e or Flux app spec
-# SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_DB_URL
+# DB_TYPE, SUPABASE_*, and BOOTSTRAP_R2_* env vars are passed at runtime
+# via docker run -e or Flux app spec
 
 # ========================================
 # EXPOSE PORTS
