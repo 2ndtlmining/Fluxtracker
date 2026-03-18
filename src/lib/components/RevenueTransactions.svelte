@@ -182,6 +182,11 @@
     return dateStr; // Already in YYYY-MM-DD format
   }
 
+  function formatTime(timestamp) {
+    if (!timestamp) return '-';
+    return new Date(timestamp * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' });
+  }
+
   function getExplorerUrl(txid) {
     return `https://explorer.runonflux.io/tx/${txid}`;
   }
@@ -209,7 +214,7 @@
       const allTransactions = result.transactions || [];
 
       // Build CSV content
-      const headers = ['Type', 'Transaction ID', 'From Address', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Block Height'];
+      const headers = ['Type', 'Transaction ID', 'From Address', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Time', 'Block Height'];
       const rows = allTransactions.map(tx => [
         appTypeLabel(tx.app_type),
         tx.txid,
@@ -218,6 +223,7 @@
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
         tx.date,
+        formatTime(tx.timestamp),
         tx.block_height
       ]);
 
@@ -462,6 +468,7 @@
                 <th>AMOUNT_FLUX</th>
                 <th>AMOUNT_USD</th>
                 <th>DATE</th>
+                <th>TIME (UTC)</th>
                 <th>BLOCK</th>
               </tr>
             </thead>
@@ -500,6 +507,7 @@
                   <td class="amount-col">{formatAmount(tx.amount)}</td>
                   <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
                   <td class="date-col">{formatDate(tx.date)}</td>
+                  <td class="time-col">{formatTime(tx.timestamp)}</td>
                   <td class="block-col">{tx.block_height.toLocaleString()}</td>
                 </tr>
               {/each}
@@ -651,6 +659,7 @@
               <thead>
                 <tr>
                   <th>DATE</th>
+                  <th>TIME (UTC)</th>
                   <th>TRANSACTION_ID</th>
                   <th>FROM_ADDRESS</th>
                   <th>AMOUNT</th>
@@ -661,6 +670,7 @@
                 {#each appTxns as tx}
                   <tr>
                     <td class="date-col">{tx.date}</td>
+                    <td class="time-col">{formatTime(tx.timestamp)}</td>
                     <td class="txid-col">
                       <a href={getExplorerUrl(tx.txid)} target="_blank"
                         rel="noopener noreferrer" class="txid-link">
@@ -1038,6 +1048,11 @@
 
   .date-col {
     color: var(--text-white);
+  }
+
+  .time-col {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
   }
 
   .block-col {
