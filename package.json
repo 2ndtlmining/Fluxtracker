@@ -12,7 +12,6 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"start": "node build/index.js",
 		"test": "vitest run",
-		"db:migrate-data": "node scripts/migrate-sqlite-to-supabase.mjs",
 		"db:import-repo-json": "node scripts/import-repo-json.mjs"
 	},
 	"devDependencies": {

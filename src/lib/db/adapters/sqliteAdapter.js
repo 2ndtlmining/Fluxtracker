@@ -111,6 +111,7 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_date ON revenue_transactions(date)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_timestamp ON revenue_transactions(timestamp)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_usd_null ON revenue_transactions(txid) WHERE amount_usd IS NULL`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_app_name ON revenue_transactions(app_name)`);
 
     d.exec(`
         CREATE TABLE IF NOT EXISTS failed_txids (
