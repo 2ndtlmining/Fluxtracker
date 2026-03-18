@@ -205,6 +205,162 @@ describe('Backup Service', () => {
     });
 
     // ========================================
+    // retry logic
+    // ========================================
+
+    describe('retry logic', () => {
+        it('retries a failed upload and succeeds on second attempt', async () => {
+            vi.useFakeTimers();
+            setR2Env();
+            vi.stubEnv('DB_TYPE', 'supabase');
+
+            vi.mocked(exportAllDailySnapshots).mockResolvedValue([{ date: '2026-03-01' }]);
+            vi.mocked(exportAllRepoSnapshots).mockResolvedValue([{ repo: 'app1' }]);
+            vi.mocked(exportAllPriceHistory).mockResolvedValue([{ date: '2026-03-01', price: 0.5 }]);
+
+            let dailyUploadAttempts = 0;
+            mockSend.mockImplementation((cmd) => {
+                if (cmd._type === 'ListObjectsV2Command') {
+                    return Promise.resolve({ CommonPrefixes: [] });
+                }
+                if (cmd._type === 'PutObjectCommand' && cmd.Key?.includes('daily_snapshots')) {
+                    dailyUploadAttempts++;
+                    if (dailyUploadAttempts === 1) {
+                        return Promise.reject(new Error('network timeout'));
+                    }
+                }
+                return Promise.resolve({});
+            });
+
+            const { performBackup } = await import('../backupService.js');
+            const backupPromise = performBackup();
+
+            // Advance past the 1s backoff for first retry
+            await vi.advanceTimersByTimeAsync(1500);
+
+            const result = await backupPromise;
+
+            expect(result.success).toBe(true);
+            expect(result.tables.daily_snapshots).toBe(1);
+            expect(dailyUploadAttempts).toBe(2);
+            expect(result.errors).toBeUndefined();
+
+            vi.useRealTimers();
+        });
+
+        it('fails after exhausting all 3 retry attempts', async () => {
+            vi.useFakeTimers();
+            setR2Env();
+            vi.stubEnv('DB_TYPE', 'supabase');
+
+            vi.mocked(exportAllDailySnapshots).mockResolvedValue([{ date: '2026-03-01' }]);
+            vi.mocked(exportAllRepoSnapshots).mockResolvedValue([{ repo: 'app1' }]);
+            vi.mocked(exportAllPriceHistory).mockResolvedValue([{ date: '2026-03-01', price: 0.5 }]);
+
+            let dailyAttempts = 0;
+            mockSend.mockImplementation((cmd) => {
+                if (cmd._type === 'ListObjectsV2Command') {
+                    return Promise.resolve({ CommonPrefixes: [] });
+                }
+                if (cmd._type === 'PutObjectCommand' && cmd.Key?.includes('daily_snapshots')) {
+                    dailyAttempts++;
+                    return Promise.reject(new Error('persistent R2 error'));
+                }
+                return Promise.resolve({});
+            });
+
+            const { performBackup } = await import('../backupService.js');
+            const backupPromise = performBackup();
+
+            // Advance through all backoff delays: 1s + 4s
+            await vi.advanceTimersByTimeAsync(1500);
+            await vi.advanceTimersByTimeAsync(4500);
+
+            const result = await backupPromise;
+
+            // daily_snapshots failed after 3 attempts, but repo + price succeeded
+            expect(dailyAttempts).toBe(3);
+            expect(result.success).toBe(true); // other tables succeeded
+            expect(result.tables.daily_snapshots).toBeUndefined();
+            expect(result.tables.repo_snapshots).toBe(1);
+            expect(result.tables.flux_price_history).toBe(1);
+            expect(result.errors).toBeDefined();
+            expect(result.errors[0]).toMatch(/daily_snapshots.*persistent R2 error/);
+
+            vi.useRealTimers();
+        });
+
+        it('does not retry DB export failures (only S3 uploads)', async () => {
+            setR2Env();
+            vi.stubEnv('DB_TYPE', 'supabase');
+
+            // DB export fails — this should NOT be retried
+            vi.mocked(exportAllDailySnapshots).mockRejectedValue(new Error('DB read error'));
+            vi.mocked(exportAllRepoSnapshots).mockResolvedValue([{ repo: 'app1' }]);
+            vi.mocked(exportAllPriceHistory).mockResolvedValue([{ date: '2026-03-01', price: 0.5 }]);
+
+            mockSend.mockImplementation((cmd) => {
+                if (cmd._type === 'ListObjectsV2Command') {
+                    return Promise.resolve({ CommonPrefixes: [] });
+                }
+                return Promise.resolve({});
+            });
+
+            const { performBackup } = await import('../backupService.js');
+            const result = await performBackup();
+
+            // DB export fails immediately, no retry
+            expect(exportAllDailySnapshots).toHaveBeenCalledTimes(1);
+            expect(result.success).toBe(true); // other tables succeeded
+            expect(result.errors[0]).toMatch(/daily_snapshots.*DB read error/);
+        });
+
+        it('retries with exponential backoff timing', async () => {
+            vi.useFakeTimers();
+            setR2Env();
+            vi.stubEnv('DB_TYPE', 'supabase');
+
+            vi.mocked(exportAllDailySnapshots).mockResolvedValue([{ d: 1 }]);
+            vi.mocked(exportAllRepoSnapshots).mockResolvedValue([]);
+            vi.mocked(exportAllPriceHistory).mockResolvedValue([]);
+
+            const uploadTimestamps = [];
+            mockSend.mockImplementation((cmd) => {
+                if (cmd._type === 'ListObjectsV2Command') {
+                    return Promise.resolve({ CommonPrefixes: [] });
+                }
+                if (cmd._type === 'PutObjectCommand' && cmd.Key?.includes('daily_snapshots')) {
+                    uploadTimestamps.push(Date.now());
+                    if (uploadTimestamps.length < 3) {
+                        return Promise.reject(new Error('timeout'));
+                    }
+                }
+                return Promise.resolve({});
+            });
+
+            const { performBackup } = await import('../backupService.js');
+            const backupPromise = performBackup();
+
+            // First retry after 1s backoff
+            await vi.advanceTimersByTimeAsync(1500);
+            // Second retry after 4s backoff (1000 * 4^1)
+            await vi.advanceTimersByTimeAsync(4500);
+
+            await backupPromise;
+
+            expect(uploadTimestamps.length).toBe(3);
+            // Verify backoff: gap between 1st and 2nd should be ~1000ms
+            const gap1 = uploadTimestamps[1] - uploadTimestamps[0];
+            expect(gap1).toBeGreaterThanOrEqual(1000);
+            // Gap between 2nd and 3rd should be ~4000ms
+            const gap2 = uploadTimestamps[2] - uploadTimestamps[1];
+            expect(gap2).toBeGreaterThanOrEqual(4000);
+
+            vi.useRealTimers();
+        });
+    });
+
+    // ========================================
     // restoreFromBackup
     // ========================================
 

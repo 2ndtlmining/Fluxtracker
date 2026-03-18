@@ -30,6 +30,8 @@ import {
 // ============================================
 
 const RETENTION_DAYS = 30;
+const UPLOAD_MAX_RETRIES = 3;
+const UPLOAD_INITIAL_BACKOFF_MS = 1000; // 1s, 4s, 16s (quadrupled each retry)
 
 function getConfig() {
     return {
@@ -121,7 +123,10 @@ export async function performBackup() {
         const tableCounts = {};
         const tableErrors = [];
 
-        // Upload each table independently — one failure doesn't block the others
+        // Upload each table independently — one failure doesn't block the others.
+        // Each upload is retried up to UPLOAD_MAX_RETRIES times with exponential backoff.
+        // The DB export is NOT retried (only the S3 upload).
+
         // daily_snapshots
         try {
             console.log('Backup: exporting daily_snapshots...');
@@ -132,17 +137,17 @@ export async function performBackup() {
                 rowCount: dailyRows.length,
                 rows: dailyRows
             });
-            await client.send(new PutObjectCommand({
+            await withRetry(() => client.send(new PutObjectCommand({
                 Bucket: bucket,
                 Key: `backups/${dateStr}/daily_snapshots.json`,
                 Body: dailyPayload,
                 ContentType: 'application/json'
-            }));
+            })), 'daily_snapshots upload');
             tableCounts.daily_snapshots = dailyRows.length;
             console.log(`Backup: daily_snapshots uploaded (${dailyRows.length} rows)`);
         } catch (error) {
             tableErrors.push(`daily_snapshots: ${error.message}`);
-            console.error('Backup: daily_snapshots failed:', error.message);
+            console.error('Backup: daily_snapshots failed after retries:', error.message);
         }
 
         // repo_snapshots
@@ -155,17 +160,17 @@ export async function performBackup() {
                 rowCount: repoRows.length,
                 rows: repoRows
             });
-            await client.send(new PutObjectCommand({
+            await withRetry(() => client.send(new PutObjectCommand({
                 Bucket: bucket,
                 Key: `backups/${dateStr}/repo_snapshots.json`,
                 Body: repoPayload,
                 ContentType: 'application/json'
-            }));
+            })), 'repo_snapshots upload');
             tableCounts.repo_snapshots = repoRows.length;
             console.log(`Backup: repo_snapshots uploaded (${repoRows.length} rows)`);
         } catch (error) {
             tableErrors.push(`repo_snapshots: ${error.message}`);
-            console.error('Backup: repo_snapshots failed:', error.message);
+            console.error('Backup: repo_snapshots failed after retries:', error.message);
         }
 
         // flux_price_history
@@ -178,17 +183,17 @@ export async function performBackup() {
                 rowCount: priceRows.length,
                 rows: priceRows
             });
-            await client.send(new PutObjectCommand({
+            await withRetry(() => client.send(new PutObjectCommand({
                 Bucket: bucket,
                 Key: `backups/${dateStr}/flux_price_history.json`,
                 Body: pricePayload,
                 ContentType: 'application/json'
-            }));
+            })), 'flux_price_history upload');
             tableCounts.flux_price_history = priceRows.length;
             console.log(`Backup: flux_price_history uploaded (${priceRows.length} rows)`);
         } catch (error) {
             tableErrors.push(`flux_price_history: ${error.message}`);
-            console.error('Backup: flux_price_history failed:', error.message);
+            console.error('Backup: flux_price_history failed after retries:', error.message);
         }
 
         // Prune old backups
@@ -325,6 +330,27 @@ export async function restoreFromBackup(date) {
 // ============================================
 // INTERNAL
 // ============================================
+
+/**
+ * Retry an async function with exponential backoff.
+ * Only retries on Error (transient network issues).
+ */
+async function withRetry(fn, label) {
+    let lastError;
+    for (let attempt = 1; attempt <= UPLOAD_MAX_RETRIES; attempt++) {
+        try {
+            return await fn();
+        } catch (error) {
+            lastError = error;
+            if (attempt < UPLOAD_MAX_RETRIES) {
+                const delayMs = UPLOAD_INITIAL_BACKOFF_MS * Math.pow(4, attempt - 1);
+                console.warn(`Backup: ${label} attempt ${attempt}/${UPLOAD_MAX_RETRIES} failed: ${error.message} — retrying in ${delayMs}ms`);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+        }
+    }
+    throw lastError;
+}
 
 async function pruneOldBackups(client, bucket) {
     try {
