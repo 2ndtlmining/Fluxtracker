@@ -251,7 +251,7 @@ async function takeSnapshot() {
         // Fire-and-forget backup after successful snapshot
         if (isBackupEnabled()) {
             performBackup().then(result => {
-                if (result.success) console.log(`Backup: ${result.tables.daily_snapshots} daily + ${result.tables.repo_snapshots} repo rows`);
+                if (result.success) console.log(`Backup: ${result.tables.daily_snapshots} daily + ${result.tables.repo_snapshots} repo + ${result.tables.flux_price_history} price rows`);
                 else console.warn(`Backup failed: ${result.error}`);
             }).catch(err => console.warn(`Backup error: ${err.message}`));
         }

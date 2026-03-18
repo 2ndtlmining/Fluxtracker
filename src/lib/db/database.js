@@ -1330,6 +1330,35 @@ export async function recategorizeAllRepos() {
 // BACKUP EXPORT / IMPORT
 // ============================================
 
+export async function exportAllPriceHistory() {
+    const { data, error } = await supabase
+        .from('flux_price_history')
+        .select('*')
+        .order('date', { ascending: true });
+
+    if (error) throw new Error(`Export flux_price_history failed: ${error.message}`);
+    return data || [];
+}
+
+export async function upsertPriceHistory(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const CHUNK_SIZE = 500;
+    let total = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('flux_price_history')
+            .upsert(chunk, { onConflict: 'date' });
+
+        if (error) throw new Error(`Upsert flux_price_history chunk ${i} failed: ${error.message}`);
+        total += chunk.length;
+    }
+
+    return total;
+}
+
 export async function exportAllDailySnapshots() {
     const { data, error } = await supabase
         .from('daily_snapshots')
