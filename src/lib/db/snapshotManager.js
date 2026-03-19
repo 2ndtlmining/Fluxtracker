@@ -1,8 +1,8 @@
 // lib/db/snapshotManager.js - SIMPLIFIED VERSION
-// ✅ No backfill - only creates TODAY's snapshot
-// ✅ Includes gaming_valheim (fixes 36/37 column mismatch)
-// ✅ Uses transaction-based revenue
-// ✅ Runs every 30 minutes
+// No backfill - only creates TODAY's snapshot
+// Includes gaming_valheim (fixes 36/37 column mismatch)
+// Uses transaction-based revenue
+// Runs every 30 minutes
 
 import {
     createDailySnapshot,
@@ -16,6 +16,9 @@ import { getLatestRepoCounts } from '../services/cloudService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
 import { SNAPSHOT_CONFIG as SNAP_CFG } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('snapshotManager');
 
 // ============================================
 // CONFIGURATION
@@ -149,7 +152,7 @@ async function shouldTakeSnapshot() {
 }
 
 async function takeSnapshot() {
-    console.log('📸 Taking snapshot...');
+    log.info('[SNAPSHOT] Taking snapshot...');
     
     try {
         const now = new Date();
@@ -164,7 +167,7 @@ async function takeSnapshot() {
         // Get actual revenue from transactions for TODAY
         const actualRevenue = await getRevenueForDateRange(snapshotDate, snapshotDate);
         
-        console.log(`   💰 Revenue for ${snapshotDate}: ${actualRevenue.toFixed(2)} FLUX`);
+        log.info(`Revenue for ${snapshotDate}: ${actualRevenue.toFixed(2)} FLUX`);
         
         const snapshotData = {
             snapshot_date: snapshotDate,
@@ -195,7 +198,7 @@ async function takeSnapshot() {
             gitapps_percent: currentMetrics.gitapps_percent || 0,
             dockerapps_percent: currentMetrics.dockerapps_percent || 0,
             
-            // Gaming - ✅ INCLUDES gaming_valheim
+            // Gaming - INCLUDES gaming_valheim
             gaming_apps_total: currentMetrics.gaming_apps_total || 0,
             gaming_palworld: currentMetrics.gaming_palworld || 0,
             gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
@@ -234,10 +237,10 @@ async function takeSnapshot() {
         const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
         if (repoKeyCount >= 10) {
             const saved = await createRepoSnapshots(snapshotDate, repoCounts);
-            console.log(`   Docker repos: ${saved} unique images tracked`);
+            log.info(`Docker repos: ${saved} unique images tracked`);
             state.repoRetryCount = 0;
         } else if (repoKeyCount > 0) {
-            console.warn(`   Skipping repo snapshot - only ${repoKeyCount} images (expected 10+), likely partial API data`);
+            log.warn(`Skipping repo snapshot - only ${repoKeyCount} images (expected 10+), likely partial API data`);
         } else {
             scheduleRepoRetry('takeSnapshot');
         }
@@ -245,16 +248,16 @@ async function takeSnapshot() {
         state.lastSuccess = Date.now();
         state.consecutiveFailures = 0;
 
-        console.log(`✅ Snapshot created for ${snapshotDate}`);
-        console.log(`   Revenue: ${snapshotData.daily_revenue.toFixed(2)} FLUX`);
-        console.log(`   Nodes: ${snapshotData.node_total}, Apps: ${snapshotData.total_apps}`);
+        log.info(`[SNAPSHOT] Snapshot created for ${snapshotDate}`);
+        log.info(`Revenue: ${snapshotData.daily_revenue.toFixed(2)} FLUX`);
+        log.info(`Nodes: ${snapshotData.node_total}, Apps: ${snapshotData.total_apps}`);
 
         // Fire-and-forget backup after successful snapshot
         if (isBackupEnabled()) {
             performBackup().then(result => {
-                if (result.success) console.log(`Backup: ${result.tables.daily_snapshots} daily + ${result.tables.repo_snapshots} repo + ${result.tables.flux_price_history} price rows`);
-                else console.warn(`Backup failed: ${result.error}`);
-            }).catch(err => console.warn(`Backup error: ${err.message}`));
+                if (result.success) log.info(`Backup: ${result.tables.daily_snapshots} daily + ${result.tables.repo_snapshots} repo + ${result.tables.flux_price_history} price rows`);
+                else log.warn(`Backup failed: ${result.error}`);
+            }).catch(err => log.warn(`Backup error: ${err.message}`));
         }
 
         return {
@@ -264,7 +267,7 @@ async function takeSnapshot() {
         };
         
     } catch (error) {
-        console.error('❌ Snapshot failed:', error.message);
+        log.error({ err: error }, '[SNAPSHOT] Snapshot failed');
         state.consecutiveFailures++;
         
         return {
@@ -282,11 +285,11 @@ const MAX_REPO_RETRIES = SNAP_CFG.MAX_REPO_RETRIES;
 
 function scheduleRepoRetry(source) {
     if (state.repoRetryCount >= MAX_REPO_RETRIES) {
-        console.warn(`   Repo snapshot: gave up after ${MAX_REPO_RETRIES} retries (from ${source})`);
+        log.warn(`Repo snapshot: gave up after ${MAX_REPO_RETRIES} retries (from ${source})`);
         return;
     }
     state.repoRetryCount++;
-    console.log(`   Repo counts not available yet, retry ${state.repoRetryCount}/${MAX_REPO_RETRIES} in 2 minutes (from ${source})`);
+    log.info(`Repo counts not available yet, retry ${state.repoRetryCount}/${MAX_REPO_RETRIES} in 2 minutes (from ${source})`);
     if (state.repoRetryId) clearTimeout(state.repoRetryId);
     state.repoRetryId = setTimeout(() => {
         state.repoRetryId = null;
@@ -298,16 +301,16 @@ async function runCheck() {
     const now = new Date();
     state.lastCheck = Date.now();
 
-    console.log(`\n⏰ Snapshot check at ${now.toISOString()}`);
+    log.info(`[SNAPSHOT] Snapshot check at ${now.toISOString()}`);
 
     if (state.isRunning) {
-        console.log('⏸️  Previous check still running, skipping...');
+        log.info('[SNAPSHOT] Previous check still running, skipping...');
         return;
     }
 
     // Check circuit breaker before hitting DB
     if (!shouldAllowRequest()) {
-        console.log('🔌 Circuit breaker OPEN — skipping snapshot check');
+        log.info('[CIRCUIT-BREAKER] Circuit breaker OPEN -- skipping snapshot check');
         return;
     }
 
@@ -318,7 +321,7 @@ async function runCheck() {
 
         if (!check.should) {
             recordSuccess(); // DB was reachable even if no snapshot needed
-            console.log(`⏸️  ${check.reason}`);
+            log.info(`[SNAPSHOT] ${check.reason}`);
 
             // Daily snapshot exists, but check if repo snapshots are missing
             const today = new Date().toISOString().split('T')[0];
@@ -328,10 +331,10 @@ async function runCheck() {
                 const repoKeyCount = repoCounts ? Object.keys(repoCounts).length : 0;
                 if (repoKeyCount >= 10) {
                     const saved = await createRepoSnapshots(today, repoCounts);
-                    console.log(`   Repo snapshots missing - created: ${saved} Docker images tracked for ${today}`);
+                    log.info(`Repo snapshots missing - created: ${saved} Docker images tracked for ${today}`);
                     state.repoRetryCount = 0;
                 } else if (repoKeyCount > 0) {
-                    console.warn(`   Repo snapshots missing - only ${repoKeyCount} images available (expected 10+), skipping`);
+                    log.warn(`Repo snapshots missing - only ${repoKeyCount} images available (expected 10+), skipping`);
                 } else {
                     scheduleRepoRetry('runCheck');
                 }
@@ -340,22 +343,22 @@ async function runCheck() {
             return;
         }
 
-        console.log(`✅ ${check.reason} - taking snapshot...`);
+        log.info(`[SNAPSHOT] ${check.reason} - taking snapshot...`);
         const result = await takeSnapshot();
 
         if (result.success) {
             recordSuccess();
         } else {
-            console.error(`❌ Snapshot failed: ${result.error}`);
+            log.error(`[SNAPSHOT] Snapshot failed: ${result.error}`);
             recordFailure();
 
             if (state.consecutiveFailures >= 3) {
-                console.error(`🚨 ALERT: ${state.consecutiveFailures} consecutive failures!`);
+                log.error(`[ALERT] ${state.consecutiveFailures} consecutive failures!`);
             }
         }
 
     } catch (error) {
-        console.error('❌ Check error:', error);
+        log.error({ err: error }, '[SNAPSHOT] Check error');
         state.consecutiveFailures++;
         recordFailure();
     } finally {
@@ -369,13 +372,13 @@ async function runCheck() {
 
 export function startSnapshotChecker() {
     if (state.intervalId) {
-        console.warn('⚠️  Snapshot checker already running');
+        log.warn('[SNAPSHOT] Snapshot checker already running');
         return;
     }
     
-    console.log('🚀 Starting snapshot checker...');
-    console.log(`   Check interval: ${CONFIG.CHECK_INTERVAL_MS / 1000 / 60} minutes`);
-    console.log(`   Grace period: ${CONFIG.GRACE_PERIOD_MINUTES} minutes after midnight`);
+    log.info('[SNAPSHOT] Starting snapshot checker...');
+    log.info(`Check interval: ${CONFIG.CHECK_INTERVAL_MS / 1000 / 60} minutes`);
+    log.info(`Grace period: ${CONFIG.GRACE_PERIOD_MINUTES} minutes after midnight`);
     
     // Run immediately on startup
     runCheck();
@@ -383,7 +386,7 @@ export function startSnapshotChecker() {
     // Then every 30 minutes
     state.intervalId = setInterval(runCheck, CONFIG.CHECK_INTERVAL_MS);
     
-    console.log('✅ Snapshot checker started\n');
+    log.info('[SNAPSHOT] Snapshot checker started');
 }
 
 export function stopSnapshotChecker() {
@@ -395,11 +398,11 @@ export function stopSnapshotChecker() {
         clearTimeout(state.repoRetryId);
         state.repoRetryId = null;
     }
-    console.log('Snapshot checker stopped');
+    log.info('[SNAPSHOT] Snapshot checker stopped');
 }
 
 export async function takeManualSnapshot() {
-    console.log('🔧 Manual snapshot triggered...');
+    log.info('[SNAPSHOT] Manual snapshot triggered...');
 
     const check = await shouldTakeSnapshot();
 
@@ -438,7 +441,7 @@ export async function takeRepoSnapshot() {
     }
 
     const count = await createRepoSnapshots(snapshotDate, repoCounts);
-    console.log(`Repo snapshot: ${count} unique Docker images tracked for ${snapshotDate}`);
+    log.info(`Repo snapshot: ${count} unique Docker images tracked for ${snapshotDate}`);
 
     return {
         success: true,

@@ -8,6 +8,9 @@
 import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js';
 import { backfillNullUsdAmounts } from './priceHistoryService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from '../db/circuitBreaker.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('revenueScheduler');
 
 
 // Configuration
@@ -29,17 +32,17 @@ let consecutiveFailures = 0;
  */
 async function runSync() {
     const now = new Date();
-    console.log(`\n⏰ Revenue sync scheduled run at ${now.toISOString()}`);
+    log.info('Revenue sync scheduled run at %s', now.toISOString());
 
     // Prevent concurrent runs
     if (isRunning) {
-        console.log('⏭️  Previous sync still running, skipping...');
+        log.info('Previous sync still running, skipping...');
         return;
     }
 
     // Check circuit breaker before hitting DB
     if (!shouldAllowRequest()) {
-        console.log('🔌 Circuit breaker OPEN — skipping revenue sync');
+        log.info('Circuit breaker OPEN - skipping revenue sync');
         return;
     }
 
@@ -53,15 +56,15 @@ async function runSync() {
         consecutiveFailures = 0;
         recordSuccess();
 
-        console.log('✅ Revenue sync completed\n');
+        log.info('Revenue sync completed');
 
     } catch (error) {
-        console.error('❌ Revenue sync failed:', error.message);
+        log.error({ err: error }, 'Revenue sync failed');
         consecutiveFailures++;
         recordFailure();
 
         if (consecutiveFailures >= 3) {
-            console.error(`🚨 ALERT: ${consecutiveFailures} consecutive revenue sync failures!`);
+            log.error('ALERT: %d consecutive revenue sync failures!', consecutiveFailures);
         }
     } finally {
         isRunning = false;
@@ -69,7 +72,7 @@ async function runSync() {
         // If an audit was deferred while sync was running, run it now
         if (auditPending) {
             auditPending = false;
-            console.log('Running deferred audit (was queued during sync)...');
+            log.info('Running deferred audit (was queued during sync)...');
             runAudit();
         }
     }
@@ -80,12 +83,12 @@ async function runSync() {
  */
 async function runAudit() {
     if (!shouldAllowRequest()) {
-        console.log('🔌 Circuit breaker OPEN — skipping audit');
+        log.info('Circuit breaker OPEN - skipping audit');
         return;
     }
 
     if (isRunning) {
-        console.log('Sync in progress — queuing audit to run after sync completes');
+        log.info('Sync in progress - queuing audit to run after sync completes');
         auditPending = true;
         return;
     }
@@ -93,16 +96,16 @@ async function runAudit() {
     try {
         isRunning = true;
         const result = await auditRecentTransactions();
-        console.log(`Daily audit result: ${result.recovered} recovered, ${result.missingFound} missing found`);
+        log.info({ recovered: result.recovered, missingFound: result.missingFound }, 'Daily audit result');
 
         // Backfill any transactions still missing USD values using historical prices
         const backfill = await backfillNullUsdAmounts();
         if (backfill.updated > 0) {
-            console.log(`USD backfill: ${backfill.updated} updated, ${backfill.skipped} skipped`);
+            log.info({ updated: backfill.updated, skipped: backfill.skipped }, 'USD backfill');
         }
         recordSuccess();
     } catch (error) {
-        console.error('Daily audit failed:', error.message);
+        log.error({ err: error }, 'Daily audit failed');
         recordFailure();
     } finally {
         isRunning = false;
@@ -114,12 +117,12 @@ async function runAudit() {
  */
 export function startRevenueSync() {
     if (intervalId) {
-        console.warn('⚠️  Revenue sync already running');
+        log.warn('Revenue sync already running');
         return;
     }
 
-    console.log('🚀 Starting automatic revenue sync...');
-    console.log(`   Sync interval: ${SYNC_INTERVAL_MS / 1000 / 60} minutes`);
+    log.info('Starting automatic revenue sync...');
+    log.info('Sync interval: %d minutes', SYNC_INTERVAL_MS / 1000 / 60);
 
     // Run immediately on startup
     runSync();
@@ -133,7 +136,7 @@ export function startRevenueSync() {
         auditIntervalId = setInterval(runAudit, AUDIT_INTERVAL_MS);
     }, AUDIT_INITIAL_DELAY_MS);
 
-    console.log('✅ Revenue sync scheduler started (daily audit scheduled)');
+    log.info('Revenue sync scheduler started (daily audit scheduled)');
 }
 
 /**
@@ -152,7 +155,7 @@ export function stopRevenueSync() {
         clearInterval(auditIntervalId);
         auditIntervalId = null;
     }
-    console.log('Revenue sync scheduler stopped');
+    log.info('Revenue sync scheduler stopped');
 }
 
 /**

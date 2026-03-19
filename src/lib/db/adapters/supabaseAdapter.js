@@ -1,5 +1,8 @@
 import { supabase } from '../supabaseClient.js';
 import { categorizeImage } from '../../config.js';
+import { createLogger } from '../../logger.js';
+
+const log = createLogger('supabaseAdapter');
 
 // ============================================
 // INITIALIZATION
@@ -65,21 +68,21 @@ export async function initDatabase() {
 
         // Run schema migration (adds dynamic columns if needed)
         try {
-            console.log('\n🔄 Checking for schema updates...');
+            log.info('[SCHEMA] Checking for schema updates...');
             const config = await import('../../config.js');
             const { migrateSchema } = await import('../schemaMigrator.js');
             const migrationResult = await migrateSchema(config);
             if (migrationResult.success) {
                 if (migrationResult.columnsAdded.length > 0) {
-                    console.log('✅ Schema updated with new columns');
+                    log.info('[SCHEMA] Schema updated with new columns');
                 } else {
-                    console.log('✓ Schema is up to date');
+                    log.info('[SCHEMA] Schema is up to date');
                 }
             } else {
-                console.warn('⚠️  Schema migration had issues:', migrationResult.errors);
+                log.warn({ errors: migrationResult.errors }, '[SCHEMA] Schema migration had issues');
             }
         } catch (migrationError) {
-            console.warn('⚠️  Schema migration error:', migrationError.message);
+            log.warn(`[SCHEMA] Schema migration error: ${migrationError.message}`);
         }
 
         // Backfill repo categories for existing rows
@@ -89,20 +92,20 @@ export async function initDatabase() {
                 .select('image_name', { count: 'exact', head: true })
                 .is('category', null);
             if (count > 0) {
-                console.log(`🔄 Backfilling categories for ${count} uncategorized images...`);
+                log.info(`[BACKFILL] Backfilling categories for ${count} uncategorized images...`);
                 setTimeout(async () => {
-                    try { await backfillRepoCategories(); } catch(e) { console.warn('Backfill error:', e.message); }
+                    try { await backfillRepoCategories(); } catch(e) { log.warn(`Backfill error: ${e.message}`); }
                 }, 100);
             }
         } catch (e) {
-            console.warn('Category backfill check skipped:', e.message);
+            log.warn(`Category backfill check skipped: ${e.message}`);
         }
 
         _dbReady = true;
-        console.log('✅ Database initialized successfully (Supabase)');
+        log.info('[DB] Database initialized successfully (Supabase)');
     } catch (error) {
         _dbReady = false;
-        console.error('❌ Database initialization error:', error);
+        log.error({ err: error }, '[DB] Database initialization error');
         throw error;
     }
 }
@@ -120,16 +123,16 @@ export async function ensureInitialized() {
             await initDatabase();
             return true;
         } catch (error) {
-            console.warn(`⚠️  DB init attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error.message}`);
+            log.warn(`[DB] DB init attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error.message}`);
             if (attempt < MAX_ATTEMPTS) {
-                console.log(`   Retrying in ${Math.round(delay / 1000)}s...`);
+                log.info(`Retrying in ${Math.round(delay / 1000)}s...`);
                 await new Promise(r => setTimeout(r, delay));
                 delay = Math.min(delay * 2, 60_000); // cap at 60s
             }
         }
     }
 
-    console.error('❌ Database initialization failed after all retry attempts');
+    log.error('[DB] Database initialization failed after all retry attempts');
     return false;
 }
 
@@ -145,7 +148,7 @@ export async function getCurrentMetrics() {
         .single();
 
     if (error) {
-        console.error('getCurrentMetrics error:', error.message);
+        log.error(`getCurrentMetrics error: ${error.message}`);
         return null;
     }
     return data;
@@ -203,9 +206,9 @@ export async function updateCurrentMetrics(metrics) {
         .eq('id', 1);
 
     if (error) {
-        console.error('updateCurrentMetrics error:', error.message);
+        log.error(`updateCurrentMetrics error: ${error.message}`);
     } else {
-        console.log('✅ Current metrics updated');
+        log.info('Current metrics updated');
     }
 }
 
@@ -264,9 +267,9 @@ export async function createDailySnapshot(snapshot) {
         .upsert(row, { onConflict: 'snapshot_date' });
 
     if (error) {
-        console.error('createDailySnapshot error:', error.message);
+        log.error(`createDailySnapshot error: ${error.message}`);
     } else {
-        console.log(`✅ Snapshot created for ${snapshot.snapshot_date}`);
+        log.info(`Snapshot created for ${snapshot.snapshot_date}`);
     }
 }
 
@@ -278,7 +281,7 @@ export async function getSnapshotByDate(date) {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getSnapshotByDate error:', error.message);
+        log.error(`getSnapshotByDate error: ${error.message}`);
     }
     return data || null;
 }
@@ -291,7 +294,7 @@ export async function getLastNSnapshots(n = 30) {
         .limit(n);
 
     if (error) {
-        console.error('getLastNSnapshots error:', error.message);
+        log.error(`getLastNSnapshots error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -306,7 +309,7 @@ export async function getSnapshotsInRange(startDate, endDate) {
         .order('snapshot_date', { ascending: true });
 
     if (error) {
-        console.error('getSnapshotsInRange error:', error.message);
+        log.error(`getSnapshotsInRange error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -319,7 +322,7 @@ export async function getAllSnapshots() {
         .order('snapshot_date', { ascending: false });
 
     if (error) {
-        console.error('getAllSnapshots error:', error.message);
+        log.error(`getAllSnapshots error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -338,9 +341,9 @@ export async function deleteOldSnapshots(daysToKeep = 365) {
 
     const count = data?.length || 0;
     if (error) {
-        console.error('deleteOldSnapshots error:', error.message);
+        log.error(`deleteOldSnapshots error: ${error.message}`);
     } else {
-        console.log(`🗑️  Deleted ${count} old snapshots (older than ${cutoffDateStr})`);
+        log.info(`[CLEANUP] Deleted ${count} old snapshots (older than ${cutoffDateStr})`);
     }
     return count;
 }
@@ -366,7 +369,7 @@ export async function insertTransaction(tx) {
         }, { onConflict: 'txid', ignoreDuplicates: true });
 
     if (error) {
-        console.error('insertTransaction error:', error.message);
+        log.error(`insertTransaction error: ${error.message}`);
     }
 }
 
@@ -395,12 +398,12 @@ export async function insertTransactionsBatch(transactions) {
             .upsert(chunk, { onConflict: 'txid', ignoreDuplicates: true });
 
         if (error) {
-            console.error(`insertTransactionsBatch chunk error (offset ${i}):`, error.message);
+            log.error(`insertTransactionsBatch chunk error (offset ${i}): ${error.message}`);
             return false;
         }
     }
 
-    console.log(`✅ Inserted ${transactions.length} transactions`);
+    log.info(`Inserted ${transactions.length} transactions`);
     return true;
 }
 
@@ -413,7 +416,7 @@ export async function getUndeterminedAppNames() {
         .is('app_type', null);
 
     if (error) {
-        console.error('getUndeterminedAppNames error:', error.message);
+        log.error(`getUndeterminedAppNames error: ${error.message}`);
         return [];
     }
 
@@ -430,7 +433,7 @@ export async function updateAppTypeForAppName(appName, appType) {
         .is('app_type', null);
 
     if (error) {
-        console.error('updateAppTypeForAppName error:', error.message);
+        log.error(`updateAppTypeForAppName error: ${error.message}`);
     }
 }
 
@@ -450,7 +453,7 @@ export async function getTxidsWithoutAppName(limit = 500, recentDays = null) {
 
     const { data, error } = await query;
     if (error) {
-        console.error('getTxidsWithoutAppName error:', error.message);
+        log.error(`getTxidsWithoutAppName error: ${error.message}`);
         return [];
     }
     return (data || []).map(r => r.txid);
@@ -470,7 +473,7 @@ export async function countTxidsWithoutAppName(recentDays = null) {
 
     const { count, error } = await query;
     if (error) {
-        console.error('countTxidsWithoutAppName error:', error.message);
+        log.error(`countTxidsWithoutAppName error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -484,7 +487,7 @@ export async function updateAppNameForTxid(txid, appName, appType) {
         .is('app_name', null);
 
     if (error) {
-        console.error('updateAppNameForTxid error:', error.message);
+        log.error(`updateAppNameForTxid error: ${error.message}`);
     }
 }
 
@@ -496,7 +499,7 @@ export async function getTransactionsByDate(date) {
         .limit(10000);
 
     if (error) {
-        console.error('getTransactionsByDate error:', error.message);
+        log.error(`getTransactionsByDate error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -512,7 +515,7 @@ export async function getTransactionsByBlockRange(startBlock, endBlock) {
         .limit(10000);
 
     if (error) {
-        console.error('getTransactionsByBlockRange error:', error.message);
+        log.error(`getTransactionsByBlockRange error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -526,7 +529,7 @@ export async function getRevenueForDateRange(startDate, endDate) {
     });
 
     if (error) {
-        console.error('getRevenueForDateRange error:', error.message);
+        log.error(`getRevenueForDateRange error: ${error.message}`);
         return 0;
     }
     // Sum the daily totals
@@ -541,7 +544,7 @@ export async function getPaymentCountForDateRange(startDate, endDate) {
         .lte('date', endDate);
 
     if (error) {
-        console.error('getPaymentCountForDateRange error:', error.message);
+        log.error(`getPaymentCountForDateRange error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -562,7 +565,7 @@ export async function getRevenueForBlockRange(startBlock, endBlock) {
             .range(offset, offset + pageSize - 1);
 
         if (error) {
-            console.error('getRevenueForBlockRange error:', error.message);
+            log.error(`getRevenueForBlockRange error: ${error.message}`);
             return total;
         }
         if (!data || data.length === 0) break;
@@ -583,7 +586,7 @@ export async function getLastSyncedBlock() {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getLastSyncedBlock error:', error.message);
+        log.error(`getLastSyncedBlock error: ${error.message}`);
     }
     return data?.block_height || null;
 }
@@ -594,7 +597,7 @@ export async function getTxidCount() {
         .select('*', { count: 'exact', head: true });
 
     if (error) {
-        console.error('getTxidCount error:', error.message);
+        log.error(`getTxidCount error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -611,7 +614,7 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
     });
 
     if (error) {
-        console.error('getTransactionsPaginated error:', error.message);
+        log.error(`getTransactionsPaginated error: ${error.message}`);
         return { transactions: [], total: 0, page, limit, offset };
     }
 
@@ -639,7 +642,7 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
     });
 
     if (error) {
-        console.error('getAppAnalytics error:', error.message);
+        log.error(`getAppAnalytics error: ${error.message}`);
         return { apps: [], total: 0, page, limit, offset };
     }
 
@@ -667,10 +670,10 @@ export async function getDailyRevenueFromTransactions(days = 30) {
     });
 
     if (error) {
-        console.error('getDailyRevenueFromTransactions error:', error.message);
+        log.error(`getDailyRevenueFromTransactions error: ${error.message}`);
         return [];
     }
-    console.log(`✅ Retrieved daily revenue for ${(data || []).length} days from transactions`);
+    log.info(`Retrieved daily revenue for ${(data || []).length} days from transactions`);
     return data || [];
 }
 
@@ -681,10 +684,10 @@ export async function getDailyRevenueInRange(startDate, endDate) {
     });
 
     if (error) {
-        console.error('getDailyRevenueInRange error:', error.message);
+        log.error(`getDailyRevenueInRange error: ${error.message}`);
         return [];
     }
-    console.log(`✅ Retrieved daily revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
+    log.info(`Retrieved daily revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
     return data || [];
 }
 
@@ -698,10 +701,10 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
     });
 
     if (error) {
-        console.error('getDailyRevenueUSDFromTransactions error:', error.message);
+        log.error(`getDailyRevenueUSDFromTransactions error: ${error.message}`);
         return [];
     }
-    console.log(`✅ Retrieved daily USD revenue for ${(data || []).length} days from transactions`);
+    log.info(`Retrieved daily USD revenue for ${(data || []).length} days from transactions`);
     return data || [];
 }
 
@@ -712,10 +715,10 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
     });
 
     if (error) {
-        console.error('getDailyRevenueUSDInRange error:', error.message);
+        log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
         return [];
     }
-    console.log(`✅ Retrieved daily USD revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
+    log.info(`Retrieved daily USD revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
     return data || [];
 }
 
@@ -732,9 +735,9 @@ export async function deleteOldTransactions(daysToKeep = 365) {
 
     const count = data?.length || 0;
     if (error) {
-        console.error('deleteOldTransactions error:', error.message);
+        log.error(`deleteOldTransactions error: ${error.message}`);
     } else {
-        console.log(`🗑️  Deleted ${count} old transactions (older than ${cutoffDateStr})`);
+        log.info(`[CLEANUP] Deleted ${count} old transactions (older than ${cutoffDateStr})`);
     }
     return count;
 }
@@ -788,7 +791,7 @@ export async function getUnresolvedFailedTxids(limit = 200) {
         .limit(limit);
 
     if (error) {
-        console.error('getUnresolvedFailedTxids error:', error.message);
+        log.error(`getUnresolvedFailedTxids error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -801,7 +804,7 @@ export async function resolveFailedTxid(txid) {
         .eq('txid', txid);
 
     if (error) {
-        console.error('resolveFailedTxid error:', error.message);
+        log.error(`resolveFailedTxid error: ${error.message}`);
     }
 }
 
@@ -812,7 +815,7 @@ export async function getFailedTxidCount() {
         .eq('resolved', 0);
 
     if (error) {
-        console.error('getFailedTxidCount error:', error.message);
+        log.error(`getFailedTxidCount error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -829,7 +832,7 @@ export async function clearAbandonedFailedTxids(maxAgeDays = 30) {
         .select('txid');
 
     if (error) {
-        console.error('clearAbandonedFailedTxids error:', error.message);
+        log.error(`clearAbandonedFailedTxids error: ${error.message}`);
         return 0;
     }
     return data?.length || 0;
@@ -844,7 +847,7 @@ export async function isFailedTxid(txid) {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('isFailedTxid error:', error.message);
+        log.error(`isFailedTxid error: ${error.message}`);
     }
     return data || null;
 }
@@ -861,7 +864,7 @@ export async function getSyncStatus(syncType) {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getSyncStatus error:', error.message);
+        log.error(`getSyncStatus error: ${error.message}`);
     }
     return data || null;
 }
@@ -878,7 +881,7 @@ export async function updateSyncStatus(syncType, status, errorMessage = null, la
         .eq('sync_type', syncType);
 
     if (error) {
-        console.error('updateSyncStatus error:', error.message);
+        log.error(`updateSyncStatus error: ${error.message}`);
     }
 }
 
@@ -889,7 +892,7 @@ export async function resetRevenueSyncBlock() {
         .eq('sync_type', 'revenue');
 
     if (error) {
-        console.error('resetRevenueSyncBlock error:', error.message);
+        log.error(`resetRevenueSyncBlock error: ${error.message}`);
     }
 }
 
@@ -918,7 +921,7 @@ export async function setNextSync(syncType, nextSyncTime) {
         .eq('sync_type', syncType);
 
     if (error) {
-        console.error('setNextSync error:', error.message);
+        log.error(`setNextSync error: ${error.message}`);
     }
 }
 
@@ -943,12 +946,12 @@ export async function insertPriceHistoryBatch(prices) {
             .upsert(chunk, { onConflict: 'date' });
 
         if (error) {
-            console.error(`insertPriceHistoryBatch chunk error (offset ${i}):`, error.message);
+            log.error(`insertPriceHistoryBatch chunk error (offset ${i}): ${error.message}`);
             return false;
         }
     }
 
-    console.log(`Inserted/updated ${prices.length} price history rows`);
+    log.info(`Inserted/updated ${prices.length} price history rows`);
     return true;
 }
 
@@ -960,7 +963,7 @@ export async function getPriceForDate(date) {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getPriceForDate error:', error.message);
+        log.error(`getPriceForDate error: ${error.message}`);
     }
     return data ? data.price_usd : null;
 }
@@ -974,7 +977,7 @@ export async function getPricesForDateRange(startDate, endDate) {
         .order('date', { ascending: true });
 
     if (error) {
-        console.error('getPricesForDateRange error:', error.message);
+        log.error(`getPricesForDateRange error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -989,7 +992,7 @@ export async function getLatestPriceDate() {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getLatestPriceDate error:', error.message);
+        log.error(`getLatestPriceDate error: ${error.message}`);
     }
     return data ? data.date : null;
 }
@@ -1003,7 +1006,7 @@ export async function getOldestPriceDate() {
         .single();
 
     if (error && error.code !== 'PGRST116') {
-        console.error('getOldestPriceDate error:', error.message);
+        log.error(`getOldestPriceDate error: ${error.message}`);
     }
     return data ? data.date : null;
 }
@@ -1017,7 +1020,7 @@ export async function getTransactionsWithNullUsd(limit = 1000) {
         .limit(limit);
 
     if (error) {
-        console.error('getTransactionsWithNullUsd error:', error.message);
+        log.error(`getTransactionsWithNullUsd error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -1041,12 +1044,12 @@ export async function updateTransactionUsdBatch(updates) {
         const results = await Promise.all(promises);
         const firstError = results.find(r => r.error);
         if (firstError?.error) {
-            console.error('updateTransactionUsdBatch error:', firstError.error.message);
+            log.error(`updateTransactionUsdBatch error: ${firstError.error.message}`);
             return false;
         }
     }
 
-    console.log(`Updated USD for ${updates.length} transactions`);
+    log.info(`Updated USD for ${updates.length} transactions`);
     return true;
 }
 
@@ -1056,7 +1059,7 @@ export async function getPriceHistoryCount() {
         .select('*', { count: 'exact', head: true });
 
     if (error) {
-        console.error('getPriceHistoryCount error:', error.message);
+        log.error(`getPriceHistoryCount error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -1115,7 +1118,7 @@ export async function createRepoSnapshots(snapshotDate, repoCounts) {
             .upsert(chunk, { onConflict: 'snapshot_date,image_name' });
 
         if (error) {
-            console.error(`createRepoSnapshots chunk error (offset ${i}):`, error.message);
+            log.error(`createRepoSnapshots chunk error (offset ${i}): ${error.message}`);
         }
     }
 
@@ -1129,7 +1132,7 @@ export async function getRepoSnapshotCountByDate(date) {
         .eq('snapshot_date', date);
 
     if (error) {
-        console.error('getRepoSnapshotCountByDate error:', error.message);
+        log.error(`getRepoSnapshotCountByDate error: ${error.message}`);
         return 0;
     }
     return count || 0;
@@ -1144,7 +1147,7 @@ export async function getRepoHistory(imageName, limit = 90) {
         });
 
         if (error) {
-            console.error('getRepoHistory (merged) error:', error.message);
+            log.error(`getRepoHistory (merged) error: ${error.message}`);
             return [];
         }
         return data || [];
@@ -1158,7 +1161,7 @@ export async function getRepoHistory(imageName, limit = 90) {
         .limit(limit);
 
     if (error) {
-        console.error('getRepoHistory error:', error.message);
+        log.error(`getRepoHistory error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -1168,7 +1171,7 @@ export async function getDistinctRepos() {
     const { data, error } = await supabase.rpc('get_distinct_repos');
 
     if (error) {
-        console.error('getDistinctRepos error:', error.message);
+        log.error(`getDistinctRepos error: ${error.message}`);
         return [];
     }
 
@@ -1193,7 +1196,7 @@ export async function getLatestRepoSnapshot() {
         .order('instance_count', { ascending: false });
 
     if (error) {
-        console.error('getLatestRepoSnapshot error:', error.message);
+        log.error(`getLatestRepoSnapshot error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -1210,7 +1213,7 @@ export async function getTopReposByCategory(category, limit = 3) {
     });
 
     if (error) {
-        console.error('getTopReposByCategory error:', error.message);
+        log.error(`getTopReposByCategory error: ${error.message}`);
         return { date: null, repos: [] };
     }
 
@@ -1237,7 +1240,7 @@ export async function getCategoryTotal(category, date) {
         .eq('snapshot_date', date);
 
     if (error) {
-        console.error('getCategoryTotal error:', error.message);
+        log.error(`getCategoryTotal error: ${error.message}`);
         return 0;
     }
     return (data || []).reduce((sum, r) => sum + (r.instance_count || 0), 0);
@@ -1250,7 +1253,7 @@ export async function getCategoryHistory(category, limit = 90) {
     });
 
     if (error) {
-        console.error('getCategoryHistory error:', error.message);
+        log.error(`getCategoryHistory error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -1262,7 +1265,7 @@ export async function getReposByCategory(category) {
     });
 
     if (error) {
-        console.error('getReposByCategory error:', error.message);
+        log.error(`getReposByCategory error: ${error.message}`);
         return [];
     }
     return data || [];
@@ -1292,7 +1295,7 @@ export async function backfillRepoCategories() {
         }
     }
 
-    console.log(`Backfilled categories for ${updated} of ${uniqueImages.length} distinct images`);
+    log.info(`Backfilled categories for ${updated} of ${uniqueImages.length} distinct images`);
     return uniqueImages.length;
 }
 
@@ -1322,7 +1325,7 @@ export async function recategorizeAllRepos() {
         }
     }
 
-    console.log(`Re-categorized ${uniqueImages.length} images:`, counts);
+    log.info({ counts }, `Re-categorized ${uniqueImages.length} images`);
     return { resetCount: uniqueImages.length, categorized: counts };
 }
 
@@ -1424,7 +1427,7 @@ export async function upsertRepoSnapshots(rows) {
 
 export async function closeDatabase() {
     // No-op for Supabase - connection is managed by the client
-    console.log('✅ Supabase client does not require explicit close');
+    log.info('[DB] Supabase client does not require explicit close');
 }
 
 // NOTE: No top-level await — caller must use ensureInitialized() for resilient startup

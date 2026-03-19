@@ -2,6 +2,9 @@
 
 import axios from 'axios';
 import { API_ENDPOINTS } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('carouselService');
 
 // Cache for carousel data
 let cachedCarouselData = null;
@@ -28,7 +31,7 @@ const EXCLUDED_IMAGES = [
  */
 export async function fetchCarouselData() {
     try {
-        console.log('🎠 Fetching carousel data (apps + benchmarks)...');
+        log.info('Fetching carousel data (apps + benchmarks)...');
         
         // Fetch both in parallel
         const [topApps, benchmarkStats] = await Promise.all([
@@ -46,18 +49,16 @@ export async function fetchCarouselData() {
         cachedCarouselData = allStats;
         lastFetchTime = Date.now();
         
-        console.log('✅ Carousel data fetched:', allStats.length, 'total items');
-        console.log(`   - ${topApps.length} top apps`);
-        console.log(`   - ${benchmarkStats.length} benchmark records`);
+        log.info({ total: allStats.length, topApps: topApps.length, benchmarks: benchmarkStats.length }, 'Carousel data fetched');
         
         return allStats;
         
     } catch (error) {
-        console.error('❌ Error fetching carousel data:', error.message);
-        
+        log.error({ err: error }, 'Error fetching carousel data');
+
         // Return cached data if available
         if (cachedCarouselData) {
-            console.log('⚠️ Using cached carousel data due to fetch error');
+            log.warn('Using cached carousel data due to fetch error');
             return cachedCarouselData;
         }
         
@@ -92,7 +93,7 @@ async function getSharedFluxApiData() {
  */
 export async function fetchLatestDeployedApps() {
     try {
-        console.log('📦 Fetching latest deployed apps...');
+        log.info('Fetching latest deployed apps...');
 
         const { currentBlockHeight, appsData } = await getSharedFluxApiData();
         
@@ -100,17 +101,16 @@ export async function fetchLatestDeployedApps() {
             throw new Error('Invalid response from API');
         }
         
-        console.log(`   Current block height: ${currentBlockHeight.toLocaleString()}`);
-        console.log(`   Total apps in network: ${appsData.length}`);
-        
+        log.info({ currentBlockHeight, totalApps: appsData.length }, 'Deployed apps API data received');
+
         // Filter apps deployed today (within 2880 blocks = 24 hours at 30s per block)
         const BLOCKS_PER_DAY = 2880;
         const deployedToday = appsData.filter(app => {
             const blockAge = currentBlockHeight - (app.height || 0);
             return blockAge >= 0 && blockAge < BLOCKS_PER_DAY;
         });
-        
-        console.log(`   Apps deployed today: ${deployedToday.length}`);
+
+        log.info('Apps deployed today: %d', deployedToday.length);
         
         // Sort alphabetically by name
         deployedToday.sort((a, b) => {
@@ -164,16 +164,16 @@ export async function fetchLatestDeployedApps() {
         cachedDeployedApps = formattedApps;
         lastDeployedFetchTime = Date.now();
         
-        console.log('✅ Latest deployed apps fetched:', formattedApps.length, 'apps');
+        log.info('Latest deployed apps fetched: %d apps', formattedApps.length);
         
         return formattedApps;
         
     } catch (error) {
-        console.error('❌ Error fetching deployed apps:', error.message);
-        
+        log.error({ err: error }, 'Error fetching deployed apps');
+
         // Return cached data if available
         if (cachedDeployedApps) {
-            console.log('⚠️ Using cached deployed apps data due to fetch error');
+            log.warn('Using cached deployed apps data due to fetch error');
             return cachedDeployedApps;
         }
         
@@ -283,7 +283,7 @@ async function fetchTopApps() {
         return topApps;
         
     } catch (error) {
-        console.error('❌ Error fetching top apps:', error.message);
+        log.error({ err: error }, 'Error fetching top apps');
         return [];
     }
 }
@@ -312,7 +312,7 @@ async function fetchTopBenchmarks() {
         );
         
         if (validBenchmarks.length === 0) {
-            console.log('⚠️ No valid benchmarks found');
+            log.warn('No valid benchmarks found');
             return [];
         }
         
@@ -410,12 +410,12 @@ async function fetchTopBenchmarks() {
             unit: 'Mbps'
         });
         
-        console.log('✅ Benchmark stats fetched:', stats.length, 'records');
+        log.info('Benchmark stats fetched: %d records', stats.length);
         
         return stats;
         
     } catch (error) {
-        console.error('❌ Error fetching benchmark stats:', error.message);
+        log.error({ err: error }, 'Error fetching benchmark stats');
         return [];
     }
 }
@@ -440,7 +440,7 @@ export function getCachedCarouselData() {
  */
 export async function fetchExpiringApps() {
     try {
-        console.log('⏳ Fetching expiring apps...');
+        log.info('Fetching expiring apps...');
 
         const { currentBlockHeight, appsData } = await getSharedFluxApiData();
 
@@ -448,8 +448,7 @@ export async function fetchExpiringApps() {
             throw new Error('Invalid response from API');
         }
 
-        console.log(`   Current block height: ${currentBlockHeight.toLocaleString()}`);
-        console.log(`   Total apps in network: ${appsData.length}`);
+        log.info({ currentBlockHeight, totalApps: appsData.length }, 'Expiring apps API data received');
 
         const BLOCKS_PER_DAY = 2880;
         const expiringSoon = appsData
@@ -464,7 +463,7 @@ export async function fetchExpiringApps() {
                 expiresInBlocks: (app.height || 0) + app.expire - currentBlockHeight
             }));
 
-        console.log(`   Apps expiring within 2880 blocks: ${expiringSoon.length}`);
+        log.info('Apps expiring within 2880 blocks: %d', expiringSoon.length);
 
         // Sort ascending by expiry (most urgent first)
         expiringSoon.sort((a, b) => a.expiresInBlocks - b.expiresInBlocks);
@@ -500,15 +499,15 @@ export async function fetchExpiringApps() {
         cachedExpiringApps = formattedApps;
         lastExpiringFetchTime = Date.now();
 
-        console.log('✅ Expiring apps fetched:', formattedApps.length, 'apps');
+        log.info('Expiring apps fetched: %d apps', formattedApps.length);
 
         return formattedApps;
 
     } catch (error) {
-        console.error('❌ Error fetching expiring apps:', error.message);
+        log.error({ err: error }, 'Error fetching expiring apps');
 
         if (cachedExpiringApps) {
-            console.log('⚠️ Using cached expiring apps data due to fetch error');
+            log.warn('Using cached expiring apps data due to fetch error');
             return cachedExpiringApps;
         }
 
@@ -526,11 +525,11 @@ export async function getCachedDeployedApps() {
     
     // If no cache or stale cache, fetch now
     if (!cachedDeployedApps || !isFresh) {
-        console.log('📦 No fresh deployed apps cache, fetching now...');
+        log.info('No fresh deployed apps cache, fetching now...');
         try {
             await fetchLatestDeployedApps();
         } catch (error) {
-            console.error('❌ Failed to fetch deployed apps on-demand:', error);
+            log.error({ err: error }, 'Failed to fetch deployed apps on-demand');
         }
     }
     
@@ -551,11 +550,11 @@ export async function getCachedExpiringApps() {
     const isFresh = cacheAge < CACHE_DURATION;
 
     if (!cachedExpiringApps || !isFresh) {
-        console.log('⏳ No fresh expiring apps cache, fetching now...');
+        log.info('No fresh expiring apps cache, fetching now...');
         try {
             await fetchExpiringApps();
         } catch (error) {
-            console.error('❌ Failed to fetch expiring apps on-demand:', error);
+            log.error({ err: error }, 'Failed to fetch expiring apps on-demand');
         }
     }
 

@@ -25,6 +25,9 @@ import {
     upsertPriceHistory
 } from '../db/database.js';
 import { BACKUP_CONFIG } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('backupService');
 
 // ============================================
 // CONFIGURATION
@@ -130,7 +133,7 @@ export async function performBackup() {
 
         // daily_snapshots
         try {
-            console.log('Backup: exporting daily_snapshots...');
+            log.info('exporting daily_snapshots');
             const dailyRows = await exportAllDailySnapshots();
             const dailyPayload = JSON.stringify({
                 table: 'daily_snapshots',
@@ -145,15 +148,15 @@ export async function performBackup() {
                 ContentType: 'application/json'
             })), 'daily_snapshots upload');
             tableCounts.daily_snapshots = dailyRows.length;
-            console.log(`Backup: daily_snapshots uploaded (${dailyRows.length} rows)`);
+            log.info({ rows: dailyRows.length }, 'daily_snapshots uploaded');
         } catch (error) {
             tableErrors.push(`daily_snapshots: ${error.message}`);
-            console.error('Backup: daily_snapshots failed after retries:', error.message);
+            log.error({ err: error }, 'daily_snapshots failed after retries');
         }
 
         // repo_snapshots
         try {
-            console.log('Backup: exporting repo_snapshots...');
+            log.info('exporting repo_snapshots');
             const repoRows = await exportAllRepoSnapshots();
             const repoPayload = JSON.stringify({
                 table: 'repo_snapshots',
@@ -168,15 +171,15 @@ export async function performBackup() {
                 ContentType: 'application/json'
             })), 'repo_snapshots upload');
             tableCounts.repo_snapshots = repoRows.length;
-            console.log(`Backup: repo_snapshots uploaded (${repoRows.length} rows)`);
+            log.info({ rows: repoRows.length }, 'repo_snapshots uploaded');
         } catch (error) {
             tableErrors.push(`repo_snapshots: ${error.message}`);
-            console.error('Backup: repo_snapshots failed after retries:', error.message);
+            log.error({ err: error }, 'repo_snapshots failed after retries');
         }
 
         // flux_price_history
         try {
-            console.log('Backup: exporting flux_price_history...');
+            log.info('exporting flux_price_history');
             const priceRows = await exportAllPriceHistory();
             const pricePayload = JSON.stringify({
                 table: 'flux_price_history',
@@ -191,10 +194,10 @@ export async function performBackup() {
                 ContentType: 'application/json'
             })), 'flux_price_history upload');
             tableCounts.flux_price_history = priceRows.length;
-            console.log(`Backup: flux_price_history uploaded (${priceRows.length} rows)`);
+            log.info({ rows: priceRows.length }, 'flux_price_history uploaded');
         } catch (error) {
             tableErrors.push(`flux_price_history: ${error.message}`);
-            console.error('Backup: flux_price_history failed after retries:', error.message);
+            log.error({ err: error }, 'flux_price_history failed after retries');
         }
 
         // Prune old backups
@@ -223,7 +226,7 @@ export async function performBackup() {
     } catch (error) {
         consecutiveFailures++;
         lastError = error.message;
-        console.error('Backup failed:', error.message);
+        log.error({ err: error }, 'backup failed');
         return { success: false, error: error.message };
     } finally {
         isRunning = false;
@@ -272,7 +275,7 @@ export async function restoreFromBackup(date) {
         const bucket = getConfig().bucket;
 
         // Download daily_snapshots
-        console.log(`Restore: downloading daily_snapshots from ${date}...`);
+        log.info({ date }, 'downloading daily_snapshots');
         const dailyObj = await client.send(new GetObjectCommand({
             Bucket: bucket,
             Key: `backups/${date}/daily_snapshots.json`
@@ -280,7 +283,7 @@ export async function restoreFromBackup(date) {
         const dailyJson = JSON.parse(await dailyObj.Body.transformToString());
 
         // Download repo_snapshots
-        console.log(`Restore: downloading repo_snapshots from ${date}...`);
+        log.info({ date }, 'downloading repo_snapshots');
         const repoObj = await client.send(new GetObjectCommand({
             Bucket: bucket,
             Key: `backups/${date}/repo_snapshots.json`
@@ -290,26 +293,26 @@ export async function restoreFromBackup(date) {
         // Download flux_price_history (optional — older backups may not have it)
         let priceJson = null;
         try {
-            console.log(`Restore: downloading flux_price_history from ${date}...`);
+            log.info({ date }, 'downloading flux_price_history');
             const priceObj = await client.send(new GetObjectCommand({
                 Bucket: bucket,
                 Key: `backups/${date}/flux_price_history.json`
             }));
             priceJson = JSON.parse(await priceObj.Body.transformToString());
         } catch {
-            console.log('Restore: no price history backup found (skipping)');
+            log.info('no price history backup found (skipping)');
         }
 
         // Upsert into DB
-        console.log(`Restore: upserting ${dailyJson.rowCount} daily snapshots...`);
+        log.info({ rowCount: dailyJson.rowCount }, 'upserting daily snapshots');
         const dailyCount = await upsertDailySnapshots(dailyJson.rows);
 
-        console.log(`Restore: upserting ${repoJson.rowCount} repo snapshots...`);
+        log.info({ rowCount: repoJson.rowCount }, 'upserting repo snapshots');
         const repoCount = await upsertRepoSnapshots(repoJson.rows);
 
         let priceCount = 0;
         if (priceJson) {
-            console.log(`Restore: upserting ${priceJson.rowCount} price history rows...`);
+            log.info({ rowCount: priceJson.rowCount }, 'upserting price history rows');
             priceCount = await upsertPriceHistory(priceJson.rows);
         }
 
@@ -345,7 +348,7 @@ async function withRetry(fn, label) {
             lastError = error;
             if (attempt < UPLOAD_MAX_RETRIES) {
                 const delayMs = UPLOAD_INITIAL_BACKOFF_MS * Math.pow(4, attempt - 1);
-                console.warn(`Backup: ${label} attempt ${attempt}/${UPLOAD_MAX_RETRIES} failed: ${error.message} — retrying in ${delayMs}ms`);
+                log.warn({ label, attempt, maxRetries: UPLOAD_MAX_RETRIES, err: error, delayMs }, 'upload attempt failed, retrying');
                 await new Promise(resolve => setTimeout(resolve, delayMs));
             }
         }
@@ -391,13 +394,13 @@ async function pruneOldBackups(client, bucket) {
         }
 
         if (totalDeleted > 0) {
-            console.log(`Backup: pruned ${oldDates.length} old backups (${totalDeleted} files)`);
+            log.info({ dates: oldDates.length, files: totalDeleted }, 'pruned old backups');
         }
 
         return oldDates.length;
 
     } catch (error) {
-        console.warn('Backup prune failed:', error.message);
+        log.warn({ err: error }, 'backup prune failed');
         return 0;
     }
 }

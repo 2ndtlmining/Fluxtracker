@@ -21,6 +21,9 @@ import {
     upsertRepoSnapshots,
     upsertPriceHistory
 } from '../db/database.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('bootstrapService');
 
 // ============================================
 // CONFIGURATION
@@ -47,7 +50,7 @@ function isBootstrapConfigured() {
 export async function runBootstrap() {
     const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
     if (dbType !== 'sqlite') {
-        console.log('Bootstrap: skipped (not SQLite mode)');
+        log.info('skipped (not SQLite mode)');
         return;
     }
 
@@ -64,26 +67,26 @@ export async function runBootstrap() {
             db.close();
 
             if (row && row.cnt > 0) {
-                console.log(`Bootstrap: skipped (DB already has ${row.cnt} daily snapshots — warm restart)`);
+                log.info({ count: row.cnt }, 'skipped (DB already has daily snapshots -- warm restart)');
                 needsBootstrap = false;
             }
         } catch {
             // DB doesn't exist or has no tables yet — needs bootstrap
-            console.log('Bootstrap: fresh database detected');
+            log.info('fresh database detected');
         }
 
         if (!needsBootstrap) return;
     } catch (error) {
-        console.log('Bootstrap: cannot check DB state, proceeding:', error.message);
+        log.info({ err: error }, 'cannot check DB state, proceeding');
     }
 
     // Check for bootstrap credentials
     if (!isBootstrapConfigured()) {
-        console.warn('Bootstrap: BOOTSTRAP_R2_* env vars not set — starting with empty database');
+        log.warn('BOOTSTRAP_R2_* env vars not set -- starting with empty database');
         return;
     }
 
-    console.log('Bootstrap: downloading latest backup from R2...');
+    log.info('downloading latest backup from R2');
 
     try {
         const cfg = getBootstrapConfig();
@@ -109,17 +112,17 @@ export async function runBootstrap() {
             .sort();
 
         if (dates.length === 0) {
-            console.warn('Bootstrap: no backups found in R2 — starting with empty database');
+            log.warn('no backups found in R2 -- starting with empty database');
             return;
         }
 
         const latestDate = dates[dates.length - 1];
-        console.log(`Bootstrap: using backup from ${latestDate}`);
+        log.info({ date: latestDate }, 'using backup');
 
         // Download daily_snapshots
         let dailyCount = 0;
         try {
-            console.log('Bootstrap: downloading daily_snapshots...');
+            log.info('downloading daily_snapshots');
             const dailyObj = await client.send(new GetObjectCommand({
                 Bucket: cfg.bucket,
                 Key: `backups/${latestDate}/daily_snapshots.json`
@@ -129,17 +132,17 @@ export async function runBootstrap() {
 
             if (dailyCount > 0) {
                 await upsertDailySnapshots(dailyJson.rows);
-                console.log(`Bootstrap: imported ${dailyCount} daily snapshots`);
+                log.info({ count: dailyCount }, 'imported daily snapshots');
             }
         } catch (error) {
             dailyCount = 0;
-            console.warn('Bootstrap: daily_snapshots failed:', error.message);
+            log.warn({ err: error }, 'daily_snapshots failed');
         }
 
         // Download repo_snapshots
         let repoCount = 0;
         try {
-            console.log('Bootstrap: downloading repo_snapshots...');
+            log.info('downloading repo_snapshots');
             const repoObj = await client.send(new GetObjectCommand({
                 Bucket: cfg.bucket,
                 Key: `backups/${latestDate}/repo_snapshots.json`
@@ -149,17 +152,17 @@ export async function runBootstrap() {
 
             if (repoCount > 0) {
                 await upsertRepoSnapshots(repoJson.rows);
-                console.log(`Bootstrap: imported ${repoCount} repo snapshots`);
+                log.info({ count: repoCount }, 'imported repo snapshots');
             }
         } catch (error) {
             repoCount = 0;
-            console.warn('Bootstrap: repo_snapshots failed:', error.message);
+            log.warn({ err: error }, 'repo_snapshots failed');
         }
 
         // Download flux_price_history (optional — may be missing)
         let priceCount = 0;
         try {
-            console.log('Bootstrap: downloading flux_price_history...');
+            log.info('downloading flux_price_history');
             const priceObj = await client.send(new GetObjectCommand({
                 Bucket: cfg.bucket,
                 Key: `backups/${latestDate}/flux_price_history.json`
@@ -169,17 +172,17 @@ export async function runBootstrap() {
 
             if (priceCount > 0) {
                 await upsertPriceHistory(priceJson.rows);
-                console.log(`Bootstrap: imported ${priceCount} price history rows`);
+                log.info({ count: priceCount }, 'imported price history rows');
             }
         } catch {
             priceCount = 0;
-            console.log('Bootstrap: no price history backup found (skipping)');
+            log.info('no price history backup found (skipping)');
         }
 
-        console.log(`\n✅ Bootstrap complete: ${dailyCount} snapshots, ${repoCount} repos, ${priceCount} prices imported from ${latestDate}`);
+        log.info({ dailyCount, repoCount, priceCount, date: latestDate }, 'bootstrap complete');
 
     } catch (error) {
-        console.error('Bootstrap failed:', error.message);
-        console.warn('Starting with empty database — data will sync from blockchain');
+        log.error({ err: error }, 'bootstrap failed');
+        log.warn('starting with empty database -- data will sync from blockchain');
     }
 }
