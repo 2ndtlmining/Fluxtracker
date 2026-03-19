@@ -11,11 +11,14 @@ if (!process.env.DB_TYPE) {
 
 const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
 
+import { createLogger } from '../logger.js';
+const log = createLogger('database');
+
 const adapter = dbType === 'sqlite'
     ? await import('./adapters/sqliteAdapter.js')
     : await import('./adapters/supabaseAdapter.js');
 
-console.log(`Database adapter: ${dbType}`);
+log.info(`Database adapter: ${dbType}`);
 
 // Re-export every function from the chosen adapter
 export const {

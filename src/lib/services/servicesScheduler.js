@@ -2,6 +2,9 @@
 
 import { testAllServices } from './test-allServices.js';
 import { fetchCarouselData } from './carouselService.js';  // UPDATED: Use new function name
+import { createLogger } from '../logger.js';
+
+const log = createLogger('servicesScheduler');
 
 // Configuration
 const TEST_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
@@ -22,11 +25,11 @@ let consecutiveCarouselFailures = 0;
  */
 async function runTests() {
     const now = new Date();
-    console.log(`\n⏰ Test sync scheduled run at ${now.toISOString()}`);
-    
+    log.info('Test sync scheduled run at %s', now.toISOString());
+
     // Prevent concurrent runs
     if (isRunning) {
-        console.log('⏭️  Previous test still running, skipping...');
+        log.info('Previous test still running, skipping...');
         return;
     }
     
@@ -39,14 +42,14 @@ async function runTests() {
         lastRun = Date.now();
         consecutiveFailures = 0;
         
-        console.log('✅ Tests completed\n');
-        
+        log.info('Tests completed');
+
     } catch (error) {
-        console.error('❌ Test sync failed:', error.message);
+        log.error({ err: error }, 'Test sync failed');
         consecutiveFailures++;
-        
+
         if (consecutiveFailures >= 3) {
-            console.error(`🚨 ALERT: ${consecutiveFailures} consecutive test failures!`);
+            log.error('ALERT: %d consecutive test failures!', consecutiveFailures);
         }
     } finally {
         isRunning = false;
@@ -58,11 +61,11 @@ async function runTests() {
  */
 async function runCarouselUpdate() {
     const now = new Date();
-    console.log(`\n⏰ Carousel sync scheduled run at ${now.toISOString()}`);
-    
+    log.info('Carousel sync scheduled run at %s', now.toISOString());
+
     // Prevent concurrent runs
     if (isCarouselRunning) {
-        console.log('⏭️  Previous carousel update still running, skipping...');
+        log.info('Previous carousel update still running, skipping...');
         return;
     }
     
@@ -75,14 +78,14 @@ async function runCarouselUpdate() {
         lastCarouselRun = Date.now();
         consecutiveCarouselFailures = 0;
         
-        console.log(`✅ Carousel updated with ${carouselStats.length} stats\n`);
-        
+        log.info('Carousel updated with %d stats', carouselStats.length);
+
     } catch (error) {
-        console.error('❌ Carousel sync failed:', error.message);
+        log.error({ err: error }, 'Carousel sync failed');
         consecutiveCarouselFailures++;
-        
+
         if (consecutiveCarouselFailures >= 3) {
-            console.error(`🚨 ALERT: ${consecutiveCarouselFailures} consecutive carousel failures!`);
+            log.error('ALERT: %d consecutive carousel failures!', consecutiveCarouselFailures);
         }
     } finally {
         isCarouselRunning = false;
@@ -94,12 +97,12 @@ async function runCarouselUpdate() {
  */
 export function startServiceTests() {
     if (intervalId) {
-        console.warn('⚠️  Test sync already running');
+        log.warn('Test sync already running');
         return;
     }
-    
-    console.log('🚀 Starting automatic service tests...');
-    console.log(`   Test interval: ${TEST_INTERVAL_MS / 1000 / 60} minutes`);
+
+    log.info('Starting automatic service tests...');
+    log.info('Test interval: %d minutes', TEST_INTERVAL_MS / 1000 / 60);
     
     // Run immediately on startup
     runTests();
@@ -107,7 +110,7 @@ export function startServiceTests() {
     // Then run every hour
     intervalId = setInterval(runTests, TEST_INTERVAL_MS);
     
-    console.log('✅ Service test scheduler started');
+    log.info('Service test scheduler started');
 }
 
 /**
@@ -115,12 +118,12 @@ export function startServiceTests() {
  */
 export function startCarouselUpdates() {
     if (carouselIntervalId) {
-        console.warn('⚠️  Carousel sync already running');
+        log.warn('Carousel sync already running');
         return;
     }
-    
-    console.log('🎠 Starting automatic carousel updates...');
-    console.log(`   Carousel interval: ${CAROUSEL_INTERVAL_MS / 1000 / 60} minutes`);
+
+    log.info('Starting automatic carousel updates...');
+    log.info('Carousel interval: %d minutes', CAROUSEL_INTERVAL_MS / 1000 / 60);
     
     // Run immediately on startup
     runCarouselUpdate();
@@ -128,7 +131,7 @@ export function startCarouselUpdates() {
     // Then run every hour
     carouselIntervalId = setInterval(runCarouselUpdate, CAROUSEL_INTERVAL_MS);
     
-    console.log('✅ Carousel update scheduler started');
+    log.info('Carousel update scheduler started');
 }
 
 /**
@@ -138,7 +141,7 @@ export function stopServiceTests() {
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
-        console.log('🛑 Service test scheduler stopped');
+        log.info('Service test scheduler stopped');
     }
 }
 
@@ -149,7 +152,7 @@ export function stopCarouselUpdates() {
     if (carouselIntervalId) {
         clearInterval(carouselIntervalId);
         carouselIntervalId = null;
-        console.log('🛑 Carousel update scheduler stopped');
+        log.info('Carousel update scheduler stopped');
     }
 }
 

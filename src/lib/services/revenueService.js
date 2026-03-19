@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC } from '../config.js';
+import { createLogger } from '../logger.js';
 import {
     updateCurrentMetrics,
     updateSyncStatus,
@@ -21,6 +22,8 @@ import {
     isFailedTxid
 } from '../db/database.js';
 import { syncPriceHistory, buildFullPriceMap } from './priceHistoryService.js';
+
+const log = createLogger('revenueService');
 
 // ============================================
 // STATE TRACKING
@@ -113,19 +116,19 @@ export function getTimeSinceLastSync() {
  * Tries three sources in order: CoinGecko → Flux Explorer → CryptoCompare
  */
 export async function fetchFluxPrice() {
-    console.log('Fetching FLUX price...');
+    log.info('Fetching FLUX price');
 
     // 1. CoinGecko
     try {
         const response = await axios.get(API_ENDPOINTS.PRICE_COINGECKO, { timeout: 10000 });
         if (response.data?.zelcash?.usd) {
             const price = response.data.zelcash.usd;
-            console.log(`FLUX Price (CoinGecko): $${price}`);
+            log.info({ price }, 'FLUX price fetched from CoinGecko: $%s', price);
             await updateCurrentMetrics({ flux_price_usd: price });
             return price;
         }
     } catch (e) {
-        console.warn(`CoinGecko failed: ${e.message}`);
+        log.warn({ err: e }, 'CoinGecko failed');
     }
 
     // 2. Flux Explorer  (returns { status:200, currency:"USD", rate:X })
@@ -134,13 +137,13 @@ export async function fetchFluxPrice() {
         if (response.data?.rate) {
             const price = parseFloat(response.data.rate);
             if (price > 0) {
-                console.log(`FLUX Price (Explorer): $${price}`);
+                log.info({ price }, 'FLUX price fetched from Explorer: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
                 return price;
             }
         }
     } catch (e) {
-        console.warn(`Flux Explorer price failed: ${e.message}`);
+        log.warn({ err: e }, 'Flux Explorer price failed');
     }
 
     // 3. CryptoCompare  (returns { USD: X })
@@ -149,16 +152,16 @@ export async function fetchFluxPrice() {
         if (response.data?.USD) {
             const price = parseFloat(response.data.USD);
             if (price > 0) {
-                console.log(`FLUX Price (CryptoCompare): $${price}`);
+                log.info({ price }, 'FLUX price fetched from CryptoCompare: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
                 return price;
             }
         }
     } catch (e) {
-        console.warn(`CryptoCompare failed: ${e.message}`);
+        log.warn({ err: e }, 'CryptoCompare failed');
     }
 
-    console.warn('All price sources failed — USD values will be null');
+    log.warn('All price sources failed -- USD values will be null');
     return null;
 }
 
@@ -183,7 +186,7 @@ export async function fetchCurrentBlockHeight() {
         throw new Error('Failed to fetch block height');
         
     } catch (error) {
-        console.error('❌ Error fetching block height:', error.message);
+        log.error({ err: error }, 'Error fetching block height');
         throw error;
     }
 }
@@ -209,7 +212,7 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
     }
 
     if (chunks.length > 1) {
-        console.log(`Splitting ${totalBlocks.toLocaleString()} blocks into ${chunks.length} chunks of ${TXID_CHUNK_SIZE.toLocaleString()}`);
+        log.info({ totalBlocks, chunks: chunks.length, chunkSize: TXID_CHUNK_SIZE }, 'Splitting %s blocks into %d chunks of %s', totalBlocks.toLocaleString(), chunks.length, TXID_CHUNK_SIZE.toLocaleString());
     }
 
     let failedFromBlock = null;
@@ -227,28 +230,28 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
                 if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
                     const count = response.data.data.length;
                     if (count > 0) {
-                        console.log(`  blocks ${from}-${to}: ${count} txids found`);
+                        log.info({ from, to, count }, 'blocks %d-%d: %d txids found', from, to, count);
                     }
                     allTxids.push(...response.data.data);
                     chunkSuccess = true;
                     break;
                 } else {
-                    console.warn(`  blocks ${from}-${to}: unexpected response (attempt ${attempt}/${MAX_RETRIES}) — status: ${response.data?.status}, msg: ${JSON.stringify(response.data?.data ?? response.data)}`);
+                    log.warn({ from, to, attempt, maxRetries: MAX_RETRIES, status: response.data?.status, data: response.data?.data ?? response.data }, 'blocks %d-%d: unexpected response (attempt %d/%d)', from, to, attempt, MAX_RETRIES);
                 }
             } catch (error) {
-                console.error(`  blocks ${from}-${to}: ERROR (attempt ${attempt}/${MAX_RETRIES}) - ${error.message}`);
+                log.error({ err: error, from, to, attempt, maxRetries: MAX_RETRIES }, 'blocks %d-%d: fetch error (attempt %d/%d)', from, to, attempt, MAX_RETRIES);
             }
 
             // Exponential backoff before retry: 2s, 4s, 8s
             if (attempt < MAX_RETRIES) {
                 const backoffMs = Math.pow(2, attempt) * 1000;
-                console.log(`  Retrying in ${backoffMs / 1000}s...`);
+                log.info({ backoffSec: backoffMs / 1000 }, 'Retrying in %ds', backoffMs / 1000);
                 await new Promise(resolve => setTimeout(resolve, backoffMs));
             }
         }
 
         if (!chunkSuccess) {
-            console.error(`  blocks ${from}-${to}: PERMANENTLY FAILED after ${MAX_RETRIES} attempts — txids from this range will be missing`);
+            log.error({ from, to, maxRetries: MAX_RETRIES }, 'blocks %d-%d: permanently failed after %d attempts -- txids from this range will be missing', from, to, MAX_RETRIES);
             if (failedFromBlock === null || from < failedFromBlock) {
                 failedFromBlock = from;
             }
@@ -260,7 +263,7 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
         }
     }
 
-    console.log(`Total txids fetched for ${address.substring(0, 15)}: ${allTxids.length}`);
+    log.info({ address: address.substring(0, 15), count: allTxids.length }, 'Total txids fetched for %s: %d', address.substring(0, 15), allTxids.length);
     return { txids: allTxids, failedFromBlock };
 }
 
@@ -281,10 +284,10 @@ async function fetchRawTransaction(txid, retries = 3) {
         } catch (error) {
             if (attempt < retries) {
                 const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-                console.warn(`Retry ${attempt}/${retries} for tx ${txid.substring(0, 10)} in ${delay}ms...`);
+                log.warn({ txid: txid.substring(0, 10), attempt, retries, delayMs: delay }, 'Retry %d/%d for tx %s in %dms', attempt, retries, txid.substring(0, 10), delay);
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
-                console.error(`Failed to fetch tx ${txid.substring(0, 10)} after ${retries} attempts`);
+                log.error({ txid: txid.substring(0, 10), retries }, 'Failed to fetch tx %s after %d attempts', txid.substring(0, 10), retries);
                 return null;
             }
         }
@@ -326,10 +329,10 @@ async function fetchGlobalSpecs() {
                 }
             }
             globalSpecsCache.lastFetched = Date.now();
-            console.log(`Loaded ${globalSpecsCache.map.size} app names from global specs`);
+            log.info({ count: globalSpecsCache.map.size }, 'Loaded %d app names from global specs', globalSpecsCache.map.size);
         }
     } catch (error) {
-        console.warn(`Failed to fetch global specs: ${error.message}`);
+        log.warn({ err: error }, 'Failed to fetch global specs');
     }
 }
 
@@ -358,7 +361,7 @@ function determineAppType(appSpec) {
 
 async function fetchPermanentMessages() {
     try {
-        console.log('Fetching permanent messages for app name lookup...');
+        log.info('Fetching permanent messages for app name lookup');
         const response = await axios.get(`${API_ENDPOINTS.APPS}/permanentmessages`, { timeout: 30000 });
 
         if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
@@ -374,10 +377,10 @@ async function fetchPermanentMessages() {
                 }
             }
             permanentMessagesCache.lastFetched = Date.now();
-            console.log(`Loaded ${permanentMessagesCache.map.size} app names from permanent messages`);
+            log.info({ count: permanentMessagesCache.map.size }, 'Loaded %d app names from permanent messages', permanentMessagesCache.map.size);
         }
     } catch (error) {
-        console.warn(`Failed to fetch permanent messages: ${error.message}`);
+        log.warn({ err: error }, 'Failed to fetch permanent messages');
     }
 }
 
@@ -523,7 +526,7 @@ function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, appName =
  * Progressive sync — uses Flux daemon block-range API to find and import new transactions
  */
 export async function progressiveSync() {
-    console.log('\nStarting BLOCK-RANGE SYNC...\n');
+    log.info('Starting block-range sync');
 
     const startTime = Date.now();
     const BATCH_SIZE = REVENUE_SYNC.APP_NAME_BATCH_SIZE;
@@ -533,15 +536,15 @@ export async function progressiveSync() {
         try {
             await syncPriceHistory();
         } catch (priceErr) {
-            console.warn('Price history sync failed (non-fatal):', priceErr.message);
+            log.warn({ err: priceErr }, 'Price history sync failed (non-fatal)');
         }
 
         // 1b. Fetch live FLUX price
         const fluxPrice = await fetchFluxPrice();
         if (fluxPrice) {
-            console.log(`FLUX price: $${fluxPrice.toFixed(4)}`);
+            log.info({ fluxPrice: fluxPrice.toFixed(4) }, 'FLUX price: $%s', fluxPrice.toFixed(4));
         } else {
-            console.warn('Could not fetch FLUX price - USD values will be null');
+            log.warn('Could not fetch FLUX price - USD values will be null');
         }
 
         // 1c. Build historical price map for USD conversion of older transactions
@@ -562,7 +565,7 @@ export async function progressiveSync() {
             ? Math.max(1, lastSyncedBlock - 25)                              // 25-block overlap catches edge cases
             : 1;                                                             // Initial sync: scan from block 1 (full chain)
 
-        console.log(`Block range: ${startBlock} -> ${currentBlock} (${currentBlock - startBlock} blocks)`);
+        log.info({ startBlock, currentBlock, blocks: currentBlock - startBlock }, 'Block range: %d -> %d (%d blocks)', startBlock, currentBlock, currentBlock - startBlock);
 
         // 4. Ensure app name cache is fresh
         await ensurePermanentMessagesCache();
@@ -578,12 +581,12 @@ export async function progressiveSync() {
             if (pendingPayments.length === 0) return;
             const writeOk = await insertTransactionsBatch(pendingPayments);
             if (writeOk === false) {
-                console.error('Database write error — aborting sync to avoid data loss');
+                log.error('Database write error -- aborting sync to avoid data loss');
                 syncAborted = true;
                 return;
             }
             totalNewPayments += pendingPayments.length;
-            console.log(`  Flushed ${pendingPayments.length} payments to DB (total so far: ${totalNewPayments})`);
+            log.info({ flushed: pendingPayments.length, totalSoFar: totalNewPayments }, 'Flushed %d payments to DB (total so far: %d)', pendingPayments.length, totalNewPayments);
             pendingPayments = [];
         }
 
@@ -591,7 +594,7 @@ export async function progressiveSync() {
         for (const address of TARGET_ADDRESSES) {
             if (syncAborted) break;
 
-            console.log(`\nFetching txids for ${address.substring(0, 20)}...`);
+            log.info({ address: address.substring(0, 20) }, 'Fetching txids for %s', address.substring(0, 20));
 
             const { txids, failedFromBlock } = await fetchAddressTxidsInRange(address, startBlock, currentBlock);
 
@@ -601,11 +604,11 @@ export async function progressiveSync() {
             }
 
             if (!txids || txids.length === 0) {
-                console.log('No transactions found in range');
+                log.info('No transactions found in range');
                 continue;
             }
 
-            console.log(`Found ${txids.length} transactions to process`);
+            log.info({ count: txids.length }, 'Found %d transactions to process', txids.length);
 
             // Process in parallel batches (dedup handled by ON CONFLICT DO NOTHING on upsert)
             for (let i = 0; i < txids.length; i += BATCH_SIZE) {
@@ -624,7 +627,7 @@ export async function progressiveSync() {
 
                     // Skip transactions with fewer than 8 confirmations (pick up next cycle)
                     if (!tx.confirmations || tx.confirmations < 8) {
-                        console.log(`Skipping ${txid.substring(0, 10)} - only ${tx.confirmations} confirmations`);
+                        log.info({ txid: txid.substring(0, 10), confirmations: tx.confirmations }, 'Skipping %s - only %d confirmations', txid.substring(0, 10), tx.confirmations);
                         continue;
                     }
 
@@ -640,7 +643,7 @@ export async function progressiveSync() {
                     await resolveFailedTxid(txid);
 
                     if (payments.length > 0) {
-                        console.log(`Payment in ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX${appName ? ` (${appName})` : ''}`);
+                        log.info({ txid: txid.substring(0, 10), amount: payments[0].amount.toFixed(4), appName }, 'Payment in %s: %s FLUX%s', txid.substring(0, 10), payments[0].amount.toFixed(4), appName ? ` (${appName})` : '');
                     }
                 }
 
@@ -665,7 +668,7 @@ export async function progressiveSync() {
         if (!syncAborted) {
             const failedList = await getUnresolvedFailedTxids(200);
             if (failedList.length > 0) {
-                console.log(`\nRetrying ${failedList.length} previously failed txids...`);
+                log.info({ count: failedList.length }, 'Retrying %d previously failed txids', failedList.length);
                 let recovered = 0;
                 for (let i = 0; i < failedList.length; i += BATCH_SIZE) {
                     const batch = failedList.slice(i, i + BATCH_SIZE);
@@ -693,7 +696,7 @@ export async function progressiveSync() {
 
                         if (payments.length > 0) {
                             recovered++;
-                            console.log(`  Recovered ${txid.substring(0, 10)}: ${payments[0].amount.toFixed(4)} FLUX`);
+                            log.info({ txid: txid.substring(0, 10), amount: payments[0].amount.toFixed(4) }, 'Recovered %s: %s FLUX', txid.substring(0, 10), payments[0].amount.toFixed(4));
                         }
                     }
 
@@ -702,7 +705,7 @@ export async function progressiveSync() {
                     }
                 }
                 if (recovered > 0) {
-                    console.log(`  Recovered ${recovered} previously failed transactions`);
+                    log.info({ recovered }, 'Recovered %d previously failed transactions', recovered);
                 }
             }
         }
@@ -711,27 +714,27 @@ export async function progressiveSync() {
         if (!syncAborted) await flushPending();
 
         if (totalNewPayments === 0) {
-            console.log('\nNo new transactions found (database is up to date)');
+            log.info('No new transactions found (database is up to date)');
         }
 
         // 8. Update sync status — don't advance past failed chunks or aborted syncs
         if (syncAborted) {
-            console.warn('Sync aborted due to database error — last_sync_block NOT updated');
+            log.warn('Sync aborted due to database error -- last_sync_block NOT updated');
         } else if (lowestFailedBlock !== null) {
             const safeBlock = lowestFailedBlock - 1;
-            console.warn(`Some API chunks failed — advancing last_sync_block only to ${safeBlock} (failed at block ${lowestFailedBlock})`);
+            log.warn({ safeBlock, lowestFailedBlock }, 'Some API chunks failed -- advancing last_sync_block only to %d (failed at block %d)', safeBlock, lowestFailedBlock);
             await updateSyncStatus('revenue', 'completed', null, safeBlock);
         } else {
             await updateSyncStatus('revenue', 'completed', null, currentBlock);
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`\nBLOCK-RANGE SYNC COMPLETE`);
-        console.log(`  Duration: ${duration}s | New payments: ${totalNewPayments} | Total: ${await getTxidCount()}`);
+        const totalTxCount = await getTxidCount();
+        log.info({ duration, newPayments: totalNewPayments, total: totalTxCount }, 'Block-range sync complete: duration=%ss, new payments=%d, total=%d', duration, totalNewPayments, totalTxCount);
 
         const failedStats = await getFailedTxStats();
         if (failedStats.totalFailed > 0) {
-            console.log(`  Failed txids: ${failedStats.totalFailed} (will retry)`);
+            log.info({ failedTxids: failedStats.totalFailed }, 'Failed txids: %d (will retry)', failedStats.totalFailed);
         }
 
         return {
@@ -743,7 +746,7 @@ export async function progressiveSync() {
         };
 
     } catch (error) {
-        console.error('Block-range sync error:', error.message);
+        log.error({ err: error }, 'Block-range sync error');
         throw error;
     }
 }
@@ -759,7 +762,7 @@ const AUDIT_LOOKBACK_BLOCKS = REVENUE_SYNC.AUDIT_LOOKBACK_BLOCKS;
  * Recovers any missed transactions without a full resync.
  */
 export async function auditRecentTransactions() {
-    console.log('\nStarting TRANSACTION AUDIT...\n');
+    log.info('Starting transaction audit');
     const startTime = Date.now();
 
     try {
@@ -768,7 +771,7 @@ export async function auditRecentTransactions() {
         const currentBlock = await fetchCurrentBlockHeight();
         const auditStart = Math.max(1, currentBlock - AUDIT_LOOKBACK_BLOCKS);
 
-        console.log(`Audit range: ${auditStart} -> ${currentBlock} (${AUDIT_LOOKBACK_BLOCKS} blocks)`);
+        log.info({ auditStart, currentBlock, lookbackBlocks: AUDIT_LOOKBACK_BLOCKS }, 'Audit range: %d -> %d (%d blocks)', auditStart, currentBlock, AUDIT_LOOKBACK_BLOCKS);
 
         await ensurePermanentMessagesCache();
 
@@ -780,7 +783,7 @@ export async function auditRecentTransactions() {
             if (!txids || txids.length === 0) continue;
 
             totalProcessed += txids.length;
-            console.log(`Audit: checking ${txids.length} txids for ${address.substring(0, 15)}`);
+            log.info({ count: txids.length, address: address.substring(0, 15) }, 'Audit: checking %d txids for %s', txids.length, address.substring(0, 15));
 
             // Process transactions in small batches (dedup handled by ON CONFLICT DO NOTHING)
             const auditBatch = REVENUE_SYNC.AUDIT_BATCH_SIZE;
@@ -814,12 +817,12 @@ export async function auditRecentTransactions() {
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        console.log(`\nAUDIT COMPLETE — processed: ${totalProcessed}, recovered: ${recovered}, duration: ${duration}s\n`);
+        log.info({ totalProcessed, recovered, duration }, 'Audit complete: processed=%d, recovered=%d, duration=%ss', totalProcessed, recovered, duration);
 
         return { success: true, totalProcessed, recovered, duration };
 
     } catch (error) {
-        console.error('Audit error:', error.message);
+        log.error({ err: error }, 'Audit error');
         return { success: false, totalProcessed: 0, recovered: 0, duration: ((Date.now() - startTime) / 1000).toFixed(2), error: error.message };
     }
 }
@@ -837,7 +840,7 @@ export async function backfillAppTypes() {
     await ensurePermanentMessagesCache();
 
     const appNames = await getUndeterminedAppNames();
-    console.log(`🔄 Backfilling app_type for ${appNames.length} distinct app names...`);
+    log.info({ count: appNames.length }, 'Backfilling app_type for %d distinct app names', appNames.length);
 
     let updated = 0;
     let unknown = 0;
@@ -852,7 +855,7 @@ export async function backfillAppTypes() {
         }
     }
 
-    console.log(`✅ app_type backfill complete: ${updated} updated, ${unknown} unknown (no spec found)`);
+    log.info({ updated, unknown }, 'app_type backfill complete: %d updated, %d unknown (no spec found)', updated, unknown);
     return { total: appNames.length, updated, unknown };
 }
 
@@ -885,7 +888,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
         txids = candidates;
     }
 
-    console.log(`🔄 Backfilling app_name for ${txids.length} of ${total} transactions with no app_name...`);
+    log.info({ batch: txids.length, total }, 'Backfilling app_name for %d of %d transactions with no app_name', txids.length, total);
 
     let updated = 0;
     let noHash = 0;
@@ -926,8 +929,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
     }
 
     const remaining = total - updated;
-    console.log(`✅ app_name backfill complete: ${updated} updated, ${noHash} no OP_RETURN hash, ${noName} hash not in cache, ${fetchErrors} fetch errors`);
-    console.log(`   Remaining NULL app_name rows: ~${remaining}`);
+    log.info({ updated, noHash, noName, fetchErrors, remaining }, 'app_name backfill complete: %d updated, %d no OP_RETURN hash, %d hash not in cache, %d fetch errors, ~%d remaining', updated, noHash, noName, fetchErrors, remaining);
     return { total, processed: txids.length, updated, noHash, noName, fetchErrors, remaining };
 }
 
@@ -943,7 +945,7 @@ async function calculateDailyRevenue() {
         const today = new Date().toISOString().split('T')[0];
         const revenue = await getRevenueForDateRange(today, today);
 
-        console.log(`📊 Today's revenue (${today}): ${revenue.toFixed(2)} FLUX`);
+        log.info({ date: today, revenue: revenue.toFixed(2) }, 'Today\'s revenue (%s): %s FLUX', today, revenue.toFixed(2));
 
         await updateCurrentMetrics({
             last_update: Date.now(),
@@ -953,7 +955,7 @@ async function calculateDailyRevenue() {
         return revenue;
         
     } catch (error) {
-        console.error('❌ Error calculating daily revenue:', error.message);
+        log.error({ err: error }, 'Error calculating daily revenue');
         throw error;
     }
 }
@@ -993,12 +995,12 @@ async function calculateRevenueByTimeframe(timeframe = 'day') {
         
         const revenue = await getRevenueForDateRange(startDateStr, today);
 
-        console.log(`📊 ${timeframe.toUpperCase()} Revenue (${startDateStr} to ${today}): ${revenue.toFixed(2)} FLUX`);
+        log.info({ timeframe: timeframe.toUpperCase(), startDate: startDateStr, endDate: today, revenue: revenue.toFixed(2) }, '%s revenue (%s to %s): %s FLUX', timeframe.toUpperCase(), startDateStr, today, revenue.toFixed(2));
         
         return revenue;
         
     } catch (error) {
-        console.error(`❌ Error calculating ${timeframe} revenue:`, error.message);
+        log.error({ err: error, timeframe }, 'Error calculating %s revenue', timeframe);
         return 0;
     }
 }
@@ -1016,7 +1018,7 @@ export async function getRevenueBreakdown() {
             year: await calculateRevenueByTimeframe('year')
         };
     } catch (error) {
-        console.error('❌ Error getting revenue breakdown:', error.message);
+        log.error({ err: error }, 'Error getting revenue breakdown');
         return {
             day: 0,
             week: 0,
@@ -1035,7 +1037,7 @@ export async function fetchRevenueStats() {
     setRevenueSyncRunning(true);
     
     try {
-        console.log('🔍 Fetching complete revenue statistics...');
+        log.info('Fetching complete revenue statistics');
         
         // Fetch price
         const price = await fetchFluxPrice();
@@ -1050,7 +1052,7 @@ export async function fetchRevenueStats() {
         const AUTO_BACKFILL_DAYS = 30;
         const nullAppNames = await countTxidsWithoutAppName(AUTO_BACKFILL_DAYS);
         if (nullAppNames > 0) {
-            console.log(`🔄 Auto-backfilling ${nullAppNames} recent transactions missing app_name...`);
+            log.info({ nullAppNames }, 'Auto-backfilling %d recent transactions missing app_name', nullAppNames);
             await backfillAppNames(500, AUTO_BACKFILL_DAYS, true);
         }
 
@@ -1065,13 +1067,13 @@ export async function fetchRevenueStats() {
             flux_price_usd: price
         };
         
-        console.log('✅ Revenue stats updated:', revenueData);
+        log.info({ revenueData }, 'Revenue stats updated');
         
         setRevenueSyncRunning(false);
         return revenueData;
         
     } catch (error) {
-        console.error('❌ Error fetching revenue stats:', error.message);
+        log.error({ err: error }, 'Error fetching revenue stats');
         setRevenueSyncError(error);
         setRevenueSyncRunning(false);
         await updateSyncStatus('revenue', 'failed', error.message, null);
@@ -1120,13 +1122,12 @@ export async function initialSync() {
     setRevenueSyncRunning(true);
     
     try {
-        console.log('🚀 Starting INITIAL FULL SYNC (one-time setup)...');
-        console.log('⚠️  This will take a while if you have many transactions\n');
+        log.info('Starting initial full sync (one-time setup)');
+        log.info('This will take a while if you have many transactions');
         
         // Fetch FLUX price first
-        console.log('💰 Fetching FLUX price...');
+        log.info('Fetching FLUX price');
         await fetchFluxPrice();
-        console.log('');
         
         // Keep running progressive sync until no new transactions found
         let totalImported = 0;
@@ -1135,26 +1136,24 @@ export async function initialSync() {
         
         while (continueSync) {
             iterations++;
-            console.log(`\n🔄 Initial sync iteration ${iterations}...\n`);
+            log.info({ iteration: iterations }, 'Initial sync iteration %d', iterations);
             
             const result = await progressiveSync();
             
             totalImported += result.newPayments;
             
             if (result.newPayments === 0) {
-                console.log('\n✅ All historical transactions imported!');
+                log.info('All historical transactions imported');
                 continueSync = false;
             } else {
-                console.log(`\n📊 Progress: ${totalImported} total transactions imported so far`);
-                console.log('⏳ Waiting 2 seconds before next batch...\n');
+                log.info({ totalImported }, 'Progress: %d total transactions imported so far', totalImported);
+                log.info('Waiting 2 seconds before next batch');
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
         }
         
-        console.log(`\n✅ INITIAL SYNC COMPLETE`);
-        console.log(`   Total transactions imported: ${totalImported}`);
-        console.log(`   Iterations: ${iterations}`);
-        console.log(`   Total in database: ${await getTxidCount()}\n`);
+        const totalInDb = await getTxidCount();
+        log.info({ totalImported, iterations, totalInDb }, 'Initial sync complete: imported=%d, iterations=%d, total in DB=%d', totalImported, iterations, totalInDb);
         
         setRevenueSyncRunning(false);
         return {
@@ -1164,7 +1163,7 @@ export async function initialSync() {
         };
         
     } catch (error) {
-        console.error('❌ Initial sync failed:', error.message);
+        log.error({ err: error }, 'Initial sync failed');
         setRevenueSyncError(error);
         setRevenueSyncRunning(false);
         await updateSyncStatus('revenue', 'failed', error.message, null);
@@ -1192,12 +1191,12 @@ export async function calculateMonthlyRevenue() {
         // Calculate revenue for current month
         const revenue = await getRevenueForDateRange(startDate, today);
 
-        console.log(`📊 MONTHLY Revenue (${startDate} to ${today}): ${revenue.toFixed(2)} FLUX`);
+        log.info({ startDate, endDate: today, revenue: revenue.toFixed(2) }, 'Monthly revenue (%s to %s): %s FLUX', startDate, today, revenue.toFixed(2));
         
         return revenue;
         
     } catch (error) {
-        console.error('❌ Error calculating monthly revenue:', error.message);
+        log.error({ err: error }, 'Error calculating monthly revenue');
         throw error;
     }
 }
@@ -1220,12 +1219,12 @@ export async function calculatePreviousMonthRevenue() {
         // Calculate revenue for previous month
         const revenue = await getRevenueForDateRange(startDate, endDate);
 
-        console.log(`📊 PREVIOUS MONTH Revenue (${startDate} to ${endDate}): ${revenue.toFixed(2)} FLUX`);
+        log.info({ startDate, endDate, revenue: revenue.toFixed(2) }, 'Previous month revenue (%s to %s): %s FLUX', startDate, endDate, revenue.toFixed(2));
         
         return revenue;
         
     } catch (error) {
-        console.error('❌ Error calculating previous month revenue:', error.message);
+        log.error({ err: error }, 'Error calculating previous month revenue');
         throw error;
     }
 }
@@ -1247,12 +1246,12 @@ export async function getMonthlyPaymentCount() {
         // Get payment count for current month
         const count = await getPaymentCountForDateRange(startDate, today);
 
-        console.log(`📊 MONTHLY Payment Count (${startDate} to ${today}): ${count}`);
+        log.info({ startDate, endDate: today, count }, 'Monthly payment count (%s to %s): %d', startDate, today, count);
         
         return count;
         
     } catch (error) {
-        console.error('❌ Error getting monthly payment count:', error.message);
+        log.error({ err: error }, 'Error getting monthly payment count');
         throw error;
     }
 }
@@ -1275,12 +1274,12 @@ export async function getPreviousMonthPaymentCount() {
         // Get payment count for previous month
         const count = await getPaymentCountForDateRange(startDate, endDate);
 
-        console.log(`📊 PREVIOUS MONTH Payment Count (${startDate} to ${endDate}): ${count}`);
+        log.info({ startDate, endDate, count }, 'Previous month payment count (%s to %s): %d', startDate, endDate, count);
         
         return count;
         
     } catch (error) {
-        console.error('❌ Error getting previous month payment count:', error.message);
+        log.error({ err: error }, 'Error getting previous month payment count');
         throw error;
     }
 }
@@ -1296,12 +1295,12 @@ export async function calculateYesterdayRevenue() {
         
         const revenue = await getRevenueForDateRange(yesterdayStr, yesterdayStr);
 
-        console.log(`📊 YESTERDAY Revenue (${yesterdayStr}): ${revenue.toFixed(2)} FLUX`);
+        log.info({ date: yesterdayStr, revenue: revenue.toFixed(2) }, 'Yesterday revenue (%s): %s FLUX', yesterdayStr, revenue.toFixed(2));
         
         return revenue;
         
     } catch (error) {
-        console.error('❌ Error calculating yesterday revenue:', error.message);
+        log.error({ err: error }, 'Error calculating yesterday revenue');
         throw error;
     }
 }
@@ -1317,12 +1316,12 @@ export async function getYesterdayPaymentCount() {
         
         const count = await getPaymentCountForDateRange(yesterdayStr, yesterdayStr);
 
-        console.log(`📊 YESTERDAY Payment Count (${yesterdayStr}): ${count}`);
+        log.info({ date: yesterdayStr, count }, 'Yesterday payment count (%s): %d', yesterdayStr, count);
         
         return count;
         
     } catch (error) {
-        console.error('❌ Error getting yesterday payment count:', error.message);
+        log.error({ err: error }, 'Error getting yesterday payment count');
         throw error;
     }
 }

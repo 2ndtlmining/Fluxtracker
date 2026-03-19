@@ -41,6 +41,9 @@ import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } fro
 import { switchToFailover, getActiveInstanceName, hasFailover } from './lib/db/supabaseClient.js';
 
 import { getDisplayName, CATEGORY_CONFIG } from './lib/config.js';
+import { createLogger } from './lib/logger.js';
+
+const log = createLogger('server');
 
 // Import the NEW snapshot manager
 import {
@@ -208,7 +211,7 @@ app.use((req, res, next) => {
         const originalSend = res.send;
         res.send = function(data) {
             if (res.statusCode >= 400) {
-                console.log(`❌ ${new Date().toISOString()} - ${req.method} ${req.path} - Status: ${res.statusCode}`);
+                log.info({ method: req.method, path: req.path, status: res.statusCode }, 'request error');
             }
             return originalSend.call(this, data);
         };
@@ -222,7 +225,7 @@ app.use((req, res, next) => {
     if (!LOGGING_CONFIG.logComparisonEndpoints && path.includes('/comparison')) return next();
 
     // Log the request
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    log.info({ method: req.method, path: req.path }, 'request');
     next();
 });
 
@@ -347,7 +350,7 @@ app.get('/api/admin/snapshot-status', async (req, res) => {
 // NEW: Manual revenue sync trigger endpoint
 app.post('/api/admin/revenue-sync', async (req, res) => {
     try {
-        console.log('🔧 Manual revenue sync triggered via API');
+        log.info('manual revenue sync triggered via API');
 
         // Trigger the revenue sync
         await fetchRevenueStats();
@@ -361,7 +364,7 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
             transactionCount: txCount
         });
     } catch (error) {
-        console.error('❌ Manual revenue sync failed:', error);
+        log.error({ err: error }, 'manual revenue sync failed');
         res.status(500).json({
             success: false,
             error: error.message
@@ -373,7 +376,7 @@ app.post('/api/admin/revenue-sync', async (req, res) => {
 app.post('/api/admin/clear-revenue-data', async (req, res) => {
     try {
         const deleted = await clearRevenueData();
-        console.log(`🗑️  Cleared ${deleted} revenue transactions — full resync will run on next cycle`);
+        log.info({ deleted }, 'cleared revenue transactions — full resync will run on next cycle');
         res.json({ success: true, deleted, message: `Cleared ${deleted} transactions. Resync will start on next cycle.` });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -386,7 +389,7 @@ app.post('/api/admin/reset-revenue-sync', async (req, res) => {
         await resetRevenueSyncBlock();
         const verified = await getSyncStatus('revenue');
         const didReset = verified?.last_sync_block === null;
-        console.log(`🔄 Revenue sync block reset — last_sync_block is now ${verified?.last_sync_block}`);
+        log.info({ lastSyncBlock: verified?.last_sync_block }, 'revenue sync block reset');
         res.json({
             success: didReset,
             last_sync_block: verified?.last_sync_block ?? null,
@@ -402,11 +405,11 @@ app.post('/api/admin/reset-revenue-sync', async (req, res) => {
 // Backfill app_type (git/docker) for existing transactions
 app.post('/api/admin/backfill-app-types', async (req, res) => {
     try {
-        console.log('🔄 app_type backfill triggered via API');
+        log.info('app_type backfill triggered via API');
         const result = await backfillAppTypes();
         res.json({ success: true, ...result });
     } catch (error) {
-        console.error('❌ app_type backfill failed:', error);
+        log.error({ err: error }, 'app_type backfill failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -415,11 +418,11 @@ app.post('/api/admin/backfill-app-types', async (req, res) => {
 app.post('/api/admin/backfill-app-names', async (req, res) => {
     try {
         const batchSize = Math.min(parseInt(req.body?.batchSize) || 500, 2000);
-        console.log(`🔄 app_name backfill triggered via API (batchSize: ${batchSize})`);
+        log.info({ batchSize }, 'app_name backfill triggered via API');
         const result = await backfillAppNames(batchSize);
         res.json({ success: true, ...result });
     } catch (error) {
-        console.error('❌ app_name backfill failed:', error);
+        log.error({ err: error }, 'app_name backfill failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -427,11 +430,11 @@ app.post('/api/admin/backfill-app-names', async (req, res) => {
 // Audit recent transactions for missed entries
 app.post('/api/admin/audit-transactions', async (req, res) => {
     try {
-        console.log('Transaction audit triggered via API');
+        log.info('transaction audit triggered via API');
         const result = await auditRecentTransactions();
         res.json(result);
     } catch (error) {
-        console.error('Transaction audit failed:', error);
+        log.error({ err: error }, 'transaction audit failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -439,11 +442,11 @@ app.post('/api/admin/audit-transactions', async (req, res) => {
 // Backfill USD amounts for transactions that have NULL amount_usd using historical prices
 app.post('/api/admin/backfill-usd', async (req, res) => {
     try {
-        console.log('USD backfill triggered via API');
+        log.info('USD backfill triggered via API');
         const result = await backfillNullUsdAmounts();
         res.json({ success: true, ...result });
     } catch (error) {
-        console.error('USD backfill failed:', error);
+        log.error({ err: error }, 'USD backfill failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -637,7 +640,7 @@ app.get('/api/revenue/:period', async (req, res) => {
         });
 
     } catch (error) {
-        console.error(`❌ Error in revenue/${req.params.period} endpoint:`, error);
+        log.error({ err: error, period: req.params.period }, 'revenue endpoint error');
         res.status(500).json({
             error: 'Failed to fetch revenue',
             details: error.message
@@ -649,13 +652,13 @@ app.get('/api/revenue/:period', async (req, res) => {
 // NEW: Manual test services trigger endpoint
 app.post('/api/admin/test-services', async (req, res) => {
     try {
-        console.log('🔧 Manual test services triggered via API');
+        log.info('manual test services triggered via API');
 
         // Check if tests are already running
         const status = getServiceTestSchedulerStatus();
 
         if (status.isTestInProgress) {
-            console.log('⚠️  Tests already in progress, skipping...');
+            log.warn('tests already in progress, skipping');
             return res.json({
                 success: false,
                 alreadyRunning: true,
@@ -677,7 +680,7 @@ app.post('/api/admin/test-services', async (req, res) => {
             status: getServiceTestSchedulerStatus()
         });
     } catch (error) {
-        console.error('❌ Manual test services failed:', error);
+        log.error({ err: error }, 'manual test services failed');
         res.status(500).json({
             success: false,
             error: error.message
@@ -699,7 +702,7 @@ app.get('/api/admin/test-status', (req, res) => {
 // NEW: Backfill snapshots endpoint
 app.post('/api/admin/backfill', async (req, res) => {
     try {
-        console.log('🔄 Backfill triggered via API');
+        log.info('backfill triggered via API');
 
         // Calculate dynamic date range
         const toDate = new Date();
@@ -710,12 +713,12 @@ app.post('/api/admin/backfill', async (req, res) => {
         fromDate.setDate(fromDate.getDate() - 365); // 365 days ago
         const fromDateStr = fromDate.toISOString().split('T')[0];
 
-        console.log(`📊 Backfilling from ${fromDateStr} to ${toDateStr}`);
+        log.info({ from: fromDateStr, to: toDateStr }, 'backfilling date range');
 
         // Run the backfill
         const result = await backfillRevenueSnapshots(fromDateStr, toDateStr);
 
-        console.log(`✅ Backfill complete: Created ${result.created}, Skipped ${result.skipped}`);
+        log.info({ created: result.created, skipped: result.skipped }, 'backfill complete');
 
         res.json({
             success: true,
@@ -728,7 +731,7 @@ app.post('/api/admin/backfill', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('❌ Backfill failed:', error);
+        log.error({ err: error }, 'backfill failed');
         res.status(500).json({
             success: false,
             error: error.message
@@ -1025,7 +1028,7 @@ app.post('/api/admin/recategorize-repos', async (req, res) => {
 // Transaction summary - MUST be before /api/transactions/:date
 app.get('/api/transactions/summary', async (req, res) => {
     try {
-        console.log('Fetching Transaction summary');
+        log.info('fetching transaction summary');
         const today = new Date().toISOString().split('T')[0];
         const sevenDays = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
         const thirtyDays = new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
@@ -1046,7 +1049,7 @@ app.get('/api/transactions/summary', async (req, res) => {
 // Paginated transactions with search - MUST be before /api/transactions/:date
 app.get('/api/transactions/paginated', async (req, res) => {
     try {
-        console.log('Starting transaction pagination');
+        log.info('starting transaction pagination');
         const page = Math.max(parseInt(req.query.page) || 1, 1);
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
         const search = req.query.search || '';
@@ -1088,7 +1091,7 @@ app.get('/api/analytics/apps', async (req, res) => {
 // Transactions by date - MUST come AFTER specific routes
 app.get('/api/transactions/:date', async (req, res) => {
     try {
-        console.log('Fetching transactions by date');
+        log.info('fetching transactions by date');
         const transactions = await getTransactionsByDate(req.params.date);
 
         res.json({
@@ -1110,7 +1113,7 @@ app.get('/api/transactions/:date', async (req, res) => {
 // Gaming category
 app.get('/api/categories/gaming', async (req, res) => {
     try {
-        console.log('Fetching gaming category');
+        log.info('fetching gaming category');
         const current = await getCurrentMetrics();
         const snapshots = await getLastNSnapshots(parseInt(req.query.days) || 30);
 
@@ -1133,7 +1136,7 @@ app.get('/api/categories/gaming', async (req, res) => {
 // Crypto category
 app.get('/api/categories/crypto', async (req, res) => {
     try {
-        console.log('Fetching Crypto category');
+        log.info('fetching crypto category');
         const current = await getCurrentMetrics();
         res.json({
             current: {
@@ -1151,7 +1154,7 @@ app.get('/api/categories/crypto', async (req, res) => {
 // Nodes category
 app.get('/api/categories/nodes', async (req, res) => {
     try {
-        console.log('Fetching Node category');
+        log.info('fetching node category');
         const current = await getCurrentMetrics();
         res.json({
             current: {
@@ -1226,7 +1229,7 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
         targetDate.setDate(targetDate.getDate() - days);
         const targetDateStr = targetDate.toISOString().split('T')[0];
 
-        console.log(`📊 Comparison: Today=${today}, Target=${targetDateStr} (${days} days ago)`);
+        log.info({ today, targetDate: targetDateStr, days }, 'comparison request');
 
         // Calculate changes
         const calculateChange = (current, past) => {
@@ -1268,7 +1271,7 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
 
         // Add other metrics only if snapshot exists
         if (pastSnapshot) {
-            console.log(`✓ Found snapshot for ${targetDateStr}`);
+            log.info({ targetDate: targetDateStr }, 'found snapshot for comparison');
 
             // Node comparisons with individual breakdowns
             const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
@@ -1339,8 +1342,8 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
             };
 
         } else {
-            console.log(`⚠️  No snapshot found for comparison: ${targetDateStr} (${days} days ago)`);
-            console.log(`✓  Revenue comparison still available using transaction data`);
+            log.warn({ targetDate: targetDateStr, days }, 'no snapshot found for comparison');
+            log.info('revenue comparison still available using transaction data');
 
             response.partialData = true;
             response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
@@ -1361,8 +1364,7 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
         res.json(response);
 
     } catch (error) {
-        console.error('❌ Comparison endpoint error:', error);
-        console.error('   Stack:', error.stack);
+        log.error({ err: error }, 'comparison endpoint error');
         res.status(500).json({
             error: 'Internal server error',
             details: error.message
@@ -1373,7 +1375,7 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
 // UPDATED: Manual snapshot trigger using new system
 app.post('/api/admin/snapshot', async (req, res) => {
     try {
-        console.log('📸 Manual snapshot triggered via API');
+        log.info('manual snapshot triggered via API');
         const result = await takeManualSnapshot();
 
         if (result.success) {
@@ -1404,7 +1406,7 @@ app.post('/api/admin/snapshot', async (req, res) => {
 // Manual repo-only snapshot (works even if today's daily snapshot already exists)
 app.post('/api/admin/repo-snapshot', async (req, res) => {
     try {
-        console.log('Manual repo snapshot triggered via API');
+        log.info('manual repo snapshot triggered via API');
         const result = await takeRepoSnapshot();
         if (result.success) {
             res.json(result);
@@ -1429,7 +1431,7 @@ app.get('/api/carousel/stats', (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error in carousel API:', error);
+        log.error({ err: error }, 'carousel API error');
 
         res.status(500).json({
             error: 'Failed to fetch carousel stats',
@@ -1454,7 +1456,7 @@ app.get('/api/carousel/deployed', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Error in deployed apps API:', error);
+        log.error({ err: error }, 'deployed apps API error');
 
         res.status(500).json({
             error: 'Failed to fetch deployed apps',
@@ -1477,7 +1479,7 @@ app.get('/api/carousel/expiring', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        console.error('❌ Error in expiring apps API:', error);
+        log.error({ err: error }, 'expiring apps API error');
         res.status(500).json({ error: 'Failed to fetch expiring apps', message: error.message, stats: [], cached: false });
     }
 });
@@ -1544,56 +1546,45 @@ function startSchedulers() {
     // Start the revenue sync scheduler (runs every 5 minutes)
     try {
         startRevenueSync();
-        console.log('✅ Revenue sync scheduler initialized');
-        console.log('   Sync interval: 5 minutes');
+        log.info('revenue sync scheduler initialized (interval: 5 minutes)');
     } catch (error) {
-        console.error('❌ Could not initialize sync:', error.message);
+        log.error({ err: error }, 'could not initialize sync');
     }
     // Start the test scheduler (runs every hour)
     try {
-        console.log('✅ Service test scheduler initialized');
-        console.log('   Test interval: 1 hour');
+        log.info('service test scheduler initialized (interval: 1 hour)');
         startServiceTests();
     } catch (error) {
-        console.error('❌ Could not initialize test scheduler:', error.message);
+        log.error({ err: error }, 'could not initialize test scheduler');
     }
 
     // Start the carousel updates
     try {
-        console.log('🎠 Carousel update scheduler initialized');
+        log.info('carousel update scheduler initialized');
         startCarouselUpdates();
     } catch (error) {
-        console.error('❌ Could not initialize carousel:', error.message);
+        log.error({ err: error }, 'could not initialize carousel');
     }
 
     // Start the snapshot checker (runs every 30 minutes)
     try {
-        console.log('✅ Snapshot checker initialized successfully');
+        log.info('snapshot checker initialized (interval: 30 min, grace: 5 min after midnight)');
         startSnapshotChecker();
-        console.log('   Check interval: 30 minutes');
-        console.log('   Grace period: 5 minutes after midnight');
     } catch (error) {
-        console.error('❌ Could not initialize snapshot checker:', error.message);
+        log.error({ err: error }, 'could not initialize snapshot checker');
     }
 
     // Run failed txid cleanup daily
     setInterval(async () => {
         try {
             const cleared = await clearPermanentlyFailedTxids();
-            if (cleared > 0) console.log(`🧹 Cleared ${cleared} permanently failed txids`);
+            if (cleared > 0) log.info({ cleared }, 'cleared permanently failed txids');
         } catch {}
     }, 24 * 60 * 60 * 1000);
 }
 
 app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`
-╔═══════════════════════════════════════════════════╗
-║  FLUX DASHBOARD API - PORT ${PORT}              ║
-║  Listening on: 0.0.0.0:${PORT}                   ║
-║  Auto-Running Services: Revenue + Snapshots       ║
-║  CORS enabled for domain and IP access            ║
-╚═══════════════════════════════════════════════════╝
-    `);
+    log.info({ port: PORT, host: '0.0.0.0' }, 'Flux Dashboard API started');
 
     // Initialize database with retry (non-crashing) — creates schema
     const dbOk = await ensureInitialized();
@@ -1605,12 +1596,10 @@ app.listen(PORT, '0.0.0.0', async () => {
     }
 
     if (dbOk) {
-        console.log('✅ Database ready — starting all schedulers');
+        log.info('database ready — starting all schedulers');
         startSchedulers();
     } else {
-        console.warn('⚠️  Database not reachable — server is running in DEGRADED mode');
-        console.warn('   API endpoints will serve stale cache or 503');
-        console.warn('   Schedulers will start once DB becomes available');
+        log.warn('database not reachable — server is running in DEGRADED mode (stale cache or 503, schedulers deferred)');
 
         // Keep retrying DB init in the background (with concurrency guard)
         let initRetryRunning = false;
@@ -1618,11 +1607,11 @@ app.listen(PORT, '0.0.0.0', async () => {
             if (initRetryRunning) return;
             initRetryRunning = true;
             try {
-                console.log('🔄 Retrying database connection...');
+                log.info('retrying database connection...');
                 const ok = await ensureInitialized();
                 if (ok) {
                     clearInterval(retryInterval);
-                    console.log('✅ Database connected — starting schedulers now');
+                    log.info('database connected — starting schedulers now');
                     startSchedulers();
                 }
             } finally {
@@ -1631,19 +1620,19 @@ app.listen(PORT, '0.0.0.0', async () => {
         }, 60_000); // retry every 60s
     }
 
-    console.log('\n📋 Logging Configuration:');
-    console.log(`   Request Logging: ${LOGGING_CONFIG.enableRequestLogging ? '✅ Enabled' : '❌ Disabled'}`);
-    console.log(`   Health Checks: ${LOGGING_CONFIG.logHealthChecks ? '✅ Logged' : '❌ Silent'}`);
-    console.log(`   Stats Endpoints: ${LOGGING_CONFIG.logStatsEndpoints ? '✅ Logged' : '❌ Silent'}`);
-    console.log(`   Metrics Endpoints: ${LOGGING_CONFIG.logMetricsEndpoints ? '✅ Logged' : '❌ Silent'}`);
-    console.log(`   Comparison Endpoints: ${LOGGING_CONFIG.logComparisonEndpoints ? '✅ Logged' : '❌ Silent'}`);
-    console.log(`   Errors Only Mode: ${LOGGING_CONFIG.logErrorsOnly ? '✅ Enabled' : '❌ Disabled'}`);
-    console.log('──────────────────────────────────────────────────\n');
+    log.info({
+        requestLogging: LOGGING_CONFIG.enableRequestLogging,
+        healthChecks: LOGGING_CONFIG.logHealthChecks,
+        statsEndpoints: LOGGING_CONFIG.logStatsEndpoints,
+        metricsEndpoints: LOGGING_CONFIG.logMetricsEndpoints,
+        comparisonEndpoints: LOGGING_CONFIG.logComparisonEndpoints,
+        errorsOnly: LOGGING_CONFIG.logErrorsOnly
+    }, 'logging configuration');
 });
 
 // Graceful shutdown — stop all schedulers
 function shutdownGracefully(signal) {
-    console.log(`🛑 ${signal} received, shutting down gracefully...`);
+    log.info({ signal }, 'shutting down gracefully');
     stopCarouselUpdates();
     stopRevenueSync();
     stopSnapshotChecker();

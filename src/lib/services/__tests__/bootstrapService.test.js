@@ -34,6 +34,17 @@ vi.mock('better-sqlite3', () => ({
     default: MockDatabase
 }));
 
+// ---- Mock logger (bootstrapService now uses pino instead of console) ----
+const mockLogWarn = vi.fn();
+vi.mock('../../logger.js', () => ({
+    createLogger: vi.fn(() => ({
+        info: vi.fn(),
+        warn: mockLogWarn,
+        error: vi.fn(),
+        debug: vi.fn(),
+    }))
+}));
+
 // ---- Helpers ----
 
 /** Import runBootstrap fresh (picks up current env vars via resetModules) */
@@ -74,6 +85,7 @@ function clearR2Env() {
 describe('bootstrapService — runBootstrap()', () => {
     beforeEach(() => {
         // Use mockClear (not resetAllMocks) to preserve implementations
+        mockLogWarn.mockClear();
         mockSend.mockClear();
         mockPrepare.mockClear();
         mockClose.mockClear();
@@ -137,15 +149,13 @@ describe('bootstrapService — runBootstrap()', () => {
         clearR2Env();
         MockDatabase.mockImplementation(function() { throw new Error('no such file'); });
 
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const runBootstrap = await importFresh();
         await runBootstrap();
 
-        expect(warnSpy).toHaveBeenCalledWith(
+        expect(mockLogWarn).toHaveBeenCalledWith(
             expect.stringContaining('BOOTSTRAP_R2_* env vars not set')
         );
         expect(mockSend).not.toHaveBeenCalled();
-        warnSpy.mockRestore();
     });
 
     // -------------------------------------------------------
@@ -218,15 +228,13 @@ describe('bootstrapService — runBootstrap()', () => {
 
         mockSend.mockResolvedValueOnce({ CommonPrefixes: [] });
 
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const runBootstrap = await importFresh();
         await runBootstrap();
 
-        expect(warnSpy).toHaveBeenCalledWith(
+        expect(mockLogWarn).toHaveBeenCalledWith(
             expect.stringContaining('no backups found in R2')
         );
         expect(mockUpsertDailySnapshots).not.toHaveBeenCalled();
-        warnSpy.mockRestore();
     });
 
     // -------------------------------------------------------
