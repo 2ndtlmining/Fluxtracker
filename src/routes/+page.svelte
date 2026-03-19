@@ -391,10 +391,10 @@
     
     <div class="stats-grid-wide">
       <!-- Gaming Apps (Dynamic from repo_snapshots) -->
-      <CategoryCard category="gaming" label="Gaming App Instances" icon={Gamepad2} {loading} />
+      <CategoryCard category="gaming" label="Gaming App Instances" icon={Gamepad2} {loading} period={comparisonPeriod} />
 
       <!-- Crypto Nodes (Dynamic from repo_snapshots) -->
-      <CategoryCard category="crypto" label="Crypto Node Instances" icon={Coins} {loading} />
+      <CategoryCard category="crypto" label="Crypto Node Instances" icon={Coins} {loading} period={comparisonPeriod} />
       
       <!-- WordPress Sites -->
       <StatCard
