@@ -6,6 +6,9 @@
 
 import { switchToFailover, hasFailover } from './supabaseClient.js';
 import { CIRCUIT_BREAKER_CONFIG } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('circuitBreaker');
 
 const isSqlite = (process.env.DB_TYPE || 'supabase').toLowerCase() === 'sqlite';
 
@@ -24,7 +27,7 @@ export function shouldAllowRequest() {
     if (state === 'OPEN') {
         if (Date.now() - lastFailureTime >= COOLDOWN_MS) {
             state = 'HALF_OPEN';
-            console.log('🔌 Circuit breaker → HALF_OPEN (probing)');
+            log.info('[CIRCUIT-BREAKER] Circuit breaker -> HALF_OPEN (probing)');
             return true;
         }
         return false;
@@ -36,7 +39,7 @@ export function shouldAllowRequest() {
 
 export function recordSuccess() {
     if (state !== 'CLOSED') {
-        console.log(`🔌 Circuit breaker → CLOSED (was ${state})`);
+        log.info(`[CIRCUIT-BREAKER] Circuit breaker -> CLOSED (was ${state})`);
     }
     state = 'CLOSED';
     failureCount = 0;
@@ -49,13 +52,13 @@ export function recordFailure() {
     if (state === 'HALF_OPEN' || failureCount >= FAILURE_THRESHOLD) {
         const wasAlreadyOpen = state === 'OPEN';
         state = 'OPEN';
-        console.log(`🔌 Circuit breaker → OPEN (${failureCount} consecutive failures)`);
+        log.info(`[CIRCUIT-BREAKER] Circuit breaker -> OPEN (${failureCount} consecutive failures)`);
 
         // Auto-failover on FIRST transition to OPEN only
         if (!wasAlreadyOpen && hasFailover()) {
             const result = switchToFailover();
             if (result.success) {
-                console.log(`AUTO-FAILOVER: Switched ${result.previous} → ${result.active}`);
+                log.info(`[AUTO-FAILOVER] Switched ${result.previous} -> ${result.active}`);
             }
         }
     }

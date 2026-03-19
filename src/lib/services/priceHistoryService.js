@@ -9,6 +9,9 @@ import {
     updateTransactionUsdBatch,
     getPriceHistoryCount
 } from '../db/database.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('priceHistoryService');
 
 // ============================================
 // PRICE HISTORY SYNC
@@ -24,11 +27,11 @@ export async function syncPriceHistory() {
     const today = new Date().toISOString().split('T')[0];
 
     if (latestDate === today) {
-        console.log('Price history already up to date');
+        log.info('Price history already up to date');
         return { added: 0, total: await getPriceHistoryCount() };
     }
 
-    console.log(`Syncing price history (latest stored: ${latestDate || 'none'})...`);
+    log.info('Syncing price history (latest stored: %s)...', latestDate || 'none');
 
     try {
         // CryptoCompare histoday returns up to 2000 daily candles ending at today
@@ -36,13 +39,13 @@ export async function syncPriceHistory() {
         const response = await axios.get(url, { timeout: 30000 });
 
         if (!response.data || response.data.Response === 'Error') {
-            console.error('CryptoCompare error:', response.data?.Message || 'unknown');
+            log.error('CryptoCompare error: %s', response.data?.Message || 'unknown');
             return { added: 0, error: response.data?.Message };
         }
 
         const dataPoints = response.data.Data?.Data;
         if (!dataPoints || dataPoints.length === 0) {
-            console.warn('No price data returned from CryptoCompare');
+            log.warn('No price data returned from CryptoCompare');
             return { added: 0, error: 'no data' };
         }
 
@@ -66,7 +69,7 @@ export async function syncPriceHistory() {
         }
 
         if (prices.length === 0) {
-            console.log('No new price data to insert');
+            log.info('No new price data to insert');
             return { added: 0, total: await getPriceHistoryCount() };
         }
 
@@ -76,15 +79,15 @@ export async function syncPriceHistory() {
         }
 
         const total = await getPriceHistoryCount();
-        console.log(`Price history synced: ${prices.length} new days added (${total} total)`);
+        log.info('Price history synced: %d new days added (%d total)', prices.length, total);
         return { added: prices.length, total };
 
     } catch (error) {
-        console.error('Price history sync failed:', error.message);
+        log.error({ err: error }, 'Price history sync failed');
 
         // Try CoinGecko as fallback for just the last few days
         if (!latestDate) {
-            console.log('Skipping CoinGecko fallback on first sync (too many days)');
+            log.info('Skipping CoinGecko fallback on first sync (too many days)');
         }
 
         return { added: 0, error: error.message };
@@ -105,7 +108,7 @@ export async function buildPriceMap(startDate, endDate) {
     for (const row of rows) {
         map.set(row.date, row.price_usd);
     }
-    console.log(`Built price map: ${map.size} days (${startDate} to ${endDate})`);
+    log.info('Built price map: %d days (%s to %s)', map.size, startDate, endDate);
     return map;
 }
 
@@ -129,14 +132,14 @@ export async function buildFullPriceMap() {
  * for their date, and batch-update the USD amounts.
  */
 export async function backfillNullUsdAmounts() {
-    console.log('Starting USD backfill for NULL amount_usd transactions...');
+    log.info('Starting USD backfill for NULL amount_usd transactions...');
 
     // Ensure price history is current
     await syncPriceHistory();
 
     const priceMap = await buildFullPriceMap();
     if (priceMap.size === 0) {
-        console.warn('No price history available - cannot backfill');
+        log.warn('No price history available - cannot backfill');
         return { updated: 0, skipped: 0, missingPriceDates: [] };
     }
 
@@ -167,7 +170,7 @@ export async function backfillNullUsdAmounts() {
         if (updates.length > 0) {
             const ok = await updateTransactionUsdBatch(updates);
             if (!ok) {
-                console.warn('Database error during backfill');
+                log.warn('Database error during backfill');
                 break;
             }
             updated += updates.length;
@@ -179,7 +182,7 @@ export async function backfillNullUsdAmounts() {
     }
 
     const missingDates = [...missingPriceDates].sort();
-    console.log(`USD backfill complete: ${updated} updated, ${skipped} skipped (${missingDates.length} dates without price data)`);
+    log.info('USD backfill complete: %d updated, %d skipped (%d dates without price data)', updated, skipped, missingDates.length);
 
     return { updated, skipped, missingPriceDates: missingDates };
 }

@@ -6,6 +6,9 @@
   export let label = '';
   export let icon = null;
   export let loading = false;
+  export let period = 'D';
+
+  const periodDaysMap = { D: 1, W: 7, M: 30, Q: 90, Y: 365 };
 
   let API_URL = '';
   let repos = [];
@@ -14,6 +17,7 @@
   let previousRepos = [];
   let fetchError = false;
   let interval;
+  let mounted = false;
 
   function formatNumber(num) {
     if (!num) return '0';
@@ -31,7 +35,8 @@
   async function fetchCategoryData() {
     if (!API_URL || !category) return;
     try {
-      const response = await fetch(`${API_URL}/api/metrics/category/${category}/top?limit=3`);
+      const days = periodDaysMap[period] || 7;
+      const response = await fetch(`${API_URL}/api/metrics/category/${category}/top?limit=3&days=${days}`);
       if (!response.ok) throw new Error(`API error: ${response.status}`);
       const data = await response.json();
 
@@ -49,12 +54,18 @@
   onMount(() => {
     API_URL = getApiUrl();
     fetchCategoryData();
-    interval = setInterval(fetchCategoryData, 30 * 60 * 1000); // 30 min — data changes daily
+    interval = setInterval(fetchCategoryData, 30 * 60 * 1000);
+    mounted = true;
   });
 
   onDestroy(() => {
     if (interval) clearInterval(interval);
   });
+
+  // Re-fetch when period changes (after initial mount)
+  $: if (mounted && period) {
+    fetchCategoryData();
+  }
 
   $: totalComparison = getComparison(total, previousTotal);
 </script>

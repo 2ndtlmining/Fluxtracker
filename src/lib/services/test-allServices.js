@@ -1,57 +1,51 @@
 import { fetchNodeStats } from './nodeService.js';
 import { fetchCloudStats } from './cloudService.js';
 import { fetchGamingStats } from './gamingService.js';
-import { fetchCryptoStats } from './cryptoService.js';  
+import { fetchCryptoStats } from './cryptoService.js';
 import { fetchWordPressStats } from './wordpressService.js';
 import { fetchRevenueStats } from './revenueService.js';
 import { getCurrentMetrics } from '../db/database.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('testAllServices');
 
 async function testAllServices() {
-    console.log('🧪 Testing All Services...\n');
-    console.log('='.repeat(60));
-    
+    log.info('Testing All Services...');
+
     try {
         // Test 1: Nodes
-        console.log('\n📊 Test 1: Node Statistics');
-        console.log('-'.repeat(60));
+        log.info('Test 1: Node Statistics');
         await fetchNodeStats();
-        
+
         // Test 2: Cloud
-        console.log('\n☁️  Test 2: Cloud Utilization');
-        console.log('-'.repeat(60));
+        log.info('Test 2: Cloud Utilization');
         await fetchCloudStats();
-        
+
         // Test 3: Gaming
-        console.log('\n🎮 Test 3: Gaming Apps');
-        console.log('-'.repeat(60));
+        log.info('Test 3: Gaming Apps');
         await fetchGamingStats();
-        
+
         // Test 4: Crypto (NEW)
-        console.log('\n🪙 Test 4: Crypto Nodes');
-        console.log('-'.repeat(60));
+        log.info('Test 4: Crypto Nodes');
         await fetchCryptoStats();
-        
+
         // Test 5: WordPress
-        console.log('\n🌐 Test 5: WordPress Count');
-        console.log('-'.repeat(60));
+        log.info('Test 5: WordPress Count');
         await fetchWordPressStats();
-        
+
         // Test 6: Revenue
-        console.log('\n💰 Test 6: Revenue & Price');
-        console.log('-'.repeat(60));
+        log.info('Test 6: Revenue & Price');
         await fetchRevenueStats();
-        
+
         // Show final results
-        console.log('\n📈 Final Database State');
-        console.log('='.repeat(60));
+        log.info('Final Database State');
         const metrics = await getCurrentMetrics();
-        console.log(JSON.stringify(metrics, null, 2));
-        
-        console.log('\n✅ All services tested successfully!\n');
-        
+        log.info({ metrics }, 'Current metrics');
+
+        log.info('All services tested successfully!');
+
     } catch (error) {
-        console.error('\n❌ Test failed:', error.message);
-        console.error(error);
+        log.error({ err: error }, 'Test failed');
     }
 }
 

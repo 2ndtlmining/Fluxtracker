@@ -6,6 +6,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { categorizeImage } from '../../config.js';
+import { createLogger } from '../../logger.js';
+
+const log = createLogger('sqliteAdapter');
 
 // ============================================
 // DATABASE CONNECTION
@@ -253,41 +256,41 @@ export async function initDatabase() {
 
         // Run schema migration (adds dynamic columns if needed)
         try {
-            console.log('\n🔄 Checking for schema updates...');
+            log.info('[SCHEMA] Checking for schema updates...');
             const config = await import('../../config.js');
             const { migrateSchema } = await import('../schemaMigrator.js');
             const migrationResult = await migrateSchema(config, getDb());
             if (migrationResult.success) {
                 if (migrationResult.columnsAdded.length > 0) {
-                    console.log('✅ Schema updated with new columns');
+                    log.info('[SCHEMA] Schema updated with new columns');
                 } else {
-                    console.log('✓ Schema is up to date');
+                    log.info('[SCHEMA] Schema is up to date');
                 }
             } else {
-                console.warn('⚠️  Schema migration had issues:', migrationResult.errors);
+                log.warn({ errors: migrationResult.errors }, '[SCHEMA] Schema migration had issues');
             }
         } catch (migrationError) {
-            console.warn('⚠️  Schema migration error:', migrationError.message);
+            log.warn(`[SCHEMA] Schema migration error: ${migrationError.message}`);
         }
 
         // Backfill repo categories for existing rows
         try {
             const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM repo_snapshots WHERE category IS NULL').get();
             if (row.cnt > 0) {
-                console.log(`🔄 Backfilling categories for ${row.cnt} uncategorized images...`);
+                log.info(`[BACKFILL] Backfilling categories for ${row.cnt} uncategorized images...`);
                 setTimeout(async () => {
-                    try { await backfillRepoCategories(); } catch(e) { console.warn('Backfill error:', e.message); }
+                    try { await backfillRepoCategories(); } catch(e) { log.warn(`Backfill error: ${e.message}`); }
                 }, 100);
             }
         } catch (e) {
-            console.warn('Category backfill check skipped:', e.message);
+            log.warn(`Category backfill check skipped: ${e.message}`);
         }
 
         _dbReady = true;
-        console.log(`✅ Database initialized successfully (SQLite: ${DB_PATH})`);
+        log.info(`[DB] Database initialized successfully (SQLite: ${DB_PATH})`);
     } catch (error) {
         _dbReady = false;
-        console.error('❌ Database initialization error:', error);
+        log.error({ err: error }, '[DB] Database initialization error');
         throw error;
     }
 }
@@ -301,16 +304,16 @@ export async function ensureInitialized() {
             await initDatabase();
             return true;
         } catch (error) {
-            console.warn(`⚠️  DB init attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error.message}`);
+            log.warn(`[DB] DB init attempt ${attempt}/${MAX_ATTEMPTS} failed: ${error.message}`);
             if (attempt < MAX_ATTEMPTS) {
-                console.log(`   Retrying in ${Math.round(delay / 1000)}s...`);
+                log.info(`Retrying in ${Math.round(delay / 1000)}s...`);
                 await new Promise(r => setTimeout(r, delay));
                 delay = Math.min(delay * 2, 60_000);
             }
         }
     }
 
-    console.error('❌ Database initialization failed after all retry attempts');
+    log.error('[DB] Database initialization failed after all retry attempts');
     return false;
 }
 
@@ -322,7 +325,7 @@ export async function getCurrentMetrics() {
     try {
         return getDb().prepare('SELECT * FROM current_metrics WHERE id = 1').get() || null;
     } catch (error) {
-        console.error('getCurrentMetrics error:', error.message);
+        log.error(`getCurrentMetrics error: ${error.message}`);
         return null;
     }
 }
@@ -355,9 +358,9 @@ export async function updateCurrentMetrics(metrics) {
     const setClauses = Object.keys(merged).map(k => `${k} = @${k}`).join(', ');
     try {
         getDb().prepare(`UPDATE current_metrics SET ${setClauses} WHERE id = 1`).run(merged);
-        console.log('✅ Current metrics updated');
+        log.info('Current metrics updated');
     } catch (error) {
-        console.error('updateCurrentMetrics error:', error.message);
+        log.error(`updateCurrentMetrics error: ${error.message}`);
     }
 }
 
@@ -421,9 +424,9 @@ export async function createDailySnapshot(snapshot) {
             VALUES (${placeholders})
             ON CONFLICT(snapshot_date) DO UPDATE SET ${updateClauses}
         `).run(row);
-        console.log(`✅ Snapshot created for ${snapshot.snapshot_date}`);
+        log.info(`Snapshot created for ${snapshot.snapshot_date}`);
     } catch (error) {
-        console.error('createDailySnapshot error:', error.message);
+        log.error(`createDailySnapshot error: ${error.message}`);
     }
 }
 
@@ -431,7 +434,7 @@ export async function getSnapshotByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots WHERE snapshot_date = ?').get(date) || null;
     } catch (error) {
-        console.error('getSnapshotByDate error:', error.message);
+        log.error(`getSnapshotByDate error: ${error.message}`);
         return null;
     }
 }
@@ -440,7 +443,7 @@ export async function getLastNSnapshots(n = 30) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots ORDER BY snapshot_date DESC LIMIT ?').all(n);
     } catch (error) {
-        console.error('getLastNSnapshots error:', error.message);
+        log.error(`getLastNSnapshots error: ${error.message}`);
         return [];
     }
 }
@@ -451,7 +454,7 @@ export async function getSnapshotsInRange(startDate, endDate) {
             'SELECT * FROM daily_snapshots WHERE snapshot_date >= ? AND snapshot_date <= ? ORDER BY snapshot_date ASC'
         ).all(startDate, endDate);
     } catch (error) {
-        console.error('getSnapshotsInRange error:', error.message);
+        log.error(`getSnapshotsInRange error: ${error.message}`);
         return [];
     }
 }
@@ -460,7 +463,7 @@ export async function getAllSnapshots() {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots ORDER BY snapshot_date DESC').all();
     } catch (error) {
-        console.error('getAllSnapshots error:', error.message);
+        log.error(`getAllSnapshots error: ${error.message}`);
         return [];
     }
 }
@@ -472,10 +475,10 @@ export async function deleteOldSnapshots(daysToKeep = 365) {
 
     try {
         const result = getDb().prepare('DELETE FROM daily_snapshots WHERE snapshot_date < ?').run(cutoffDateStr);
-        console.log(`🗑️  Deleted ${result.changes} old snapshots (older than ${cutoffDateStr})`);
+        log.info(`[CLEANUP] Deleted ${result.changes} old snapshots (older than ${cutoffDateStr})`);
         return result.changes;
     } catch (error) {
-        console.error('deleteOldSnapshots error:', error.message);
+        log.error(`deleteOldSnapshots error: ${error.message}`);
         return 0;
     }
 }
@@ -502,7 +505,7 @@ export async function insertTransaction(tx) {
             app_type: tx.app_type || null
         });
     } catch (error) {
-        console.error('insertTransaction error:', error.message);
+        log.error(`insertTransaction error: ${error.message}`);
     }
 }
 
@@ -533,10 +536,10 @@ export async function insertTransactionsBatch(transactions) {
         });
 
         insertAll(transactions);
-        console.log(`✅ Inserted ${transactions.length} transactions`);
+        log.info(`Inserted ${transactions.length} transactions`);
         return true;
     } catch (error) {
-        console.error('insertTransactionsBatch error:', error.message);
+        log.error(`insertTransactionsBatch error: ${error.message}`);
         return false;
     }
 }
@@ -548,7 +551,7 @@ export async function getUndeterminedAppNames() {
         ).all();
         return rows.map(r => r.app_name);
     } catch (error) {
-        console.error('getUndeterminedAppNames error:', error.message);
+        log.error(`getUndeterminedAppNames error: ${error.message}`);
         return [];
     }
 }
@@ -559,7 +562,7 @@ export async function updateAppTypeForAppName(appName, appType) {
             'UPDATE revenue_transactions SET app_type = ? WHERE app_name = ? AND app_type IS NULL'
         ).run(appType, appName);
     } catch (error) {
-        console.error('updateAppTypeForAppName error:', error.message);
+        log.error(`updateAppTypeForAppName error: ${error.message}`);
     }
 }
 
@@ -580,7 +583,7 @@ export async function getTxidsWithoutAppName(limit = 500, recentDays = null) {
 
         return getDb().prepare(sql).all(...params).map(r => r.txid);
     } catch (error) {
-        console.error('getTxidsWithoutAppName error:', error.message);
+        log.error(`getTxidsWithoutAppName error: ${error.message}`);
         return [];
     }
 }
@@ -599,7 +602,7 @@ export async function countTxidsWithoutAppName(recentDays = null) {
 
         return getDb().prepare(sql).get(...params).cnt || 0;
     } catch (error) {
-        console.error('countTxidsWithoutAppName error:', error.message);
+        log.error(`countTxidsWithoutAppName error: ${error.message}`);
         return 0;
     }
 }
@@ -610,7 +613,7 @@ export async function updateAppNameForTxid(txid, appName, appType) {
             'UPDATE revenue_transactions SET app_name = ?, app_type = ? WHERE txid = ? AND app_name IS NULL'
         ).run(appName, appType, txid);
     } catch (error) {
-        console.error('updateAppNameForTxid error:', error.message);
+        log.error(`updateAppNameForTxid error: ${error.message}`);
     }
 }
 
@@ -618,7 +621,7 @@ export async function getTransactionsByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM revenue_transactions WHERE date = ? LIMIT 10000').all(date);
     } catch (error) {
-        console.error('getTransactionsByDate error:', error.message);
+        log.error(`getTransactionsByDate error: ${error.message}`);
         return [];
     }
 }
@@ -629,7 +632,7 @@ export async function getTransactionsByBlockRange(startBlock, endBlock) {
             'SELECT * FROM revenue_transactions WHERE block_height >= ? AND block_height <= ? ORDER BY block_height DESC LIMIT 10000'
         ).all(startBlock, endBlock);
     } catch (error) {
-        console.error('getTransactionsByBlockRange error:', error.message);
+        log.error(`getTransactionsByBlockRange error: ${error.message}`);
         return [];
     }
 }
@@ -641,7 +644,7 @@ export async function getRevenueForDateRange(startDate, endDate) {
         ).get(startDate, endDate);
         return row.total;
     } catch (error) {
-        console.error('getRevenueForDateRange error:', error.message);
+        log.error(`getRevenueForDateRange error: ${error.message}`);
         return 0;
     }
 }
@@ -653,7 +656,7 @@ export async function getPaymentCountForDateRange(startDate, endDate) {
         ).get(startDate, endDate);
         return row.cnt || 0;
     } catch (error) {
-        console.error('getPaymentCountForDateRange error:', error.message);
+        log.error(`getPaymentCountForDateRange error: ${error.message}`);
         return 0;
     }
 }
@@ -665,7 +668,7 @@ export async function getRevenueForBlockRange(startBlock, endBlock) {
         ).get(startBlock, endBlock);
         return row.total;
     } catch (error) {
-        console.error('getRevenueForBlockRange error:', error.message);
+        log.error(`getRevenueForBlockRange error: ${error.message}`);
         return 0;
     }
 }
@@ -677,7 +680,7 @@ export async function getLastSyncedBlock() {
         ).get();
         return row?.block_height || null;
     } catch (error) {
-        console.error('getLastSyncedBlock error:', error.message);
+        log.error(`getLastSyncedBlock error: ${error.message}`);
         return null;
     }
 }
@@ -687,7 +690,7 @@ export async function getTxidCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM revenue_transactions').get();
         return row.cnt || 0;
     } catch (error) {
-        console.error('getTxidCount error:', error.message);
+        log.error(`getTxidCount error: ${error.message}`);
         return 0;
     }
 }
@@ -737,7 +740,7 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
             offset
         };
     } catch (error) {
-        console.error('getTransactionsPaginated error:', error.message);
+        log.error(`getTransactionsPaginated error: ${error.message}`);
         return { transactions: [], total: 0, page, limit, offset };
     }
 }
@@ -785,7 +788,7 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
             offset
         };
     } catch (error) {
-        console.error('getAppAnalytics error:', error.message);
+        log.error(`getAppAnalytics error: ${error.message}`);
         return { apps: [], total: 0, page, limit, offset };
     }
 }
@@ -805,10 +808,10 @@ export async function getDailyRevenueFromTransactions(days = 30) {
             ORDER BY date ASC
         `).all(startDate);
 
-        console.log(`✅ Retrieved daily revenue for ${rows.length} days from transactions`);
+        log.info(`Retrieved daily revenue for ${rows.length} days from transactions`);
         return rows;
     } catch (error) {
-        console.error('getDailyRevenueFromTransactions error:', error.message);
+        log.error(`getDailyRevenueFromTransactions error: ${error.message}`);
         return [];
     }
 }
@@ -824,10 +827,10 @@ export async function getDailyRevenueInRange(startDate, endDate) {
             ORDER BY date ASC
         `).all(startDate, endDate);
 
-        console.log(`✅ Retrieved daily revenue for ${rows.length} days from transactions (${startDate} to ${endDate})`);
+        log.info(`Retrieved daily revenue for ${rows.length} days from transactions (${startDate} to ${endDate})`);
         return rows;
     } catch (error) {
-        console.error('getDailyRevenueInRange error:', error.message);
+        log.error(`getDailyRevenueInRange error: ${error.message}`);
         return [];
     }
 }
@@ -851,10 +854,10 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
             ORDER BY date ASC
         `).all(startDate);
 
-        console.log(`✅ Retrieved daily USD revenue for ${rows.length} days from transactions`);
+        log.info(`Retrieved daily USD revenue for ${rows.length} days from transactions`);
         return rows;
     } catch (error) {
-        console.error('getDailyRevenueUSDFromTransactions error:', error.message);
+        log.error(`getDailyRevenueUSDFromTransactions error: ${error.message}`);
         return [];
     }
 }
@@ -874,10 +877,10 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
             ORDER BY date ASC
         `).all(startDate, endDate);
 
-        console.log(`✅ Retrieved daily USD revenue for ${rows.length} days from transactions (${startDate} to ${endDate})`);
+        log.info(`Retrieved daily USD revenue for ${rows.length} days from transactions (${startDate} to ${endDate})`);
         return rows;
     } catch (error) {
-        console.error('getDailyRevenueUSDInRange error:', error.message);
+        log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
         return [];
     }
 }
@@ -889,10 +892,10 @@ export async function deleteOldTransactions(daysToKeep = 365) {
 
     try {
         const result = getDb().prepare('DELETE FROM revenue_transactions WHERE date < ?').run(cutoffDateStr);
-        console.log(`🗑️  Deleted ${result.changes} old transactions (older than ${cutoffDateStr})`);
+        log.info(`[CLEANUP] Deleted ${result.changes} old transactions (older than ${cutoffDateStr})`);
         return result.changes;
     } catch (error) {
-        console.error('deleteOldTransactions error:', error.message);
+        log.error(`deleteOldTransactions error: ${error.message}`);
         return 0;
     }
 }
@@ -903,7 +906,7 @@ export async function getTransactionsWithNullUsd(limit = 1000) {
             'SELECT txid, amount, date, timestamp FROM revenue_transactions WHERE amount_usd IS NULL ORDER BY block_height DESC LIMIT ?'
         ).all(limit);
     } catch (error) {
-        console.error('getTransactionsWithNullUsd error:', error.message);
+        log.error(`getTransactionsWithNullUsd error: ${error.message}`);
         return [];
     }
 }
@@ -923,10 +926,10 @@ export async function updateTransactionUsdBatch(updates) {
         });
 
         updateAll(updates);
-        console.log(`Updated USD for ${updates.length} transactions`);
+        log.info(`Updated USD for ${updates.length} transactions`);
         return true;
     } catch (error) {
-        console.error('updateTransactionUsdBatch error:', error.message);
+        log.error(`updateTransactionUsdBatch error: ${error.message}`);
         return false;
     }
 }
@@ -951,7 +954,7 @@ export async function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
             ).run(txid, address, reason, now, now);
         }
     } catch (error) {
-        console.error('upsertFailedTxid error:', error.message);
+        log.error(`upsertFailedTxid error: ${error.message}`);
     }
 }
 
@@ -961,7 +964,7 @@ export async function getUnresolvedFailedTxids(limit = 200) {
             'SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt FROM failed_txids WHERE resolved = 0 ORDER BY attempt_count ASC, last_attempt ASC LIMIT ?'
         ).all(limit);
     } catch (error) {
-        console.error('getUnresolvedFailedTxids error:', error.message);
+        log.error(`getUnresolvedFailedTxids error: ${error.message}`);
         return [];
     }
 }
@@ -970,7 +973,7 @@ export async function resolveFailedTxid(txid) {
     try {
         getDb().prepare('UPDATE failed_txids SET resolved = 1 WHERE txid = ?').run(txid);
     } catch (error) {
-        console.error('resolveFailedTxid error:', error.message);
+        log.error(`resolveFailedTxid error: ${error.message}`);
     }
 }
 
@@ -979,7 +982,7 @@ export async function getFailedTxidCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM failed_txids WHERE resolved = 0').get();
         return row.cnt || 0;
     } catch (error) {
-        console.error('getFailedTxidCount error:', error.message);
+        log.error(`getFailedTxidCount error: ${error.message}`);
         return 0;
     }
 }
@@ -993,7 +996,7 @@ export async function clearAbandonedFailedTxids(maxAgeDays = 30) {
         ).run(cutoff);
         return result.changes;
     } catch (error) {
-        console.error('clearAbandonedFailedTxids error:', error.message);
+        log.error(`clearAbandonedFailedTxids error: ${error.message}`);
         return 0;
     }
 }
@@ -1002,7 +1005,7 @@ export async function isFailedTxid(txid) {
     try {
         return getDb().prepare('SELECT * FROM failed_txids WHERE txid = ? AND resolved = 0').get(txid) || null;
     } catch (error) {
-        console.error('isFailedTxid error:', error.message);
+        log.error(`isFailedTxid error: ${error.message}`);
         return null;
     }
 }
@@ -1015,7 +1018,7 @@ export async function getSyncStatus(syncType) {
     try {
         return getDb().prepare('SELECT * FROM sync_status WHERE sync_type = ?').get(syncType) || null;
     } catch (error) {
-        console.error('getSyncStatus error:', error.message);
+        log.error(`getSyncStatus error: ${error.message}`);
         return null;
     }
 }
@@ -1026,7 +1029,7 @@ export async function updateSyncStatus(syncType, status, errorMessage = null, la
             'UPDATE sync_status SET last_sync = ?, last_sync_block = ?, status = ?, error_message = ? WHERE sync_type = ?'
         ).run(Date.now(), lastBlock, status, errorMessage, syncType);
     } catch (error) {
-        console.error('updateSyncStatus error:', error.message);
+        log.error(`updateSyncStatus error: ${error.message}`);
     }
 }
 
@@ -1034,7 +1037,7 @@ export async function resetRevenueSyncBlock() {
     try {
         getDb().prepare('UPDATE sync_status SET last_sync_block = NULL WHERE sync_type = ?').run('revenue');
     } catch (error) {
-        console.error('resetRevenueSyncBlock error:', error.message);
+        log.error(`resetRevenueSyncBlock error: ${error.message}`);
     }
 }
 
@@ -1050,7 +1053,7 @@ export async function clearRevenueData() {
 
         return count;
     } catch (error) {
-        console.error('clearRevenueData error:', error.message);
+        log.error(`clearRevenueData error: ${error.message}`);
         return 0;
     }
 }
@@ -1059,7 +1062,7 @@ export async function setNextSync(syncType, nextSyncTime) {
     try {
         getDb().prepare('UPDATE sync_status SET next_sync = ? WHERE sync_type = ?').run(nextSyncTime, syncType);
     } catch (error) {
-        console.error('setNextSync error:', error.message);
+        log.error(`setNextSync error: ${error.message}`);
     }
 }
 
@@ -1087,10 +1090,10 @@ export async function insertPriceHistoryBatch(prices) {
         });
 
         insertAll(prices);
-        console.log(`Inserted/updated ${prices.length} price history rows`);
+        log.info(`Inserted/updated ${prices.length} price history rows`);
         return true;
     } catch (error) {
-        console.error('insertPriceHistoryBatch error:', error.message);
+        log.error(`insertPriceHistoryBatch error: ${error.message}`);
         return false;
     }
 }
@@ -1100,7 +1103,7 @@ export async function getPriceForDate(date) {
         const row = getDb().prepare('SELECT price_usd FROM flux_price_history WHERE date = ?').get(date);
         return row ? row.price_usd : null;
     } catch (error) {
-        console.error('getPriceForDate error:', error.message);
+        log.error(`getPriceForDate error: ${error.message}`);
         return null;
     }
 }
@@ -1111,7 +1114,7 @@ export async function getPricesForDateRange(startDate, endDate) {
             'SELECT date, price_usd FROM flux_price_history WHERE date >= ? AND date <= ? ORDER BY date ASC'
         ).all(startDate, endDate);
     } catch (error) {
-        console.error('getPricesForDateRange error:', error.message);
+        log.error(`getPricesForDateRange error: ${error.message}`);
         return [];
     }
 }
@@ -1121,7 +1124,7 @@ export async function getLatestPriceDate() {
         const row = getDb().prepare('SELECT date FROM flux_price_history ORDER BY date DESC LIMIT 1').get();
         return row ? row.date : null;
     } catch (error) {
-        console.error('getLatestPriceDate error:', error.message);
+        log.error(`getLatestPriceDate error: ${error.message}`);
         return null;
     }
 }
@@ -1131,7 +1134,7 @@ export async function getOldestPriceDate() {
         const row = getDb().prepare('SELECT date FROM flux_price_history ORDER BY date ASC LIMIT 1').get();
         return row ? row.date : null;
     } catch (error) {
-        console.error('getOldestPriceDate error:', error.message);
+        log.error(`getOldestPriceDate error: ${error.message}`);
         return null;
     }
 }
@@ -1141,7 +1144,7 @@ export async function getPriceHistoryCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM flux_price_history').get();
         return row.cnt || 0;
     } catch (error) {
-        console.error('getPriceHistoryCount error:', error.message);
+        log.error(`getPriceHistoryCount error: ${error.message}`);
         return 0;
     }
 }
@@ -1178,7 +1181,7 @@ export async function getDatabaseStats() {
             instanceId: 'sqlite'
         };
     } catch (error) {
-        console.error('getDatabaseStats error:', error.message);
+        log.error(`getDatabaseStats error: ${error.message}`);
         return { snapshots: 0, transactions: 0, priceHistory: 0, repoSnapshots: 0, distinctRepos: 0, dbSizeKB: null, dbPath: DB_PATH, isWriter: true, instanceId: 'sqlite' };
     }
 }
@@ -1187,7 +1190,7 @@ export async function closeDatabase() {
     if (db) {
         db.close();
         db = null;
-        console.log('✅ SQLite database closed');
+        log.info('[DB] SQLite database closed');
     }
 }
 
@@ -1224,7 +1227,7 @@ export async function createRepoSnapshots(snapshotDate, repoCounts) {
         insertAll(entries);
         return entries.length;
     } catch (error) {
-        console.error('createRepoSnapshots error:', error.message);
+        log.error(`createRepoSnapshots error: ${error.message}`);
         return 0;
     }
 }
@@ -1234,7 +1237,7 @@ export async function getRepoSnapshotCountByDate(date) {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM repo_snapshots WHERE snapshot_date = ?').get(date);
         return row.cnt || 0;
     } catch (error) {
-        console.error('getRepoSnapshotCountByDate error:', error.message);
+        log.error(`getRepoSnapshotCountByDate error: ${error.message}`);
         return 0;
     }
 }
@@ -1258,7 +1261,7 @@ export async function getRepoHistory(imageName, limit = 90) {
             'SELECT snapshot_date, instance_count FROM repo_snapshots WHERE image_name = ? ORDER BY snapshot_date DESC LIMIT ?'
         ).all(imageName, limit);
     } catch (error) {
-        console.error('getRepoHistory error:', error.message);
+        log.error(`getRepoHistory error: ${error.message}`);
         return [];
     }
 }
@@ -1269,7 +1272,7 @@ export async function getDistinctRepos() {
         const rows = getDb().prepare('SELECT DISTINCT image_name FROM repo_snapshots ORDER BY image_name').all();
         return rows.map(r => r.image_name);
     } catch (error) {
-        console.error('getDistinctRepos error:', error.message);
+        log.error(`getDistinctRepos error: ${error.message}`);
         return [];
     }
 }
@@ -1283,7 +1286,7 @@ export async function getLatestRepoSnapshot() {
             'SELECT image_name, instance_count FROM repo_snapshots WHERE snapshot_date = ? ORDER BY instance_count DESC'
         ).all(dateRow.snapshot_date);
     } catch (error) {
-        console.error('getLatestRepoSnapshot error:', error.message);
+        log.error(`getLatestRepoSnapshot error: ${error.message}`);
         return [];
     }
 }
@@ -1317,7 +1320,7 @@ export async function getTopReposByCategory(category, limit = 3) {
 
         return { date: dateRow.d, repos };
     } catch (error) {
-        console.error('getTopReposByCategory error:', error.message);
+        log.error(`getTopReposByCategory error: ${error.message}`);
         return { date: null, repos: [] };
     }
 }
@@ -1329,7 +1332,7 @@ export async function getCategoryTotal(category, date) {
         ).get(category, date);
         return row.total;
     } catch (error) {
-        console.error('getCategoryTotal error:', error.message);
+        log.error(`getCategoryTotal error: ${error.message}`);
         return 0;
     }
 }
@@ -1346,7 +1349,7 @@ export async function getCategoryHistory(category, limit = 90) {
             LIMIT ?
         `).all(category, limit);
     } catch (error) {
-        console.error('getCategoryHistory error:', error.message);
+        log.error(`getCategoryHistory error: ${error.message}`);
         return [];
     }
 }
@@ -1365,7 +1368,7 @@ export async function getReposByCategory(category) {
             ORDER BY image_name
         `).all(category);
     } catch (error) {
-        console.error('getReposByCategory error:', error.message);
+        log.error(`getReposByCategory error: ${error.message}`);
         return [];
     }
 }
@@ -1394,10 +1397,10 @@ export async function backfillRepoCategories() {
         });
 
         updateAll(rows);
-        console.log(`Backfilled categories for ${updated} of ${rows.length} distinct images`);
+        log.info(`Backfilled categories for ${updated} of ${rows.length} distinct images`);
         return rows.length;
     } catch (error) {
-        console.error('backfillRepoCategories error:', error.message);
+        log.error(`backfillRepoCategories error: ${error.message}`);
         return 0;
     }
 }
@@ -1426,10 +1429,10 @@ export async function recategorizeAllRepos() {
         });
 
         updateAll(rows);
-        console.log(`Re-categorized ${rows.length} images:`, counts);
+        log.info({ counts }, `Re-categorized ${rows.length} images`);
         return { resetCount: rows.length, categorized: counts };
     } catch (error) {
-        console.error('recategorizeAllRepos error:', error.message);
+        log.error(`recategorizeAllRepos error: ${error.message}`);
         return { resetCount: 0, categorized: {} };
     }
 }

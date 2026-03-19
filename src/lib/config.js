@@ -1,5 +1,7 @@
 // Flux Performance Dashboard Configuration
 
+export const APP_VERSION = 'v1.01';
+
 // ============================================
 // FLUX ADDRESSES TO TRACK
 // ============================================
@@ -73,6 +75,7 @@ export const API_ENDPOINTS = {
     //not using the backups just yet
     // Stats APIs
     STATS_BASE: 'https://stats.runonflux.io',
+    FLUXINFO: 'https://stats.runonflux.io/fluxinfo?projection=flux',
     RUNNING_APPS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
     
     // WordPress API - UPDATED to use running apps endpoint
