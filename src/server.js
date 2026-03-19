@@ -40,7 +40,7 @@ import {
 import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } from './lib/db/circuitBreaker.js';
 import { switchToFailover, getActiveInstanceName, hasFailover } from './lib/db/supabaseClient.js';
 
-import { getDisplayName, CATEGORY_CONFIG } from './lib/config.js';
+import { getDisplayName, CATEGORY_CONFIG, APP_VERSION, API_ENDPOINTS } from './lib/config.js';
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger('server');
@@ -305,9 +305,22 @@ app.get('/api/header', async (req, res) => {
             getSnapshotSystemStatus()
         ]);
 
+        // Fetch block height and ArcaneOS codename in parallel (external API calls)
         let blockHeight = null;
+        let arcaneOsCodename = null;
         try {
-            blockHeight = await fetchCurrentBlockHeight();
+            const [bh, codename] = await Promise.all([
+                fetchCurrentBlockHeight().catch(() => null),
+                fetch(API_ENDPOINTS.FLUXINFO)
+                    .then(r => r.json())
+                    .then(data => {
+                        const node = data?.data?.find(n => n?.flux?.arcaneHumanVersion);
+                        return node?.flux?.arcaneHumanVersion || null;
+                    })
+                    .catch(() => null)
+            ]);
+            blockHeight = bh;
+            arcaneOsCodename = codename;
         } catch (_) {}
 
         return {
@@ -315,7 +328,8 @@ app.get('/api/header', async (req, res) => {
                 fluxPriceUsd: metrics?.flux_price_usd || null,
                 blockHeight,
                 totalNodes: metrics?.node_total || 0,
-                totalApps: metrics?.total_apps || 0
+                totalApps: metrics?.total_apps || 0,
+                arcaneOsCodename
             },
             tracker: {
                 uptime: process.uptime(),
@@ -332,7 +346,8 @@ app.get('/api/header', async (req, res) => {
                 totalMemMB: Math.round(os.totalmem() / 1048576),
                 usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
                 memPercent: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100)
-            }
+            },
+            appVersion: APP_VERSION
         };
     });
 });

@@ -25,6 +25,10 @@
   let usedMemMB = 0;
   let memPercent = 0;
 
+  // Build info
+  let appVersion = '...';
+  let arcaneOsCodename = '';
+
   // Status indicators
   let apiStatus = 'checking';
   let dbStatus = 'checking';
@@ -73,6 +77,10 @@
       transactionCount = data.tracker.transactions;
       lastSyncBlock = data.tracker.lastSyncBlock;
 
+      // Build
+      appVersion = data.appVersion || '...';
+      arcaneOsCodename = data.network.arcaneOsCodename || '';
+
       // Host
       platform = data.host.platform;
       nodeVersion = data.host.nodeVersion;
@@ -119,7 +127,7 @@
         FLUX<br/>TRACKER
       </h1>
       <div class="build-info">
-        Build: <span class="text-cyan">v.11 troubled cod</span>
+        Build: <span class="text-cyan">{appVersion} {arcaneOsCodename}</span>
       </div>
     </div>
 
