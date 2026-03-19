@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS } from '../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC } from '../config.js';
 import {
     updateCurrentMetrics,
     updateSyncStatus,
@@ -188,7 +188,7 @@ export async function fetchCurrentBlockHeight() {
     }
 }
 
-const TXID_CHUNK_SIZE = 50000; // blocks per API call — conservative to avoid public API timeouts
+const TXID_CHUNK_SIZE = REVENUE_SYNC.TXID_CHUNK_SIZE;
 
 /**
  * Fetch transaction IDs for an address within a block range using Flux daemon API.
@@ -526,7 +526,7 @@ export async function progressiveSync() {
     console.log('\nStarting BLOCK-RANGE SYNC...\n');
 
     const startTime = Date.now();
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = REVENUE_SYNC.APP_NAME_BATCH_SIZE;
 
     try {
         // 1. Sync historical price data (fast no-op if already current)
@@ -569,7 +569,7 @@ export async function progressiveSync() {
 
         let pendingPayments = [];   // buffer between DB flushes
         let totalNewPayments = 0;
-        const DB_FLUSH_SIZE = 200;  // write to DB every 200 payments so graphs update progressively
+        const DB_FLUSH_SIZE = REVENUE_SYNC.DB_FLUSH_SIZE;
         let syncAborted = false;
         let lowestFailedBlock = null;
 
@@ -752,7 +752,7 @@ export async function progressiveSync() {
 // DAILY AUDIT — catch missed transactions
 // ============================================
 
-const AUDIT_LOOKBACK_BLOCKS = 4320; // ~3 days of blocks
+const AUDIT_LOOKBACK_BLOCKS = REVENUE_SYNC.AUDIT_LOOKBACK_BLOCKS;
 
 /**
  * Audit recent transactions by re-fetching txids from the API and comparing against DB.
@@ -783,9 +783,9 @@ export async function auditRecentTransactions() {
             console.log(`Audit: checking ${txids.length} txids for ${address.substring(0, 15)}`);
 
             // Process transactions in small batches (dedup handled by ON CONFLICT DO NOTHING)
-            const BATCH_SIZE = 10;
-            for (let i = 0; i < txids.length; i += BATCH_SIZE) {
-                const batch = txids.slice(i, i + BATCH_SIZE);
+            const auditBatch = REVENUE_SYNC.AUDIT_BATCH_SIZE;
+            for (let i = 0; i < txids.length; i += auditBatch) {
+                const batch = txids.slice(i, i + auditBatch);
                 const txResults = await Promise.all(batch.map(txid => fetchRawTransaction(txid)));
                 const payments = [];
 

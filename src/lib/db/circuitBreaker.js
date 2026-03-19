@@ -5,11 +5,12 @@
 // In SQLite mode the DB is local — circuit breaker is always CLOSED.
 
 import { switchToFailover, hasFailover } from './supabaseClient.js';
+import { CIRCUIT_BREAKER_CONFIG } from '../config.js';
 
 const isSqlite = (process.env.DB_TYPE || 'supabase').toLowerCase() === 'sqlite';
 
-const FAILURE_THRESHOLD = 5;
-const COOLDOWN_MS = 60_000; // 60 seconds
+const FAILURE_THRESHOLD = CIRCUIT_BREAKER_CONFIG.FAILURE_THRESHOLD;
+const COOLDOWN_MS = CIRCUIT_BREAKER_CONFIG.COOLDOWN_MS;
 
 let state = 'CLOSED';
 let failureCount = 0;
