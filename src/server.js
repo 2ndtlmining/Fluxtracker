@@ -909,24 +909,25 @@ app.get('/api/history/repos/latest', async (req, res) => {
 app.get('/api/metrics/category/:category/top', async (req, res) => {
     const { category } = req.params;
     const limit = parseInt(req.query.limit) || 3;
+    const days = parseInt(req.query.days) || 7;
 
     if (!CATEGORY_CONFIG[category]) {
         return res.status(400).json({ error: `Unknown category: ${category}` });
     }
 
-    const cacheKey = `${category}:${limit}`;
+    const cacheKey = `${category}:${limit}:${days}`;
 
     return withDbFallback(categoryCache, cacheKey, res, async () => {
         const { date, repos } = await getTopReposByCategory(category, limit);
         if (!date) {
-            return { category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [] };
+            return { category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [], days };
         }
 
         const total = await getCategoryTotal(category, date);
 
-        // Get comparison data from 7 days ago
+        // Get comparison data from N days ago (based on query param)
         const prevDate = new Date(date);
-        prevDate.setDate(prevDate.getDate() - 7);
+        prevDate.setDate(prevDate.getDate() - days);
         const prevDateStr = prevDate.toISOString().split('T')[0];
         const previousTotal = await getCategoryTotal(category, prevDateStr);
 
@@ -935,7 +936,7 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
         for (const r of repos) {
             let prevRow = 0;
             try {
-                const history = await getRepoHistory(r.image_name, 90);
+                const history = await getRepoHistory(r.image_name, Math.max(days + 7, 90));
                 const match = history.find(h => h.snapshot_date === prevDateStr);
                 prevRow = match ? match.instance_count : 0;
             } catch { prevRow = 0; }
@@ -951,7 +952,8 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
                 ...r,
                 displayName: getDisplayName(r.image_name)
             })),
-            previousRepos
+            previousRepos,
+            days
         };
     });
 });
