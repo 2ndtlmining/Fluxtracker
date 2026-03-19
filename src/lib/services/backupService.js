@@ -24,14 +24,15 @@ import {
     upsertRepoSnapshots,
     upsertPriceHistory
 } from '../db/database.js';
+import { BACKUP_CONFIG } from '../config.js';
 
 // ============================================
 // CONFIGURATION
 // ============================================
 
-const RETENTION_DAYS = 30;
-const UPLOAD_MAX_RETRIES = 3;
-const UPLOAD_INITIAL_BACKOFF_MS = 1000; // 1s, 4s, 16s (quadrupled each retry)
+const RETENTION_DAYS = BACKUP_CONFIG.RETENTION_DAYS;
+const UPLOAD_MAX_RETRIES = BACKUP_CONFIG.UPLOAD_MAX_RETRIES;
+const UPLOAD_INITIAL_BACKOFF_MS = BACKUP_CONFIG.UPLOAD_INITIAL_BACKOFF_MS;
 
 function getConfig() {
     return {

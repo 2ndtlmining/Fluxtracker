@@ -293,6 +293,46 @@ export const PERFORMANCE_CONFIG = {
 };
 
 // ============================================
+// REVENUE SYNC TUNING
+// ============================================
+export const REVENUE_SYNC = {
+    TXID_CHUNK_SIZE: 50000,         // Blocks per API call — conservative to avoid public API timeouts
+    DB_FLUSH_SIZE: 200,             // Write to DB every N payments so graphs update progressively
+    APP_NAME_BATCH_SIZE: 10,        // Concurrent app-name lookups per batch
+    AUDIT_LOOKBACK_BLOCKS: 4320,    // ~3 days of blocks for audit re-scan
+    AUDIT_BATCH_SIZE: 10,           // Concurrent fetches during audit retry
+    PRICE_HISTORY_BATCH_SIZE: 1000, // Rows per insert batch for price history backfill
+};
+
+// ============================================
+// SNAPSHOT TUNING
+// ============================================
+export const SNAPSHOT_CONFIG = {
+    CHECK_INTERVAL_MS: 30 * 60 * 1000,  // Check every 30 minutes
+    GRACE_PERIOD_MINUTES: 5,             // Wait 5 minutes after midnight before snapshotting
+    MIN_VALID_METRICS: 2,                // Minimum non-zero key metrics required
+    MAX_METRIC_AGE_HOURS: 24,            // Accept metrics up to this many hours old
+    MAX_REPO_RETRIES: 5,                 // Max retries for missing repo snapshot data
+};
+
+// ============================================
+// BACKUP TUNING
+// ============================================
+export const BACKUP_CONFIG = {
+    RETENTION_DAYS: 30,              // Keep backups for this many days
+    UPLOAD_MAX_RETRIES: 3,           // Retry failed S3 uploads this many times
+    UPLOAD_INITIAL_BACKOFF_MS: 1000, // First retry delay (quadrupled each retry: 1s, 4s, 16s)
+};
+
+// ============================================
+// CIRCUIT BREAKER TUNING
+// ============================================
+export const CIRCUIT_BREAKER_CONFIG = {
+    FAILURE_THRESHOLD: 5,   // Consecutive failures before tripping to OPEN
+    COOLDOWN_MS: 60_000,    // Time in OPEN before probing (HALF_OPEN)
+};
+
+// ============================================
 // HELPER FUNCTIONS
 // ============================================
 

@@ -15,16 +15,17 @@ import {
 import { getLatestRepoCounts } from '../services/cloudService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
+import { SNAPSHOT_CONFIG as SNAP_CFG } from '../config.js';
 
 // ============================================
 // CONFIGURATION
 // ============================================
 
 const CONFIG = {
-    CHECK_INTERVAL_MS: 30 * 60 * 1000,  // Check every 30 minutes
-    GRACE_PERIOD_MINUTES: 5,             // Wait 5 minutes after midnight
-    MIN_VALID_METRICS: 2,                // Only need 2 metrics populated
-    MAX_METRIC_AGE_HOURS: 24,            // Accept metrics up to 24 hours old
+    CHECK_INTERVAL_MS: SNAP_CFG.CHECK_INTERVAL_MS,
+    GRACE_PERIOD_MINUTES: SNAP_CFG.GRACE_PERIOD_MINUTES,
+    MIN_VALID_METRICS: SNAP_CFG.MIN_VALID_METRICS,
+    MAX_METRIC_AGE_HOURS: SNAP_CFG.MAX_METRIC_AGE_HOURS,
 };
 
 let state = {
@@ -277,7 +278,7 @@ async function takeSnapshot() {
 // MAIN CHECK
 // ============================================
 
-const MAX_REPO_RETRIES = 5;
+const MAX_REPO_RETRIES = SNAP_CFG.MAX_REPO_RETRIES;
 
 function scheduleRepoRetry(source) {
     if (state.repoRetryCount >= MAX_REPO_RETRIES) {

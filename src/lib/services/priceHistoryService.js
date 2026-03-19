@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_ENDPOINTS } from '../config.js';
+import { API_ENDPOINTS, REVENUE_SYNC } from '../config.js';
 import {
     insertPriceHistoryBatch,
     getLatestPriceDate,
@@ -143,11 +143,11 @@ export async function backfillNullUsdAmounts() {
     let updated = 0;
     let skipped = 0;
     const missingPriceDates = new Set();
-    const BATCH_SIZE = 1000;
+    const batchSize = REVENUE_SYNC.PRICE_HISTORY_BATCH_SIZE;
 
     // Process in batches to avoid loading all NULL transactions at once
     while (true) {
-        const txs = await getTransactionsWithNullUsd(BATCH_SIZE);
+        const txs = await getTransactionsWithNullUsd(batchSize);
         if (txs.length === 0) break;
 
         const updates = [];
