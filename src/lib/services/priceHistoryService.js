@@ -178,7 +178,7 @@ export async function backfillNullUsdAmounts() {
 
         // If we got fewer than BATCH_SIZE, we've processed everything
         // Also break if nothing was updated (all remaining are missing prices)
-        if (txs.length < BATCH_SIZE || updates.length === 0) break;
+        if (txs.length < batchSize || updates.length === 0) break;
     }
 
     const missingDates = [...missingPriceDates].sort();
