@@ -810,7 +810,7 @@ export async function auditRecentTransactions() {
                     }
                 }
 
-                if (i + BATCH_SIZE < txids.length) {
+                if (i + auditBatch < txids.length) {
                     await new Promise(resolve => setTimeout(resolve, 200));
                 }
             }
