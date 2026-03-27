@@ -18,6 +18,14 @@ export const DONATION_ADDRESSES = [
 
 ];
 
+// ============================================
+// FLUX TEAM ADDRESSES (for UI highlighting)
+// ============================================
+export const FLUX_TEAM_ADDRESSES = [
+    't1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY', // Flux team primary
+    // Add more Flux team addresses here as needed
+];
+
 // Initial sync lookback for first run.
 // 1,500,000 covers all Flux history (chain launched ~2018, mixed 120s/30s blocks).
 // Increase if you need more. The getaddresstxids API handles large ranges natively.
@@ -372,6 +380,13 @@ export function blocksForHours(hours) {
  */
 export function hoursForBlocks(blocks) {
     return (blocks * BLOCK_CONFIG.SECONDS_PER_BLOCK) / 3600;
+}
+
+/**
+ * Check if an address belongs to the Flux team
+ */
+export function isFluxTeamAddress(address) {
+    return FLUX_TEAM_ADDRESSES.includes(address);
 }
 
 // ============================================
