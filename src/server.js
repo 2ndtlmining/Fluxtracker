@@ -192,7 +192,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 // Add OPTIONS handler for preflight requests
-app.options('*', cors(corsOptions));
+app.options('{*path}', cors(corsOptions));
 
 // Middleware
 app.use(express.json());
