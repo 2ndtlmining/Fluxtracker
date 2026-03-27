@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl, isFluxTeamAddress } from '$lib/config.js';
   import { Download } from 'lucide-svelte';
 
   // Props
@@ -214,11 +214,12 @@
       const allTransactions = result.transactions || [];
 
       // Build CSV content
-      const headers = ['Type', 'Transaction ID', 'From Address', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Time', 'Block Height'];
+      const headers = ['Type', 'Transaction ID', 'From Address', 'Source', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Time', 'Block Height'];
       const rows = allTransactions.map(tx => [
         appTypeLabel(tx.app_type),
         tx.txid,
         tx.from_address || 'Unknown',
+        isFluxTeamAddress(tx.from_address) ? 'Flux Team' : '',
         tx.app_name || '-',
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
@@ -474,7 +475,7 @@
             </thead>
             <tbody>
               {#each transactions as tx}
-                <tr>
+                <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)}>
                   <td class="type-col">
                     {#if tx.app_type === 'git'}
                       <span title="Git" class="type-icon">
@@ -502,7 +503,12 @@
                       {formatTxid(tx.txid)}
                     </a>
                   </td>
-                  <td class="address-col">{formatAddress(tx.from_address)}</td>
+                  <td class="address-col">
+                    {formatAddress(tx.from_address)}
+                    {#if isFluxTeamAddress(tx.from_address)}
+                      <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                    {/if}
+                  </td>
                   <td class="app-name-col">{tx.app_name || '-'}</td>
                   <td class="amount-col">{formatAmount(tx.amount)}</td>
                   <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
@@ -668,7 +674,7 @@
               </thead>
               <tbody>
                 {#each appTxns as tx}
-                  <tr>
+                  <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)}>
                     <td class="date-col">{tx.date}</td>
                     <td class="time-col">{formatTime(tx.timestamp)}</td>
                     <td class="txid-col">
@@ -677,7 +683,12 @@
                         {formatTxid(tx.txid)}
                       </a>
                     </td>
-                    <td class="address-col">{formatAddress(tx.from_address)}</td>
+                    <td class="address-col">
+                      {formatAddress(tx.from_address)}
+                      {#if isFluxTeamAddress(tx.from_address)}
+                        <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                      {/if}
+                    </td>
                     <td class="amount-col">{formatAmount(tx.amount)} FLUX</td>
                     <td class="block-col">{tx.block_height.toLocaleString()}</td>
                   </tr>
@@ -805,6 +816,32 @@
     background: rgba(0, 255, 65, 0.1);
     border: 1px solid rgba(0, 255, 65, 0.3);
     border-radius: var(--radius-sm);
+  }
+
+  /* Flux Team Highlighting */
+  .flux-team-row {
+    background: rgba(189, 147, 249, 0.06) !important;
+    border-left: 2px solid rgba(189, 147, 249, 0.4);
+  }
+
+  .flux-team-row:hover {
+    background: rgba(189, 147, 249, 0.12) !important;
+  }
+
+  .flux-team-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--accent-purple);
+    background: rgba(189, 147, 249, 0.15);
+    border: 1px solid rgba(189, 147, 249, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.4rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
   }
 
   /* Export Button */
