@@ -444,7 +444,7 @@ export const CATEGORY_CONFIG = {
         keywords: ['minecraft', 'palworld', 'enshrouded', 'valheim', 'satisfactory',
                    'ark-survival', 'arkserver', 'rust-server', 'terraria', 'factorio',
                    '7daystodie', 'vrising', 'projectzomboid', 'conan-exiles',
-                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor'],
+                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'unturned', 'garrysmod'],
         icon: 'Gamepad2'
     },
     crypto: {
