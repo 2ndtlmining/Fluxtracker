@@ -203,15 +203,33 @@
       const originalText = mode;
       mode = 'EXPORTING...';
 
-      // Fetch ALL transactions (not just current page)
-      const response = await fetch(`${API_URL}/api/transactions/paginated?page=1&limit=${totalTransactions}&search=${searchQuery}`);
-      
-      if (!response.ok) {
-        throw new Error(`Export failed: ${response.status}`);
-      }
+      // Page through every transaction. Asking for all of them in one request looked like
+      // it worked but the server caps the page size, so exports were silently truncated.
+      const PAGE_SIZE = 5000;
+      const allTransactions = [];
+      let page = 1;
+      let totalPages = 1;
 
-      const result = await response.json();
-      const allTransactions = result.transactions || [];
+      do {
+        const response = await fetch(
+          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Export failed on page ${page}: ${response.status}`);
+        }
+
+        const result = await response.json();
+        allTransactions.push(...(result.transactions || []));
+        totalPages = result.totalPages || 1;
+
+        mode = `EXPORTING ${Math.min(page, totalPages)}/${totalPages}...`;
+        page++;
+      } while (page <= totalPages);
+
+      if (allTransactions.length < totalTransactions) {
+        console.warn(`⚠️ Exported ${allTransactions.length} of ${totalTransactions} transactions`);
+      }
 
       // Build CSV content
       const headers = ['Type', 'Transaction ID', 'From Address', 'Source', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Time', 'Block Height'];
@@ -228,16 +246,19 @@
         tx.block_height
       ]);
 
-      // Convert to CSV string
+      // Convert to CSV string.
+      // App names are free text, so quotes and newlines need escaping too — not just commas.
+      const escapeField = (field) => {
+        const value = field == null ? '' : String(field);
+        if (/[",\n\r]/.test(value)) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      };
+
       const csvContent = [
         headers.join(','),
-        ...rows.map(row => row.map(field => {
-          // Escape fields that contain commas
-          if (typeof field === 'string' && field.includes(',')) {
-            return `"${field}"`;
-          }
-          return field;
-        }).join(','))
+        ...rows.map(row => row.map(escapeField).join(','))
       ].join('\n');
 
       // Create blob and download

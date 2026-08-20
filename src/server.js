@@ -40,7 +40,7 @@ import {
 import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } from './lib/db/circuitBreaker.js';
 import { switchToFailover, getActiveInstanceName, hasFailover } from './lib/db/supabaseClient.js';
 
-import { getDisplayName, CATEGORY_CONFIG, APP_VERSION, API_ENDPOINTS } from './lib/config.js';
+import { getDisplayName, groupReposByCanonicalName, CATEGORY_CONFIG, APP_VERSION, API_ENDPOINTS } from './lib/config.js';
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger('server');
@@ -115,6 +115,18 @@ function createCache(ttlMs) {
         }
     };
 }
+
+// ============================================
+// CATEGORY GROUPING
+// ============================================
+// repo_snapshots stores one row per Docker image, but a game usually ships as several
+// images (Minecraft Java + Bedrock, three Valheim images, two Rust images). Users think
+// of those as one game, so the category cards group on the canonical name. Pull the whole
+// category before grouping — slicing first would drop instances from the merged totals.
+const CATEGORY_FETCH_LIMIT = 200;
+
+// Largest page /api/transactions/paginated will serve. The CSV export pages at this size.
+const MAX_PAGE_SIZE = 5000;
 
 const headerCache = createCache(30_000);      // 30s
 const metricsCache = createCache(60_000);     // 60s
@@ -962,7 +974,10 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
     const cacheKey = `${category}:${limit}:${days}`;
 
     return withDbFallback(categoryCache, cacheKey, res, async () => {
-        const { date, repos } = await getTopReposByCategory(category, limit);
+        // Pull the whole category, not just `limit` rows: variants of one game (Minecraft
+        // Java + Bedrock, the several Valheim/Rust images) are separate rows here and get
+        // merged below, so slicing before grouping would drop instances from the totals.
+        const { date, repos } = await getTopReposByCategory(category, CATEGORY_FETCH_LIMIT);
         if (!date) {
             return { category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [], days };
         }
@@ -975,16 +990,20 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
         const prevDateStr = prevDate.toISOString().split('T')[0];
         const previousTotal = await getCategoryTotal(category, prevDateStr);
 
-        // Get previous counts for the same repos
+        const grouped = groupReposByCanonicalName(repos).slice(0, limit);
+
+        // Previous counts for the same groups — sum every image in the group
         const previousRepos = [];
-        for (const r of repos) {
-            let prevRow = 0;
-            try {
-                const history = await getRepoHistory(r.image_name, Math.max(days + 7, 90));
-                const match = history.find(h => h.snapshot_date === prevDateStr);
-                prevRow = match ? match.instance_count : 0;
-            } catch { prevRow = 0; }
-            previousRepos.push({ image_name: r.image_name, instance_count: prevRow });
+        for (const group of grouped) {
+            let prevCount = 0;
+            for (const image of group.images) {
+                try {
+                    const history = await getRepoHistory(image, Math.max(days + 7, 90));
+                    const match = history.find(h => h.snapshot_date === prevDateStr);
+                    if (match) prevCount += match.instance_count;
+                } catch { /* missing history for one variant shouldn't zero the group */ }
+            }
+            previousRepos.push({ image_name: group.image_name, instance_count: prevCount });
         }
 
         return {
@@ -992,9 +1011,11 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
             date,
             total,
             previousTotal,
-            repos: repos.map(r => ({
-                ...r,
-                displayName: getDisplayName(r.image_name)
+            repos: grouped.map(g => ({
+                image_name: g.image_name,
+                instance_count: g.instance_count,
+                displayName: g.displayName,
+                images: g.images
             })),
             previousRepos,
             days
@@ -1097,7 +1118,10 @@ app.get('/api/transactions/paginated', async (req, res) => {
     try {
         log.info('starting transaction pagination');
         const page = Math.max(parseInt(req.query.page) || 1, 1);
-        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 1000);
+        // Cap kept deliberately — the CSV export pages through this endpoint rather than
+        // asking for everything at once. It used to request all ~21k rows in one call and
+        // silently receive only the first 1000.
+        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), MAX_PAGE_SIZE);
         const search = req.query.search || '';
         const appName = req.query.appName || null;
 
@@ -1287,20 +1311,38 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
             };
         };
 
-        // SPECIAL HANDLING FOR REVENUE
-        const todayRevenue = await getRevenueForDateRange(today, today);
-        const comparisonRevenue = await getRevenueForDateRange(targetDateStr, targetDateStr);
+        // REVENUE: compare period totals, not single days.
+        // Revenue is a flow, so "vs 30 days" has to mean the last 30 days against the 30
+        // before that. Comparing today against the one day 30 days ago made every period
+        // report today's number, which is what issue #48 reported.
+        const shiftDays = (dateStr, n) => {
+            const d = new Date(`${dateStr}T00:00:00Z`);
+            d.setUTCDate(d.getUTCDate() + n);
+            return d.toISOString().split('T')[0];
+        };
+
+        const currentStart = shiftDays(today, -(days - 1));
+        const previousEnd = shiftDays(currentStart, -1);
+        const previousStart = shiftDays(previousEnd, -(days - 1));
+
+        const currentRevenue = await getRevenueForDateRange(currentStart, today);
+        const comparisonRevenue = await getRevenueForDateRange(previousStart, previousEnd);
 
         let revenueComparison;
         if (comparisonRevenue > 0) {
-            revenueComparison = calculateChange(todayRevenue, comparisonRevenue);
+            revenueComparison = calculateChange(currentRevenue, comparisonRevenue);
         } else {
             revenueComparison = {
                 change: 0,
                 trend: 'neutral',
-                note: `No revenue data for ${targetDateStr}`
+                note: `No revenue data for ${previousStart}..${previousEnd}`
             };
         }
+
+        revenueComparison.current = currentRevenue;
+        revenueComparison.previous = comparisonRevenue;
+        revenueComparison.currentRange = { start: currentStart, end: today };
+        revenueComparison.previousRange = { start: previousStart, end: previousEnd };
 
         // For other metrics, we need snapshot data
         const pastSnapshot = await getSnapshotByDate(targetDateStr);

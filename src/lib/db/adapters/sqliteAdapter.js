@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { categorizeImage } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('sqliteAdapter');
@@ -335,21 +335,11 @@ export async function updateCurrentMetrics(metrics) {
     if (!current) return;
 
     const merged = { last_update: Date.now() };
-    const metricKeys = [
-        'current_revenue', 'flux_price_usd',
-        'total_cpu_cores', 'used_cpu_cores', 'cpu_utilization_percent',
-        'total_ram_gb', 'used_ram_gb', 'ram_utilization_percent',
-        'total_storage_gb', 'used_storage_gb', 'storage_utilization_percent',
-        'total_apps', 'watchtower_count',
-        'gitapps_count', 'dockerapps_count', 'gitapps_percent', 'dockerapps_percent',
-        'gaming_apps_total', 'gaming_palworld', 'gaming_enshrouded', 'gaming_minecraft',
-        'gaming_valheim', 'gaming_satisfactory',
-        'crypto_presearch', 'crypto_streamr', 'crypto_ravencoin', 'crypto_kadena',
-        'crypto_alephium', 'crypto_bittensor', 'crypto_timpi_collector', 'crypto_timpi_geocore',
-        'crypto_kaspa', 'crypto_nodes_total',
-        'wordpress_count',
-        'node_cumulus', 'node_nimbus', 'node_stratus', 'node_total'
-    ];
+
+    // Only persist columns that actually exist — METRIC_COLUMNS grows with the repo config,
+    // and schemaMigrator may not have run yet on a database from an older build.
+    const existing = new Set(getDb().pragma('table_info(current_metrics)').map(c => c.name));
+    const metricKeys = METRIC_COLUMNS.filter(k => existing.has(k));
 
     for (const key of metricKeys) {
         merged[key] = metrics[key] ?? current[key] ?? null;
@@ -795,8 +785,11 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
 
 // RPC equivalent: get_daily_revenue
 export async function getDailyRevenueFromTransactions(days = 30) {
+    // days - 1: the range is inclusive of both ends, so "last 30 days" is today plus the
+    // 29 before it. Subtracting `days` returned 31 rows and made the daily chart disagree
+    // with the period totals in /api/analytics/comparison.
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
     try {
@@ -837,8 +830,11 @@ export async function getDailyRevenueInRange(startDate, endDate) {
 
 // RPC equivalent: get_daily_revenue_usd
 export async function getDailyRevenueUSDFromTransactions(days = 30) {
+    // days - 1: the range is inclusive of both ends, so "last 30 days" is today plus the
+    // 29 before it. Subtracting `days` returned 31 rows and made the daily chart disagree
+    // with the period totals in /api/analytics/comparison.
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
     try {

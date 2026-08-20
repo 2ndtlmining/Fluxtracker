@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
+  import { refreshSignal } from '$lib/stores/refresh.js';
   import { TrendingUp, Package, Hourglass } from 'lucide-svelte';
 
   let API_URL = '';
@@ -8,6 +9,22 @@
   let loading = true;
   let error = null;
   let interval;
+  let mounted = false;
+
+  // Age of the backend cache, in seconds, as reported by the API
+  let cacheAge = 0;
+
+  const FRESH_SECONDS = CAROUSEL_CONFIG.freshnessThreshold / 1000;
+
+  $: isFresh = cacheAge < FRESH_SECONDS;
+
+  function formatAge(seconds) {
+    if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ${minutes % 60}m`;
+  }
 
   // Toggle state: 'network', 'deployed', or 'expiring'
   let viewMode = 'network';
@@ -27,9 +44,17 @@
     API_URL = getApiUrl();
     await fetchCarouselStats();
 
-    // Refresh every hour (matching your service interval)
-    interval = setInterval(fetchCarouselStats, 60 * 60 * 1000);
+    // Match the backend refresh cadence instead of a fixed hour
+    interval = setInterval(fetchCarouselStats, CAROUSEL_CONFIG.updateInterval);
+    mounted = true;
   });
+
+  // Re-fetch when the footer's Refresh button fires (skip the initial store value)
+  let lastRefresh = 0;
+  $: if (mounted && $refreshSignal > lastRefresh) {
+    lastRefresh = $refreshSignal;
+    fetchCarouselStats();
+  }
 
   onDestroy(() => {
     if (interval) clearInterval(interval);
@@ -53,6 +78,10 @@
 
       const data = await response.json();
       console.log(`✅ Carousel data received:`, data);
+
+      // The API already reports how old its cache is — the badge used to ignore it
+      // and claim LIVE regardless (issue #54).
+      cacheAge = typeof data.cacheAge === 'number' ? data.cacheAge : 0;
 
       if (data && data.stats && data.stats.length > 0) {
         stats = data.stats;
@@ -142,9 +171,13 @@
         </button>
       </div>
     </div>
-    <div class="live-indicator">
+    <div class="live-indicator" class:stale={!isFresh} title="Data age: {formatAge(cacheAge)}">
       <span class="live-dot"></span>
-      <span class="live-text">LIVE</span>
+      {#if isFresh}
+        <span class="live-text">LIVE</span>
+      {:else}
+        <span class="live-text stale-text">{formatAge(cacheAge)} AGO</span>
+      {/if}
     </div>
   </div>
 
@@ -318,6 +351,18 @@
     color: var(--accent-green);
     font-weight: 700;
     text-shadow: 0 0 8px var(--accent-green);
+    white-space: nowrap;
+  }
+
+  /* Stale data drops the green glow and the pulse so it doesn't read as live */
+  .live-indicator.stale .live-dot {
+    background: var(--text-muted);
+    animation: none;
+  }
+
+  .live-text.stale-text {
+    color: var(--text-muted);
+    text-shadow: none;
   }
 
   @keyframes pulse {

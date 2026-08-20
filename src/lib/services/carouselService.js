@@ -1,7 +1,7 @@
 // flux-performance-dashboard/src/lib/services/carouselService.js
 
 import axios from 'axios';
-import { API_ENDPOINTS } from '../config.js';
+import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -13,7 +13,8 @@ let cachedExpiringApps = null;
 let lastFetchTime = 0;
 let lastDeployedFetchTime = 0;
 let lastExpiringFetchTime = 0;
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour cache
+// Freshness window shared with the UI's LIVE badge (see CAROUSEL_CONFIG)
+const CACHE_DURATION = CAROUSEL_CONFIG.freshnessThreshold;
 
 // Shared cache for expensive Flux API calls (block height + app specs)
 let cachedFluxApiData = null;

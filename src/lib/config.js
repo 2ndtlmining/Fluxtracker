@@ -148,21 +148,44 @@ export const GAMING_REPOS = [
         dbKey: 'gaming_valheim',
         imageMatch: [
             'mbround18/valheim',
-            'littlestache/valheim-flux'
-        ] 
+            'littlestache/valheim-flux',
+            'lloesche/valheim-server'
+        ]
     },
     {
         name: 'Satisfactory',
         dbKey: 'gaming_satisfactory',
         imageMatch: 'wolveix/satisfactory-server'
     },
-
+    {
+        name: 'Rust',
+        dbKey: 'gaming_rust',
+        imageMatch: [
+            'littlestache/rust-server',
+            'pfeiffermax/rust-game-server'
+        ]
+    },
+    {
+        name: 'Terraria',
+        dbKey: 'gaming_terraria',
+        imageMatch: 'littlestache/terraria'
+    },
+    {
+        name: 'ARK Survival',
+        dbKey: 'gaming_ark',
+        imageMatch: 'thmhoag/arkserver'
+    },
+    {
+        name: 'Windrose',
+        dbKey: 'gaming_windrose',
+        imageMatch: 'indifferentbroccoli/windrose-server-docker'
+    },
 
     // Add new games here:
     // {
-    //     name: 'Rust',
-    //     dbKey: 'gaming_rust',
-    //     imageMatch: 'rust'
+    //     name: 'Factorio',
+    //     dbKey: 'gaming_factorio',
+    //     imageMatch: 'factoriotools/factorio'
     // }
 ];
 
@@ -238,6 +261,30 @@ export const WORDPRESS_CONFIG = {
 };
 
 // ============================================
+// CURRENT_METRICS COLUMNS
+// ============================================
+// The single source of truth for which columns updateCurrentMetrics() persists.
+// Derived from the repo config so adding a game/node here is enough — both adapters used
+// to hardcode this list, which silently dropped any newly configured repo's counts even
+// though schemaMigrator had already created the column.
+const FIXED_METRIC_COLUMNS = [
+    'current_revenue', 'flux_price_usd',
+    'total_cpu_cores', 'used_cpu_cores', 'cpu_utilization_percent',
+    'total_ram_gb', 'used_ram_gb', 'ram_utilization_percent',
+    'total_storage_gb', 'used_storage_gb', 'storage_utilization_percent',
+    'total_apps', 'watchtower_count',
+    'gitapps_count', 'dockerapps_count', 'gitapps_percent', 'dockerapps_percent',
+    'gaming_apps_total', 'crypto_nodes_total', 'wordpress_count',
+    'node_cumulus', 'node_nimbus', 'node_stratus', 'node_total'
+];
+
+export const METRIC_COLUMNS = [
+    ...FIXED_METRIC_COLUMNS,
+    ...GAMING_REPOS.map(r => r.dbKey),
+    ...CRYPTO_REPOS.map(r => r.dbKey)
+];
+
+// ============================================
 // EXCLUDED TRANSACTION PATTERNS
 // ============================================
 export const EXCLUDED_TRANSACTIONS = [
@@ -284,6 +331,23 @@ export const GAMING_CONFIG = {
     enableCache: true,
     cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
 };
+
+// ============================================
+// CAROUSEL CONFIG
+// ============================================
+export const CAROUSEL_CONFIG = {
+    updateInterval: 10 * 60 * 1000,     // Refresh carousel data every 10 minutes
+    // Data older than this is no longer advertised as "LIVE" in the UI.
+    // Kept at 2x the update interval so a single missed cycle isn't reported as stale.
+    freshnessThreshold: 20 * 60 * 1000,
+};
+
+// ============================================
+// DASHBOARD REFRESH
+// ============================================
+// One interval for every card so the header, metric cards, category cards and carousel
+// can't drift apart on screen. Matches the shortest backend service interval.
+export const DASHBOARD_REFRESH_MS = 5 * 60 * 1000;
 
 // ============================================
 // UI CONFIGURATION
@@ -486,9 +550,23 @@ export const CATEGORY_CONFIG = {
     }
 };
 
+// Images that look like a tracked category but aren't an instance of it.
+// `runonflux/minecraft-server-website` and friends are companion web frontends shipped
+// alongside the game servers — counting them inflated every game total and produced the
+// "MINECRAFT SERVER WEBSITE" label that overflowed the gaming card.
+// Checked before the keyword match, so these fall through to uncategorised ("Other").
+export const CATEGORY_EXCLUDE = [
+    '-server-website'
+];
+
 // Map image name -> category using keyword substring match
 export function categorizeImage(imageName) {
     const lower = imageName.toLowerCase();
+
+    if (CATEGORY_EXCLUDE.some(ex => lower.includes(ex))) {
+        return null;
+    }
+
     for (const [category, config] of Object.entries(CATEGORY_CONFIG)) {
         if (config.keywords.some(kw => lower.includes(kw))) {
             return category;
@@ -540,8 +618,78 @@ const DISPLAY_NAME_OVERRIDES = {
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
+    'pfeiffermax/rust-game-server': 'Rust',
     'littlestache/terraria': 'Terraria',
+    'lloesche/valheim-server': 'Valheim',
+    'indifferentbroccoli/windrose-server-docker': 'Windrose',
 };
+
+// Canonical product name — collapses the variants of one game/product into a single row.
+// Minecraft ships as separate Java and Bedrock images, Valheim/Enshrouded/Rust each have
+// several community images; users think of them as one game, so the category cards group
+// on this name. `repo_snapshots` stays per-image, so history and charts are unaffected.
+export const CANONICAL_NAME_OVERRIDES = {
+    'itzg/minecraft-server': 'Minecraft',
+    'itzg/minecraft-bedrock-server': 'Minecraft',
+    'mbround18/valheim': 'Valheim',
+    'littlestache/valheim-flux': 'Valheim',
+    'lloesche/valheim-server': 'Valheim',
+    'sknnr/enshrouded-dedicated-server': 'Enshrouded',
+    'jktuned/enshrouded-server': 'Enshrouded',
+    'littlestache/rust-server': 'Rust',
+    'pfeiffermax/rust-game-server': 'Rust',
+    'streamr/node': 'Streamr',
+    'streamr/broker-node': 'Streamr',
+    'alephium/explorer': 'Alephium',
+    'alephium/explorer-backend': 'Alephium',
+    'touilleio/alephium-standalone': 'Alephium',
+    'thetrunk/alephium-standalone': 'Alephium',
+    'runonflux/fironode': 'Firo',
+    'firoorg/firod': 'Firo',
+};
+
+/**
+ * Canonical name for grouping. Falls back to the per-image display name, so an
+ * untracked image still gets a sensible label instead of disappearing.
+ */
+export function getCanonicalName(imageName) {
+    const noTag = imageName.split(':')[0];
+    return CANONICAL_NAME_OVERRIDES[noTag] || getDisplayName(imageName);
+}
+
+/**
+ * Merge per-image repo rows into one row per canonical product, biggest first.
+ *
+ * repo_snapshots keeps a row per Docker image, but a game usually ships as several
+ * (Minecraft Java + Bedrock, three Valheim images). Callers must pass the whole category,
+ * not a pre-sliced top-N, or merged groups lose instances.
+ *
+ * @param {Array<{image_name: string, instance_count: number}>} repos
+ * @returns {Array<{displayName, image_name, instance_count, images}>}
+ */
+export function groupReposByCanonicalName(repos) {
+    const groups = new Map();
+
+    for (const repo of repos) {
+        const name = getCanonicalName(repo.image_name);
+        const existing = groups.get(name);
+
+        if (existing) {
+            existing.instance_count += repo.instance_count;
+            existing.images.push(repo.image_name);
+        } else {
+            groups.set(name, {
+                displayName: name,
+                // First (largest) contributing image represents the group in per-image lookups
+                image_name: repo.image_name,
+                instance_count: repo.instance_count,
+                images: [repo.image_name]
+            });
+        }
+    }
+
+    return [...groups.values()].sort((a, b) => b.instance_count - a.instance_count);
+}
 
 export function getDisplayName(imageName) {
     // Check for exact overrides first (strip tag)
