@@ -968,19 +968,34 @@ export async function getPriceForDate(date) {
     return data ? data.price_usd : null;
 }
 
+// PostgREST caps a single response at db-max-rows (1000 by default), so this must page.
+// Without paging the price map silently loses everything past the first 1000 days.
 export async function getPricesForDateRange(startDate, endDate) {
-    const { data, error } = await supabase
-        .from('flux_price_history')
-        .select('date, price_usd')
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .order('date', { ascending: true });
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getPricesForDateRange error: ${error.message}`);
-        return [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('flux_price_history')
+            .select('date, price_usd')
+            .gte('date', startDate)
+            .lte('date', endDate)
+            .order('date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getPricesForDateRange error: ${error.message}`);
+            return [];
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
-    return data || [];
+
+    return rows;
 }
 
 export async function getLatestPriceDate() {
@@ -1011,13 +1026,13 @@ export async function getOldestPriceDate() {
     return data ? data.date : null;
 }
 
-export async function getTransactionsWithNullUsd(limit = 1000) {
+export async function getTransactionsWithNullUsd(limit = 1000, offset = 0) {
     const { data, error } = await supabase
         .from('revenue_transactions')
         .select('txid, amount, date, timestamp')
         .is('amount_usd', null)
         .order('block_height', { ascending: false })
-        .limit(limit);
+        .range(offset, offset + limit - 1);
 
     if (error) {
         log.error(`getTransactionsWithNullUsd error: ${error.message}`);
@@ -1026,14 +1041,45 @@ export async function getTransactionsWithNullUsd(limit = 1000) {
     return data || [];
 }
 
+export async function getOldestTransactionDate() {
+    const { data, error } = await supabase
+        .from('revenue_transactions')
+        .select('date')
+        .order('date', { ascending: true })
+        .limit(1)
+        .single();
+
+    if (error && error.code !== 'PGRST116') {
+        log.error(`getOldestTransactionDate error: ${error.message}`);
+    }
+    return data ? data.date : null;
+}
+
 export async function updateTransactionUsdBatch(updates) {
     if (!updates || updates.length === 0) return true;
 
-    // Batch update: Supabase doesn't support batch update by different PKs natively,
-    // so we do individual updates in chunks
+    // Preferred path: one statement per chunk via RPC (migration 006). Falls back to
+    // per-row updates if the RPC isn't deployed yet — a full backfill of ~21k rows costs
+    // ~21k round-trips on the fallback path, so apply the migration.
     const CHUNK_SIZE = 500;
+    let useRpc = true;
+
     for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
         const chunk = updates.slice(i, i + CHUNK_SIZE);
+
+        if (useRpc) {
+            const { error } = await supabase.rpc('update_transaction_usd_batch', { p_updates: chunk });
+            if (!error) continue;
+
+            // PGRST202 = function not found in schema cache
+            if (error.code !== 'PGRST202') {
+                log.error(`updateTransactionUsdBatch error: ${error.message}`);
+                return false;
+            }
+            log.warn('update_transaction_usd_batch RPC not found - falling back to per-row updates (apply migration 006)');
+            useRpc = false;
+        }
+
         const promises = chunk.map(u =>
             supabase
                 .from('revenue_transactions')
@@ -1333,14 +1379,28 @@ export async function recategorizeAllRepos() {
 // BACKUP EXPORT / IMPORT
 // ============================================
 
+// Must page — an un-paged select silently truncates the backup at db-max-rows (1000).
 export async function exportAllPriceHistory() {
-    const { data, error } = await supabase
-        .from('flux_price_history')
-        .select('*')
-        .order('date', { ascending: true });
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) throw new Error(`Export flux_price_history failed: ${error.message}`);
-    return data || [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('flux_price_history')
+            .select('*')
+            .order('date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Export flux_price_history failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
 }
 
 export async function upsertPriceHistory(rows) {
@@ -1362,14 +1422,28 @@ export async function upsertPriceHistory(rows) {
     return total;
 }
 
+// Must page — see exportAllPriceHistory.
 export async function exportAllDailySnapshots() {
-    const { data, error } = await supabase
-        .from('daily_snapshots')
-        .select('*')
-        .order('snapshot_date', { ascending: true });
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) throw new Error(`Export daily_snapshots failed: ${error.message}`);
-    return data || [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .select('*')
+            .order('snapshot_date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Export daily_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
 }
 
 export async function exportAllRepoSnapshots() {

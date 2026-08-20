@@ -6,6 +6,7 @@ import {
     getOldestPriceDate,
     getPricesForDateRange,
     getTransactionsWithNullUsd,
+    getOldestTransactionDate,
     updateTransactionUsdBatch,
     getPriceHistoryCount
 } from '../db/database.js';
@@ -13,85 +14,270 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('priceHistoryService');
 
+const MS_PER_DAY = 86400000;
+
+// How far back to seed price history when there are no transactions and no prices yet
+const DEFAULT_SEED_DAYS = 1000;
+
+// When a sync leaves gaps unfilled (source down, or the gap predates every source's data),
+// wait this long before hammering the APIs again. The sync runs every 5 minutes.
+const FAILED_SYNC_COOLDOWN_MS = 60 * 60 * 1000;
+
+// Last sync outcome — surfaced via getPriceHistoryStatus() so a dead price source can't
+// rot silently the way the CryptoCompare 401 did.
+let lastSync = { at: null, added: 0, source: null, error: null, gapsRemaining: null };
+let cooldownUntil = 0;
+
+// ============================================
+// DATE HELPERS
+// ============================================
+
+function toDateStr(ms) {
+    return new Date(ms).toISOString().split('T')[0];
+}
+
+function dateToMs(dateStr) {
+    return Date.parse(`${dateStr}T00:00:00Z`);
+}
+
+function addDays(dateStr, n) {
+    return toDateStr(dateToMs(dateStr) + n * MS_PER_DAY);
+}
+
+function enumerateDates(startDate, endDate) {
+    const out = [];
+    for (let ms = dateToMs(startDate); ms <= dateToMs(endDate); ms += MS_PER_DAY) {
+        out.push(toDateStr(ms));
+    }
+    return out;
+}
+
+// ============================================
+// HISTORICAL PRICE SOURCES
+// ============================================
+
+/**
+ * Binance daily klines. No API key. 1000 candles per call, paged forward with startTime.
+ * Candle shape: [openTime(ms), open, high, low, close, ...]
+ */
+async function fetchFromBinance(fromDate, toDate) {
+    const prices = [];
+    let startTime = dateToMs(fromDate);
+    const endMs = dateToMs(toDate);
+
+    // 1000 candles per page; 12 pages covers ~33 years, the loop normally exits far sooner
+    for (let page = 0; page < 12; page++) {
+        const url = `${API_ENDPOINTS.PRICE_HISTORY_BINANCE}&startTime=${startTime}`;
+        const response = await axios.get(url, { timeout: 30000 });
+        const candles = response.data;
+
+        if (!Array.isArray(candles) || candles.length === 0) break;
+
+        for (const candle of candles) {
+            const close = parseFloat(candle[4]);
+            if (!close) continue;
+            prices.push({ date: toDateStr(candle[0]), price_usd: close, source: 'binance' });
+        }
+
+        const lastOpen = candles[candles.length - 1][0];
+        if (candles.length < 1000 || lastOpen >= endMs) break;
+        startTime = lastOpen + MS_PER_DAY;
+    }
+
+    return prices;
+}
+
+/**
+ * CoinGecko market chart. No API key, but only ~365 days of daily granularity.
+ * Shape: { prices: [[msTimestamp, price], ...] }
+ */
+async function fetchFromCoinGecko() {
+    const response = await axios.get(API_ENDPOINTS.PRICE_HISTORY_COINGECKO, { timeout: 30000 });
+    const points = response.data?.prices;
+    if (!Array.isArray(points)) return [];
+
+    // Multiple intraday points can share a date near the range edges — last one wins
+    const byDate = new Map();
+    for (const [ms, price] of points) {
+        if (!price) continue;
+        byDate.set(toDateStr(ms), price);
+    }
+
+    return [...byDate].map(([date, price_usd]) => ({ date, price_usd, source: 'coingecko' }));
+}
+
+/**
+ * CryptoCompare/CoinDesk. Requires CRYPTOCOMPARE_API_KEY — the endpoint returns HTTP 401
+ * without one, which is what silently froze price history in the first place.
+ */
+async function fetchFromCryptoCompare() {
+    const apiKey = process.env.CRYPTOCOMPARE_API_KEY;
+    if (!apiKey) return null; // signals "not configured", not "failed"
+
+    const response = await axios.get(API_ENDPOINTS.PRICE_HISTORY_CRYPTOCOMPARE, {
+        timeout: 30000,
+        headers: { Authorization: `Apikey ${apiKey}` }
+    });
+
+    if (response.data?.Response === 'Error') {
+        throw new Error(response.data.Message || 'CryptoCompare error');
+    }
+
+    const points = response.data?.Data?.Data;
+    if (!Array.isArray(points)) return [];
+
+    return points
+        .filter(p => p.close)
+        .map(p => ({ date: toDateStr(p.time * 1000), price_usd: p.close, source: 'cryptocompare' }));
+}
+
+/**
+ * Try each historical source in order until one returns data.
+ * Returns { prices, source, error } — prices is clipped to [fromDate, toDate].
+ */
+export async function fetchHistoricalPrices(fromDate, toDate) {
+    const sources = [
+        ['binance', () => fetchFromBinance(fromDate, toDate)],
+        ['coingecko', () => fetchFromCoinGecko()],
+        ['cryptocompare', () => fetchFromCryptoCompare()]
+    ];
+
+    const errors = [];
+
+    for (const [name, fetchFn] of sources) {
+        try {
+            const prices = await fetchFn();
+
+            // null means the source is not configured (no API key) — skip quietly
+            if (prices === null) continue;
+
+            const clipped = prices.filter(p => p.date >= fromDate && p.date <= toDate);
+            if (clipped.length > 0) {
+                log.info('Fetched %d daily prices from %s (%s to %s)', clipped.length, name, fromDate, toDate);
+                return { prices: clipped, source: name, error: null };
+            }
+            errors.push(`${name}: no data in range`);
+        } catch (error) {
+            const detail = error.response?.status ? `HTTP ${error.response.status}` : error.message;
+            log.warn('Historical price source %s failed: %s', name, detail);
+            errors.push(`${name}: ${detail}`);
+        }
+    }
+
+    return { prices: [], source: null, error: errors.join('; ') };
+}
+
 // ============================================
 // PRICE HISTORY SYNC
 // ============================================
 
 /**
- * Sync historical FLUX/USD daily prices from CryptoCompare.
- * Idempotent — fetches only missing days since the last stored date.
- * On first run, fetches up to 2000 days of history (CryptoCompare limit per call).
+ * Fill every missing day in flux_price_history between the oldest transaction and yesterday.
+ *
+ * Gap-aware on purpose: the previous implementation only extended forward from MAX(date) and
+ * returned early when MAX(date) === today, so a hole in the middle of the table could never heal.
+ * Today is deliberately excluded — the live-price path in revenueService handles it, and a
+ * partial candle would freeze a wrong close price for the day.
  */
-export async function syncPriceHistory() {
-    const latestDate = await getLatestPriceDate();
-    const today = new Date().toISOString().split('T')[0];
+export async function syncPriceHistory(options = {}) {
+    const { force = false } = options;
 
-    if (latestDate === today) {
-        log.info('Price history already up to date');
-        return { added: 0, total: await getPriceHistoryCount() };
+    if (!force && Date.now() < cooldownUntil) {
+        return { added: 0, gapsBefore: null, gapsAfter: null, cooldown: true };
     }
 
-    log.info('Syncing price history (latest stored: %s)...', latestDate || 'none');
+    const requiredEnd = addDays(toDateStr(Date.now()), -1); // yesterday
 
-    try {
-        // CryptoCompare histoday returns up to 2000 daily candles ending at today
-        const url = API_ENDPOINTS.PRICE_HISTORY_CRYPTOCOMPARE;
-        const response = await axios.get(url, { timeout: 30000 });
+    const [oldestTx, oldestPrice] = await Promise.all([
+        getOldestTransactionDate(),
+        getOldestPriceDate()
+    ]);
 
-        if (!response.data || response.data.Response === 'Error') {
-            log.error('CryptoCompare error: %s', response.data?.Message || 'unknown');
-            return { added: 0, error: response.data?.Message };
-        }
+    // We only need prices as far back as our oldest transaction. Fall back to existing price
+    // coverage, then to a fixed window on a completely empty database.
+    const requiredStart = oldestTx || oldestPrice || addDays(requiredEnd, -(DEFAULT_SEED_DAYS - 1));
 
-        const dataPoints = response.data.Data?.Data;
-        if (!dataPoints || dataPoints.length === 0) {
-            log.warn('No price data returned from CryptoCompare');
-            return { added: 0, error: 'no data' };
-        }
+    if (requiredStart > requiredEnd) {
+        return { added: 0, gapsBefore: 0, gapsAfter: 0 };
+    }
 
-        // Convert to our format, filtering only days we don't have yet
-        const prices = [];
-        for (const point of dataPoints) {
-            // Skip entries with no price (close === 0 means no trading data)
-            if (!point.close || point.close === 0) continue;
+    const existingRows = await getPricesForDateRange(requiredStart, requiredEnd);
+    const existing = new Set(existingRows.map(r => String(r.date).slice(0, 10)));
+    const missing = enumerateDates(requiredStart, requiredEnd).filter(d => !existing.has(d));
 
-            const date = new Date(point.time * 1000).toISOString().split('T')[0];
+    if (missing.length === 0) {
+        lastSync = { ...lastSync, at: Date.now(), gapsRemaining: 0, error: null };
+        return { added: 0, gapsBefore: 0, gapsAfter: 0, total: await getPriceHistoryCount() };
+    }
 
-            // If we have data and this date is not newer than what we have, skip
-            // (INSERT OR REPLACE handles duplicates, but skipping saves time)
-            if (latestDate && date <= latestDate) continue;
+    log.info('Price history has %d missing day(s) between %s and %s', missing.length, requiredStart, requiredEnd);
 
-            prices.push({
-                date,
-                price_usd: point.close,
-                source: 'cryptocompare'
-            });
-        }
+    const missingSet = new Set(missing);
+    const { prices, source, error } = await fetchHistoricalPrices(missing[0], requiredEnd);
+    const toInsert = prices.filter(p => missingSet.has(p.date));
 
-        if (prices.length === 0) {
-            log.info('No new price data to insert');
-            return { added: 0, total: await getPriceHistoryCount() };
-        }
-
-        const ok = await insertPriceHistoryBatch(prices);
+    if (toInsert.length > 0) {
+        const ok = await insertPriceHistoryBatch(toInsert);
         if (!ok) {
-            return { added: 0, error: 'database not available' };
+            lastSync = { at: Date.now(), added: 0, source, error: 'database write failed', gapsRemaining: missing.length };
+            cooldownUntil = Date.now() + FAILED_SYNC_COOLDOWN_MS;
+            return { added: 0, gapsBefore: missing.length, gapsAfter: missing.length, error: 'database write failed' };
         }
-
-        const total = await getPriceHistoryCount();
-        log.info('Price history synced: %d new days added (%d total)', prices.length, total);
-        return { added: prices.length, total };
-
-    } catch (error) {
-        log.error({ err: error }, 'Price history sync failed');
-
-        // Try CoinGecko as fallback for just the last few days
-        if (!latestDate) {
-            log.info('Skipping CoinGecko fallback on first sync (too many days)');
-        }
-
-        return { added: 0, error: error.message };
     }
+
+    const gapsAfter = missing.length - toInsert.length;
+
+    if (toInsert.length === 0) {
+        // Every source failed, or the gap predates all available data. Back off so a 5-minute
+        // scheduler doesn't hammer the APIs, but make the reason loud.
+        log.error('Price history sync filled 0 of %d missing day(s): %s', missing.length, error || 'no source had data');
+        cooldownUntil = Date.now() + FAILED_SYNC_COOLDOWN_MS;
+    } else {
+        log.info('Price history synced: %d day(s) added from %s (%d still missing)', toInsert.length, source, gapsAfter);
+        // Partial fill: retry sooner is fine, but avoid a tight loop on the permanently-unfillable tail
+        cooldownUntil = gapsAfter > 0 ? Date.now() + FAILED_SYNC_COOLDOWN_MS : 0;
+    }
+
+    lastSync = {
+        at: Date.now(),
+        added: toInsert.length,
+        source,
+        error: toInsert.length === 0 ? (error || 'no source had data') : null,
+        gapsRemaining: gapsAfter
+    };
+
+    return {
+        added: toInsert.length,
+        gapsBefore: missing.length,
+        gapsAfter,
+        source,
+        error: toInsert.length === 0 ? (error || 'no source had data') : null,
+        total: await getPriceHistoryCount()
+    };
+}
+
+/**
+ * Coverage report for /api/health and /api/admin/price-history-status.
+ * Unhealthy when the newest stored price is more than 2 days old — that is the signal that
+ * would have caught the CryptoCompare outage immediately.
+ */
+export async function getPriceHistoryStatus() {
+    const [oldest, newest, days] = await Promise.all([
+        getOldestPriceDate(),
+        getLatestPriceDate(),
+        getPriceHistoryCount()
+    ]);
+
+    const staleAfter = addDays(toDateStr(Date.now()), -2);
+    const healthy = Boolean(newest) && String(newest).slice(0, 10) >= staleAfter;
+
+    return {
+        days,
+        oldest: oldest ? String(oldest).slice(0, 10) : null,
+        newest: newest ? String(newest).slice(0, 10) : null,
+        healthy,
+        lastSync
+    };
 }
 
 // ============================================
@@ -106,7 +292,7 @@ export async function buildPriceMap(startDate, endDate) {
     const rows = await getPricesForDateRange(startDate, endDate);
     const map = new Map();
     for (const row of rows) {
-        map.set(row.date, row.price_usd);
+        map.set(String(row.date).slice(0, 10), row.price_usd);
     }
     log.info('Built price map: %d days (%s to %s)', map.size, startDate, endDate);
     return map;
@@ -130,39 +316,49 @@ export async function buildFullPriceMap() {
 /**
  * Find all transactions with amount_usd IS NULL, look up the historical price
  * for their date, and batch-update the USD amounts.
+ *
+ * Pages with an offset that advances only past rows we could NOT price. Rows we do price
+ * leave the NULL set, so they don't shift the window. The previous version restarted at
+ * offset 0 every pass and gave up as soon as one batch produced no updates, which meant a
+ * single uncovered date at the top of the table hid every older transaction.
  */
 export async function backfillNullUsdAmounts() {
     log.info('Starting USD backfill for NULL amount_usd transactions...');
 
-    // Ensure price history is current
-    await syncPriceHistory();
+    // Ensure price history is current — force past the failure cooldown, this is admin-triggered
+    const priceSync = await syncPriceHistory({ force: true });
 
     const priceMap = await buildFullPriceMap();
+    const coverage = {
+        oldestPriceDate: await getOldestPriceDate(),
+        newestPriceDate: await getLatestPriceDate(),
+        priceDays: priceMap.size
+    };
+
     if (priceMap.size === 0) {
         log.warn('No price history available - cannot backfill');
-        return { updated: 0, skipped: 0, missingPriceDates: [] };
+        return { updated: 0, skipped: 0, missingPriceDates: [], coverage, priceSync };
     }
 
     let updated = 0;
     let skipped = 0;
+    let offset = 0;
     const missingPriceDates = new Set();
     const batchSize = REVENUE_SYNC.PRICE_HISTORY_BATCH_SIZE;
 
-    // Process in batches to avoid loading all NULL transactions at once
-    while (true) {
-        const txs = await getTransactionsWithNullUsd(batchSize);
+    // Hard iteration cap — a safety net, not the normal exit path
+    for (let pass = 0; pass < 1000; pass++) {
+        const txs = await getTransactionsWithNullUsd(batchSize, offset);
         if (txs.length === 0) break;
 
         const updates = [];
         for (const tx of txs) {
-            const price = priceMap.get(tx.date);
+            const date = String(tx.date).slice(0, 10);
+            const price = priceMap.get(date);
             if (price) {
-                updates.push({
-                    txid: tx.txid,
-                    amount_usd: tx.amount * price
-                });
+                updates.push({ txid: tx.txid, amount_usd: tx.amount * price });
             } else {
-                missingPriceDates.add(tx.date);
+                missingPriceDates.add(date);
                 skipped++;
             }
         }
@@ -176,13 +372,14 @@ export async function backfillNullUsdAmounts() {
             updated += updates.length;
         }
 
-        // If we got fewer than BATCH_SIZE, we've processed everything
-        // Also break if nothing was updated (all remaining are missing prices)
-        if (txs.length < batchSize || updates.length === 0) break;
+        // Priced rows dropped out of the NULL set; only the unpriced ones still occupy the window
+        offset += txs.length - updates.length;
+
+        if (txs.length < batchSize) break;
     }
 
     const missingDates = [...missingPriceDates].sort();
     log.info('USD backfill complete: %d updated, %d skipped (%d dates without price data)', updated, skipped, missingDates.length);
 
-    return { updated, skipped, missingPriceDates: missingDates };
+    return { updated, skipped, missingPriceDates: missingDates, coverage, priceSync };
 }
