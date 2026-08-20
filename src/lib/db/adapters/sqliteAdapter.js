@@ -900,14 +900,26 @@ export async function deleteOldTransactions(daysToKeep = 365) {
     }
 }
 
-export async function getTransactionsWithNullUsd(limit = 1000) {
+export async function getTransactionsWithNullUsd(limit = 1000, offset = 0) {
     try {
         return getDb().prepare(
-            'SELECT txid, amount, date, timestamp FROM revenue_transactions WHERE amount_usd IS NULL ORDER BY block_height DESC LIMIT ?'
-        ).all(limit);
+            'SELECT txid, amount, date, timestamp FROM revenue_transactions WHERE amount_usd IS NULL ORDER BY block_height DESC LIMIT ? OFFSET ?'
+        ).all(limit, offset);
     } catch (error) {
         log.error(`getTransactionsWithNullUsd error: ${error.message}`);
         return [];
+    }
+}
+
+export async function getOldestTransactionDate() {
+    try {
+        const row = getDb().prepare(
+            'SELECT date FROM revenue_transactions ORDER BY date ASC LIMIT 1'
+        ).get();
+        return row ? row.date : null;
+    } catch (error) {
+        log.error(`getOldestTransactionDate error: ${error.message}`);
+        return null;
     }
 }
 

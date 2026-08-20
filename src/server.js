@@ -84,7 +84,7 @@ import { testAllServices } from './lib/services/test-allServices.js';
 
 // Import backfill functions
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
-import { backfillNullUsdAmounts } from './lib/services/priceHistoryService.js';
+import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 
@@ -274,6 +274,13 @@ app.get('/api/health', async (req, res) => {
 
     const backupStatus = getBackupStatus();
 
+    let priceHistoryInfo;
+    try {
+        priceHistoryInfo = await getPriceHistoryStatus();
+    } catch {
+        priceHistoryInfo = { error: 'Unable to get price history status' };
+    }
+
     res.json({
         status: reachable ? 'ok' : 'degraded',
         timestamp: Date.now(),
@@ -289,7 +296,8 @@ app.get('/api/health', async (req, res) => {
             healthy: backupStatus.isHealthy,
             lastBackup: backupStatus.lastBackup,
             ageHours: backupStatus.ageHours
-        }
+        },
+        priceHistory: priceHistoryInfo
     });
 });
 
@@ -462,6 +470,27 @@ app.post('/api/admin/backfill-usd', async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         log.error({ err: error }, 'USD backfill failed');
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Price history coverage — read-only diagnostic for "why is USD revenue empty?"
+app.get('/api/admin/price-history-status', async (_req, res) => {
+    try {
+        res.json(await getPriceHistoryStatus());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Force a gap-filling price history sync, bypassing the failed-source cooldown
+app.post('/api/admin/sync-price-history', async (_req, res) => {
+    try {
+        log.info('Price history sync triggered via API');
+        const result = await syncPriceHistory({ force: true });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        log.error({ err: error }, 'Price history sync failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });

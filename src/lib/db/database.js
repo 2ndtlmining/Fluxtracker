@@ -60,6 +60,7 @@ export const {
     getDailyRevenueUSDInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
+    getOldestTransactionDate,
     updateTransactionUsdBatch,
     // Failed txid tracking
     upsertFailedTxid,

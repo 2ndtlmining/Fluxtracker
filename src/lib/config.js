@@ -94,8 +94,20 @@ export const API_ENDPOINTS = {
     PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
     PRICE_EXPLORER: 'https://explorer.runonflux.io/api/currency',
     PRICE_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/price?fsym=FLUX&tsyms=USD',
-    PRICE_HISTORY_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/v2/histoday?fsym=FLUX&tsym=USD&limit=2000',
     PRICE_FALLBACK: 'https://explorer.runonflux.io/api/currency',
+
+    // Historical daily price sources (tried in order by priceHistoryService).
+    // NOTE: CryptoCompare/CoinDesk started returning HTTP 401 "API key required" for both the
+    // simple-price and histoday endpoints, which silently froze flux_price_history. Binance and
+    // CoinGecko need no key and are now the primary sources.
+    // Binance: 1000 daily candles per call, append &startTime=<ms> to page further back.
+    // Candles are arrays: [0] openTime(ms, UTC midnight) ... [4] close. FLUXUSDT is quoted in
+    // USDT, which we treat as ~USD (same assumption the rest of the dashboard already makes).
+    PRICE_HISTORY_BINANCE: 'https://api.binance.com/api/v3/klines?symbol=FLUXUSDT&interval=1d&limit=1000',
+    // CoinGecko: ~366 daily points, shape { prices: [[msTimestamp, price], ...] }
+    PRICE_HISTORY_COINGECKO: 'https://api.coingecko.com/api/v3/coins/zelcash/market_chart?vs_currency=usd&days=365',
+    // CryptoCompare: only usable when CRYPTOCOMPARE_API_KEY is set (Authorization: Apikey <key>)
+    PRICE_HISTORY_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/v2/histoday?fsym=FLUX&tsym=USD&limit=2000',
 
     //cloud stats
     API_FLUX_NETWORK_UTILISATION: 'https://stats.runonflux.io/fluxinfo?projection=apps.resources',

@@ -282,12 +282,14 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/admin/snapshot-status`          | Snapshot system health and state                |
 | GET    | `/api/admin/revenue-status`           | Revenue sync status, block height, tx count    |
 | GET    | `/api/admin/test-status`              | Service test scheduler status                  |
+| GET    | `/api/admin/price-history-status`     | FLUX/USD price history coverage + last sync outcome |
 | POST   | `/api/admin/revenue-sync`             | Trigger manual revenue sync                    |
 | POST   | `/api/admin/clear-revenue-data`       | Delete all transactions and reset sync (destructive) |
 | POST   | `/api/admin/reset-revenue-sync`       | Reset sync block to trigger full re-scan       |
 | POST   | `/api/admin/backfill-app-types`       | Backfill git/docker app type                   |
 | POST   | `/api/admin/backfill-app-names`       | Backfill app names from OP_RETURN data         |
 | POST   | `/api/admin/backfill-usd`             | Backfill USD amounts using price history       |
+| POST   | `/api/admin/sync-price-history`       | Force a gap-filling price history sync         |
 | POST   | `/api/admin/backfill`                 | Backfill daily snapshots (last 365 days)       |
 | POST   | `/api/admin/backfill-repo-categories` | Backfill NULL repo categories                  |
 | POST   | `/api/admin/recategorize-repos`       | Reset and re-apply all repo categories         |
@@ -342,9 +344,42 @@ States: CLOSED (normal) -> OPEN (DB unreachable, all requests blocked) -> HALF_O
   "status": "ok",
   "db": { "status": "connected", "circuit": "CLOSED", "activeInstance": "primary" },
   "snapshot": { "healthy": true, "todaySnapshotExists": true },
-  "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "ageHours": 2.1 }
+  "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "ageHours": 2.1 },
+  "priceHistory": { "days": 1720, "oldest": "2021-12-10", "newest": "2026-08-20", "healthy": true }
 }
 ```
+
+`priceHistory.healthy` is false when the newest stored FLUX/USD price is more than 2 days old.
+That means the historical price sources are failing and new transactions will be stored with a
+NULL `amount_usd` — check `lastSync.error` and see "Historical prices" below.
+
+### Historical Prices
+
+Daily FLUX/USD closes live in `flux_price_history` and are what turn `amount` into `amount_usd`
+for every transaction older than 24 hours. Today's transactions use the live price instead.
+
+Sources are tried in order, and none needs an API key:
+
+1. **Binance** — `FLUXUSDT` daily klines, 1000 candles per call, paged with `startTime` (data from 2021-12-10)
+2. **CoinGecko** — `market_chart`, last 365 days
+3. **CryptoCompare/CoinDesk** — only used when `CRYPTOCOMPARE_API_KEY` is set; the endpoint
+   returns HTTP 401 without one
+
+The sync is **gap-aware**: every 5 minutes it looks for missing days between the oldest revenue
+transaction and yesterday and fills them, so a hole in the middle of the table heals on its own.
+If every source fails it backs off for an hour and records the reason in
+`GET /api/admin/price-history-status`.
+
+If USD revenue looks empty on a chart:
+
+```bash
+curl -s localhost:3000/api/admin/price-history-status   # is `newest` recent? any lastSync.error?
+curl -X POST localhost:3000/api/admin/sync-price-history # force a sync past the cooldown
+curl -X POST localhost:3000/api/admin/backfill-usd       # then fill in the NULL amount_usd rows
+```
+
+`backfill-usd` returns `coverage` (oldest/newest price date and day count) alongside
+`missingPriceDates`, so an `updated: 0` result says why.
 
 ## Deployment
 
