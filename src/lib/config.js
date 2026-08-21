@@ -574,12 +574,24 @@ export const CATEGORY_CONFIG = {
 };
 
 // Images that look like a tracked category but aren't an instance of it.
+//
 // `runonflux/minecraft-server-website` and friends are companion web frontends shipped
 // alongside the game servers — counting them inflated every game total and produced the
 // "MINECRAFT SERVER WEBSITE" label that overflowed the gaming card.
+//
+// `wirewrex/flux-dns-fdm` is a DNS/monitoring sidecar that runs one instance per app it
+// watches, and names the watched app in its *tag* — `:minecraft-ping`, `:wordpress`. Since
+// categorizeImage() matches the whole image string including the tag, those tags leaked
+// straight into the totals: 47 phantom gaming instances on 2025-11-17, and a WordPress
+// instance still being miscounted as of 2026-08-20. Only bare single-word keywords leak
+// this way (`:presearch` is safe because crypto matches the qualified `presearch/node`),
+// but any future tag naming a game or WordPress would be counted the same way.
+//
+// Both are the same class of mistake: a helper counted as the thing it helps.
 // Checked before the keyword match, so these fall through to uncategorised ("Other").
 export const CATEGORY_EXCLUDE = [
-    '-server-website'
+    '-server-website',
+    'flux-dns-fdm'
 ];
 
 // Map image name -> category using keyword substring match

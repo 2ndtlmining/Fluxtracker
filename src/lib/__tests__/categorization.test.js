@@ -35,6 +35,18 @@ describe('categorizeImage', () => {
         expect(categorizeImage('runonflux/windrose-server-website:latest')).toBeNull();
     });
 
+    it('excludes a monitoring sidecar that names the watched app in its tag', () => {
+        // flux-dns-fdm runs one instance per app it watches. categorizeImage() matches the
+        // whole image string including the tag, so `:minecraft-ping` counted as a game
+        // server (47 phantom instances on 2025-11-17) and `:wordpress` as a WordPress site.
+        expect(categorizeImage('wirewrex/flux-dns-fdm:minecraft-ping')).toBeNull();
+        expect(categorizeImage('wirewrex/flux-dns-fdm:wordpress')).toBeNull();
+        expect(categorizeImage('wirewrex/flux-dns-fdm:CSIAE')).toBeNull();
+
+        // ...without touching the real thing it was shadowing
+        expect(categorizeImage('itzg/minecraft-server:latest')).toBe('gaming');
+    });
+
     it('still categorises crypto and wordpress', () => {
         expect(categorizeImage('presearch/node:latest')).toBe('crypto');
         expect(categorizeImage('kaspanet/rusty-kaspad:latest')).toBe('crypto');
