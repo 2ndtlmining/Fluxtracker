@@ -242,7 +242,14 @@ export async function fetchCloudStats() {
             throw new Error('Invalid benchmark data and no cache available');
         }
         
-        // Convert MB to GB
+        // UNITS: these end up in TERABYTES, despite the *GB names kept here and in the
+        // daily_snapshots columns (total_ram_gb, used_ram_gb, ...). fluxbench reports node
+        // RAM/SSD in GB, so dividing by 1000 gives TB; the locked figures come from app
+        // specs in MB, hence the extra factor for RAM. Numerator and denominator are scaled
+        // alike, so the utilization percentages are correct either way — but anything that
+        // prints the raw values must say TB. Labelling them GB understated the network by
+        // 1000x. Renaming the columns would need a migration for no behaviour change, so the
+        // names stay and every display site says TB.
         const totalRamGB = totalRam / 1000;
         const totalSsdGB = totalSsd / 1000;
         const lockedRamGB = totalLockedRam / 1000000;
@@ -442,13 +449,13 @@ export function formatCloudStats(cloudData) {
             utilization: cloudData.cpu_utilization_percent + '%'
         },
         ram: {
-            total: cloudData.total_ram_gb + ' GB',
-            used: cloudData.used_ram_gb + ' GB',
+            total: cloudData.total_ram_gb + ' TB',
+            used: cloudData.used_ram_gb + ' TB',
             utilization: cloudData.ram_utilization_percent + '%'
         },
         storage: {
-            total: cloudData.total_storage_gb + ' GB',
-            used: cloudData.used_storage_gb + ' GB',
+            total: cloudData.total_storage_gb + ' TB',
+            used: cloudData.used_storage_gb + ' TB',
             utilization: cloudData.storage_utilization_percent + '%'
         },
         apps: {

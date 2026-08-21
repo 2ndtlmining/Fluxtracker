@@ -278,7 +278,7 @@ describe('formatting (no emoji, explicit signs)', () => {
     it('formats each value type', () => {
         expect(formatValue(1234.5, 'usd')).toBe('$1,234.50');
         expect(formatValue(1234.5, 'flux')).toBe('1,234.50');
-        expect(formatValue(17.25, 'gb')).toBe('17.3 GB');
+        expect(formatValue(17.25, 'tb')).toBe('17.3 TB');
         expect(formatValue(8800.4, 'cores')).toBe('8,800 cores');
         expect(formatValue(6469.2, 'int')).toBe('6,469');
         expect(formatValue(22.64, 'share')).toBe('22.6%');
