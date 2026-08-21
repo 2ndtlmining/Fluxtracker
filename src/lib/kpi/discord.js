@@ -1,0 +1,117 @@
+/**
+ * Discord webhook payload for a KPI report.
+ *
+ * House style, per spec: no emoji anywhere. Direction is carried by explicit +/- signs.
+ * Each section is a code block so the Qty / +/- / +/-% columns stay aligned in Discord's
+ * proportional font — without one, the columns wobble badly on mobile.
+ */
+
+import { formatValue, formatDelta, formatPercent } from './metrics.js';
+import { formatPeriod } from './periods.js';
+
+// Discord limits: 6000 chars per embed, 1024 per field value. Sections are fixed-size so
+// these can't realistically be hit, but the value is truncated defensively before send.
+const MAX_FIELD_CHARS = 1024;
+const EMBED_COLOR = 0x00b8d4; // FluxTracker cyan — one restrained accent, not a status color
+
+const DISCORD_WEBHOOK_PATTERN =
+    /^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
+
+/**
+ * Only Discord webhook URLs may be posted to. Without this the endpoint is an open relay —
+ * anyone could make the server POST arbitrary JSON to an arbitrary host (SSRF).
+ */
+export function isValidDiscordWebhook(url) {
+    if (typeof url !== 'string' || url.length > 500) return false;
+    return DISCORD_WEBHOOK_PATTERN.test(url.trim());
+}
+
+/** Pad to a fixed width so the code block lines up. */
+function pad(text, width, align = 'left') {
+    const s = String(text);
+    if (s.length >= width) return s.slice(0, width);
+    const fill = ' '.repeat(width - s.length);
+    return align === 'right' ? fill + s : s + fill;
+}
+
+const COLS = { label: 14, qty: 15, delta: 14, percent: 9 };
+
+function sectionTable(section) {
+    const lines = [
+        pad('Metric', COLS.label) +
+        pad('Qty', COLS.qty, 'right') +
+        pad('+/-', COLS.delta, 'right') +
+        pad('+/-%', COLS.percent, 'right')
+    ];
+
+    for (const metric of section.metrics) {
+        if (!metric.available) {
+            lines.push(pad(metric.label, COLS.label) + 'Insufficient data');
+            continue;
+        }
+        lines.push(
+            pad(metric.label, COLS.label) +
+            pad(formatValue(metric.current, metric.format), COLS.qty, 'right') +
+            pad(formatDelta(metric.change, metric.format), COLS.delta, 'right') +
+            pad(formatPercent(metric.change), COLS.percent, 'right')
+        );
+    }
+
+    return lines.join('\n');
+}
+
+/**
+ * @param {object} report from buildKpiReport()
+ * @returns Discord webhook JSON body
+ */
+export function buildDiscordPayload(report) {
+    const { timeframe, current, comparison, dataset, generatedAt } = report;
+
+    const currentLabel = formatPeriod(timeframe, current);
+    const comparisonLabel = formatPeriod(timeframe, comparison);
+    const timeframeTitle = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
+
+    const fields = dataset.sections.map(section => {
+        const aggregationNote = section.aggregation === 'sum'
+            ? 'sum over period'
+            : 'daily average';
+
+        let value = '```\n' + sectionTable(section) + '\n```';
+        if (value.length > MAX_FIELD_CHARS) {
+            value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
+        }
+
+        return {
+            name: `${section.title} (${aggregationNote})`,
+            value,
+            inline: false
+        };
+    });
+
+    const incomplete = dataset.totalMetrics - dataset.availableMetrics;
+    if (incomplete > 0) {
+        fields.push({
+            name: 'Note',
+            value:
+                `${incomplete} metric(s) lack full history for one or both periods and are ` +
+                'marked "Insufficient data". All other figures are complete.',
+            inline: false
+        });
+    }
+
+    return {
+        username: 'FluxTracker',
+        embeds: [
+            {
+                title: `FluxTracker KPI Report - ${timeframeTitle}`,
+                description:
+                    `${currentLabel} vs ${comparisonLabel}\n` +
+                    `${current.start} to ${current.end}  |  ${comparison.start} to ${comparison.end}`,
+                color: EMBED_COLOR,
+                fields,
+                footer: { text: 'via FluxTracker' },
+                timestamp: generatedAt
+            }
+        ]
+    };
+}

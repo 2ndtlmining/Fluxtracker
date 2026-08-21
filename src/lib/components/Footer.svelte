@@ -2,7 +2,10 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
   import { triggerRefresh } from '$lib/stores/refresh.js';
-  import { Heart } from 'lucide-svelte';
+  import KpiModal from './KpiModal.svelte';
+  import { Heart, FileBarChart } from 'lucide-svelte';
+
+  let showKpiModal = false;
 
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   let API_URL = '';
@@ -235,6 +238,10 @@ ${DONATION_ADDRESSES[0]}`}
         </svg>
         <span>GitHub</span>
       </a>
+      <button class="footer-btn kpi-btn" on:click={() => (showKpiModal = true)} title="Send a KPI report">
+        <FileBarChart size={14} strokeWidth={2} />
+        <span>KPI</span>
+      </button>
       <button class="footer-btn" on:click={handleRefresh} disabled={isRefreshing}>
         {#if isRefreshing}
           <span class="spinner">⟳</span> Running...
@@ -245,6 +252,10 @@ ${DONATION_ADDRESSES[0]}`}
     </div>
   </div>
 </footer>
+
+{#if showKpiModal}
+  <KpiModal on:close={() => (showKpiModal = false)} />
+{/if}
 
 <style>
   .footer {
@@ -474,6 +485,20 @@ ${DONATION_ADDRESSES[0]}`}
     .github-link {
       font-size: 0.7rem;
       padding: 0.25rem 0.5rem;
+    }
+  }
+
+  /* Sits between GitHub and Refresh; matches the GitHub link's icon+label rhythm */
+  .footer-btn.kpi-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  @media (max-width: 768px) {
+    .footer-btn.kpi-btn {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.7rem;
     }
   }
 </style>

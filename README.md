@@ -284,6 +284,9 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/admin/test-status`              | Service test scheduler status                  |
 | GET    | `/api/admin/price-history-status`     | FLUX/USD price history coverage + last sync outcome |
 | GET    | `/api/admin/host-location`            | Where this server resolved its own location (diagnostic) |
+| GET    | `/api/kpi/availability`               | Which KPI timeframes have enough history            |
+| GET    | `/api/kpi/preview?timeframe=`         | Computed KPI numbers without sending anything       |
+| POST   | `/api/kpi-report`                     | Build and deliver a KPI report                      |
 | POST   | `/api/admin/revenue-sync`             | Trigger manual revenue sync                    |
 | POST   | `/api/admin/clear-revenue-data`       | Delete all transactions and reset sync (destructive) |
 | POST   | `/api/admin/reset-revenue-sync`       | Reset sync block to trigger full re-scan       |
@@ -381,6 +384,118 @@ curl -X POST localhost:3000/api/admin/backfill-usd       # then fill in the NULL
 
 `backfill-usd` returns `coverage` (oldest/newest price date and day count) alongside
 `missingPriceDates`, so an `updated: 0` result says why.
+
+## KPI Report
+
+A **KPI** button in the footer (between GitHub and Refresh) opens a dialog where you pick a time
+frame and a Discord webhook, and FluxTracker posts a formatted report of Revenue, Nodes, Resource
+Utilization and Applications comparing two completed periods.
+
+### Time frames
+
+Reports **always compare two completed periods** and never include the period in progress — a
+part-finished week would always look like a collapse next to a full one.
+
+| Time frame | Period | Worked example (today = Fri 21 Aug 2026) |
+|---|---|---|
+| Weekly | Monday-Sunday (ISO week) | Aug 10-16 vs Aug 3-9 |
+| Monthly | 1st to last day of the calendar month | Jul 2026 vs Jun 2026 |
+| Quarterly | Calendar quarter (Q1 Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep, Q4 Oct-Dec) | Q2 2026 vs Q1 2026 |
+| Yearly | Jan 1 - Dec 31 | 2025 vs 2024 |
+
+All boundaries are **UTC**, matching how `revenue_transactions.date` and
+`daily_snapshots.snapshot_date` are stored. The logic lives in `src/lib/kpi/periods.js`.
+
+### How each metric is calculated
+
+Two aggregation rules, chosen to match the live dashboard:
+
+| Section | Metrics | Aggregation | Source |
+|---|---|---|---|
+| Revenue | Flux, USD | **Sum across the period** | `revenue_transactions` |
+| Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
+| Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
+| Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
+
+Worked examples:
+
+> **USD Revenue - sum across the period.** The daily revenue values for the week are added
+> together to give the period total, then compared to the previous week's total the same way.
+> This uses `getRevenueForDateRange()`, the same query behind the dashboard's revenue card, so
+> the two can never disagree.
+
+> **CPU used - average of daily snapshots.** If daily CPU usage for the week was 61%, 63%, 59%,
+> 64%, 62%, 60%, 65%, the period value is the mean = **62.0%**, compared against the previous
+> week's mean.
+
+Revenue is summed because it accrues; everything else is a point-in-time reading that moves
+daily. Averaging rather than taking the last day matters here: roughly 37 days in the history
+have zeroed service values from a failed collection run, and an end-of-period reading landing on
+one of those would define the entire metric instead of nudging it.
+
+A day whose value is `0` is treated as **missing, not zero** for the snapshot metrics — a live
+network never truly has zero nodes or zero apps, so a zero means collection failed that day.
+
+### Percentage change
+
+`% change = ((current - comparison) / comparison) x 100`, rounded to one decimal, always signed.
+
+| Case | Shown as |
+|---|---|
+| comparison > 0 | `+12.4%` / `-3.1%` |
+| comparison = 0, current = 0 | `No change` |
+| comparison = 0, current > 0 | `New` (not infinity) |
+| either period lacks data | `Insufficient data` |
+
+### Insufficient data
+
+A metric is only reported when **both** periods have at least **90%** of their days covered.
+Coverage is tracked per metric, not per report, because columns were added to `daily_snapshots`
+at different times:
+
+| Metric group | Data available from |
+|---|---|
+| Revenue | 2024-05-13 |
+| Nodes, CPU/RAM/SSD | 2024-06-07 |
+| Total Apps, Gaming | 2025-11-10 |
+| Docker Apps, Git | 2026-01-08 |
+
+Metrics that fall short are marked `Insufficient data` **in place**, and the rest of the report
+still sends with a note naming how many were skipped. A report is only refused outright when
+nothing at all is computable — which is currently the case for **Yearly**, since 2024 only has
+data from June onward. The modal greys out unavailable time frames up front, and the server
+re-checks on submit, so a disabled button is never the only thing standing between a user and a
+misleading report.
+
+### Delivery
+
+**Discord** — posted to a user-supplied incoming webhook as a rich embed, one field per section,
+each wrapped in a code block so the Qty / +/- / +/-% columns stay aligned on desktop and mobile.
+Deliberately plain: **no emoji anywhere**, direction carried by explicit `+`/`-` signs, a single
+restrained accent color on the embed border.
+
+**Email** — designed for but not yet enabled: this instance has no mail transport configured, so
+the option is disabled in the dialog and the API rejects `medium: "email"`. Adding it means
+wiring a transport plus an XLSX attachment; the KPI computation is already delivery-agnostic.
+
+### Rate limits and abuse prevention
+
+| Limit | Value |
+|---|---|
+| Per client, per hour | 5 reports |
+| Per client, per day | 20 reports |
+| Per destination | 1 report per 5 minutes |
+
+Enforced server-side in `src/lib/kpi/rateLimiter.js`; the UI only reflects the result. Limits are
+in-memory, so a restart clears them — acceptable for a single-process deployment, but this needs
+to move to the database if the app is ever run multi-process.
+
+Outbound requests are restricted to Discord webhook URLs (`discord.com` / `discordapp.com`, with
+the `canary`/`ptb` subdomains), validated both at the API boundary and again immediately before
+the request, with redirects disabled. Without that, the endpoint would be an open relay that
+could be pointed at any host. A hidden honeypot field catches basic bots, and webhook URLs are
+masked to their numeric ID in logs — the token half is a credential.
+
 
 ## Deployment
 
