@@ -88,7 +88,7 @@ import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
-import { getHostLocation } from './lib/services/hostLocationService.js';
+import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 
 import { isBackupEnabled, getBackupStatus, performBackup, listBackups, restoreFromBackup } from './lib/services/backupService.js';
 
@@ -378,8 +378,7 @@ app.get('/api/header', async (req, res) => {
                         city: hostLocation.city,
                         region: hostLocation.region,
                         country: hostLocation.country,
-                        countryCode: hostLocation.countryCode,
-                        flag: hostLocation.flag
+                        countryCode: hostLocation.countryCode
                     }
                     : null
             },
@@ -499,6 +498,23 @@ app.post('/api/admin/backfill-usd', async (req, res) => {
     } catch (error) {
         log.error({ err: error }, 'USD backfill failed');
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Where this server thinks it is running, and how it worked that out.
+// The lookup is made by the Node process, so the reported IP is the server's own public
+// egress address — never the viewer's. Use this to confirm the header on a Flux node.
+app.get('/api/admin/host-location', async (_req, res) => {
+    try {
+        const location = await getHostLocation();
+        res.json({
+            location,
+            resolvedFrom: 'server-side lookup (the Node process calls the geo API, not the browser)',
+            error: getHostLocationError(),
+            serverTime: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 

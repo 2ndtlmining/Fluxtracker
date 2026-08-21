@@ -172,9 +172,7 @@
         {#if hostLocation}
           <span class="system-stat" title="Where this instance is currently running">
             Hosted in
-            <span class="system-stat-value">
-              {#if hostLocation.flag}<span class="host-flag">{hostLocation.flag}</span>{/if}{formatLocation(hostLocation)}
-            </span>
+            <span class="system-stat-value">{formatLocation(hostLocation)}</span>
           </span>
           <span class="stat-separator">|</span>
         {/if}
@@ -324,12 +322,6 @@
   }
 
   /* Responsive */
-  .host-flag {
-    margin-right: 0.3rem;
-    /* Emoji fonts ignore the mono stack; give the flag its own so it renders on Windows too */
-    font-family: 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
-  }
-
   @media (max-width: 1024px) {
     .header-content {
       flex-direction: column;

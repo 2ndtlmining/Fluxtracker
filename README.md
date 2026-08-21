@@ -283,6 +283,7 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/admin/revenue-status`           | Revenue sync status, block height, tx count    |
 | GET    | `/api/admin/test-status`              | Service test scheduler status                  |
 | GET    | `/api/admin/price-history-status`     | FLUX/USD price history coverage + last sync outcome |
+| GET    | `/api/admin/host-location`            | Where this server resolved its own location (diagnostic) |
 | POST   | `/api/admin/revenue-sync`             | Trigger manual revenue sync                    |
 | POST   | `/api/admin/clear-revenue-data`       | Delete all transactions and reset sync (destructive) |
 | POST   | `/api/admin/reset-revenue-sync`       | Reset sync block to trigger full re-scan       |
