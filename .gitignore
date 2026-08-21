@@ -28,3 +28,5 @@ data/
 src/data/
 
 claude.md
+# Supabase/R2 table backups pulled locally for analysis — never commit (tens of MB)
+backups_*.json
