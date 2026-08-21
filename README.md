@@ -412,7 +412,7 @@ Two aggregation rules, chosen to match the live dashboard:
 
 | Section | Metrics | Aggregation | Source |
 |---|---|---|---|
-| Revenue | Flux, USD | **Sum across the period** | `revenue_transactions` |
+| Revenue | Flux, USD, Self-funded, Self-funded %, Fiat, Fiat % | **Sum across the period** | `revenue_transactions` |
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
 | Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
@@ -427,6 +427,12 @@ Worked examples:
 > **CPU used - average of daily snapshots.** If daily CPU usage for the week was 61%, 63%, 59%,
 > 64%, 62%, 60%, 65%, the period value is the mean = **62.0%**, compared against the previous
 > week's mean.
+
+**Self-funded** is revenue from `FLUX_TEAM_ADDRESSES`; **Fiat** is revenue arriving through the
+Flux fiat gateway (`FLUX_FIAT_ADDRESSES`). Both are reported as a FLUX value and as a share of
+total FLUX revenue for the same period, and both are *included* in the Flux/USD totals above them
+rather than being separate buckets. Their `+/-` column is in **percentage points** (`+2.3pp`),
+since a change in a percentage is not itself a percentage.
 
 Revenue is summed because it accrues; everything else is a point-in-time reading that moves
 daily. Averaging rather than taking the last day matters here: roughly 37 days in the history
@@ -449,9 +455,10 @@ network never truly has zero nodes or zero apps, so a zero means collection fail
 
 ### Insufficient data
 
-A metric is only reported when **both** periods have at least **90%** of their days covered.
-Coverage is tracked per metric, not per report, because columns were added to `daily_snapshots`
-at different times:
+A metric is only reported when **every day** in **both** periods has data. Full coverage is
+required on purpose: a 29-of-30-day average silently understates or overstates the period with no
+way for the reader to tell it happened. Coverage is tracked per metric, not per report, because
+columns were added to `daily_snapshots` at different times:
 
 | Metric group | Data available from |
 |---|---|
@@ -460,8 +467,10 @@ at different times:
 | Total Apps, Gaming | 2025-11-10 |
 | Docker Apps, Git | 2026-01-08 |
 
-Metrics that fall short are marked `Insufficient data` **in place**, and the rest of the report
-still sends with a note naming how many were skipped. A report is only refused outright when
+Metrics that fall short are marked `Insufficient data` **with the number of missing days**
+(for example `Insufficient data (7 days missing)`), and the rest of the report still sends with a
+`Data coverage` note stating how many metrics were skipped and why. When nothing is missing the
+note says so explicitly, so a complete report is never ambiguous. A report is only refused outright when
 nothing at all is computable — which is currently the case for **Yearly**, since 2024 only has
 data from June onward. The modal greys out unavailable time frames up front, and the server
 re-checks on submit, so a disabled button is never the only thing standing between a user and a
@@ -471,12 +480,21 @@ misleading report.
 
 **Discord** — posted to a user-supplied incoming webhook as a rich embed, one field per section,
 each wrapped in a code block so the Qty / +/- / +/-% columns stay aligned on desktop and mobile.
+Every section states its aggregation twice — in the field name (`Revenue - SUM`,
+`Nodes - AVERAGE`) and in a line above the table — so a reader never has to guess whether a
+number is a period total or a daily mean.
 Deliberately plain: **no emoji anywhere**, direction carried by explicit `+`/`-` signs, a single
 restrained accent color on the embed border.
 
 **Email** — designed for but not yet enabled: this instance has no mail transport configured, so
-the option is disabled in the dialog and the API rejects `medium: "email"`. Adding it means
-wiring a transport plus an XLSX attachment; the KPI computation is already delivery-agnostic.
+the option is disabled in the dialog and the API rejects `medium: "email"`.
+
+To enable it you need three things: an SMTP account to send through (any mailbox provider, or a
+transactional service such as Resend/SendGrid/SES), a transport library (`nodemailer`) plus an
+XLSX writer (`exceljs`) added as dependencies, and four environment variables — `SMTP_HOST`,
+`SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, with `SMTP_FROM` for the sender address. No separate
+application is required; the existing Express server sends directly. The KPI computation is
+already delivery-agnostic, so only the transport and the attachment builder are new.
 
 ### Rate limits and abuse prevention
 

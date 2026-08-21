@@ -5,7 +5,8 @@ vi.mock('../../db/database.js', () => ({
     getSnapshotsInRange: vi.fn(),
     getRevenueForDateRange: vi.fn(),
     getDailyRevenueUSDInRange: vi.fn(),
-    getOldestTransactionDate: vi.fn()
+    getOldestTransactionDate: vi.fn(),
+    getRevenueFromAddressesForDateRange: vi.fn()
 }));
 
 import axios from 'axios';
@@ -13,7 +14,8 @@ import {
     getSnapshotsInRange,
     getRevenueForDateRange,
     getDailyRevenueUSDInRange,
-    getOldestTransactionDate
+    getOldestTransactionDate,
+    getRevenueFromAddressesForDateRange
 } from '../../db/database.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
 
@@ -36,6 +38,7 @@ beforeEach(() => {
     getSnapshotsInRange.mockImplementation(async (start) => snapshotsFor(start, 7));
     getRevenueForDateRange.mockResolvedValue(1000);
     getDailyRevenueUSDInRange.mockResolvedValue([{ daily_revenue_usd: 20 }, { daily_revenue_usd: 22 }]);
+    getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 250, payments: 5 });
 });
 
 describe('buildKpiReport', () => {
@@ -58,6 +61,24 @@ describe('buildKpiReport', () => {
 
         const usd = report.dataset.sections[0].metrics.find(m => m.key === 'usd');
         expect(usd.current).toBe(42); // 20 + 22
+    });
+
+    it('splits self-funded and fiat revenue out as value and share of total', () => {
+        return buildKpiReport('weekly', NOW).then(report => {
+            const byKey = Object.fromEntries(report.dataset.sections[0].metrics.map(m => [m.key, m]));
+            expect(byKey.selfFunded.current).toBe(250);
+            expect(byKey.fiat.current).toBe(250);
+            // 250 of 1000 total FLUX
+            expect(byKey.selfFundedShare.current).toBe(25);
+            expect(byKey.fiatShare.current).toBe(25);
+        });
+    });
+
+    it('queries the team and fiat address lists separately', async () => {
+        await buildKpiReport('weekly', NOW);
+        const addressArgs = getRevenueFromAddressesForDateRange.mock.calls.map(c => c[2]);
+        expect(addressArgs.some(a => a.includes('t1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY'))).toBe(true);
+        expect(addressArgs.some(a => a.includes('t1XktDZ9Z1QiefMYE5nMFohe8VG2c2BD5A5'))).toBe(true);
     });
 
     it('labels both periods for the report heading', async () => {

@@ -20,8 +20,15 @@
 
 import { dayCount } from './periods.js';
 
-/** Fraction of a period's days that must carry data before the metric is reported. */
-export const MIN_COVERAGE = 0.9;
+/**
+ * Fraction of a period's days that must carry data before the metric is reported.
+ *
+ * 1.0 on purpose: a KPI figure is only trustworthy if every day in the range contributed to
+ * it. A 29-of-30-day average silently understates or overstates the period with no way for
+ * the reader to tell, so a partial metric is reported as "Insufficient data" with the exact
+ * shortfall rather than as a number.
+ */
+export const MIN_COVERAGE = 1.0;
 
 /**
  * `column` is the daily_snapshots column. `format` drives presentation only.
@@ -35,7 +42,11 @@ export const SECTIONS = [
         aggregation: 'sum',
         metrics: [
             { key: 'flux', label: 'Flux', format: 'flux' },
-            { key: 'usd', label: 'USD', format: 'usd' }
+            { key: 'usd', label: 'USD', format: 'usd' },
+            { key: 'selfFunded', label: 'Self-funded', format: 'flux' },
+            { key: 'selfFundedShare', label: 'Self-funded %', format: 'share' },
+            { key: 'fiat', label: 'Fiat', format: 'flux' },
+            { key: 'fiatShare', label: 'Fiat %', format: 'share' }
         ]
     },
     {
@@ -199,7 +210,9 @@ export function buildKpiDataset({
                 change: computeChange(currentValue, comparisonValue),
                 coverage: {
                     current: { days: cur.coveredDays, of: cur.expectedDays },
-                    comparison: { days: cmp.coveredDays, of: cmp.expectedDays }
+                    comparison: { days: cmp.coveredDays, of: cmp.expectedDays },
+                    // Missing-day counts, so the report can say why rather than just "no data"
+                    missing: (cur.expectedDays - cur.coveredDays) + (cmp.expectedDays - cmp.coveredDays)
                 }
             };
         });
@@ -245,6 +258,8 @@ export function formatValue(value, format) {
             return value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' GB';
         case 'cores':
             return Math.round(value).toLocaleString('en-US') + ' cores';
+        case 'share':
+            return value.toFixed(1) + '%';
         case 'int':
         default:
             return Math.round(value).toLocaleString('en-US');
@@ -256,8 +271,14 @@ export function formatDelta(change, format) {
     if (!change || change.absolute === null) return INSUFFICIENT;
 
     const sign = change.absolute > 0 ? '+' : change.absolute < 0 ? '-' : '';
-    const magnitude = formatValue(Math.abs(change.absolute), format);
-    return `${sign}${magnitude}`;
+
+    // A change in a percentage is percentage points, not percent — saying "+2.3%" when a
+    // share moved from 25% to 27.3% would be wrong by an order of magnitude.
+    if (format === 'share') {
+        return `${sign}${Math.abs(change.absolute).toFixed(1)}pp`;
+    }
+
+    return `${sign}${formatValue(Math.abs(change.absolute), format)}`;
 }
 
 export function formatPercent(change) {
