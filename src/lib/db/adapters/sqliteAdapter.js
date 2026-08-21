@@ -639,6 +639,28 @@ export async function getRevenueForDateRange(startDate, endDate) {
     }
 }
 
+/**
+ * Revenue in a range that originated from a specific set of sender addresses.
+ * Used to split "self-funded" (Flux team) revenue out of the headline total.
+ */
+export async function getRevenueFromAddressesForDateRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return { revenue: 0, payments: 0 };
+
+    try {
+        const placeholders = addresses.map(() => '?').join(',');
+        const row = getDb().prepare(`
+            SELECT COALESCE(SUM(amount), 0) AS revenue, COUNT(*) AS payments
+            FROM revenue_transactions
+            WHERE date >= ? AND date <= ? AND from_address IN (${placeholders})
+        `).get(startDate, endDate, ...addresses);
+
+        return { revenue: row.revenue || 0, payments: row.payments || 0 };
+    } catch (error) {
+        log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
+        return { revenue: 0, payments: 0 };
+    }
+}
+
 export async function getPaymentCountForDateRange(startDate, endDate) {
     try {
         const row = getDb().prepare(

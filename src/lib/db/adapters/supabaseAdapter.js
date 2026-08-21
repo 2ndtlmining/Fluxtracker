@@ -503,6 +503,46 @@ export async function getRevenueForDateRange(startDate, endDate) {
     return (data || []).reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
 }
 
+/**
+ * Revenue in a range from a specific set of sender addresses.
+ *
+ * Team transactions are a small subset, so paging the rows is cheap and avoids needing an
+ * RPC. Paging is mandatory, not optional — an un-paged select would silently stop at
+ * PostgREST's 1000-row cap and under-report the total.
+ */
+export async function getRevenueFromAddressesForDateRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return { revenue: 0, payments: 0 };
+
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+    let revenue = 0;
+    let payments = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('amount')
+            .gte('date', startDate)
+            .lte('date', endDate)
+            .in('from_address', addresses)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
+            return { revenue: 0, payments: 0 };
+        }
+        if (!data || data.length === 0) break;
+
+        for (const row of data) revenue += row.amount || 0;
+        payments += data.length;
+
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return { revenue, payments };
+}
+
 export async function getPaymentCountForDateRange(startDate, endDate) {
     const { count, error } = await supabase
         .from('revenue_transactions')
