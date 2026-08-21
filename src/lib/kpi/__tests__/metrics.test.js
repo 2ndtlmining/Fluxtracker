@@ -106,6 +106,10 @@ describe('buildKpiDataset', () => {
             used_cpu_cores: 8800,
             used_ram_gb: 17,
             used_storage_gb: 250,
+            cpu_utilization_percent: 42.5,
+            ram_utilization_percent: 38.1,
+            storage_utilization_percent: 29.7,
+            flux_price_usd: 0.4213,
             total_apps: 6400,
             dockerapps_count: 6200,
             gitapps_count: 170,
@@ -126,9 +130,64 @@ describe('buildKpiDataset', () => {
         });
 
         expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications']);
-        expect(d.totalMetrics).toBe(17);   // 6 revenue + 4 nodes + 3 resources + 4 apps
-        expect(d.availableMetrics).toBe(17);
+        expect(d.totalMetrics).toBe(21);   // 7 revenue + 4 nodes + 6 resources + 4 apps
+        expect(d.availableMetrics).toBe(21);
         expect(d.empty).toBe(false);
+    });
+
+    it('averages the FLUX price inside the summed revenue section', () => {
+        const d = buildKpiDataset({
+            current, comparison,
+            currentSnapshots: makeSnapshots({ flux_price_usd: 0.50 }),
+            comparisonSnapshots: makeSnapshots({ flux_price_usd: 0.40 }),
+            currentRevenue: revenue,
+            comparisonRevenue: revenue
+        });
+
+        const revenueSection = d.sections[0];
+        const price = revenueSection.metrics.find(m => m.key === 'fluxPrice');
+
+        // The mean of the daily prices, not their sum
+        expect(price.current).toBeCloseTo(0.50, 6);
+        expect(price.comparison).toBeCloseTo(0.40, 6);
+        expect(price.aggregation).toBe('average');
+        // ...while the section it sits in is still a summing section, which the renderer
+        // has to disclose or the heading misdescribes this row.
+        expect(revenueSection.aggregation).toBe('sum');
+        expect(revenueSection.mixedAggregation).toBe(true);
+    });
+
+    it('reports utilization percentages as points, not percent-of-percent', () => {
+        const d = buildKpiDataset({
+            current, comparison,
+            currentSnapshots: makeSnapshots({ cpu_utilization_percent: 44.0 }),
+            comparisonSnapshots: makeSnapshots({ cpu_utilization_percent: 40.0 }),
+            currentRevenue: revenue,
+            comparisonRevenue: revenue
+        });
+
+        const cpu = d.sections[2].metrics.find(m => m.key === 'cpuPercent');
+        expect(cpu.current).toBeCloseTo(44, 6);
+        expect(formatValue(cpu.current, cpu.format)).toBe('44.0%');
+        expect(formatDelta(cpu.change, cpu.format)).toBe('+4.0pp');
+        // The relative move is still a real percentage
+        expect(formatPercent(cpu.change)).toBe('+10.0%');
+    });
+
+    it('marks the price row insufficient when snapshots carry no price', () => {
+        // flux_price_usd is nullable, and zero means the collector failed that day
+        const d = buildKpiDataset({
+            current, comparison,
+            currentSnapshots: makeSnapshots({ flux_price_usd: 0 }),
+            comparisonSnapshots: makeSnapshots(),
+            currentRevenue: revenue,
+            comparisonRevenue: revenue
+        });
+
+        const price = d.sections[0].metrics.find(m => m.key === 'fluxPrice');
+        expect(price.available).toBe(false);
+        // ...without dragging the summed revenue rows down with it
+        expect(d.sections[0].metrics.find(m => m.key === 'flux').available).toBe(true);
     });
 
     it('sums revenue and averages the rest', () => {
@@ -169,7 +228,7 @@ describe('buildKpiDataset', () => {
         expect(byKey.gaming.available).toBe(true);
         expect(apps.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(15);
+        expect(d.availableMetrics).toBe(19);   // 21 total, less git and docker
     });
 
     it('never reports a metric when only one of the two periods has data', () => {
@@ -271,6 +330,9 @@ describe('revenue history floor', () => {
         comparisonRevenue: { flux: 50, usd: 2 }
     };
 
+    /** Rows sourced from revenue_transactions — the price row comes from snapshots instead. */
+    const transactionRows = (section) => section.metrics.filter(m => m.key !== 'fluxPrice');
+
     it('reports revenue when both periods start after transactions began', () => {
         const d = buildKpiDataset({
             ...base,
@@ -278,7 +340,7 @@ describe('revenue history floor', () => {
             comparison: { start: '2026-08-03', end: '2026-08-09' },
             earliestRevenueDate: '2024-05-13'
         });
-        expect(d.sections[0].metrics.every(m => m.available)).toBe(true);
+        expect(transactionRows(d.sections[0]).every(m => m.available)).toBe(true);
     });
 
     it('refuses revenue when the comparison period predates the transaction history', () => {
@@ -290,7 +352,7 @@ describe('revenue history floor', () => {
             comparison: { start: '2024-01-01', end: '2024-12-31' },
             earliestRevenueDate: '2024-05-13'
         });
-        expect(d.sections[0].metrics.every(m => m.available)).toBe(false);
+        expect(transactionRows(d.sections[0]).every(m => m.available)).toBe(false);
         expect(d.empty).toBe(true);
     });
 
@@ -301,6 +363,6 @@ describe('revenue history floor', () => {
             comparison: { start: '2019-01-01', end: '2019-12-31' },
             earliestRevenueDate: null
         });
-        expect(d.sections[0].metrics.every(m => m.available)).toBe(true);
+        expect(transactionRows(d.sections[0]).every(m => m.available)).toBe(true);
     });
 });

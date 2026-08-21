@@ -413,9 +413,21 @@ Two aggregation rules, chosen to match the live dashboard:
 | Section | Metrics | Aggregation | Source |
 |---|---|---|---|
 | Revenue | Flux, USD, Self-funded, Self-funded %, Fiat, Fiat % | **Sum across the period** | `revenue_transactions` |
+| Revenue | FLUX price (avg) | **Average of daily snapshots** | `daily_snapshots.flux_price_usd` |
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
+| Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
 | Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
+
+**FLUX price is the one averaged row in a summed section.** It is there because without it the
+two rows above it cannot be read: FLUX revenue flat while USD revenue falls is a price move, not
+a drop in demand, and nothing else in the report distinguishes those. A period *total* of daily
+prices would be meaningless, so the row is averaged and the Discord embed names the exception
+underneath the `Revenue - SUM` heading rather than letting the heading misdescribe it.
+
+**Utilization percentages sit alongside the raw figures, not instead of them.** "880,000 cores
+used" is the same number whether the network grew or capacity collapsed; the percentage is what
+separates those. Both are shown so a reader can see which one moved.
 
 Worked examples:
 
@@ -432,12 +444,22 @@ Worked examples:
 Flux fiat gateway (`FLUX_FIAT_ADDRESSES`). Both are reported as a FLUX value and as a share of
 total FLUX revenue for the same period, and both are *included* in the Flux/USD totals above them
 rather than being separate buckets. Their `+/-` column is in **percentage points** (`+2.3pp`),
-since a change in a percentage is not itself a percentage.
+since a change in a percentage is not itself a percentage. The same applies to the three
+utilization percentages: `42.5%` moving to `44.0%` is `+1.5pp`, not `+1.5%` (the `+/-%` column
+still carries the relative move, `+3.5%`).
 
 Revenue is summed because it accrues; everything else is a point-in-time reading that moves
 daily. Averaging rather than taking the last day matters here: roughly 37 days in the history
 have zeroed service values from a failed collection run, and an end-of-period reading landing on
 one of those would define the entire metric instead of nudging it.
+
+A **failed query is never reported as a number.** The four reads behind this report
+(`getSnapshotsInRange`, `getRevenueForDateRange`, `getDailyRevenueUSDInRange`,
+`getRevenueFromAddressesForDateRange`) throw on error rather than returning `0` or `[]`. They used
+to swallow it, and because revenue coverage is judged only on whether the period predates our
+transaction history, a database failure came back "covered" with a value of zero and rendered as a
+genuine collapse — `Flux 0.00 / -12,400.00 / -100.0%` — which was then posted to Discord as fact.
+The report is now refused instead. A period that genuinely earned nothing is still valid data.
 
 A day whose value is `0` is treated as **missing, not zero** for the snapshot metrics — a live
 network never truly has zero nodes or zero apps, so a zero means collection failed that day.
@@ -463,7 +485,7 @@ columns were added to `daily_snapshots` at different times:
 | Metric group | Data available from |
 |---|---|
 | Revenue | 2024-05-13 |
-| Nodes, CPU/RAM/SSD | 2024-06-07 |
+| Nodes, CPU/RAM/SSD, CPU/RAM/SSD %, FLUX price | 2024-06-07 |
 | Total Apps, Gaming | 2025-11-10 |
 | Docker Apps, Git | 2026-01-08 |
 
@@ -503,6 +525,13 @@ already delivery-agnostic, so only the transport and the attachment builder are 
 | Per client, per hour | 5 reports |
 | Per client, per day | 20 reports |
 | Per destination | 1 report per 5 minutes |
+
+The slot is claimed in the same synchronous pass as the check (`consumeRateLimit()`), not after
+the outbound POST: checking and recording as two separate calls left a gap the width of the
+Discord request, so two requests fired in parallel both passed before either was counted. If
+delivery fails the destination's slot is handed back — nothing was delivered, so a mistyped
+webhook should be correctable immediately — while the client's attempt still counts, since a
+failed attempt cost real work and making failures free would let a retry loop hammer the endpoint.
 
 Enforced server-side in `src/lib/kpi/rateLimiter.js`; the UI only reflects the result. Limits are
 in-memory, so a restart clears them — acceptable for a single-process deployment, but this needs

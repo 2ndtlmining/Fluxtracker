@@ -267,6 +267,15 @@ export async function getLastNSnapshots(n = 30) {
     return data || [];
 }
 
+/**
+ * Read failures on these four throw rather than returning an empty result.
+ *
+ * They feed the KPI report, which decides whether a metric has full day coverage before
+ * reporting it. A swallowed error returning 0 or [] is indistinguishable from a period that
+ * genuinely earned nothing, so a failed query used to render as a real figure -- "Flux 0.00,
+ * -12,400.00, -100.0%" -- and get posted to Discord as fact. Every caller either sits inside
+ * a try/catch or is a write path where aborting beats persisting a false zero.
+ */
 export async function getSnapshotsInRange(startDate, endDate) {
     const { data, error } = await supabase
         .from('daily_snapshots')
@@ -277,7 +286,7 @@ export async function getSnapshotsInRange(startDate, endDate) {
 
     if (error) {
         log.error(`getSnapshotsInRange error: ${error.message}`);
-        return [];
+        throw new Error(`getSnapshotsInRange failed: ${error.message}`);
     }
     return data || [];
 }
@@ -497,7 +506,7 @@ export async function getRevenueForDateRange(startDate, endDate) {
 
     if (error) {
         log.error(`getRevenueForDateRange error: ${error.message}`);
-        return 0;
+        throw new Error(`getRevenueForDateRange failed: ${error.message}`);
     }
     // Sum the daily totals
     return (data || []).reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
@@ -529,7 +538,7 @@ export async function getRevenueFromAddressesForDateRange(startDate, endDate, ad
 
         if (error) {
             log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
-            return { revenue: 0, payments: 0 };
+            throw new Error(`getRevenueFromAddressesForDateRange failed: ${error.message}`);
         }
         if (!data || data.length === 0) break;
 
@@ -729,7 +738,7 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
 
     if (error) {
         log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
-        return [];
+        throw new Error(`getDailyRevenueUSDInRange failed: ${error.message}`);
     }
     log.info(`Retrieved daily USD revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
     return data || [];

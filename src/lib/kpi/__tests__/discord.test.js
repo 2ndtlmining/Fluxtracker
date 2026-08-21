@@ -47,6 +47,8 @@ describe('buildDiscordPayload', () => {
         snapshot_date: `2026-08-${String(10 + i).padStart(2, '0')}`,
         node_total: 6000, node_cumulus: 2800, node_nimbus: 1500, node_stratus: 1700,
         used_cpu_cores: 8800, used_ram_gb: 17, used_storage_gb: 250,
+        cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
+        flux_price_usd: 0.4213,
         total_apps: 6400, dockerapps_count: 6200, gitapps_count: 170, gaming_apps_total: 320,
         ...overrides
     }));
@@ -135,7 +137,7 @@ describe('buildDiscordPayload', () => {
         })).embeds[0];
 
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
-        expect(coverage.value).toContain('2 of 17 metrics are not reported');
+        expect(coverage.value).toContain('2 of 21 metrics are not reported');
         expect(embed.fields[3].value).toContain('Insufficient data (7 days missing)');
     });
 
@@ -143,6 +145,31 @@ describe('buildDiscordPayload', () => {
         const embed = buildDiscordPayload(report()).embeds[0];
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
         expect(coverage.value).toContain('Complete.');
+    });
+
+    it('discloses the averaged price row inside the summed revenue section', () => {
+        const embed = buildDiscordPayload(report()).embeds[0];
+        const revenue = embed.fields[0];
+
+        // The heading still says SUM, so the exception has to be named or the price row
+        // reads as a total of every daily price.
+        expect(revenue.name).toBe('Revenue - SUM');
+        expect(revenue.value).toContain('Except FLUX price (avg)');
+        expect(revenue.value).toContain('AVERAGE of the daily values across the period');
+        expect(revenue.value).toContain('$0.4213');
+    });
+
+    it('leaves single-aggregation sections without an exception note', () => {
+        const embed = buildDiscordPayload(report()).embeds[0];
+        expect(embed.fields[1].value).not.toContain('Except');
+    });
+
+    it('renders utilization deltas in percentage points', () => {
+        const embed = buildDiscordPayload(report({
+            comparisonSnapshots: snapshots({ cpu_utilization_percent: 40.0 })
+        })).embeds[0];
+
+        expect(embed.fields[2].value).toContain('+2.5pp');
     });
 
     it('stays inside Discord field and embed limits', () => {

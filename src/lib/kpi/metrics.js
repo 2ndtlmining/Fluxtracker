@@ -46,7 +46,19 @@ export const SECTIONS = [
             { key: 'selfFunded', label: 'Self-funded', format: 'flux' },
             { key: 'selfFundedShare', label: 'Self-funded %', format: 'share' },
             { key: 'fiat', label: 'Fiat', format: 'flux' },
-            { key: 'fiatShare', label: 'Fiat %', format: 'share' }
+            { key: 'fiatShare', label: 'Fiat %', format: 'share' },
+            // The one averaged row in a summed section, hence the explicit override: a period
+            // total of daily prices would be meaningless. It is here rather than in its own
+            // section because its only job is to explain the two rows above it — FLUX revenue
+            // flat while USD revenue falls is a price move, not a demand move, and without this
+            // row the reader has no way to tell those apart.
+            {
+                key: 'fluxPrice',
+                label: 'FLUX price (avg)',
+                column: 'flux_price_usd',
+                format: 'usd4',
+                aggregation: 'average'
+            }
         ]
     },
     {
@@ -69,7 +81,14 @@ export const SECTIONS = [
         metrics: [
             { key: 'cpu', label: 'CPU used', column: 'used_cpu_cores', format: 'cores' },
             { key: 'ram', label: 'RAM used', column: 'used_ram_gb', format: 'gb' },
-            { key: 'ssd', label: 'SSD used', column: 'used_storage_gb', format: 'gb' }
+            { key: 'ssd', label: 'SSD used', column: 'used_storage_gb', format: 'gb' },
+            // Shown alongside the raw figures rather than instead of them. "1.2M cores used"
+            // says nothing on its own — the same number is healthy growth or a capacity
+            // collapse depending on what the network can hold. These columns are already
+            // populated by cloudService, so this is presentation, not new collection.
+            { key: 'cpuPercent', label: 'CPU used %', column: 'cpu_utilization_percent', format: 'percent' },
+            { key: 'ramPercent', label: 'RAM used %', column: 'ram_utilization_percent', format: 'percent' },
+            { key: 'ssdPercent', label: 'SSD used %', column: 'storage_utilization_percent', format: 'percent' }
         ]
     },
     {
@@ -176,7 +195,12 @@ export function buildKpiDataset({
             let cur;
             let cmp;
 
-            if (section.key === 'revenue') {
+            // A metric naming a snapshot column is averaged from daily_snapshots wherever it
+            // sits; everything else in the revenue section comes from the revenue totals.
+            if (metric.column) {
+                cur = averageColumn(currentSnapshots, metric.column, currentDays);
+                cmp = averageColumn(comparisonSnapshots, metric.column, comparisonDays);
+            } else if (section.key === 'revenue') {
                 // A period with genuinely zero revenue is valid data, so revenue coverage
                 // depends only on whether the period predates our transaction history.
                 cur = {
@@ -191,9 +215,6 @@ export function buildKpiDataset({
                     coveredDays: comparisonRevenueCovered ? comparisonDays : 0,
                     expectedDays: comparisonDays
                 };
-            } else {
-                cur = averageColumn(currentSnapshots, metric.column, currentDays);
-                cmp = averageColumn(comparisonSnapshots, metric.column, comparisonDays);
             }
 
             const available = cur.covered && cmp.covered;
@@ -204,6 +225,7 @@ export function buildKpiDataset({
                 key: metric.key,
                 label: metric.label,
                 format: metric.format,
+                aggregation: metric.aggregation || section.aggregation,
                 available,
                 current: currentValue,
                 comparison: comparisonValue,
@@ -223,6 +245,9 @@ export function buildKpiDataset({
             aggregation: section.aggregation,
             source: section.source,
             metrics,
+            // A section whose rows are not all aggregated the same way must say so, or the
+            // "Revenue - SUM" heading would be a lie about the price row underneath it.
+            mixedAggregation: metrics.some(m => m.aggregation !== section.aggregation),
             available: metrics.some(m => m.available)
         };
     });
@@ -258,7 +283,12 @@ export function formatValue(value, format) {
             return value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' GB';
         case 'cores':
             return Math.round(value).toLocaleString('en-US') + ' cores';
+        case 'usd4':
+            // Four decimals: FLUX trades well under a dollar, so two would round most of the
+            // movement away and make the row look static.
+            return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
         case 'share':
+        case 'percent':
             return value.toFixed(1) + '%';
         case 'int':
         default:
@@ -274,7 +304,7 @@ export function formatDelta(change, format) {
 
     // A change in a percentage is percentage points, not percent — saying "+2.3%" when a
     // share moved from 25% to 27.3% would be wrong by an order of magnitude.
-    if (format === 'share') {
+    if (format === 'share' || format === 'percent') {
         return `${sign}${Math.abs(change.absolute).toFixed(1)}pp`;
     }
 

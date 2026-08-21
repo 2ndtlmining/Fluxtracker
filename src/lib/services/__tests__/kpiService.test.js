@@ -27,6 +27,8 @@ function snapshotsFor(start, days, overrides = {}) {
         snapshot_date: new Date(base + i * 86400000).toISOString().split('T')[0],
         node_total: 6000, node_cumulus: 2800, node_nimbus: 1500, node_stratus: 1700,
         used_cpu_cores: 8800, used_ram_gb: 17, used_storage_gb: 250,
+        cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
+        flux_price_usd: 0.4213,
         total_apps: 6400, dockerapps_count: 6200, gitapps_count: 170, gaming_apps_total: 320,
         ...overrides
     }));
@@ -154,5 +156,57 @@ describe('sendToDiscord', () => {
     it('does not leak internal errors to the user', async () => {
         axios.post.mockRejectedValueOnce(new Error('ECONNREFUSED 10.0.0.5:443'));
         await expect(sendToDiscord(VALID, report)).rejects.toThrow('Could not deliver the report to Discord.');
+    });
+});
+
+/**
+ * A KPI report must never present a failed query as a real reading.
+ *
+ * These queries used to swallow their errors and return 0 / []. Because revenue coverage is
+ * judged only on whether the period predates our transaction history, a database failure came
+ * back "covered" with a value of zero and rendered as a genuine collapse -- "Flux 0.00,
+ * -12,400.00, -100.0%" -- which was then posted to Discord as fact. The adapters now throw,
+ * buildKpiReport rejects, and the endpoint returns an error instead of a lie.
+ */
+describe('a failed query is refused, not reported as zero', () => {
+    it('propagates a FLUX revenue failure instead of reporting 0.00', async () => {
+        getRevenueForDateRange.mockRejectedValue(new Error('getRevenueForDateRange failed: timeout'));
+        await expect(buildKpiReport('weekly', NOW)).rejects.toThrow(/getRevenueForDateRange failed/);
+    });
+
+    it('propagates a USD revenue failure', async () => {
+        getDailyRevenueUSDInRange.mockRejectedValue(new Error('getDailyRevenueUSDInRange failed: timeout'));
+        await expect(buildKpiReport('weekly', NOW)).rejects.toThrow(/getDailyRevenueUSDInRange failed/);
+    });
+
+    it('propagates a self-funded / fiat failure rather than reporting a 0% share', async () => {
+        // The most quietly wrong case: a zero here also zeroes the share column, so the report
+        // would claim the Flux team funded 0% of a period it may have funded most of.
+        getRevenueFromAddressesForDateRange.mockRejectedValue(
+            new Error('getRevenueFromAddressesForDateRange failed: timeout')
+        );
+        await expect(buildKpiReport('weekly', NOW)).rejects.toThrow(/getRevenueFromAddressesForDateRange failed/);
+    });
+
+    it('propagates a snapshot failure rather than blaming missing days', async () => {
+        // Returning [] was less dangerous but still misleading: every node, resource and app
+        // metric would read "Insufficient data (7 days missing)" when the days were present
+        // and it was the query that failed.
+        getSnapshotsInRange.mockRejectedValue(new Error('getSnapshotsInRange failed: timeout'));
+        await expect(buildKpiReport('weekly', NOW)).rejects.toThrow(/getSnapshotsInRange failed/);
+    });
+
+    it('still reports a genuinely zero-revenue period as real data', async () => {
+        // Only a *failure* may refuse the report — a period that truly earned nothing is valid
+        getRevenueForDateRange.mockResolvedValue(0);
+        getDailyRevenueUSDInRange.mockResolvedValue([]);
+        getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 0, payments: 0 });
+
+        const report = await buildKpiReport('weekly', NOW);
+        const flux = report.dataset.sections[0].metrics.find(m => m.key === 'flux');
+
+        expect(flux.available).toBe(true);
+        expect(flux.current).toBe(0);
+        expect(report.dataset.empty).toBe(false);
     });
 });

@@ -46,10 +46,11 @@ function humanizeSeconds(seconds) {
 }
 
 /**
- * Check both limits without recording anything.
+ * Evaluate both limits without recording. Internal: callers must go through
+ * consumeRateLimit(), or two concurrent requests both pass here before either records.
  * @returns {{allowed: boolean, reason?: string, retryAfterSeconds?: number}}
  */
-export function checkRateLimit(clientKey, targetKey, now = Date.now()) {
+function evaluate(clientKey, targetKey, now) {
     prune(clientHits, DAY_MS, now);
     prune(targetHits, LIMITS.perTargetSeconds * 1000, now);
 
@@ -91,10 +92,50 @@ export function checkRateLimit(clientKey, targetKey, now = Date.now()) {
     return { allowed: true };
 }
 
-/** Record a successful send against both windows. */
-export function recordSend(clientKey, targetKey, now = Date.now()) {
-    clientHits.set(clientKey, [...(clientHits.get(clientKey) || []), now]);
-    targetHits.set(targetKey, [...(targetHits.get(targetKey) || []), now]);
+function record(map, key, now) {
+    map.set(key, [...(map.get(key) || []), now]);
+}
+
+/**
+ * Claim a slot against both windows, or refuse.
+ *
+ * Check and record happen in one synchronous pass on purpose. Node runs this to completion
+ * before handling another request, so nothing can interleave between the two halves. Doing
+ * it as separate check-then-record calls left a gap the width of the outbound Discord POST:
+ * two requests fired in parallel both passed the check before either recorded, which is
+ * exactly what the one-send-per-destination limit exists to prevent.
+ *
+ * @returns {{allowed: boolean, reason?: string, retryAfterSeconds?: number}}
+ */
+export function consumeRateLimit(clientKey, targetKey, now = Date.now()) {
+    const verdict = evaluate(clientKey, targetKey, now);
+    if (!verdict.allowed) return verdict;
+
+    record(clientHits, clientKey, now);
+    record(targetHits, targetKey, now);
+    return verdict;
+}
+
+/**
+ * Give a destination its slot back after a delivery that never arrived.
+ *
+ * The per-destination limit protects the *recipient* from being messaged repeatedly. A send
+ * that failed did not message anyone, so holding the slot would only punish a user whose
+ * webhook was mistyped by locking them out for five minutes.
+ *
+ * The client's own attempt is deliberately not refunded: it cost real server work, and
+ * making failures free is what would let a broken retry loop hammer the endpoint.
+ */
+export function refundTarget(targetKey) {
+    const times = targetHits.get(targetKey);
+    if (!times || times.length === 0) return;
+
+    // Drop the most recent stamp only — an earlier, unrelated send must keep its slot
+    const latest = Math.max(...times);
+    const remaining = times.filter(t => t !== latest);
+
+    if (remaining.length === 0) targetHits.delete(targetKey);
+    else targetHits.set(targetKey, remaining);
 }
 
 /** Test hook. */

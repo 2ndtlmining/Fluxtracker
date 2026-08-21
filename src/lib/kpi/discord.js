@@ -87,8 +87,19 @@ export function buildDiscordPayload(report) {
     const fields = dataset.sections.map(section => {
         const aggregationNote = section.aggregation === 'sum' ? 'SUM' : 'AVERAGE';
 
+        // A row aggregated differently from its section is called out by name. Without this
+        // the section heading would claim every number under it is a period total, and the
+        // average FLUX price row would read as the sum of every daily price.
+        const exceptions = section.mixedAggregation
+            ? section.metrics.filter(m => m.aggregation !== section.aggregation)
+            : [];
+        const exceptionNote = exceptions.length
+            ? `\nExcept ${exceptions.map(m => m.label).join(', ')}: ` +
+              `${AGGREGATION_TEXT[exceptions[0].aggregation]}.`
+            : '';
+
         let value =
-            `${AGGREGATION_TEXT[section.aggregation]}\n` +
+            `${AGGREGATION_TEXT[section.aggregation]}${exceptionNote}\n` +
             '```\n' + sectionTable(section) + '\n```';
         if (value.length > MAX_FIELD_CHARS) {
             value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
