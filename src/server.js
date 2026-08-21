@@ -91,7 +91,7 @@ import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCac
 import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 import { buildKpiReport, sendToDiscord, isValidDiscordWebhook } from './lib/services/kpiService.js';
 import { TIMEFRAMES } from './lib/kpi/periods.js';
-import { checkRateLimit, recordSend, LIMITS } from './lib/kpi/rateLimiter.js';
+import { consumeRateLimit, refundTarget, LIMITS } from './lib/kpi/rateLimiter.js';
 
 import { isBackupEnabled, getBackupStatus, performBackup, listBackups, restoreFromBackup } from './lib/services/backupService.js';
 
@@ -600,7 +600,9 @@ app.post('/api/kpi-report', async (req, res) => {
     const clientKey = clientKeyFor(req);
     const targetKey = `discord:${target.trim()}`;
 
-    const limit = checkRateLimit(clientKey, targetKey);
+    // Claimed up front, not after the send: checking here and recording after the outbound
+    // POST left a window where two parallel requests both passed before either was counted.
+    const limit = consumeRateLimit(clientKey, targetKey);
     if (!limit.allowed) {
         res.set('Retry-After', String(limit.retryAfterSeconds));
         return res.status(429).json({ error: limit.reason, retryAfterSeconds: limit.retryAfterSeconds });
@@ -610,6 +612,8 @@ app.post('/api/kpi-report', async (req, res) => {
         const report = await buildKpiReport(timeframe);
 
         if (report.dataset.empty) {
+            // Nothing was delivered, so the destination keeps its slot
+            refundTarget(targetKey);
             return res.status(422).json({
                 error: `Not enough historical data for a ${timeframe} report yet ` +
                        `(${report.currentLabel} vs ${report.comparisonLabel}). Choose a shorter timeframe.`,
@@ -618,7 +622,6 @@ app.post('/api/kpi-report', async (req, res) => {
         }
 
         await sendToDiscord(target.trim(), report);
-        recordSend(clientKey, targetKey);
 
         const incomplete = report.dataset.totalMetrics - report.dataset.availableMetrics;
         log.info(
@@ -636,6 +639,9 @@ app.post('/api/kpi-report', async (req, res) => {
         });
 
     } catch (error) {
+        // The report never arrived, so don't hold the destination's slot against it — a
+        // mistyped webhook should be correctable straight away, not in five minutes.
+        refundTarget(targetKey);
         log.error({ err: error, timeframe, target: maskWebhook(target) }, 'KPI report failed');
         // sendToDiscord throws user-safe messages; anything else stays generic
         res.status(502).json({ error: error.message || 'Could not send the KPI report.' });

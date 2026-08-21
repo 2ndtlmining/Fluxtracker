@@ -453,6 +453,14 @@ daily. Averaging rather than taking the last day matters here: roughly 37 days i
 have zeroed service values from a failed collection run, and an end-of-period reading landing on
 one of those would define the entire metric instead of nudging it.
 
+A **failed query is never reported as a number.** The four reads behind this report
+(`getSnapshotsInRange`, `getRevenueForDateRange`, `getDailyRevenueUSDInRange`,
+`getRevenueFromAddressesForDateRange`) throw on error rather than returning `0` or `[]`. They used
+to swallow it, and because revenue coverage is judged only on whether the period predates our
+transaction history, a database failure came back "covered" with a value of zero and rendered as a
+genuine collapse — `Flux 0.00 / -12,400.00 / -100.0%` — which was then posted to Discord as fact.
+The report is now refused instead. A period that genuinely earned nothing is still valid data.
+
 A day whose value is `0` is treated as **missing, not zero** for the snapshot metrics — a live
 network never truly has zero nodes or zero apps, so a zero means collection failed that day.
 
@@ -517,6 +525,13 @@ already delivery-agnostic, so only the transport and the attachment builder are 
 | Per client, per hour | 5 reports |
 | Per client, per day | 20 reports |
 | Per destination | 1 report per 5 minutes |
+
+The slot is claimed in the same synchronous pass as the check (`consumeRateLimit()`), not after
+the outbound POST: checking and recording as two separate calls left a gap the width of the
+Discord request, so two requests fired in parallel both passed before either was counted. If
+delivery fails the destination's slot is handed back — nothing was delivered, so a mistyped
+webhook should be correctable immediately — while the client's attempt still counts, since a
+failed attempt cost real work and making failures free would let a retry loop hammer the endpoint.
 
 Enforced server-side in `src/lib/kpi/rateLimiter.js`; the UI only reflects the result. Limits are
 in-memory, so a restart clears them — acceptable for a single-process deployment, but this needs

@@ -438,6 +438,15 @@ export async function getLastNSnapshots(n = 30) {
     }
 }
 
+/**
+ * Read failures on these four throw rather than returning an empty result.
+ *
+ * They feed the KPI report, which decides whether a metric has full day coverage before
+ * reporting it. A swallowed error returning 0 or [] is indistinguishable from a period that
+ * genuinely earned nothing, so a failed query used to render as a real figure -- "Flux 0.00,
+ * -12,400.00, -100.0%" -- and get posted to Discord as fact. Every caller either sits inside
+ * a try/catch or is a write path where aborting beats persisting a false zero.
+ */
 export async function getSnapshotsInRange(startDate, endDate) {
     try {
         return getDb().prepare(
@@ -445,7 +454,7 @@ export async function getSnapshotsInRange(startDate, endDate) {
         ).all(startDate, endDate);
     } catch (error) {
         log.error(`getSnapshotsInRange error: ${error.message}`);
-        return [];
+        throw new Error(`getSnapshotsInRange failed: ${error.message}`);
     }
 }
 
@@ -635,7 +644,7 @@ export async function getRevenueForDateRange(startDate, endDate) {
         return row.total;
     } catch (error) {
         log.error(`getRevenueForDateRange error: ${error.message}`);
-        return 0;
+        throw new Error(`getRevenueForDateRange failed: ${error.message}`);
     }
 }
 
@@ -657,7 +666,7 @@ export async function getRevenueFromAddressesForDateRange(startDate, endDate, ad
         return { revenue: row.revenue || 0, payments: row.payments || 0 };
     } catch (error) {
         log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
-        return { revenue: 0, payments: 0 };
+        throw new Error(`getRevenueFromAddressesForDateRange failed: ${error.message}`);
     }
 }
 
@@ -899,7 +908,7 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
         return rows;
     } catch (error) {
         log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
-        return [];
+        throw new Error(`getDailyRevenueUSDInRange failed: ${error.message}`);
     }
 }
 
