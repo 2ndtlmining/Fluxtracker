@@ -453,6 +453,44 @@ underneath the `Revenue - SUM` heading rather than letting the heading misdescri
 used" is the same number whether the network grew or capacity collapsed; the percentage is what
 separates those. Both are shown so a reader can see which one moved.
 
+**RAM and SSD are reported in TB.** The `daily_snapshots` columns are named `used_ram_gb` and
+`used_storage_gb`, but the values they hold are terabytes — fluxbench reports node RAM/SSD in GB
+and `cloudService.js` divides by 1000. Numerator and denominator are scaled alike so the
+utilization percentages were always right, but the raw figures were labelled GB, which understated
+the network by 1000x ("RAM used 17.2 GB" across 6,400 apps). The column names are left alone —
+renaming them needs a migration for no behaviour change — and every display site says TB instead.
+
+### Reading the report: revenue is a flow, everything else is a stock
+
+The most common way to misread this report is to expect revenue to track apps and utilization.
+It often won't, for two independent reasons, and neither is a fault in the numbers.
+
+**Revenue is a flow; apps and resources are a stock.** Revenue counts payments that *landed*
+during the period. Apps, nodes and utilization are point-in-time readings of what *exists*. Those
+answer different questions. 6,400 apps do not renew on an even schedule, so a week's revenue
+reflects whose subscriptions happened to fall due that week — lumpy by nature, and capable of
+falling while the installed base grows. A period where apps rise and revenue drops is ordinary.
+
+**Self-funded revenue moves with Flux's own budget, not with demand.** The Flux team's hosting
+spend is real revenue and is included in the headline, but it is one payer making internal
+decisions. It can swamp everything else. A worked example from the week of Aug 10-16 2026:
+
+| Bucket | Previous | Current | Change |
+|---|---|---|---|
+| Self-funded | 25,352 | 16,814 | **-8,539** |
+| Fiat gateway | 27,982 | 25,291 | -2,691 |
+| Everything else | 2,927 | 5,844 | **+2,917** |
+| **Total** | **56,262** | **47,948** | **-8,313** |
+
+The headline fell 14.8%, which reads as a bad week. But the self-funded decline alone is 103% of
+the total drop, and third-party crypto revenue nearly doubled — consistent with apps being up
+3.5% in the same period. This is exactly why the report breaks Self-funded and Fiat out as
+separate lines rather than only showing a total: **subtract them before reading the headline as
+a demand signal.**
+
+To measure demand directly, count apps *deployed* during the period rather than revenue received.
+That is a different metric and not currently in the report.
+
 Worked examples:
 
 > **USD Revenue - sum across the period.** The daily revenue values for the week are added

@@ -86,11 +86,11 @@
         { id: 'ram_util', label: 'RAM Utilization %', field: 'ram_utilization_percent', format: 'percent' },
         { id: 'storage_util', label: 'Storage Utilization %', field: 'storage_utilization_percent', format: 'percent' },
         { id: 'cpu_total', label: 'Total CPU cores', field: 'total_cpu_cores', format: 'number' },
-        { id: 'ram_total', label: 'Total Ram GB', field: 'total_ram_gb', format: 'number' },
-        { id: 'storage_total', label: 'Total Storage GB', field: 'total_storage_gb', format: 'number' },
+        { id: 'ram_total', label: 'Total Ram TB', field: 'total_ram_gb', format: 'number' },
+        { id: 'storage_total', label: 'Total Storage TB', field: 'total_storage_gb', format: 'number' },
         { id: 'cpu_used', label: 'Used CPU cores', field: 'used_cpu_cores', format: 'number' },
-        { id: 'ram_used', label: 'Used Ram GB', field: 'used_ram_gb', format: 'number' },
-        { id: 'storage_used', label: 'Used Storage GB', field: 'used_storage_gb', format: 'number' },
+        { id: 'ram_used', label: 'Used Ram TB', field: 'used_ram_gb', format: 'number' },
+        { id: 'storage_used', label: 'Used Storage TB', field: 'used_storage_gb', format: 'number' },
       ]
     },
     apps: {

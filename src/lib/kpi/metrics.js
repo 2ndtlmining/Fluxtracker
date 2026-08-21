@@ -279,8 +279,11 @@ export function formatValue(value, format) {
             return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         case 'flux':
             return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        case 'gb':
-            return value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' GB';
+        case 'tb':
+            // TB, not GB: the daily_snapshots columns are named *_gb but the values are
+            // terabytes. Labelling them GB understated the network by 1000x - "RAM used
+            // 17.2 GB" across 6,400 apps, when the real figure is 17.2 TB.
+            return value.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' TB';
         case 'cores':
             return Math.round(value).toLocaleString('en-US') + ' cores';
         case 'usd4':
