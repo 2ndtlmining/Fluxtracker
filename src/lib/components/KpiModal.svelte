@@ -145,8 +145,10 @@
     </div>
 
     <p class="kpi-intro">
-      Compares the most recently completed period against the one before it. The
-      in-progress period is never included.
+      Compares the most recently completed period against the one before it — the
+      in-progress period is never included. Revenue is the <strong>sum</strong> of the period;
+      nodes, resources and applications are the <strong>daily average</strong>. A metric is only
+      reported when every day in both periods has data.
     </p>
 
     <fieldset class="kpi-field">
@@ -170,6 +172,9 @@
                   {info.currentLabel} vs {info.comparisonLabel}
                 {:else}
                   Not enough history yet
+                {/if}
+                {#if info.available && info.availableMetrics < info.totalMetrics}
+                  &mdash; {info.totalMetrics - info.availableMetrics} metric(s) lack full data
                 {/if}
               </span>
             {/if}

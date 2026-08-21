@@ -3,8 +3,10 @@ import {
     getSnapshotsInRange,
     getRevenueForDateRange,
     getDailyRevenueUSDInRange,
-    getOldestTransactionDate
+    getOldestTransactionDate,
+    getRevenueFromAddressesForDateRange
 } from '../db/database.js';
+import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily } from '../kpi/metrics.js';
 import { buildDiscordPayload, isValidDiscordWebhook } from '../kpi/discord.js';
@@ -19,14 +21,25 @@ const WEBHOOK_TIMEOUT_MS = 10000;
  * numbers can't drift apart.
  */
 async function getPeriodRevenue({ start, end }) {
-    const [flux, usdRows] = await Promise.all([
+    const [flux, usdRows, selfFunded, fiat] = await Promise.all([
         getRevenueForDateRange(start, end),
-        getDailyRevenueUSDInRange(start, end)
+        getDailyRevenueUSDInRange(start, end),
+        getRevenueFromAddressesForDateRange(start, end, FLUX_TEAM_ADDRESSES),
+        getRevenueFromAddressesForDateRange(start, end, FLUX_FIAT_ADDRESSES)
     ]);
 
+    const total = flux || 0;
+    // Shares are of total FLUX revenue for the same period, so they always add up against
+    // the Flux row directly above them in the report.
+    const share = (part) => (total > 0 ? (part / total) * 100 : 0);
+
     return {
-        flux: flux || 0,
+        flux: total,
         usd: sumDaily(usdRows, 'daily_revenue_usd'),
+        selfFunded: selfFunded.revenue,
+        selfFundedShare: share(selfFunded.revenue),
+        fiat: fiat.revenue,
+        fiatShare: share(fiat.revenue),
         days: dayCount(start, end)
     };
 }

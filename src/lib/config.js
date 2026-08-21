@@ -26,6 +26,20 @@ export const FLUX_TEAM_ADDRESSES = [
     // Add more Flux team addresses here as needed
 ];
 
+// ============================================
+// FLUX FIAT GATEWAY ADDRESSES
+// ============================================
+// Payments made through Flux's fiat on-ramp arrive from this address. Splitting them out
+// separates "someone paid with a card" from "someone paid with FLUX they already held",
+// which are very different signals about how the network is being bought into.
+export const FLUX_FIAT_ADDRESSES = [
+    't1XktDZ9Z1QiefMYE5nMFohe8VG2c2BD5A5', // Flux fiat gateway
+];
+
+export function isFluxFiatAddress(address) {
+    return FLUX_FIAT_ADDRESSES.includes(address);
+}
+
 // Initial sync lookback for first run.
 // 1,500,000 covers all Flux history (chain launched ~2018, mixed 120s/30s blocks).
 // Increase if you need more. The getaddresstxids API handles large ranges natively.
