@@ -67,16 +67,14 @@ function start(name, entry, env) {
 }
 
 /**
- * Wait on /api/health/live, not /api/health.
+ * Poll /api/health/live, not /api/health.
  *
  * The full health check reports unhealthy when the price history is stale, which is a real
  * signal but has nothing to do with whether the process has finished booting. Gating startup
  * on it would refuse to start the frontend over a days-old price row.
  */
-async function waitForApi() {
-    const url = `http://127.0.0.1:${API_PORT}/api/health/live`;
-
-    for (let attempt = 0; attempt < 30; attempt++) {
+async function waitFor(url, attempts = 30) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
         try {
             const response = await fetch(url, { signal: AbortSignal.timeout(1000) });
             if (response.ok) return true;
@@ -94,16 +92,34 @@ process.on('SIGTERM', () => shutdown(0));
 console.log(`Starting API on port ${API_PORT}...`);
 start('API', join(root, 'src', 'server.js'), { PORT: API_PORT });
 
-if (!(await waitForApi())) {
+if (!(await waitFor(`http://127.0.0.1:${API_PORT}/api/health/live`))) {
     console.error(`API did not respond on port ${API_PORT} within 30s — check the output above.`);
     shutdown(1);
 }
 
+// API_PORT goes to the frontend too: hooks.server.js proxies /api/* to the API, and it has to
+// be told the same port the API was actually started on or every request 503s.
 console.log(`API ready. Starting frontend on port ${FRONTEND_PORT}...`);
-start('Frontend', BUILD_ENTRY, { PORT: FRONTEND_PORT, HOST, ORIGIN });
+start('Frontend', BUILD_ENTRY, { PORT: FRONTEND_PORT, HOST, ORIGIN, API_PORT });
+
+/**
+ * Verify the proxy, not just the two processes.
+ *
+ * Both can be up and healthy while the frontend still cannot reach the API — that is exactly
+ * what a port mismatch looks like, and checking each process separately misses it completely.
+ * This request follows the same path the browser does, so if it passes the dashboard has data.
+ */
+if (!(await waitFor(`http://127.0.0.1:${FRONTEND_PORT}/api/health/live`, 20))) {
+    console.error('');
+    console.error(`Frontend is up on ${FRONTEND_PORT} but cannot reach the API through its /api/* proxy.`);
+    console.error('The dashboard would load with no data ("API proxy error: fetch failed").');
+    console.error(`Most likely the build predates the configurable proxy — run \`npm run build\` and retry.`);
+    shutdown(1);
+}
 
 console.log('');
 console.log(`  Dashboard  http://localhost:${FRONTEND_PORT}`);
 console.log(`  API        http://localhost:${API_PORT}/api/health`);
+console.log(`  Proxy      /api/* -> 127.0.0.1:${API_PORT}  (verified)`);
 console.log('');
 console.log('Ctrl+C stops both.');

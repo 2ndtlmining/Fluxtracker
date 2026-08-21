@@ -166,6 +166,15 @@ API on port 3000, then the built SvelteKit server on 5173 once the API answers. 
 `API_PORT` / `FRONTEND_PORT`. Ctrl+C stops both, and if either process dies the other is
 stopped too — half the stack running is never useful.
 
+Before printing its banner it makes one request to `/api/health/live` **through the frontend**,
+which is the same path the browser takes. Two healthy processes that cannot reach each other is
+exactly what a port mismatch looks like, and checking them separately misses it entirely.
+
+`API_PORT` is passed to both processes, because `hooks.server.js` has to proxy to the port the
+API was actually started on. **Changing it requires `npm run build`** — `hooks.server.js` is
+compiled into `build/`, so a stale build keeps proxying to the old port and every request fails
+with `API proxy error: fetch failed`, which reads like the API is down rather than misaddressed.
+
 **Two processes are required, not one.** The browser only ever talks to the SvelteKit server;
 `src/hooks.server.js` proxies every `/api/*` request onward to Express. That is what makes the
 single-port setup work on Flux, and it means `npm run start` on its own serves pages whose API

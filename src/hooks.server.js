@@ -1,7 +1,22 @@
 // src/hooks.server.js
-// API Proxy - Routes /api/* requests to the Express backend on port 3000
+// API Proxy - Routes /api/* requests to the Express backend.
 
-const API_BASE = 'http://127.0.0.1:3000';
+/**
+ * Where the Express API is listening.
+ *
+ * Read from the environment rather than hardcoded, because the port has to agree with the one
+ * the API was actually started on. It used to be a fixed 127.0.0.1:3000 while startup.sh and
+ * scripts/start-all.mjs both accepted an API_PORT override — so moving the API off 3000 left
+ * the proxy still calling 3000 and every request failed with "API proxy error: fetch failed",
+ * which looks like the API is down rather than like a port mismatch.
+ *
+ * Evaluated when the built server boots, so it follows the runtime environment; the default
+ * keeps existing deployments that set nothing working unchanged.
+ */
+const API_PORT = process.env.API_PORT || '3000';
+const API_BASE = process.env.API_BASE || `http://127.0.0.1:${API_PORT}`;
+
+console.log(`[API Proxy] forwarding /api/* to ${API_BASE}`);
 
 /** @type {import('@sveltejs/kit').Handle} */
 export async function handle({ event, resolve }) {
