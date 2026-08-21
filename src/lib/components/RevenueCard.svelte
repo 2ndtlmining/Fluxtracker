@@ -4,6 +4,9 @@
   export let payments = { count: 0 };
   export let usd = { amount: 0 };
   export let flux = { amount: 0, change: 0, trend: 'neutral' };
+  // Portion of the period's revenue paid by Flux team addresses. Shown as a secondary
+  // line, never subtracted from the headline figures — the total stays the primary number.
+  export let selfFunded = null;
   export let loading = false;
   export let period = 'D'; // D, W, M, Q, Y
   
@@ -17,6 +20,10 @@
   };
   
   $: periodName = periodNames[period] || 'Daily Revenue';
+
+  // "none this day/week/month..." reads better than a bare zero
+  const periodWords = { D: 'day', W: 'week', M: 'month', Q: 'quarter', Y: 'year' };
+  $: periodWord = periodWords[period] || 'day';
   
   /**
    * Format payment counts
@@ -122,6 +129,24 @@
         {/if}
       </div>
     </div>
+
+    <!-- Rendered whenever the API reported a figure, including zero. Hiding it on days with
+         no team payments made the line look broken rather than informative — "Daily" often
+         genuinely has none. -->
+    {#if selfFunded}
+      <div class="self-funded" class:none={!selfFunded.flux} title="Revenue paid by Flux team addresses, already included in the totals above">
+        <span class="self-funded-label">Self-funded</span>
+        {#if selfFunded.flux > 0}
+          <span class="self-funded-value">{formatFlux(selfFunded.flux)} FLUX</span>
+          <span class="self-funded-sep">·</span>
+          <span class="self-funded-value">{formatUsd(selfFunded.usd)}</span>
+          <span class="self-funded-sep">·</span>
+          <span class="self-funded-percent">{(selfFunded.percent ?? 0).toFixed(1)}% of total</span>
+        {:else}
+          <span class="self-funded-value">none this {periodWord}</span>
+        {/if}
+      </div>
+    {/if}
   {:else}
     <div class="loading-state">Loading revenue data...</div>
   {/if}
@@ -266,5 +291,54 @@
   .revenue-card:hover .revenue-icon :global(svg) {
     filter: drop-shadow(0 0 15px rgba(0, 255, 255, 0.5));
     transform: scale(1.05);
+  }
+
+  /* Deliberately understated: a footnote under the headline metrics, not a fourth column.
+     Purple matches the Flux-team highlight in the transaction table. */
+  .self-funded {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid rgba(189, 147, 249, 0.2);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .self-funded-label {
+    color: var(--accent-purple);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .self-funded-value {
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .self-funded-sep {
+    color: var(--border-color);
+  }
+
+  .self-funded-percent {
+    color: var(--accent-purple);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 768px) {
+    .self-funded {
+      font-size: 0.65rem;
+    }
+  }
+
+  .self-funded.none {
+    border-top-color: var(--border-color);
+  }
+
+  .self-funded.none .self-funded-label {
+    color: var(--text-muted);
   }
 </style>

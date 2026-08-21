@@ -11,6 +11,7 @@ import {
     getTransactionsByDate,
     getRevenueForDateRange,
     getPaymentCountForDateRange,
+    getRevenueFromAddressesForDateRange,
     getDatabaseStats,
     getTxidCount,
     getTransactionsPaginated,
@@ -40,7 +41,7 @@ import {
 import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } from './lib/db/circuitBreaker.js';
 import { switchToFailover, getActiveInstanceName, hasFailover } from './lib/db/supabaseClient.js';
 
-import { getDisplayName, groupReposByCanonicalName, CATEGORY_CONFIG, APP_VERSION, API_ENDPOINTS } from './lib/config.js';
+import { getDisplayName, groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, APP_VERSION, API_ENDPOINTS, FLUX_TEAM_ADDRESSES } from './lib/config.js';
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger('server');
@@ -87,6 +88,7 @@ import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
+import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 
 import { isBackupEnabled, getBackupStatus, performBackup, listBackups, restoreFromBackup } from './lib/services/backupService.js';
 
@@ -343,6 +345,9 @@ app.get('/api/header', async (req, res) => {
             arcaneOsCodename = codename;
         } catch (_) {}
 
+        // Never blocks the header — resolves to null (or a stale value) on failure
+        const hostLocation = await getHostLocation().catch(() => null);
+
         return {
             network: {
                 fluxPriceUsd: metrics?.flux_price_usd || null,
@@ -365,7 +370,17 @@ app.get('/api/header', async (req, res) => {
                 cpuCores: os.cpus().length,
                 totalMemMB: Math.round(os.totalmem() / 1048576),
                 usedMemMB: Math.round((os.totalmem() - os.freemem()) / 1048576),
-                memPercent: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100)
+                memPercent: Math.round(((os.totalmem() - os.freemem()) / os.totalmem()) * 100),
+                // Where this instance is running. On Flux the app moves between nodes, so
+                // this changes on redeploy. Cached for 6h and null if the lookup fails.
+                location: hostLocation
+                    ? {
+                        city: hostLocation.city,
+                        region: hostLocation.region,
+                        country: hostLocation.country,
+                        countryCode: hostLocation.countryCode
+                    }
+                    : null
             },
             appVersion: APP_VERSION
         };
@@ -483,6 +498,23 @@ app.post('/api/admin/backfill-usd', async (req, res) => {
     } catch (error) {
         log.error({ err: error }, 'USD backfill failed');
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Where this server thinks it is running, and how it worked that out.
+// The lookup is made by the Node process, so the reported IP is the server's own public
+// egress address — never the viewer's. Use this to confirm the header on a Flux node.
+app.get('/api/admin/host-location', async (_req, res) => {
+    try {
+        const location = await getHostLocation();
+        res.json({
+            location,
+            resolvedFrom: 'server-side lookup (the Node process calls the geo API, not the browser)',
+            error: getHostLocationError(),
+            serverTime: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -659,6 +691,15 @@ app.get('/api/revenue/:period', async (req, res) => {
 
         const currentUsd = currentRevenue * fluxPrice;
 
+        // Self-funded share: revenue paid by Flux team addresses. Reported alongside the
+        // headline total, never subtracted from it — the total stays the primary number.
+        const selfFunded = await getRevenueFromAddressesForDateRange(
+            currentStart, currentEnd, FLUX_TEAM_ADDRESSES
+        );
+        const selfFundedPercent = currentRevenue > 0
+            ? (selfFunded.revenue / currentRevenue) * 100
+            : 0;
+
         res.json({
             period: period,
             current: {
@@ -691,6 +732,12 @@ app.get('/api/revenue/:period', async (req, res) => {
                 previous: previousRevenue,
                 change: changePercent,
                 trend: trend
+            },
+            selfFunded: {
+                flux: selfFunded.revenue,
+                usd: selfFunded.revenue * fluxPrice,
+                payments: selfFunded.payments,
+                percent: Math.round(selfFundedPercent * 10) / 10
             },
             timestamp: Date.now()
         });
@@ -977,12 +1024,29 @@ app.get('/api/metrics/category/:category/top', async (req, res) => {
         // Pull the whole category, not just `limit` rows: variants of one game (Minecraft
         // Java + Bedrock, the several Valheim/Rust images) are separate rows here and get
         // merged below, so slicing before grouping would drop instances from the totals.
-        const { date, repos } = await getTopReposByCategory(category, CATEGORY_FETCH_LIMIT);
+        const { date, repos: storedRepos } = await getTopReposByCategory(category, CATEGORY_FETCH_LIMIT);
         if (!date) {
             return { category, date: null, total: 0, previousTotal: 0, repos: [], previousRepos: [], days };
         }
 
-        const total = await getCategoryTotal(category, date);
+        // Re-check the category against current config rather than trusting the value
+        // stored at write time. Category config is hand-edited, and without this an image
+        // that has since been excluded (the *-server-website frontends) keeps showing up
+        // on the card until someone remembers to POST /api/admin/recategorize-repos.
+        const repos = storedRepos.filter(r => categorizeImage(r.image_name) === category);
+        const excluded = storedRepos.length - repos.length;
+
+        let total = await getCategoryTotal(category, date);
+        if (excluded > 0) {
+            // Stored total still counts the now-excluded images, so recompute from the rows
+            total = repos.reduce((sum, r) => sum + r.instance_count, 0);
+            log.info(
+                { category, excluded },
+                '%s: %d stored image(s) no longer match the category — run /api/admin/recategorize-repos to update history',
+                category,
+                excluded
+            );
+        }
 
         // Get comparison data from N days ago (based on query param)
         const prevDate = new Date(date);

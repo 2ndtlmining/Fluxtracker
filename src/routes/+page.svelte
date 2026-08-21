@@ -368,6 +368,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         payments={revenueFormatted.payments}
         usd={revenueFormatted.usd}
         flux={revenueFormatted.flux}
+        selfFunded={revenueData?.selfFunded || null}
         period={comparisonPeriod}
         {loading}
     />

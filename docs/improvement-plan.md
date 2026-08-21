@@ -70,6 +70,13 @@ The suffix-stripping fallback produced "Minecraft Server Website" and "Rust Game
 `CANONICAL_NAME_OVERRIDES` + `getCanonicalName()` is the intended path; keep it populated as
 new images appear rather than relying on the fallback.
 
+### Clipboard and other secure-context APIs
+`navigator.clipboard` is undefined outside a secure context, and the dashboard is regularly
+served over plain http from an IP or Flux node URL. The donate button called it directly and
+threw before copying anything, logging only to the console. Any browser API gated on
+`window.isSecureContext` needs a fallback plus visible feedback — silent failure in the UI is
+the same class of bug as a silent cap in a query.
+
 ### `min-width: 0` discipline
 A long unbreakable label overflowed the gaming card because the grid item never shrank —
 `text-overflow: ellipsis` cannot work without it. Worth auditing the other card components
@@ -113,7 +120,10 @@ game totals inflate again.
 - **PR #56** — Historical USD revenue: replaced the dead CryptoCompare source with a keyless
   Binance → CoinGecko chain, made `syncPriceHistory()` gap-aware, added `.range()` paging to
   three truncating Supabase queries, fixed backfill paging, added price-history health.
-- **This round** — Category accuracy and data alignment: unified category counting through
+- **Follow-up round** — Donate button copy fallback for insecure contexts, host geolocation in
+  the header (`hostLocationService.js`), self-funded revenue share on the revenue card, and
+  read-time category re-validation so config changes take effect without an admin call.
+- **Earlier round** — Category accuracy and data alignment: unified category counting through
   `categorizeImage()`, canonical-name grouping, companion-website exclusion, shared
   running-apps fetch, per-service isolation (#51), config-driven intervals (#50), shared
   refresh signal (#53), freshness-bound LIVE badge (#54), CSV export paging, card overflow,

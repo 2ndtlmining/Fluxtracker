@@ -141,12 +141,48 @@
     return 'yellow';
   }
 
-  function copyDonationAddress() {
-    navigator.clipboard.writeText(DONATION_ADDRESSES[0]).then(() => {
-      console.log('Donation address copied to clipboard!');
-    }).catch(err => {
-      console.error('Failed to copy address:', err);
-    });
+  // Copy state drives the button label so the user gets confirmation
+  let copyState = 'idle';   // 'idle' | 'copied' | 'error'
+  let copyResetTimer;
+
+  /**
+   * navigator.clipboard only exists in a secure context. The dashboard is regularly served
+   * over plain http from an IP or a Flux node URL, where it is undefined — so the original
+   * one-liner threw before copying anything and only logged to the console. Fall back to a
+   * hidden textarea + execCommand, which still works on insecure origins.
+   */
+  async function copyDonationAddress() {
+    const address = DONATION_ADDRESSES[0];
+    let ok = false;
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(address);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+
+    if (!ok) {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = address;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+      } catch {
+        ok = false;
+      }
+    }
+
+    copyState = ok ? 'copied' : 'error';
+    clearTimeout(copyResetTimer);
+    copyResetTimer = setTimeout(() => { copyState = 'idle'; }, 2000);
   }
 </script>
 
@@ -174,9 +210,20 @@
         <span class="footer-value cyan">{totalTransactions.toLocaleString('en-US').replace(/,/g, ' ')}</span> transactions
       </span>
       <span class="footer-divider">|</span>
-      <button class="donation-btn" on:click={copyDonationAddress} title="Click to copy donation address">
+      <button
+        class="donation-btn"
+        class:copied={copyState === 'copied'}
+        class:error={copyState === 'error'}
+        on:click={copyDonationAddress}
+        title={copyState === 'error'
+          ? `Copy failed — donation address: ${DONATION_ADDRESSES[0]}`
+          : `Click to copy the FLUX donation address
+${DONATION_ADDRESSES[0]}`}
+      >
         <Heart size={14} strokeWidth={2} />
-        <span class="donation-text">Donate</span>
+        <span class="donation-text">
+          {#if copyState === 'copied'}Copied!{:else if copyState === 'error'}Copy failed{:else}Donate{/if}
+        </span>
       </button>
     </div>
 
@@ -277,6 +324,22 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
+  }
+
+  .donation-btn.copied {
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+  }
+
+  .donation-btn.error {
+    border-color: var(--accent-red, #ff5555);
+    color: var(--accent-red, #ff5555);
+  }
+
+  /* Label swaps between "Donate" and "Copied!" — pin a width so the footer doesn't jump */
+  .donation-text {
+    min-width: 4.5rem;
+    text-align: left;
   }
 
   .donation-btn:hover {

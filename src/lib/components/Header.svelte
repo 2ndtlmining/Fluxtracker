@@ -19,7 +19,7 @@
 
   // Host stats
   let platform = '...';
-  let nodeVersion = '...';
+  let hostLocation = null;
   let cpuCores = 0;
   let totalMemMB = 0;
   let usedMemMB = 0;
@@ -83,7 +83,7 @@
 
       // Host
       platform = data.host.platform;
-      nodeVersion = data.host.nodeVersion;
+      hostLocation = data.host.location || null;
       cpuCores = data.host.cpuCores;
       totalMemMB = data.host.totalMemMB;
       usedMemMB = data.host.usedMemMB;
@@ -110,6 +110,12 @@
     if (status === 'online') return 'green';
     if (status === 'offline') return 'red';
     return 'yellow';
+  }
+
+  /** "Melbourne, Australia" — falls back to just the country when the city is unknown */
+  function formatLocation(location) {
+    if (!location) return '';
+    return location.city ? `${location.city}, ${location.country}` : location.country;
   }
 
   function getMemClass(percent) {
@@ -163,12 +169,15 @@
 
       <!-- Row 3: Host System (hidden on mobile) -->
       <div class="stats-line host-line">
+        {#if hostLocation}
+          <span class="system-stat" title="Where this instance is currently running">
+            Hosted in
+            <span class="system-stat-value">{formatLocation(hostLocation)}</span>
+          </span>
+          <span class="stat-separator">|</span>
+        {/if}
         <span class="system-stat">
-          <span class="system-stat-value">{platform}</span>
-        </span>
-        <span class="stat-separator">|</span>
-        <span class="system-stat">
-          <span class="system-stat-value">{nodeVersion}</span>
+          Running on <span class="system-stat-value">{platform}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">

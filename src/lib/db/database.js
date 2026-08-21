@@ -49,6 +49,7 @@ export const {
     getTransactionsByBlockRange,
     getRevenueForDateRange,
     getPaymentCountForDateRange,
+    getRevenueFromAddressesForDateRange,
     getRevenueForBlockRange,
     getLastSyncedBlock,
     getTxidCount,
