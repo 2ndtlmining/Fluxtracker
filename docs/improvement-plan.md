@@ -5,14 +5,30 @@ items to **Done** with the PR number rather than deleting them, so the reasoning
 
 Last reviewed: 2026-08-21
 
+Every item below is tracked as a GitHub issue — this file is the reasoning, the issues are the queue.
+
 ---
 
 ## Open GitHub issues — triage
 
 Each verified against the code and against live network data on 2026-08-21.
 
-| # | Title | Verdict | Priority |
+| # | Title | Label | Notes |
 |---|---|---|---|
+| 61 | Enable email delivery for KPI reports | `enhancement` `kpi` | Needs SMTP creds, `nodemailer` + `exceljs`, 5 env vars. No separate app required |
+| 62 | KPI revenue split by app category | `enhancement` `kpi` | Depends on #38. Categories must reconcile to the headline Flux figure |
+| 63 | Scheduled KPI reports | `enhancement` `kpi` | `node-cron` already a dependency; needs a stored destination list |
+| 64 | Backfill app-count columns | `enhancement` `data-quality` | The single thing blocking Quarterly Applications. `repo_snapshots` may allow reconstruction |
+| 65 | Single retry helper across services | `tech-debt` | Four different retry policies now; supersedes the code-quality half of #52 |
+| 38 | `app_category` column on revenue transactions | — | Precondition for #62. Cheap now that categorisation is unified |
+| 55 | External API fetches not circuit-broken | `enhancement` | The breaker only wraps the DB |
+| 52 | Inconsistent retry logic | `bug` | See #65 |
+| 49 | Spacing between gaming/crypto boxes | — | Re-check; the `min-width: 0` fix may already have resolved it |
+
+**Closed as fixed** (verified on `main`): #39 FluxOS codename, #47 Flux DNS as game, #48 Monthly = Daily,
+#50 config intervals, #51 service isolation, #53 Refresh button, #54 LIVE badge.
+
+---|---|---|---|
 | 38 | `app_category` column on revenue transactions | Real. Much cheaper now that categorisation is unified in `categorizeImage()` — the sync can call it directly and store the result | **P1** |
 | 49 | Spacing between gaming/crypto boxes | Real, cosmetic. Same grid family as the label overflow; re-check now that `min-width: 0` is in place | **P2** |
 | 52 | Inconsistent retry logic across services | Real. See "One retry helper" below | **P2** |
@@ -107,6 +123,12 @@ curl -s "https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image" 
 ```
 
 Anything with meaningful instance counts that lands in "Other" is a candidate.
+
+### Fiat gateway addresses
+`FLUX_FIAT_ADDRESSES` drives the Fiat revenue metric and the FIAT badge. It is a list, and
+everything downstream takes the whole array, so adding a gateway is a one-line config change.
+The failure mode is silent: an unlisted gateway makes the Fiat figure *under-report* rather than
+error. Re-check against a known fiat purchase whenever the number looks off.
 
 ### Companion websites
 `runonflux/*-server-website` images are excluded via `CATEGORY_EXCLUDE`. If the Flux team
