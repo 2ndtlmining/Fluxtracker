@@ -2,13 +2,26 @@
 
 import { testAllServices } from './test-allServices.js';
 import { fetchCarouselData } from './carouselService.js';  // UPDATED: Use new function name
+import { CLOUD_CONFIG, GAMING_CONFIG, WORDPRESS_CONFIG, CAROUSEL_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('servicesScheduler');
 
-// Configuration
-const TEST_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const CAROUSEL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour (same as other services)
+// Configuration — driven by config.js instead of a hardcoded hour.
+// A cycle refreshes every service, so it has to run at the shortest interval any of them
+// declares; anything slower makes that service's stated interval a lie. These used to be
+// hardcoded to 1h, which is why dashboard numbers could be an hour stale (issue #50).
+const SERVICE_INTERVALS = [
+    CLOUD_CONFIG.updateInterval,
+    GAMING_CONFIG.updateInterval,
+    WORDPRESS_CONFIG.updateInterval
+].filter(ms => typeof ms === 'number' && ms > 0);
+
+const TEST_INTERVAL_MS = SERVICE_INTERVALS.length > 0
+    ? Math.min(...SERVICE_INTERVALS)
+    : 5 * 60 * 1000;
+
+const CAROUSEL_INTERVAL_MS = CAROUSEL_CONFIG.updateInterval;
 
 // State tracking
 let intervalId = null;
@@ -163,6 +176,7 @@ export function getServiceTestSchedulerStatus() {
     return {
         isSchedulerRunning: !!intervalId,
         isTestInProgress: isRunning,
+        intervalMs: TEST_INTERVAL_MS,
         lastRun,
         consecutiveFailures,
         isHealthy: consecutiveFailures < 3
@@ -176,6 +190,7 @@ export function getCarouselSchedulerStatus() {
     return {
         isSchedulerRunning: !!carouselIntervalId,
         isUpdateInProgress: isCarouselRunning,
+        intervalMs: CAROUSEL_INTERVAL_MS,
         lastRun: lastCarouselRun,
         consecutiveFailures: consecutiveCarouselFailures,
         isHealthy: consecutiveCarouselFailures < 3

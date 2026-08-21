@@ -1,102 +1,41 @@
 // flux-performance-dashboard/src/lib/services/cryptoService.js
 
-import axios from 'axios';
-import { API_ENDPOINTS, CRYPTO_REPOS } from '../config.js';
+import { CRYPTO_REPOS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus } from '../db/database.js';
+import { getRunningApps, countByCategory, countConfiguredRepos } from './runningAppsProvider.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('cryptoService');
 
 /**
- * Fetch crypto node statistics
- * Counts specific crypto repos running on the network
+ * Fetch crypto node statistics.
+ *
+ * `crypto_nodes_total` uses categorizeImage() — the same rule the crypto category card
+ * uses — so both surfaces report the same number. CRYPTO_REPOS drives the featured
+ * per-node breakdown columns only.
  */
 export async function fetchCryptoStats() {
-    const MAX_RETRIES = 3;
-    let retries = 0;
+    try {
+        log.info('Fetching crypto node statistics...');
 
-    while (retries < MAX_RETRIES) {
-        try {
-            console.log('🔍 Fetching crypto node statistics...');
+        const runningApps = await getRunningApps();
 
-            const response = await axios.get(
-                API_ENDPOINTS.RUNNING_APPS,
-                { timeout: 15000 }
-            );
+        const cryptoCounts = countConfiguredRepos(runningApps, CRYPTO_REPOS);
+        const total = countByCategory(runningApps, 'crypto');
 
-            if (response.data && response.data.status === 'error' && response.data.data) {
-                const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
-                console.error(errorMessage);
-                await updateSyncStatus('crypto', 'failed', errorMessage);
-                return; // Exit the function early
-            }
+        const cryptoData = { ...cryptoCounts, crypto_nodes_total: total };
 
-            const appsData = response.data.data;
+        await updateCurrentMetrics(cryptoData);
+        await updateSyncStatus('crypto', 'completed');
 
-            // Check if appsData is an array or an object with a message
-            if (Array.isArray(appsData)) {
-                // Initialize counts for each crypto node
-                const cryptoCounts = {};
-                CRYPTO_REPOS.forEach(crypto => {
-                    cryptoCounts[crypto.dbKey] = 0;
-                });
+        log.info({ cryptoData }, 'Crypto stats updated: %d instances', total);
 
-                // Process each node's running apps
-                appsData.forEach(app => {
-                    if (app.apps && app.apps.runningapps) {
-                        app.apps.runningapps.forEach(runningApp => {
-                            const image = runningApp.Image || '';
+        return cryptoData;
 
-                            // Check against all configured crypto repos
-                            CRYPTO_REPOS.forEach(crypto => {
-                                if (Array.isArray(crypto.imageMatch)) {
-                                    crypto.imageMatch.some(match => image.includes(match)) ? cryptoCounts[crypto.dbKey]++ : null;
-                                } else {
-                                    if (image.includes(crypto.imageMatch)) {
-                                        cryptoCounts[crypto.dbKey]++;
-                                    }
-                                }
-                            });
-                        });
-                    }
-                });
-
-                // Calculate total
-                const total = Object.values(cryptoCounts).reduce((sum, count) => sum + count, 0);
-
-                // Build database update object
-                const cryptoData = {
-                    ...cryptoCounts,
-                    crypto_nodes_total: total
-                };
-
-                // Update database
-                await updateCurrentMetrics(cryptoData);
-                await updateSyncStatus('crypto', 'completed');
-
-                console.log('✅ Crypto stats updated:', cryptoData);
-
-                return cryptoData;
-
-            } else if (typeof appsData === 'object' && appsData.message) {
-                // Handle error response
-                const errorMessage = `API Error: ${appsData.name} - ${appsData.message}`;
-                throw new Error(errorMessage);
-            } else {
-                // Handle unexpected data structure
-                const errorMessage = `Unexpected data structure for appsData: ${JSON.stringify(appsData)}`;
-                throw new Error(errorMessage);
-            }
-
-        } catch (error) {
-            retries++;
-            console.error(`❌ Attempt ${retries}/${MAX_RETRIES} Error fetching crypto stats:`, error.message);
-
-            if (retries >= MAX_RETRIES) {
-                await updateSyncStatus('crypto', 'failed', error.message);
-                throw new Error(error.message);
-            }
-
-            // Wait for a short duration before retrying
-            await new Promise(resolve => setTimeout(resolve, 10000)); // 10 seconds delay
-        }
+    } catch (error) {
+        log.error({ err: error }, 'Error fetching crypto stats');
+        await updateSyncStatus('crypto', 'failed', error.message);
+        throw error;
     }
 }
 

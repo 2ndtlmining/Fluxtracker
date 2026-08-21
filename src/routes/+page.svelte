@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl, DASHBOARD_REFRESH_MS } from '$lib/config.js';
+  import { refreshSignal } from '$lib/stores/refresh.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
@@ -151,13 +152,23 @@
   
   prefetchComparisons();
   
-  // Auto-refresh every 5 minutes 
-  interval = setInterval(async () => {
-    await fetchMetrics();
-    await fetchRevenue(comparisonPeriod);    // NEW - refresh revenue for current period
-    await fetchComparison(comparisonPeriod);
-  }, 300000);
+  // Auto-refresh on the shared dashboard interval so every card moves together
+  interval = setInterval(refreshAll, DASHBOARD_REFRESH_MS);
 });
+
+async function refreshAll() {
+  await fetchMetrics();
+  await fetchRevenue(comparisonPeriod);
+  comparisonCache = {};                      // period comparisons are cached by period
+  await fetchComparison(comparisonPeriod);
+}
+
+// Re-fetch when the footer's Refresh button fires (skip the initial store value)
+let lastRefresh = 0;
+$: if (API_URL && $refreshSignal > lastRefresh) {
+  lastRefresh = $refreshSignal;
+  refreshAll();
+}
 
  async function fetchRevenue(period) {
   try {

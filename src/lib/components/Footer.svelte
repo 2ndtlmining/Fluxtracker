@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
+  import { triggerRefresh } from '$lib/stores/refresh.js';
   import { Heart } from 'lucide-svelte';
 
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
@@ -84,9 +85,13 @@
 
       if (response.ok && result.success) {
         await fetchFooterStats();
+        // The backend now has fresh numbers — tell every card to re-read them,
+        // otherwise the button appears to do nothing until the next poll.
+        triggerRefresh();
         syncStatus = 'success';
       } else if (result.alreadyRunning) {
         await fetchFooterStats();
+        triggerRefresh();
         syncStatus = 'success';
       } else {
         throw new Error(result.error || 'Test services failed');

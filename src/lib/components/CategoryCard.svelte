@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl, DASHBOARD_REFRESH_MS } from '$lib/config.js';
+  import { refreshSignal } from '$lib/stores/refresh.js';
 
   export let category = '';
   export let label = '';
@@ -54,9 +55,16 @@
   onMount(() => {
     API_URL = getApiUrl();
     fetchCategoryData();
-    interval = setInterval(fetchCategoryData, 30 * 60 * 1000);
+    interval = setInterval(fetchCategoryData, DASHBOARD_REFRESH_MS);
     mounted = true;
   });
+
+  // Re-fetch when the footer's Refresh button fires (skip the initial store value)
+  let lastRefresh = 0;
+  $: if (mounted && $refreshSignal > lastRefresh) {
+    lastRefresh = $refreshSignal;
+    fetchCategoryData();
+  }
 
   onDestroy(() => {
     if (interval) clearInterval(interval);
@@ -89,7 +97,7 @@
           {@const comparison = getComparison(repo.instance_count, prevCount)}
           <div class="category-metric">
             <div class="metric-row">
-              <div class="metric-label">{repo.displayName}</div>
+              <div class="metric-label" title={repo.displayName}>{repo.displayName}</div>
               <div class="metric-value cyan">{formatNumber(repo.instance_count)}</div>
             </div>
 
@@ -191,6 +199,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    /* Grid items default to min-width:auto, so a long unbreakable label ("MINECRAFT
+       SERVER WEBSITE") stretched its column past 1fr and spilled outside the card.
+       min-width:0 lets it shrink so the ellipsis below actually applies. */
+    min-width: 0;
   }
 
   .metric-row {

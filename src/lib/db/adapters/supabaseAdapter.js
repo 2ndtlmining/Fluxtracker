@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('supabaseAdapter');
@@ -158,47 +158,14 @@ export async function updateCurrentMetrics(metrics) {
     const current = await getCurrentMetrics();
     if (!current) return;
 
-    const mergedMetrics = {
-        last_update: Date.now(),
-        current_revenue: metrics.current_revenue ?? current.current_revenue ?? null,
-        flux_price_usd: metrics.flux_price_usd ?? current.flux_price_usd ?? null,
-        total_cpu_cores: metrics.total_cpu_cores ?? current.total_cpu_cores ?? null,
-        used_cpu_cores: metrics.used_cpu_cores ?? current.used_cpu_cores ?? null,
-        cpu_utilization_percent: metrics.cpu_utilization_percent ?? current.cpu_utilization_percent ?? null,
-        total_ram_gb: metrics.total_ram_gb ?? current.total_ram_gb ?? null,
-        used_ram_gb: metrics.used_ram_gb ?? current.used_ram_gb ?? null,
-        ram_utilization_percent: metrics.ram_utilization_percent ?? current.ram_utilization_percent ?? null,
-        total_storage_gb: metrics.total_storage_gb ?? current.total_storage_gb ?? null,
-        used_storage_gb: metrics.used_storage_gb ?? current.used_storage_gb ?? null,
-        storage_utilization_percent: metrics.storage_utilization_percent ?? current.storage_utilization_percent ?? null,
-        total_apps: metrics.total_apps ?? current.total_apps ?? null,
-        watchtower_count: metrics.watchtower_count ?? current.watchtower_count ?? null,
-        gitapps_count: metrics.gitapps_count ?? current.gitapps_count ?? null,
-        dockerapps_count: metrics.dockerapps_count ?? current.dockerapps_count ?? null,
-        gitapps_percent: metrics.gitapps_percent ?? current.gitapps_percent ?? null,
-        dockerapps_percent: metrics.dockerapps_percent ?? current.dockerapps_percent ?? null,
-        gaming_apps_total: metrics.gaming_apps_total ?? current.gaming_apps_total ?? null,
-        gaming_palworld: metrics.gaming_palworld ?? current.gaming_palworld ?? null,
-        gaming_enshrouded: metrics.gaming_enshrouded ?? current.gaming_enshrouded ?? null,
-        gaming_minecraft: metrics.gaming_minecraft ?? current.gaming_minecraft ?? null,
-        gaming_valheim: metrics.gaming_valheim ?? current.gaming_valheim ?? null,
-        gaming_satisfactory: metrics.gaming_satisfactory ?? current.gaming_satisfactory ?? null,
-        crypto_presearch: metrics.crypto_presearch ?? current.crypto_presearch ?? null,
-        crypto_streamr: metrics.crypto_streamr ?? current.crypto_streamr ?? null,
-        crypto_ravencoin: metrics.crypto_ravencoin ?? current.crypto_ravencoin ?? null,
-        crypto_kadena: metrics.crypto_kadena ?? current.crypto_kadena ?? null,
-        crypto_alephium: metrics.crypto_alephium ?? current.crypto_alephium ?? null,
-        crypto_bittensor: metrics.crypto_bittensor ?? current.crypto_bittensor ?? null,
-        crypto_timpi_collector: metrics.crypto_timpi_collector ?? current.crypto_timpi_collector ?? null,
-        crypto_timpi_geocore: metrics.crypto_timpi_geocore ?? current.crypto_timpi_geocore ?? null,
-        crypto_kaspa: metrics.crypto_kaspa ?? current.crypto_kaspa ?? null,
-        crypto_nodes_total: metrics.crypto_nodes_total ?? current.crypto_nodes_total ?? null,
-        wordpress_count: metrics.wordpress_count ?? current.wordpress_count ?? null,
-        node_cumulus: metrics.node_cumulus ?? current.node_cumulus ?? null,
-        node_nimbus: metrics.node_nimbus ?? current.node_nimbus ?? null,
-        node_stratus: metrics.node_stratus ?? current.node_stratus ?? null,
-        node_total: metrics.node_total ?? current.node_total ?? null
-    };
+    const mergedMetrics = { last_update: Date.now() };
+
+    // Only touch columns the table actually has — METRIC_COLUMNS grows with the repo config
+    // and schemaMigrator may not have added the newest ones yet.
+    for (const key of METRIC_COLUMNS) {
+        if (!(key in current)) continue;
+        mergedMetrics[key] = metrics[key] ?? current[key] ?? null;
+    }
 
     const { error } = await supabase
         .from('current_metrics')
@@ -661,8 +628,11 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
 }
 
 export async function getDailyRevenueFromTransactions(days = 30) {
+    // days - 1: the range is inclusive of both ends, so "last 30 days" is today plus the
+    // 29 before it. Subtracting `days` returned 31 rows and made the daily chart disagree
+    // with the period totals in /api/analytics/comparison.
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
     const { data, error } = await supabase.rpc('get_daily_revenue', {
@@ -692,8 +662,11 @@ export async function getDailyRevenueInRange(startDate, endDate) {
 }
 
 export async function getDailyRevenueUSDFromTransactions(days = 30) {
+    // days - 1: the range is inclusive of both ends, so "last 30 days" is today plus the
+    // 29 before it. Subtracting `days` returned 31 rows and made the daily chart disagree
+    // with the period totals in /api/analytics/comparison.
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
     const { data, error } = await supabase.rpc('get_daily_revenue_usd', {

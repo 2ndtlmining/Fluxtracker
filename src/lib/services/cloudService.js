@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
+import { getRunningApps } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('cloudService');
@@ -342,53 +343,26 @@ export async function fetchCloudStats() {
  */
 async function fetchAppCount() {
     try {
-        const response = await retryApiCall(() => 
-            axios.get(API_ENDPOINTS.RUNNING_APPS, { timeout: 15000 })
-        );
-
-        if (response.data && response.data.status === 'error' && response.data.data) {
-            const errorMessage = `API Error: ${response.data.data.name} - ${response.data.data.message}`;
-            log.error(errorMessage);
-            await updateSyncStatus('cloud', 'failed', errorMessage);
-            throw new Error(errorMessage); // Throw so catch block returns cached/default values
-        }
-
-        const appsData = response.data?.data;
-
-        if (!appsData || !Array.isArray(appsData) || appsData.length === 0) {
-            throw new Error('RUNNING_APPS API returned empty or invalid data');
-        }
+        // Shared with gaming/crypto/wordpress — one download per cycle instead of four
+        const runningApps = await getRunningApps();
+        const repoCountMap = runningApps.imageCounts;
 
         let totalAppsRaw = 0;      // Total including Watchtower
         let watchtowerCount = 0;
-        let gitappsCount = 0;      // NEW: Count of Git apps (runonflux/orbit)
-        const repoCountMap = new Map(); // Per-repo instance counts
+        let gitappsCount = 0;      // Count of Git apps (runonflux/orbit)
 
-        appsData.forEach(app => {
-            if (app.apps && app.apps.runningapps) {
-                app.apps.runningapps.forEach(runningApp => {
-                    totalAppsRaw++;
+        for (const [image, instances] of repoCountMap) {
+            totalAppsRaw += instances;
 
-                    const image = runningApp.Image || '';
-
-                    // Count per Docker image
-                    if (image) {
-                        repoCountMap.set(image, (repoCountMap.get(image) || 0) + 1);
-                    }
-
-                    // Count Watchtower apps
-                    if (image.includes('containrrr/watchtower')) {
-                        watchtowerCount++;
-                    }
-
-                    // NEW: Count Git apps (runonflux/orbit)
-                    if (image.includes('runonflux/orbit')) {
-                        gitappsCount++;
-                    }
-                });
+            if (image.includes('containrrr/watchtower')) {
+                watchtowerCount += instances;
             }
-        });
-        
+
+            if (image.includes('runonflux/orbit')) {
+                gitappsCount += instances;
+            }
+        }
+
         // Total apps excludes Watchtower
         const totalApps = totalAppsRaw - watchtowerCount;
         
