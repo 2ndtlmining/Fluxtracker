@@ -11,6 +11,7 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"start": "node build/index.js",
+		"start:all": "node scripts/start-all.mjs",
 		"test": "vitest run",
 		"db:import-repo-json": "node scripts/import-repo-json.mjs"
 	},

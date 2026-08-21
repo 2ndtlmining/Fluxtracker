@@ -158,7 +158,22 @@ npm run api      # Express API server (port 3000)
 
 ```bash
 npm run build
-npm run start    # Serves the built SvelteKit app
+npm run start:all
+```
+
+`start:all` runs the same two processes the Docker image runs, in the same order: the Express
+API on port 3000, then the built SvelteKit server on 5173 once the API answers. Override with
+`API_PORT` / `FRONTEND_PORT`. Ctrl+C stops both, and if either process dies the other is
+stopped too — half the stack running is never useful.
+
+**Two processes are required, not one.** The browser only ever talks to the SvelteKit server;
+`src/hooks.server.js` proxies every `/api/*` request onward to Express. That is what makes the
+single-port setup work on Flux, and it means `npm run start` on its own serves pages whose API
+calls all fail. Use it alone only if you are running the API separately.
+
+```bash
+npm run start    # SvelteKit server only — needs the API running elsewhere
+npm run api      # Express API only
 ```
 
 ## Database
@@ -626,9 +641,9 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 | `api`                | `node src/server.js`                           | Express API server (port 3000)       |
 | `dev:all`            | `concurrently "npm run dev" "npm run api"`     | Run both servers for development     |
 | `build`              | `vite build`                                   | Build SvelteKit for production       |
-| `start`              | `node build/index.js`                          | Start production SvelteKit server    |
+| `start`              | `node build/index.js`                          | Production SvelteKit server only     |
+| `start:all`          | `node scripts/start-all.mjs`                   | Production API + frontend together   |
 | `test`               | `vitest run`                                   | Run tests                            |
-| `db:migrate-data`    | `node scripts/migrate-sqlite-to-supabase.mjs`  | Migrate data from SQLite to Supabase |
 | `db:import-repo-json`| `node scripts/import-repo-json.mjs`            | Import repo snapshot data from JSON  |
 
 ### Utility Scripts
