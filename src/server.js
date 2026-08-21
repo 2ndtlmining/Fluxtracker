@@ -89,6 +89,9 @@ import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from 
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
+import { buildKpiReport, sendToDiscord, isValidDiscordWebhook } from './lib/services/kpiService.js';
+import { TIMEFRAMES } from './lib/kpi/periods.js';
+import { checkRateLimit, recordSend, LIMITS } from './lib/kpi/rateLimiter.js';
 
 import { isBackupEnabled, getBackupStatus, performBackup, listBackups, restoreFromBackup } from './lib/services/backupService.js';
 
@@ -498,6 +501,144 @@ app.post('/api/admin/backfill-usd', async (req, res) => {
     } catch (error) {
         log.error({ err: error }, 'USD backfill failed');
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// KPI REPORT
+// ============================================
+
+/** Never log a full webhook URL — it is a bearer credential. */
+function maskWebhook(url) {
+    const match = /webhooks\/(\d+)\//.exec(url || '');
+    return match ? `webhook:${match[1]}` : 'webhook:unknown';
+}
+
+function clientKeyFor(req) {
+    // trust proxy is not enabled, so req.ip is the direct peer. X-Forwarded-For is taken as
+    // a hint only — it is spoofable, so it narrows abuse but is not a security boundary.
+    const forwarded = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return forwarded || req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+/**
+ * GET /api/kpi/availability
+ * Which timeframes can actually be reported on right now, so the modal can disable the
+ * rest up front instead of failing after submit. The same check runs on POST.
+ */
+app.get('/api/kpi/availability', async (_req, res) => {
+    try {
+        const results = await Promise.all(TIMEFRAMES.map(async timeframe => {
+            const report = await buildKpiReport(timeframe);
+            const { dataset } = report;
+            return {
+                timeframe,
+                available: !dataset.empty,
+                currentLabel: report.currentLabel,
+                comparisonLabel: report.comparisonLabel,
+                current: report.current,
+                comparison: report.comparison,
+                availableMetrics: dataset.availableMetrics,
+                totalMetrics: dataset.totalMetrics
+            };
+        }));
+        res.json({ timeframes: results, limits: LIMITS });
+    } catch (error) {
+        log.error({ err: error }, 'KPI availability check failed');
+        res.status(500).json({ error: 'Could not check KPI availability' });
+    }
+});
+
+/**
+ * GET /api/kpi/preview?timeframe=weekly
+ * The computed numbers, without sending anything. Powers the in-modal preview.
+ */
+app.get('/api/kpi/preview', async (req, res) => {
+    const timeframe = String(req.query.timeframe || '').toLowerCase();
+
+    if (!TIMEFRAMES.includes(timeframe)) {
+        return res.status(400).json({ error: `timeframe must be one of: ${TIMEFRAMES.join(', ')}` });
+    }
+
+    try {
+        const report = await buildKpiReport(timeframe);
+        res.json(report);
+    } catch (error) {
+        log.error({ err: error, timeframe }, 'KPI preview failed');
+        res.status(500).json({ error: 'Could not build the KPI report' });
+    }
+});
+
+/**
+ * POST /api/kpi-report
+ * body: { timeframe, medium: 'discord', target: '<webhook url>' }
+ */
+app.post('/api/kpi-report', async (req, res) => {
+    const { timeframe, medium, target, website } = req.body || {};
+
+    // Honeypot: a real browser leaves this hidden field empty
+    if (website) {
+        log.warn({ client: clientKeyFor(req) }, 'KPI honeypot triggered');
+        return res.status(400).json({ error: 'Request rejected.' });
+    }
+
+    if (!TIMEFRAMES.includes(timeframe)) {
+        return res.status(400).json({ error: `timeframe must be one of: ${TIMEFRAMES.join(', ')}` });
+    }
+
+    if (medium !== 'discord') {
+        // Email delivery is designed for but not yet configured — see README.
+        return res.status(400).json({ error: 'Only Discord delivery is available right now.' });
+    }
+
+    if (!isValidDiscordWebhook(target)) {
+        return res.status(400).json({
+            error: 'Enter a valid Discord webhook URL (https://discord.com/api/webhooks/...).'
+        });
+    }
+
+    const clientKey = clientKeyFor(req);
+    const targetKey = `discord:${target.trim()}`;
+
+    const limit = checkRateLimit(clientKey, targetKey);
+    if (!limit.allowed) {
+        res.set('Retry-After', String(limit.retryAfterSeconds));
+        return res.status(429).json({ error: limit.reason, retryAfterSeconds: limit.retryAfterSeconds });
+    }
+
+    try {
+        const report = await buildKpiReport(timeframe);
+
+        if (report.dataset.empty) {
+            return res.status(422).json({
+                error: `Not enough historical data for a ${timeframe} report yet ` +
+                       `(${report.currentLabel} vs ${report.comparisonLabel}). Choose a shorter timeframe.`,
+                insufficientData: true
+            });
+        }
+
+        await sendToDiscord(target.trim(), report);
+        recordSend(clientKey, targetKey);
+
+        const incomplete = report.dataset.totalMetrics - report.dataset.availableMetrics;
+        log.info(
+            { timeframe, medium, target: maskWebhook(target), incomplete },
+            'KPI report delivered'
+        );
+
+        res.json({
+            success: true,
+            timeframe,
+            currentLabel: report.currentLabel,
+            comparisonLabel: report.comparisonLabel,
+            metricsReported: report.dataset.availableMetrics,
+            metricsTotal: report.dataset.totalMetrics
+        });
+
+    } catch (error) {
+        log.error({ err: error, timeframe, target: maskWebhook(target) }, 'KPI report failed');
+        // sendToDiscord throws user-safe messages; anything else stays generic
+        res.status(502).json({ error: error.message || 'Could not send the KPI report.' });
     }
 });
 
