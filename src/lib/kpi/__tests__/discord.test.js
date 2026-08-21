@@ -76,10 +76,11 @@ describe('buildDiscordPayload', () => {
         expect(payload.embeds).toHaveLength(1);
         expect(embed.title).toBe('FluxTracker KPI Report - Weekly');
         expect(embed.fields.map(f => f.name)).toEqual([
-            'Revenue (sum over period)',
-            'Nodes (daily average)',
-            'Resource Utilization (daily average)',
-            'Applications (daily average)'
+            'Revenue - SUM',
+            'Nodes - AVERAGE',
+            'Resource Utilization - AVERAGE',
+            'Applications - AVERAGE',
+            'Data coverage'
         ]);
         expect(embed.footer.text).toBe('via FluxTracker');
         expect(embed.timestamp).toBe('2026-08-21T00:00:00.000Z');
@@ -94,16 +95,26 @@ describe('buildDiscordPayload', () => {
     it('wraps each section in a code block so columns stay aligned on mobile', () => {
         const embed = buildDiscordPayload(report()).embeds[0];
         for (const field of embed.fields.slice(0, 4)) {
-            expect(field.value.startsWith('```')).toBe(true);
+            expect(field.value).toContain('```');
             expect(field.value.endsWith('```')).toBe(true);
         }
     });
 
+    it('states the aggregation method in the field name and above the table', () => {
+        const embed = buildDiscordPayload(report()).embeds[0];
+        expect(embed.fields[0].name).toBe('Revenue - SUM');
+        expect(embed.fields[0].value).toContain('SUM of all days in the period');
+        expect(embed.fields[1].name).toBe('Nodes - AVERAGE');
+        expect(embed.fields[1].value).toContain('AVERAGE of the daily values across the period');
+    });
+
     it('keeps every table row the same width', () => {
         const embed = buildDiscordPayload(report()).embeds[0];
-        const lines = embed.fields[1].value.split('\n').filter(l => l && !l.startsWith('```'));
-        const widths = new Set(lines.map(l => l.length));
-        expect(widths.size).toBe(1);
+        // Only the fenced block — the prose line above it is deliberately not padded
+        const block = embed.fields[1].value.split('```')[1];
+        const lines = block.split('\n').filter(Boolean);
+        expect(lines.length).toBeGreaterThan(1);
+        expect(new Set(lines.map(l => l.length)).size).toBe(1);
     });
 
     it('contains no emoji anywhere', () => {
@@ -118,20 +129,20 @@ describe('buildDiscordPayload', () => {
         expect(revenue).not.toMatch(/[↑↓▲▼]/);
     });
 
-    it('adds a note when some metrics lack history', () => {
+    it('says how many days are missing rather than only "no data"', () => {
         const embed = buildDiscordPayload(report({
             comparisonSnapshots: snapshots({ gitapps_count: 0, dockerapps_count: 0 })
         })).embeds[0];
 
-        const note = embed.fields.find(f => f.name === 'Note');
-        expect(note).toBeDefined();
-        expect(note.value).toContain('2 metric(s)');
-        expect(embed.fields[3].value).toContain('Insufficient data');
+        const coverage = embed.fields.find(f => f.name === 'Data coverage');
+        expect(coverage.value).toContain('2 of 17 metrics are not reported');
+        expect(embed.fields[3].value).toContain('Insufficient data (7 days missing)');
     });
 
-    it('omits the note when everything is complete', () => {
+    it('confirms complete coverage when nothing is missing', () => {
         const embed = buildDiscordPayload(report()).embeds[0];
-        expect(embed.fields.find(f => f.name === 'Note')).toBeUndefined();
+        const coverage = embed.fields.find(f => f.name === 'Data coverage');
+        expect(coverage.value).toContain('Complete.');
     });
 
     it('stays inside Discord field and embed limits', () => {

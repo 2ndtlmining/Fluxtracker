@@ -34,7 +34,16 @@ function pad(text, width, align = 'left') {
     return align === 'right' ? fill + s : s + fill;
 }
 
-const COLS = { label: 14, qty: 15, delta: 14, percent: 9 };
+const COLS = { label: 16, qty: 15, delta: 14, percent: 9 };
+
+/**
+ * Spelled out per section rather than abbreviated: a reader must be able to tell whether a
+ * number is a period total or a daily mean without opening the README.
+ */
+const AGGREGATION_TEXT = {
+    sum: 'SUM of all days in the period',
+    average: 'AVERAGE of the daily values across the period'
+};
 
 function sectionTable(section) {
     const lines = [
@@ -46,7 +55,11 @@ function sectionTable(section) {
 
     for (const metric of section.metrics) {
         if (!metric.available) {
-            lines.push(pad(metric.label, COLS.label) + 'Insufficient data');
+            const missing = metric.coverage?.missing;
+            const why = missing > 0
+                ? `Insufficient data (${missing} day${missing === 1 ? '' : 's'} missing)`
+                : 'Insufficient data (no history)';
+            lines.push(pad(metric.label, COLS.label) + why);
             continue;
         }
         lines.push(
@@ -72,17 +85,17 @@ export function buildDiscordPayload(report) {
     const timeframeTitle = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
 
     const fields = dataset.sections.map(section => {
-        const aggregationNote = section.aggregation === 'sum'
-            ? 'sum over period'
-            : 'daily average';
+        const aggregationNote = section.aggregation === 'sum' ? 'SUM' : 'AVERAGE';
 
-        let value = '```\n' + sectionTable(section) + '\n```';
+        let value =
+            `${AGGREGATION_TEXT[section.aggregation]}\n` +
+            '```\n' + sectionTable(section) + '\n```';
         if (value.length > MAX_FIELD_CHARS) {
             value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
         }
 
         return {
-            name: `${section.title} (${aggregationNote})`,
+            name: `${section.title} - ${aggregationNote}`,
             value,
             inline: false
         };
@@ -91,10 +104,17 @@ export function buildDiscordPayload(report) {
     const incomplete = dataset.totalMetrics - dataset.availableMetrics;
     if (incomplete > 0) {
         fields.push({
-            name: 'Note',
+            name: 'Data coverage',
             value:
-                `${incomplete} metric(s) lack full history for one or both periods and are ` +
-                'marked "Insufficient data". All other figures are complete.',
+                `${incomplete} of ${dataset.totalMetrics} metrics are not reported because one or ` +
+                'both periods are missing days. A metric is only shown when every day in both ' +
+                'periods has data, so every figure above covers the full range.',
+            inline: false
+        });
+    } else {
+        fields.push({
+            name: 'Data coverage',
+            value: 'Complete. Every day in both periods has data for all metrics.',
             inline: false
         });
     }

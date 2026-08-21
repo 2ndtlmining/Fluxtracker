@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { getApiUrl, isFluxTeamAddress } from '$lib/config.js';
+  import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
   import { Download } from 'lucide-svelte';
 
   // Props
@@ -237,7 +237,7 @@
         appTypeLabel(tx.app_type),
         tx.txid,
         tx.from_address || 'Unknown',
-        isFluxTeamAddress(tx.from_address) ? 'Flux Team' : '',
+        isFluxTeamAddress(tx.from_address) ? 'Flux Team' : isFluxFiatAddress(tx.from_address) ? 'Flux Fiat' : '',
         tx.app_name || '-',
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
@@ -496,7 +496,7 @@
             </thead>
             <tbody>
               {#each transactions as tx}
-                <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)}>
+                <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)} class:flux-fiat-row={isFluxFiatAddress(tx.from_address)}>
                   <td class="type-col">
                     {#if tx.app_type === 'git'}
                       <span title="Git" class="type-icon">
@@ -528,6 +528,8 @@
                     {formatAddress(tx.from_address)}
                     {#if isFluxTeamAddress(tx.from_address)}
                       <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                    {:else if isFluxFiatAddress(tx.from_address)}
+                      <span class="flux-fiat-badge" title="Paid through the Flux fiat gateway">FIAT</span>
                     {/if}
                   </td>
                   <td class="app-name-col">{tx.app_name || '-'}</td>
@@ -695,7 +697,7 @@
               </thead>
               <tbody>
                 {#each appTxns as tx}
-                  <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)}>
+                  <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)} class:flux-fiat-row={isFluxFiatAddress(tx.from_address)}>
                     <td class="date-col">{tx.date}</td>
                     <td class="time-col">{formatTime(tx.timestamp)}</td>
                     <td class="txid-col">
@@ -708,6 +710,8 @@
                       {formatAddress(tx.from_address)}
                       {#if isFluxTeamAddress(tx.from_address)}
                         <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                      {:else if isFluxFiatAddress(tx.from_address)}
+                        <span class="flux-fiat-badge" title="Paid through the Flux fiat gateway">FIAT</span>
                       {/if}
                     </td>
                     <td class="amount-col">{formatAmount(tx.amount)} FLUX</td>
@@ -1440,5 +1444,32 @@
     .apps-grid { grid-template-columns: 1fr; }
     .modal-summary { grid-template-columns: 1fr; }
     .apps-search-section { flex-direction: column; align-items: stretch; }
+  }
+
+  /* Mirrors .flux-team-badge so the two read as the same class of label, in amber
+     rather than purple so they stay distinguishable at a glance. */
+  .flux-fiat-row {
+    background: rgba(241, 196, 83, 0.06) !important;
+    border-left: 2px solid rgba(241, 196, 83, 0.4);
+  }
+
+  .flux-fiat-row:hover {
+    background: rgba(241, 196, 83, 0.12) !important;
+  }
+
+  .flux-fiat-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #f1c453;
+    background: rgba(241, 196, 83, 0.15);
+    border: 1px solid rgba(241, 196, 83, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.4rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
   }
 </style>

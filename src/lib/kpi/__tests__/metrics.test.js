@@ -36,9 +36,15 @@ describe('averageColumn', () => {
         expect(MIN_COVERAGE).toBeGreaterThan(0.5);
     });
 
-    it('tolerates a small number of missing days', () => {
-        // 9 of 10 = 90%, exactly at the threshold
+    it('rejects a period that is short even one day', () => {
+        // Full coverage is required: a 9-of-10-day average silently misrepresents the period
         const r = averageColumn(snaps('node_total', Array(9).fill(100)), 'node_total', 10);
+        expect(r.covered).toBe(false);
+        expect(MIN_COVERAGE).toBe(1);
+    });
+
+    it('accepts a period where every day has data', () => {
+        const r = averageColumn(snaps('node_total', Array(10).fill(100)), 'node_total', 10);
         expect(r.covered).toBe(true);
     });
 
@@ -120,8 +126,8 @@ describe('buildKpiDataset', () => {
         });
 
         expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications']);
-        expect(d.totalMetrics).toBe(13);
-        expect(d.availableMetrics).toBe(13);
+        expect(d.totalMetrics).toBe(17);   // 6 revenue + 4 nodes + 3 resources + 4 apps
+        expect(d.availableMetrics).toBe(17);
         expect(d.empty).toBe(false);
     });
 
@@ -163,7 +169,7 @@ describe('buildKpiDataset', () => {
         expect(byKey.gaming.available).toBe(true);
         expect(apps.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(11);
+        expect(d.availableMetrics).toBe(15);
     });
 
     it('never reports a metric when only one of the two periods has data', () => {
@@ -203,8 +209,8 @@ describe('buildKpiDataset', () => {
             comparisonRevenue: { flux: 0, usd: 0 }
         });
 
-        // Revenue is always "covered", so only the snapshot metrics drop out
-        expect(d.availableMetrics).toBe(2);
+        // Revenue has no history floor here, so only the snapshot metrics drop out
+        expect(d.availableMetrics).toBe(6);
         expect(d.sections.filter(s => s.available).map(s => s.key)).toEqual(['revenue']);
     });
 });
@@ -216,6 +222,7 @@ describe('formatting (no emoji, explicit signs)', () => {
         expect(formatValue(17.25, 'gb')).toBe('17.3 GB');
         expect(formatValue(8800.4, 'cores')).toBe('8,800 cores');
         expect(formatValue(6469.2, 'int')).toBe('6,469');
+        expect(formatValue(22.64, 'share')).toBe('22.6%');
     });
 
     it('shows Insufficient data for a missing value', () => {
@@ -226,6 +233,9 @@ describe('formatting (no emoji, explicit signs)', () => {
         expect(formatDelta({ absolute: 212 }, 'int')).toBe('+212');
         expect(formatDelta({ absolute: -212 }, 'int')).toBe('-212');
         expect(formatDelta({ absolute: 0 }, 'int')).toBe('0');
+        // A change in a percentage is percentage points, not percent
+        expect(formatDelta({ absolute: 2.34 }, 'share')).toBe('+2.3pp');
+        expect(formatDelta({ absolute: -2.34 }, 'share')).toBe('-2.3pp');
     });
 
     it('always signs the percentage and keeps one decimal', () => {
