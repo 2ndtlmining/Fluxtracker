@@ -134,8 +134,8 @@
          no team payments made the line look broken rather than informative — "Daily" often
          genuinely has none. -->
     {#if selfFunded}
-      <div class="self-funded" class:none={!selfFunded.flux} title="Revenue paid by Flux team addresses, already included in the totals above">
-        <span class="self-funded-label">Self-funded</span>
+      <div class="self-funded" class:none={!selfFunded.flux} title="Revenue paid by Flux team addresses — already included in the totals above, never subtracted from them">
+        <span class="self-funded-label">Team-funded</span>
         {#if selfFunded.flux > 0}
           <span class="self-funded-value">{formatFlux(selfFunded.flux)} FLUX</span>
           <span class="self-funded-sep">·</span>

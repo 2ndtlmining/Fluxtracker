@@ -43,8 +43,8 @@ export const SECTIONS = [
         metrics: [
             { key: 'flux', label: 'Flux', format: 'flux' },
             { key: 'usd', label: 'USD', format: 'usd' },
-            { key: 'selfFunded', label: 'Self-funded', format: 'flux' },
-            { key: 'selfFundedShare', label: 'Self-funded %', format: 'share' },
+            { key: 'selfFunded', label: 'Team-funded', format: 'flux' },
+            { key: 'selfFundedShare', label: 'Team-funded %', format: 'share' },
             { key: 'fiat', label: 'Fiat', format: 'flux' },
             { key: 'fiatShare', label: 'Fiat %', format: 'share' },
             // The one averaged row in a summed section, hence the explicit override: a period

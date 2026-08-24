@@ -237,7 +237,7 @@
         appTypeLabel(tx.app_type),
         tx.txid,
         tx.from_address || 'Unknown',
-        isFluxTeamAddress(tx.from_address) ? 'Flux Team' : isFluxFiatAddress(tx.from_address) ? 'Flux Fiat' : '',
+        isFluxTeamAddress(tx.from_address) ? 'Team' : isFluxFiatAddress(tx.from_address) ? 'Fiat' : '',
         tx.app_name || '-',
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
@@ -479,6 +479,16 @@
           <p>No transactions found</p>
         </div>
       {:else}
+        <!-- The badges qualify the payer, not the currency: every row settles in FLUX.
+             Spelling that out here rather than leaving it to a hover tooltip, because the
+             two badges side by side otherwise read as "paid in FLUX vs paid in fiat". -->
+        <div class="badge-legend">
+          <span class="flux-team-badge">TEAM</span>
+          <span class="legend-text">funded by the Flux team</span>
+          <span class="flux-fiat-badge">FIAT</span>
+          <span class="legend-text">bought through the Flux fiat on-ramp</span>
+          <span class="legend-note">All payments settle in FLUX.</span>
+        </div>
         <div class="table-wrapper">
           <table class="transaction-table">
             <thead>
@@ -527,9 +537,9 @@
                   <td class="address-col">
                     {formatAddress(tx.from_address)}
                     {#if isFluxTeamAddress(tx.from_address)}
-                      <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                      <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
                     {:else if isFluxFiatAddress(tx.from_address)}
-                      <span class="flux-fiat-badge" title="Paid through the Flux fiat gateway">FIAT</span>
+                      <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
                     {/if}
                   </td>
                   <td class="app-name-col">{tx.app_name || '-'}</td>
@@ -709,9 +719,9 @@
                     <td class="address-col">
                       {formatAddress(tx.from_address)}
                       {#if isFluxTeamAddress(tx.from_address)}
-                        <span class="flux-team-badge" title={tx.from_address}>FLUX</span>
+                        <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
                       {:else if isFluxFiatAddress(tx.from_address)}
-                        <span class="flux-fiat-badge" title="Paid through the Flux fiat gateway">FIAT</span>
+                        <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
                       {/if}
                     </td>
                     <td class="amount-col">{formatAmount(tx.amount)} FLUX</td>
@@ -1471,5 +1481,38 @@
     text-transform: uppercase;
     vertical-align: middle;
     white-space: nowrap;
+  }
+
+  /* Key for the two payer badges. Understated on purpose — a footnote above the table,
+     matching the treatment of .self-funded on the revenue card. */
+  .badge-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    margin-bottom: var(--spacing-sm);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  /* The badges carry a left margin for their in-table use, which reads as a stray gap here. */
+  .badge-legend .flux-team-badge,
+  .badge-legend .flux-fiat-badge {
+    margin-left: 0;
+  }
+
+  .legend-text {
+    margin-right: 0.4rem;
+  }
+
+  .legend-note {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  @media (max-width: 768px) {
+    .badge-legend {
+      font-size: 0.65rem;
+    }
   }
 </style>
