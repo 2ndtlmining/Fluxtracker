@@ -436,7 +436,7 @@ Two aggregation rules, chosen to match the live dashboard:
 
 | Section | Metrics | Aggregation | Source |
 |---|---|---|---|
-| Revenue | Flux, USD, Self-funded, Self-funded %, Fiat, Fiat % | **Sum across the period** | `revenue_transactions` |
+| Revenue | Flux, USD, Team-funded, Team-funded %, Fiat, Fiat % | **Sum across the period** | `revenue_transactions` |
 | Revenue | FLUX price (avg) | **Average of daily snapshots** | `daily_snapshots.flux_price_usd` |
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
@@ -471,20 +471,20 @@ answer different questions. 6,400 apps do not renew on an even schedule, so a we
 reflects whose subscriptions happened to fall due that week — lumpy by nature, and capable of
 falling while the installed base grows. A period where apps rise and revenue drops is ordinary.
 
-**Self-funded revenue moves with Flux's own budget, not with demand.** The Flux team's hosting
+**Team-funded revenue moves with Flux's own budget, not with demand.** The Flux team's hosting
 spend is real revenue and is included in the headline, but it is one payer making internal
 decisions. It can swamp everything else. A worked example from the week of Aug 10-16 2026:
 
 | Bucket | Previous | Current | Change |
 |---|---|---|---|
-| Self-funded | 25,352 | 16,814 | **-8,539** |
+| Team-funded | 25,352 | 16,814 | **-8,539** |
 | Fiat gateway | 27,982 | 25,291 | -2,691 |
 | Everything else | 2,927 | 5,844 | **+2,917** |
 | **Total** | **56,262** | **47,948** | **-8,313** |
 
-The headline fell 14.8%, which reads as a bad week. But the self-funded decline alone is 103% of
+The headline fell 14.8%, which reads as a bad week. But the team-funded decline alone is 103% of
 the total drop, and third-party crypto revenue nearly doubled — consistent with apps being up
-3.5% in the same period. This is exactly why the report breaks Self-funded and Fiat out as
+3.5% in the same period. This is exactly why the report breaks Team-funded and Fiat out as
 separate lines rather than only showing a total: **subtract them before reading the headline as
 a demand signal.**
 
@@ -502,7 +502,7 @@ Worked examples:
 > 64%, 62%, 60%, 65%, the period value is the mean = **62.0%**, compared against the previous
 > week's mean.
 
-**Self-funded** is revenue from `FLUX_TEAM_ADDRESSES`; **Fiat** is revenue arriving through the
+**Team-funded** is revenue from `FLUX_TEAM_ADDRESSES`; **Fiat** is revenue arriving through the
 Flux fiat gateway (`FLUX_FIAT_ADDRESSES`). Both are reported as a FLUX value and as a share of
 total FLUX revenue for the same period, and both are *included* in the Flux/USD totals above them
 rather than being separate buckets. Their `+/-` column is in **percentage points** (`+2.3pp`),
