@@ -146,8 +146,10 @@ export const GAMING_REPOS = [
         name: 'Palworld',
         dbKey: 'gaming_palworld',
         imageMatch: [
-            'thijsvanloef/palworld-server-docker'
-
+            'thijsvanloef/palworld-server-docker',
+            // Flux's own packaging of the same game. Omitting it made the featured
+            // Palworld metric read 170 while the category card read 266.
+            'runonflux/palworld-server-flux'
         ]
     },
     {
@@ -555,11 +557,31 @@ export const CATEGORY_CONFIG = {
             // PoW chains
             'ravencoin', 'kadena-chainweb', 'bitcoin-core', 'bitcoin-cash-node',
             'litecoin', 'dogecoin', 'zcash', 'monero', 'fironode', 'firod',
+            // Beldex masternodes. `beldex` above never matched these: girderworks is a
+            // third party packaging Beldex for Flux and its image names carry no chain
+            // identifier at all, so 892 containers — the largest single crypto deployment
+            // on the network — sat uncategorised (issue #74). Identified from the image
+            // labels (org.opencontainers.image.title=beldex-node) and by running
+            // beldexd/beldex-storage/belnet inside the container. Matched on the whole
+            // namespace, not the two current repo names, because a renamed or added repo
+            // from the same packager would otherwise drop out silently — which is exactly
+            // how this went unnoticed. Revisit if girderworks ever ships a non-node image.
+            'girderworks/',
             'neoxa-node', 'iron-fish/ironfish',
             // PoS / Smart contract chains
             'rusty-kaspad', 'alephium-standalone', 'alephium/explorer',
             'bittensor', 'subtensor', 'client-go:stable', 'polkadot-docker',
             'wanchain/client-go', 'thornode', 'thorchain',
+            // Chain indexers, explorers and nodes whose image names miss every keyword
+            // above (issue #74, Group A). Kept qualified — bare 'explorer' or 'node'
+            // would sweep in unrelated apps, which is the mistake this list warns about.
+            // Group A is chain-specific infrastructure only: FluxOS/Titan/fluxcloud
+            // (Flux platform, not a chain node), IPFS and Nostr (no chain state) and
+            // beam105 (a miner) were considered and deliberately left out, so the card
+            // still means what its "Crypto Nodes" label says.
+            'blockbook', 'runonflux/explorer', 'zelcash/dibi-fetch', 'brise-node',
+            'fusenet/node', 'raven-insight', 'dash-insight', 'runonflux/fusionbalances',
+            'authsteem',
             // Other crypto services
             'timpi-collector', 'timpi-geocore', 'beldex',
             'mysteriumnetwork/myst',
@@ -618,6 +640,7 @@ const DISPLAY_NAME_OVERRIDES = {
     'itzg/minecraft-server': 'Minecraft',
     'itzg/minecraft-bedrock-server': 'Minecraft BE',
     'thijsvanloef/palworld-server-docker': 'Palworld',
+    'runonflux/palworld-server-flux': 'Palworld (Flux)',
     'jktuned/enshrouded-server': 'Enshrouded',
     'sknnr/enshrouded-dedicated-server': 'Enshrouded',
     'mbround18/valheim': 'Valheim',
@@ -638,6 +661,20 @@ const DISPLAY_NAME_OVERRIDES = {
     'zquestz/bitcoin-cash-node': 'Bitcoin Cash',
     'streamr/broker-node': 'Streamr Broker',
     'beldex/beldex-master-node': 'Beldex',
+    'ghcr.io/girderworks/edge': 'Beldex Edge',
+    'ghcr.io/girderworks/feather': 'Beldex Feather',
+    // Group A. Every one of these fell back to a label that named neither the chain nor
+    // the service — `fusenet/node` rendered as bare "Node", `runonflux/explorer` as
+    // "Explorer", `steemfans/authsteem` as "Authsteem".
+    'runonflux/blockbook-docker': 'Flux Blockbook',
+    'runonflux/explorer': 'Flux Explorer',
+    'zelcash/dibi-fetch': 'DiBi Fetch',
+    'bitgert/brise-node-flux': 'Bitgert',
+    'fusenet/node': 'Fuse',
+    'runonflux/raven-insight-explorer': 'Ravencoin Explorer',
+    'runonflux/dash-insight-explorer': 'Dash Explorer',
+    'runonflux/fusionbalances': 'Fusion Balances',
+    'steemfans/authsteem': 'Steem Auth',
     'alephium/explorer-backend': 'Alephium Explorer BE',
     'alephium/explorer': 'Alephium Explorer',
     'thetrunk/alephium-standalone': 'Alephium',
@@ -664,6 +701,8 @@ const DISPLAY_NAME_OVERRIDES = {
 // several community images; users think of them as one game, so the category cards group
 // on this name. `repo_snapshots` stays per-image, so history and charts are unaffected.
 export const CANONICAL_NAME_OVERRIDES = {
+    'thijsvanloef/palworld-server-docker': 'Palworld',
+    'runonflux/palworld-server-flux': 'Palworld',
     'itzg/minecraft-server': 'Minecraft',
     'itzg/minecraft-bedrock-server': 'Minecraft',
     'mbround18/valheim': 'Valheim',
@@ -681,6 +720,9 @@ export const CANONICAL_NAME_OVERRIDES = {
     'thetrunk/alephium-standalone': 'Alephium',
     'runonflux/fironode': 'Firo',
     'firoorg/firod': 'Firo',
+    'ghcr.io/girderworks/edge': 'Beldex',
+    'ghcr.io/girderworks/feather': 'Beldex',
+    'beldex/beldex-master-node': 'Beldex',
 };
 
 /**

@@ -332,6 +332,111 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | POST   | `/api/admin/failover`                 | Manually switch between primary/failover DB    |
 | GET    | `/api/admin/failover-status`          | Active instance and circuit breaker state      |
 
+## App Categorisation
+
+Every card that counts apps — the Gaming/Crypto/WordPress metric cards and the category cards —
+resolves its numbers through one function, `categorizeImage()` in `src/lib/config.js`. It matches
+keywords against the **whole Docker image string, tag included**. The metric totals and the
+category cards must always agree; that equality is the acceptance test for any change here.
+
+Two things decide what you see on a card:
+
+- **Which category an image counts toward** — `CATEGORY_CONFIG` keywords, minus `CATEGORY_EXCLUDE`
+- **What the row is called, and which rows merge** — `DISPLAY_NAME_OVERRIDES` (per image, used in
+  history) and `CANONICAL_NAME_OVERRIDES` (groups image variants into one card row)
+
+### Why one game or chain can appear under several images
+
+A game or chain is often published as several unrelated Docker images, and the card merges them:
+
+| Card row | Merged from |
+|---|---|
+| Palworld | `thijsvanloef/palworld-server-docker` + `runonflux/palworld-server-flux` (Flux's own packaging) |
+| Minecraft | `itzg/minecraft-server` (Java) + `itzg/minecraft-bedrock-server` |
+| Valheim | `mbround18/valheim` + `littlestache/valheim-flux` + `lloesche/valheim-server` |
+| Rust | `littlestache/rust-server` + `pfeiffermax/rust-game-server` |
+| Beldex | `ghcr.io/girderworks/edge` + `ghcr.io/girderworks/feather` |
+
+`repo_snapshots` still stores a row per image, so history and charts are unaffected by grouping —
+only the card view merges.
+
+**Palworld is the common question.** It used to render as two rows, "Palworld" and "Palworld
+Server", which read as two different products. They are the same game: the second is Flux's own
+packaging (`runonflux/palworld-server-flux`), and it only got a separate label because the
+fallback namer strips the trailing `-flux` and stops. Both now merge into one **Palworld** row.
+
+### An image name doesn't always name the thing
+
+The biggest source of undercounting is an image whose name mentions neither the chain nor the game.
+Beldex is the worst case found so far: `beldex` was in the crypto keyword list the whole time and
+never matched, because ~890 masternodes run as `ghcr.io/girderworks/{edge,feather}` — a third party
+packaging Beldex for Flux, with no chain identifier anywhere in the name. That is roughly 12% of
+everything running on the network, sitting in "uncategorised" (issue #74).
+
+When an image name is opaque, its labels usually are not:
+
+```bash
+docker inspect <image> --format '{{json .Config.Labels}}'   # org.opencontainers.image.title=beldex-node
+docker history --no-trunc <image> | grep -i label
+```
+
+It is worth periodically running the top uncategorised images through that before assuming they
+can't be classified — a handful of large owners account for a large share of the network, so one
+missed image can move a total by an order of magnitude.
+
+### What "Crypto Nodes" deliberately excludes
+
+The card is labelled Crypto **Nodes**, so it counts infrastructure for a named chain: nodes,
+indexers and block explorers. These are crypto-adjacent but are **not** counted, on purpose:
+
+| Not counted | Why |
+|---|---|
+| `runonflux/fluxos`, `fluxoshashes`, `fluxcloud`, `runonflux/titan` | Flux platform containers, not a node for a chain |
+| `runonflux/ipfs` | Content-addressed storage — no chain state |
+| `wirewrex/nostr-rs-relay` | Nostr is a social protocol, not a blockchain |
+| `patpi93/beam105-worker` | A miner, not a node |
+| `smartico/aave`, `liquity/dev-frontend`, `honsontran/sushiswap-interface` and other dApp UIs | Web frontends, not nodes |
+
+There are tests pinning each of these to "uncategorised" so the scope line doesn't drift by
+accident. If you want a broader definition, that's a deliberate decision to change the card's
+label along with its contents.
+
+### Helper images that would be counted as the thing they help
+
+`CATEGORY_EXCLUDE` is checked *before* the keyword match:
+
+- `*-server-website` — companion web frontends shipped next to the game servers. Counting them
+  inflated every game total and produced a "MINECRAFT SERVER WEBSITE" label that overflowed the card.
+- `wirewrex/flux-dns-fdm` — a monitoring sidecar that runs one instance per app it watches and names
+  the watched app in its **tag** (`:minecraft-ping`, `:wordpress`). Since matching includes the tag,
+  those leaked straight into the totals — 47 phantom gaming instances on one day.
+
+This is the trap to remember when adding a keyword: **any bare single-word keyword also matches
+tags.** `presearch/node` is safe because it's qualified; a bare `wordpress` is not.
+
+### Changing the configuration
+
+1. Edit `CATEGORY_CONFIG`, `CATEGORY_EXCLUDE`, `DISPLAY_NAME_OVERRIDES` or
+   `CANONICAL_NAME_OVERRIDES` in `src/lib/config.js`
+2. Check the new keyword against a live sample before trusting it — confirm it only picks up
+   currently-uncategorised images and moves nothing between categories
+3. Run the tests: `npx vitest run src/lib/__tests__/categorization.test.js`
+4. Re-apply to stored history:
+
+```bash
+curl -X POST localhost:3000/api/admin/recategorize-repos
+```
+
+The category endpoint also re-validates stored rows against the current config at read time, so a
+newly excluded image disappears from the cards immediately — the admin call fixes history.
+
+Adding a **featured breakdown column** (the named entries inside a category, e.g. `gaming_palworld`)
+is separate: add the repo to `GAMING_REPOS`/`CRYPTO_REPOS` and `schemaMigrator` creates the column at
+startup, because `METRIC_COLUMNS` is derived from that config. Note its `imageMatch` must list every
+image that merges into the row, or the featured number and the card disagree — `gaming_palworld`
+read 170 against a card showing 266 for exactly this reason. Historical values keep their old basis,
+so expect a step in the trend line on the day a change lands.
+
 ## Backup & Resilience
 
 ### Automated Backups (Cloudflare R2)
