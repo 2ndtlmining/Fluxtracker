@@ -134,6 +134,14 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('runonflux/raven-insight-explorer:latest')).toBe('Ravencoin Explorer');
     });
 
+    it('collapses the two Palworld server images into one name', () => {
+        // runonflux/palworld-server-flux is Flux's own packaging of the same game. It got
+        // its own card row labelled "Palworld Server" (getDisplayName strips the trailing
+        // -flux and stops), which read to users as a different product.
+        expect(getCanonicalName('thijsvanloef/palworld-server-docker:latest')).toBe('Palworld');
+        expect(getCanonicalName('runonflux/palworld-server-flux:latest')).toBe('Palworld');
+    });
+
     it('collapses the two Beldex masternode images into one name', () => {
         // Without this the crypto card renders "Edge" and "Feather" as separate rows —
         // getDisplayName() takes the last path segment, which names neither the chain
@@ -141,6 +149,10 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('ghcr.io/girderworks/edge:1.0.14')).toBe('Beldex');
         expect(getCanonicalName('ghcr.io/girderworks/feather:1.0.14')).toBe('Beldex');
         expect(getCanonicalName('beldex/beldex-master-node:latest')).toBe('Beldex');
+    });
+
+    it('names the Flux-packaged Palworld image distinctly per image', () => {
+        expect(getDisplayName('runonflux/palworld-server-flux:latest')).toBe('Palworld (Flux)');
     });
 
     it('keeps the two Beldex variants distinct per image', () => {
@@ -204,6 +216,19 @@ describe('groupReposByCanonicalName', () => {
         expect(after).toBe(before);
     });
 
+    it('merges the Palworld variants into a single gaming row', () => {
+        const grouped = groupReposByCanonicalName([
+            { image_name: 'thijsvanloef/palworld-server-docker', instance_count: 170 },
+            { image_name: 'runonflux/palworld-server-flux', instance_count: 96 },
+            { image_name: 'itzg/minecraft-server', instance_count: 49 },
+        ]);
+
+        expect(grouped.map(g => [g.displayName, g.instance_count])).toEqual([
+            ['Palworld', 266],
+            ['Minecraft', 49],
+        ]);
+    });
+
     it('merges the Beldex variants into a single crypto row', () => {
         const grouped = groupReposByCanonicalName([
             { image_name: 'ghcr.io/girderworks/feather', instance_count: 564 },
@@ -223,6 +248,14 @@ describe('groupReposByCanonicalName', () => {
 });
 
 describe('GAMING_REPOS image coverage', () => {
+    it('counts every Palworld image the category card counts', () => {
+        // gaming_palworld read 170 while the merged card read 266, because imageMatch
+        // listed only the community image and not Flux's own packaging of the same game.
+        const palworld = GAMING_REPOS.find(r => r.name === 'Palworld');
+        expect(palworld.imageMatch).toContain('thijsvanloef/palworld-server-docker');
+        expect(palworld.imageMatch).toContain('runonflux/palworld-server-flux');
+    });
+
     it('has a featured column for every image that merges into a tracked game', () => {
         // Any image whose canonical name matches a configured repo must be in that repo's
         // imageMatch, or the metric card and the category card disagree.

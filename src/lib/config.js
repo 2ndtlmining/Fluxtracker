@@ -146,8 +146,10 @@ export const GAMING_REPOS = [
         name: 'Palworld',
         dbKey: 'gaming_palworld',
         imageMatch: [
-            'thijsvanloef/palworld-server-docker'
-
+            'thijsvanloef/palworld-server-docker',
+            // Flux's own packaging of the same game. Omitting it made the featured
+            // Palworld metric read 170 while the category card read 266.
+            'runonflux/palworld-server-flux'
         ]
     },
     {
@@ -638,6 +640,7 @@ const DISPLAY_NAME_OVERRIDES = {
     'itzg/minecraft-server': 'Minecraft',
     'itzg/minecraft-bedrock-server': 'Minecraft BE',
     'thijsvanloef/palworld-server-docker': 'Palworld',
+    'runonflux/palworld-server-flux': 'Palworld (Flux)',
     'jktuned/enshrouded-server': 'Enshrouded',
     'sknnr/enshrouded-dedicated-server': 'Enshrouded',
     'mbround18/valheim': 'Valheim',
@@ -698,6 +701,8 @@ const DISPLAY_NAME_OVERRIDES = {
 // several community images; users think of them as one game, so the category cards group
 // on this name. `repo_snapshots` stays per-image, so history and charts are unaffected.
 export const CANONICAL_NAME_OVERRIDES = {
+    'thijsvanloef/palworld-server-docker': 'Palworld',
+    'runonflux/palworld-server-flux': 'Palworld',
     'itzg/minecraft-server': 'Minecraft',
     'itzg/minecraft-bedrock-server': 'Minecraft',
     'mbround18/valheim': 'Valheim',
