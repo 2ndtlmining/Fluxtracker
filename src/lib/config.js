@@ -14,7 +14,7 @@ export const TARGET_ADDRESSES = [
 // FLUX Donation address 
 // ============================================
 export const DONATION_ADDRESSES = [
-    't1ebxupkNYVQiswfwi7xBTwwKtioJqwLmUG' // Your main donation address
+    't1aUmu7HDr7BtwmdR1Y9i2K6KFRZs4Bumbt' // Your main donation address
 
 ];
 
