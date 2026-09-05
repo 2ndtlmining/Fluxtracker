@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
+  import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
+  import { shouldTriggerSync } from '$lib/utils/terminalAnimation.js';
 
   let API_URL = '';
 
@@ -33,6 +35,13 @@
   let apiStatus = 'checking';
   let dbStatus = 'checking';
 
+  // Terminal boot/sync animation tracking
+  let dataReady = false;
+  let bootComplete = false;
+  let previousBlockHeight = null;
+  let syncRequest = null;
+  let syncCounter = 0;
+
   let interval;
 
   onMount(async () => {
@@ -57,11 +66,11 @@
       }
 
       apiStatus = 'online';
-      dbStatus = 'online';
+      dbStatus = data.dbStatus === 'online' ? 'online' : 'offline';
 
       // Network
       fluxPrice = data.network.fluxPriceUsd;
-      blockHeight = data.network.blockHeight;
+      const newBlockHeight = data.network.blockHeight;
       totalNodes = data.network.totalNodes;
       totalApps = data.network.totalApps;
 
@@ -89,11 +98,23 @@
       usedMemMB = data.host.usedMemMB;
       memPercent = data.host.memPercent;
 
+      if (shouldTriggerSync({ previousBlockHeight, newBlockHeight, bootComplete })) {
+        syncCounter += 1;
+        syncRequest = { from: previousBlockHeight, to: newBlockHeight, id: syncCounter };
+      }
+      previousBlockHeight = newBlockHeight;
+      blockHeight = newBlockHeight;
+      dataReady = true;
+
     } catch (error) {
       console.error('Error fetching header data:', error);
       apiStatus = 'offline';
       dbStatus = 'offline';
     }
+  }
+
+  function handleBootComplete() {
+    bootComplete = true;
   }
 
   function formatPrice(price) {
@@ -129,9 +150,19 @@
   <div class="header-content">
     <!-- Left side: Title and Build Info -->
     <div class="header-left">
-      <h1 class="header-title glow-text">
-        FLUX<br/>TRACKER
-      </h1>
+      <TerminalHeaderAnimation
+        {blockHeight}
+        {totalNodes}
+        {totalApps}
+        {snapshotCount}
+        {appVersion}
+        {arcaneOsCodename}
+        {apiStatus}
+        {dbStatus}
+        {dataReady}
+        {syncRequest}
+        on:bootComplete={handleBootComplete}
+      />
       <div class="build-info">
         Build: <span class="text-cyan">{appVersion} {arcaneOsCodename}</span>
       </div>
@@ -216,17 +247,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
-  }
-
-  .header-title {
-    font-size: 2.5rem;
-    line-height: 1.1;
-    font-weight: 700;
-    letter-spacing: 3px;
-    margin: 0;
-    text-transform: uppercase;
-    color: var(--text-primary);
-    text-shadow: var(--glow-cyan);
   }
 
   .build-info {
@@ -332,20 +352,11 @@
       width: 100%;
       align-items: flex-start;
     }
-
-    .header-title {
-      font-size: 2rem;
-    }
   }
 
   @media (max-width: 768px) {
     .header {
       padding: var(--spacing-md);
-    }
-
-    .header-title {
-      font-size: 1.5rem;
-      letter-spacing: 2px;
     }
 
     .stats-line {
