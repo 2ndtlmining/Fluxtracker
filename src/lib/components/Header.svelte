@@ -154,7 +154,6 @@
         {blockHeight}
         {totalNodes}
         {totalApps}
-        {snapshotCount}
         {appVersion}
         {arcaneOsCodename}
         {apiStatus}

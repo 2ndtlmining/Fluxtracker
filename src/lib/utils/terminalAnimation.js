@@ -7,9 +7,19 @@ export const FLUX_LOGO = ` ███████╗██╗     ██╗   █
  ██║     ███████╗╚██████╔╝██╔╝ ██╗
  ╚═╝     ╚══════╝ ╚═════╝ ╚═╝  ╚═╝`;
 
-/** Row count and column width of FLUX_LOGO — the fixed box every sync-animation frame fills. */
+/** Row count and column width of FLUX_LOGO — the fixed box every animation frame fills. */
 export const LOGO_LINES = FLUX_LOGO.split('\n');
 export const LOGO_WIDTH = Math.max(...LOGO_LINES.map(line => line.length));
+
+/**
+ * The box is exactly the logo's row count — boot text, logo and sync frames all
+ * live in the same fixed-height box, so the header never changes size.
+ */
+export const BOOT_LINE_COUNT = LOGO_LINES.length;
+
+/** Row style kinds: terminal text (like the boot output) vs the logo's bright glyphs. */
+export const ROW_KIND_TEXT = 'text';
+export const ROW_KIND_LOGO = 'logo';
 
 /**
  * Choose a visually reasonable starting block for the boot counter animation —
@@ -56,15 +66,25 @@ export function mergeSyncTarget(currentTarget, newBlockHeight) {
   return Math.max(currentTarget, newBlockHeight);
 }
 
-export function formatNetworkLine(totalNodes, totalApps) {
-  const nodes = Number.isFinite(totalNodes) ? totalNodes.toLocaleString('en-US') : '...';
-  const apps = Number.isFinite(totalApps) ? totalApps.toLocaleString('en-US') : '...';
-  return `network ${nodes} nodes | apps ${apps}`;
+/**
+ * One condensed boot row holding api/database health, replacing the old two
+ * dotted status lines so the boot output fits the six-row logo box.
+ */
+export function formatStatusLine(apiStatus, dbStatus) {
+  const api = apiStatus === 'online' ? 'OK' : 'ERROR';
+  const db = dbStatus === 'online' ? 'OK' : 'OFFLINE';
+  return `> api ${api} | database ${db}`;
 }
 
-export function formatVersionLine(appVersion, codename) {
-  const version = appVersion || '...';
-  return codename ? `version ${version} ${codename} loaded` : `version ${version} loaded`;
+/**
+ * Final boot line: build version and network stats condensed into one row so
+ * the boot output fits the six-row logo box.
+ */
+export function formatSummaryLine(appVersion, codename, totalNodes, totalApps) {
+  const version = [appVersion || '...', codename].filter(Boolean).join(' ');
+  const nodes = Number.isFinite(totalNodes) ? totalNodes.toLocaleString('en-US') : '...';
+  const apps = Number.isFinite(totalApps) ? totalApps.toLocaleString('en-US') : '...';
+  return `version ${version} | ${nodes} nodes | ${apps} apps`;
 }
 
 /**
@@ -145,4 +165,21 @@ export function composeRevealFrame(baseLines, incomingLines, revealedCount, dire
     frame.push(revealed ? incomingLines[row] : baseLines[row]);
   }
   return frame;
+}
+
+/**
+ * Row-style companion to composeRevealFrame: during a reveal each row shows the
+ * incoming kind once revealed and the base kind before that, using the exact
+ * same reveal logic so the two arrays stay perfectly aligned. Lets the template
+ * style revealed logo rows (bright glyphs) differently from text rows mid-frame.
+ */
+export function composeRevealKinds(baseKinds, incomingKinds, revealedCount, direction) {
+  const count = baseKinds.length;
+  const clamped = Math.max(0, Math.min(count, revealedCount));
+  const kinds = [];
+  for (let row = 0; row < count; row++) {
+    const revealed = direction === 'bottom-up' ? row >= count - clamped : row < clamped;
+    kinds.push(revealed ? incomingKinds[row] : baseKinds[row]);
+  }
+  return kinds;
 }

@@ -4,15 +4,19 @@ import {
   computeAnimatedBlock,
   shouldTriggerSync,
   mergeSyncTarget,
-  formatNetworkLine,
-  formatVersionLine,
+  formatStatusLine,
+  formatSummaryLine,
   buildSyncBlockLines,
   buildSyncPatternLines,
   padLines,
   composeRevealFrame,
+  composeRevealKinds,
   FLUX_LOGO,
   LOGO_LINES,
-  LOGO_WIDTH
+  LOGO_WIDTH,
+  BOOT_LINE_COUNT,
+  ROW_KIND_TEXT,
+  ROW_KIND_LOGO
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -99,33 +103,48 @@ describe('mergeSyncTarget', () => {
   });
 });
 
-describe('formatNetworkLine', () => {
-  it('formats nodes and apps with thousands separators', () => {
-    expect(formatNetworkLine(12481, 3842)).toBe('network 12,481 nodes | apps 3,842');
+describe('formatStatusLine', () => {
+  it('reports OK for a healthy api and database', () => {
+    expect(formatStatusLine('online', 'online')).toBe('> api OK | database OK');
   });
 
-  it('falls back to "..." for missing values', () => {
-    expect(formatNetworkLine(null, undefined)).toBe('network ... nodes | apps ...');
+  it('reports ERROR for the api when it is not online', () => {
+    expect(formatStatusLine('offline', 'online')).toBe('> api ERROR | database OK');
+    expect(formatStatusLine('checking', 'online')).toBe('> api ERROR | database OK');
+  });
+
+  it('reports OFFLINE for the database when it is not online', () => {
+    expect(formatStatusLine('online', 'offline')).toBe('> api OK | database OFFLINE');
   });
 });
 
-describe('formatVersionLine', () => {
-  it('includes the codename when present', () => {
-    expect(formatVersionLine('v1.03', 'jolly wombat')).toBe('version v1.03 jolly wombat loaded');
+describe('formatSummaryLine', () => {
+  it('condenses version, codename and network stats into one boot row', () => {
+    expect(formatSummaryLine('v1.03', 'jolly wombat', 12481, 3842)).toBe(
+      'version v1.03 jolly wombat | 12,481 nodes | 3,842 apps'
+    );
   });
 
   it('omits the codename when absent', () => {
-    expect(formatVersionLine('v1.03', '')).toBe('version v1.03 loaded');
+    expect(formatSummaryLine('v1.03', '', 1000, 100)).toBe('version v1.03 | 1,000 nodes | 100 apps');
+  });
+
+  it('falls back to "..." for missing values', () => {
+    expect(formatSummaryLine(null, '', null, undefined)).toBe('version ... | ... nodes | ... apps');
   });
 });
 
-describe('LOGO_LINES / LOGO_WIDTH', () => {
+describe('LOGO_LINES / LOGO_WIDTH / BOOT_LINE_COUNT', () => {
   it('LOGO_LINES matches the number of lines in FLUX_LOGO', () => {
     expect(LOGO_LINES).toEqual(FLUX_LOGO.split('\n'));
   });
 
   it('LOGO_WIDTH is the length of the longest logo line', () => {
     expect(LOGO_WIDTH).toBe(Math.max(...LOGO_LINES.map(l => l.length)));
+  });
+
+  it('BOOT_LINE_COUNT is the logo row count — the fixed box every frame fills', () => {
+    expect(BOOT_LINE_COUNT).toBe(LOGO_LINES.length);
   });
 });
 
@@ -188,6 +207,50 @@ describe('composeRevealFrame', () => {
   it('clamps an out-of-range revealedCount', () => {
     expect(composeRevealFrame(base, incoming, -3, 'top-down')).toEqual(base);
     expect(composeRevealFrame(base, incoming, 99, 'top-down')).toEqual(incoming);
+  });
+});
+
+describe('composeRevealKinds', () => {
+  const baseKinds = ['text', 'text', 'text', 'text'];
+  const incomingKinds = ['logo', 'logo', 'logo', 'logo'];
+
+  it('shows only base kinds at revealedCount 0', () => {
+    expect(composeRevealKinds(baseKinds, incomingKinds, 0, 'top-down')).toEqual(baseKinds);
+  });
+
+  it('shows only incoming kinds at revealedCount === length', () => {
+    expect(composeRevealKinds(baseKinds, incomingKinds, 4, 'top-down')).toEqual(incomingKinds);
+  });
+
+  it('reveals incoming kinds from the top down', () => {
+    expect(composeRevealKinds(baseKinds, incomingKinds, 2, 'top-down')).toEqual(['logo', 'logo', 'text', 'text']);
+  });
+
+  it('reveals incoming kinds from the bottom up', () => {
+    expect(composeRevealKinds(baseKinds, incomingKinds, 2, 'bottom-up')).toEqual(['text', 'text', 'logo', 'logo']);
+  });
+
+  it('clamps an out-of-range revealedCount', () => {
+    expect(composeRevealKinds(baseKinds, incomingKinds, -3, 'top-down')).toEqual(baseKinds);
+    expect(composeRevealKinds(baseKinds, incomingKinds, 99, 'top-down')).toEqual(incomingKinds);
+  });
+
+  it('stays row-for-row aligned with composeRevealFrame for every progress step', () => {
+    const baseLines = ['B0', 'B1', 'B2', 'B3', 'B4', 'B5'];
+    const incomingLines = ['I0', 'I1', 'I2', 'I3', 'I4', 'I5'];
+    const baseKinds = Array(6).fill('text');
+    const incomingKinds = Array(6).fill('logo');
+    for (let count = 0; count <= 6; count++) {
+      for (const direction of ['top-down', 'bottom-up']) {
+        const lines = composeRevealFrame(baseLines, incomingLines, count, direction);
+        const kinds = composeRevealKinds(baseKinds, incomingKinds, count, direction);
+        expect(kinds).toHaveLength(lines.length);
+        lines.forEach((line, row) => {
+          const fromIncoming = line.startsWith('I');
+          expect(kinds[row] === 'logo').toBe(fromIncoming);
+        });
+      }
+    }
   });
 });
 
