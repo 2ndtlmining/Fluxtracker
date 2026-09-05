@@ -114,6 +114,17 @@ export function formatTransactionsLine(count) {
 }
 
 /**
+ * Sync row with the network snapshot — the same nodes/apps totals the boot
+ * summary shows, kept as its own line so the sync text frame fills all six
+ * rows with real data (no empty rows mid-transition).
+ */
+export function formatNetworkLine(totalNodes, totalApps) {
+  const nodes = Number.isFinite(totalNodes) ? totalNodes.toLocaleString('en-US') : '...';
+  const apps = Number.isFinite(totalApps) ? totalApps.toLocaleString('en-US') : '...';
+  return `network ${nodes} nodes | apps ${apps}`;
+}
+
+/**
  * Pool of single-width ASCII texture characters for the sync pattern. Symbols
  * only — no letters or digits, so the pattern never reads as real text.
  */

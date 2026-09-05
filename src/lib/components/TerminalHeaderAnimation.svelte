@@ -18,7 +18,8 @@
     composeRevealFrame,
     composeRevealKinds,
     formatSyncBlocksLine,
-    formatTransactionsLine
+    formatTransactionsLine,
+    formatNetworkLine
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -42,23 +43,25 @@
   const BOOT_TIMEOUT_MS = 4000 * BOOT_SLOWDOWN; // must exceed the slowest boot path
   const COUNTER_DURATION_MS = 1100 * BOOT_SLOWDOWN;
 
-  // Boot text -> logo transition: the logo wipes over the boot text row by row,
-  // top-down, inside the same fixed box.
-  const BOOT_REVEAL_MS = 400;
+  // Row-reveal duration shared by every wipe — the boot's text -> logo reveal and
+  // all three sync phases — so the ASCII logo always repaints at the same pace,
+  // top-down, no matter when you catch it.
+  const REVEAL_MS = 400;
   const BOOT_SETTLE_MS = 350 * BOOT_SLOWDOWN; // glow settle after the reveal
   const BOOT_READY_DELAY_MS = 450 * BOOT_SLOWDOWN;
 
   // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
-  // SYNC_SLOWDOWN stretches the whole sequence so the text is readable. Inside the text
-  // phase the blocks counter counts up (HOLD2) and the transactions-loaded line lands
-  // below it (HOLD3), mirroring how the boot text builds line by line.
+  // Every phase fills all six rows with real data (never an empty row mid-frame, which
+  // read as the content "disappearing"), and every wipe runs at the shared REVEAL_MS.
+  // Holds stretch with SYNC_SLOWDOWN; inside the text phase the blocks counter counts
+  // up (HOLD2) before the logo repaints (HOLD3).
   const SYNC_SLOWDOWN = 2;
-  const SYNC_PHASE1_MS = 300 * SYNC_SLOWDOWN; // logo -> sync pattern, reveals bottom-up
+  const SYNC_PHASE1_MS = REVEAL_MS;           // logo -> sync pattern, reveals bottom-up
   const SYNC_HOLD1_MS = 150 * SYNC_SLOWDOWN;  // pause on the full sync pattern
-  const SYNC_PHASE2_MS = 300 * SYNC_SLOWDOWN; // pattern -> text, reveals top-down
+  const SYNC_PHASE2_MS = REVEAL_MS;           // pattern -> text, reveals top-down
   const SYNC_HOLD2_MS = 450 * SYNC_SLOWDOWN;  // blocks counter counts up inside the text frame
-  const SYNC_HOLD3_MS = 150 * SYNC_SLOWDOWN;  // pause on the transactions-loaded payoff line
-  const SYNC_PHASE3_MS = 300 * SYNC_SLOWDOWN; // text -> logo, reveals top-down
+  const SYNC_HOLD3_MS = 150 * SYNC_SLOWDOWN;  // beat after the counter lands before the logo repaints
+  const SYNC_PHASE3_MS = REVEAL_MS;           // text -> logo, reveals top-down — same pace as boot
 
   let state = 'booting'; // 'booting' | 'ready' | 'syncing'
   // The single fixed box: every phase of the header (boot text, logo, sync
@@ -192,7 +195,7 @@
       return;
     }
 
-    runReveal(baseLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', BOOT_REVEAL_MS, () => {
+    runReveal(baseLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', REVEAL_MS, () => {
       frameLines = LOGO_LINES;
       frameKinds = logoKinds();
       schedule(() => { logoSettled = true; }, BOOT_SETTLE_MS);
@@ -260,32 +263,37 @@
    * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
    * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
    * texture from the bottom up, the pattern gives way to the live status text from the top
-   * down, then the logo repaints from the top down. Like the boot text, the status text
-   * builds as it reads: the blocks counter counts up first, then the real transaction
-   * total lands below it, and `sync complete` closes it out. Both use the same style as
-   * the boot text, so all reads share one voice. The pattern is woven from a fresh random
-   * character pair on every sync.
+   * down, then the logo repaints from the top down — all at the same REVEAL_MS pace as the
+   * boot's logo reveal. The text frame always fills all six rows with real data (counter,
+   * transactions pair, snapshots, network, sync complete) so no phase ever shows an empty
+   * row mid-wipe; only the blocks counter animates while the frame is on screen. Both the
+   * pattern and the text use the same style as the boot text, so all reads share one
+   * voice. The pattern is woven from a fresh random character pair on every sync.
    */
   function startSync(fromBlock, toBlock) {
     state = 'syncing';
     activeSyncEnd = toBlock;
 
     const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH, pickPatternChars());
-    // Revealed while the counter is still counting: the transactions row stays
-    // empty until its number lands in HOLD3.
+    // The full frame is revealed in one wipe — the transaction total, snapshot
+    // count and network stats are all real values from the last header fetch,
+    // so they can be on screen from the first row, like the boot's lines.
     const buildTextLines = () =>
-      padLines([formatSyncBlocksLine(fromBlock, activeSyncEnd), 'loading transactions...', '', 'sync complete'], BOOT_LINE_COUNT);
-
-    if (reducedMotion) {
-      frameLines = padLines(
+      padLines(
         [
-          `${formatSyncBlocksLine(activeSyncEnd, activeSyncEnd)} ... OK`,
+          formatSyncBlocksLine(fromBlock, activeSyncEnd),
           'loading transactions...',
           formatTransactionsLine(transactionCount),
+          formatSnapshotLine(snapshotCount),
+          formatNetworkLine(totalNodes, totalApps),
           'sync complete'
         ],
         BOOT_LINE_COUNT
       );
+
+    if (reducedMotion) {
+      frameLines = buildTextLines();
+      setFrameLine(0, `${formatSyncBlocksLine(activeSyncEnd, activeSyncEnd)} ... OK`);
       frameKinds = textKinds();
       schedule(() => {
         frameLines = LOGO_LINES;
@@ -305,7 +313,6 @@
           frameLines = textLines;
           frameKinds = textKinds();
           animateSyncCounter(fromBlock, () => {
-            setFrameLine(2, formatTransactionsLine(transactionCount));
             schedule(() => {
               runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
                 frameLines = LOGO_LINES;
