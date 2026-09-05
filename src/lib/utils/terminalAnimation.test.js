@@ -9,6 +9,8 @@ import {
   formatSummaryLine,
   buildSyncBlockLines,
   buildSyncPatternLines,
+  pickPatternChars,
+  PATTERN_CHARS,
   padLines,
   composeRevealFrame,
   composeRevealKinds,
@@ -167,19 +169,61 @@ describe('LOGO_LINES / LOGO_WIDTH / BOOT_LINE_COUNT', () => {
 
 describe('buildSyncPatternLines', () => {
   it('returns the requested number of lines, each of the requested width', () => {
-    const lines = buildSyncPatternLines(6, 10);
+    const lines = buildSyncPatternLines(6, 10, ['+', '=']);
     expect(lines).toHaveLength(6);
     lines.forEach(line => expect(line).toHaveLength(10));
   });
 
-  it('alternates the starting character between adjacent rows', () => {
-    const lines = buildSyncPatternLines(2, 4);
-    expect(lines[0][0]).not.toBe(lines[1][0]);
+  it('weaves the two given characters, alternating the starting char between adjacent rows', () => {
+    const lines = buildSyncPatternLines(3, 4, ['x', 'o']);
+    expect(lines[0]).toBe('xoxo');
+    expect(lines[1]).toBe('oxox');
+    expect(lines[2]).toBe('xoxo');
   });
 
-  it('only ever uses + and = characters', () => {
+  it('uses only pool characters when the pair is picked at random', () => {
     const lines = buildSyncPatternLines(4, 8);
-    lines.forEach(line => expect(line).toMatch(/^[+=]+$/));
+    lines.forEach(line => {
+      expect(line).toMatch(/^[+\-=_~^:;.,*#%/\\|()[\]{}<>!?]+$/);
+      [...line].forEach(char => expect(PATTERN_CHARS).toContain(char));
+    });
+  });
+
+  it('picks a fresh random pair on every default call', () => {
+    const a = buildSyncPatternLines(2, 8).join('');
+    const b = buildSyncPatternLines(2, 8).join('');
+    // 28-char pool -> a collision across two 16-char frames is possible but rare;
+    // several draws make an all-equal outcome practically impossible.
+    const frames = [a, b, buildSyncPatternLines(2, 8).join(''), buildSyncPatternLines(2, 8).join('')];
+    expect(new Set(frames).size).toBeGreaterThan(1);
+  });
+});
+
+describe('pickPatternChars', () => {
+  it('returns two distinct pool characters', () => {
+    for (let i = 0; i < 50; i++) {
+      const [a, b] = pickPatternChars();
+      expect(PATTERN_CHARS).toContain(a);
+      expect(PATTERN_CHARS).toContain(b);
+      expect(a).not.toBe(b);
+    }
+  });
+
+  it('is deterministic for an injected random function', () => {
+    let call = 0;
+    const rolls = [0, 0, 0, 5, 5, 5]; // indices into PATTERN_CHARS
+    const [a, b] = pickPatternChars(() => rolls[call++] / PATTERN_CHARS.length);
+    expect(a).toBe(PATTERN_CHARS[0]);
+    expect(b).toBe(PATTERN_CHARS[5]);
+  });
+
+  it('re-rolls the second char until it differs from the first', () => {
+    // always rolls the same index -> the while loop keeps drawing, but a stub
+    // that increments guarantees termination with a distinct pair
+    let call = 0;
+    const [a, b] = pickPatternChars(() => (call++ < 3 ? 0 : 1 / PATTERN_CHARS.length));
+    expect(a).toBe(PATTERN_CHARS[0]);
+    expect(b).toBe(PATTERN_CHARS[1]);
   });
 });
 
