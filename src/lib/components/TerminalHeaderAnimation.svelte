@@ -14,6 +14,7 @@
     formatSummaryLine,
     buildSyncBlockLines,
     buildSyncPatternLines,
+    pickPatternChars,
     padLines,
     composeRevealFrame,
     composeRevealKinds,
@@ -220,15 +221,17 @@
    * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
    * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
    * texture from the bottom up, the pattern gives way to the real status text from the top
-   * down, then the logo repaints from the top down. The status text uses the same style as
-   * the boot text, so both reads share one voice. `activeSyncEnd` is read live when the
-   * status text is built so a sync that arrives mid-animation is reflected without restarting.
+   * down, then the logo repaints from the top down. The pattern and the status text both
+   * use the same style as the boot text, so all three reads share one voice. The pattern
+   * is woven from a fresh random character pair on every sync. `activeSyncEnd` is read
+   * live when the status text is built so a sync that arrives mid-animation is reflected
+   * without restarting.
    */
   function startSync(fromBlock, toBlock) {
     state = 'syncing';
     activeSyncEnd = toBlock;
 
-    const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH);
+    const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH, pickPatternChars());
     const buildTextLines = () =>
       padLines([...buildSyncBlockLines(fromBlock, activeSyncEnd), 'sync complete'], BOOT_LINE_COUNT, SYNC_FILLER_LINES);
 
@@ -244,12 +247,12 @@
       return;
     }
 
-    runReveal(LOGO_LINES, logoKinds(), patternLines, logoKinds(), 'bottom-up', SYNC_PHASE1_MS, () => {
+    runReveal(LOGO_LINES, logoKinds(), patternLines, textKinds(), 'bottom-up', SYNC_PHASE1_MS, () => {
       frameLines = patternLines;
-      frameKinds = logoKinds();
+      frameKinds = textKinds();
       schedule(() => {
         const textLines = buildTextLines();
-        runReveal(patternLines, logoKinds(), textLines, textKinds(), 'top-down', SYNC_PHASE2_MS, () => {
+        runReveal(patternLines, textKinds(), textLines, textKinds(), 'top-down', SYNC_PHASE2_MS, () => {
           frameLines = textLines;
           frameKinds = textKinds();
           schedule(() => {

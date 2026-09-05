@@ -124,18 +124,40 @@ export function buildSyncBlockLines(previousBlockHeight, newBlockHeight) {
 export const SYNC_FILLER_LINES = ['syncing mempool...', 'verifying chain state...'];
 
 /**
- * A checkerboard "+=+=+=" texture, one row per line, alternating which character
- * starts each row so adjacent rows read as a distinct static/noise pattern rather
- * than a solid stripe. Fills the exact box the logo occupies during a sync.
+ * Pool of single-width ASCII texture characters for the sync pattern. Symbols
+ * only — no letters or digits, so the pattern never reads as real text.
  */
-export function buildSyncPatternLines(count, width) {
+export const PATTERN_CHARS = ['+', '=', '-', '_', '~', '^', ':', ';', '.', ',', '*', '#', '%', '/', '\\', '|', '(', ')', '[', ']', '{', '}', '<', '>', '!', '?'];
+
+/**
+ * Pick the two characters a sync pattern is woven from — random on every call,
+ * so each sync looks slightly different. The pair is always two distinct chars.
+ * `random` is injectable for deterministic tests.
+ */
+export function pickPatternChars(random = Math.random) {
+  const pick = () => PATTERN_CHARS[Math.floor(random() * PATTERN_CHARS.length)];
+  const a = pick();
+  let b = pick();
+  while (b === a) b = pick();
+  return [a, b];
+}
+
+/**
+ * A checkerboard texture woven from two characters, one row per line,
+ * alternating which character starts each row so adjacent rows read as a
+ * distinct static/noise pattern rather than a solid stripe. Fills the exact
+ * box the logo occupies during a sync. The character pair is random per call
+ * unless one is passed in (tests pass a fixed pair).
+ */
+export function buildSyncPatternLines(count, width, chars = pickPatternChars()) {
+  const [charA, charB] = chars;
   const lines = [];
   for (let row = 0; row < count; row++) {
-    const rowStartsWithPlus = row % 2 === 0;
+    const rowStartsWithCharA = row % 2 === 0;
     let line = '';
     for (let col = 0; col < width; col++) {
       const colIsEven = col % 2 === 0;
-      line += colIsEven === rowStartsWithPlus ? '+' : '=';
+      line += colIsEven === rowStartsWithCharA ? charA : charB;
     }
     lines.push(line);
   }
