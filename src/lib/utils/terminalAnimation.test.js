@@ -5,6 +5,7 @@ import {
   shouldTriggerSync,
   mergeSyncTarget,
   formatStatusLine,
+  formatSnapshotLine,
   formatSummaryLine,
   buildSyncBlockLines,
   buildSyncPatternLines,
@@ -115,6 +116,22 @@ describe('formatStatusLine', () => {
 
   it('reports OFFLINE for the database when it is not online', () => {
     expect(formatStatusLine('online', 'offline')).toBe('> api OK | database OFFLINE');
+  });
+});
+
+describe('formatSnapshotLine', () => {
+  it('shows the live snapshot total with thousands separators', () => {
+    expect(formatSnapshotLine(819)).toBe('daily snapshots... 819 loaded');
+    expect(formatSnapshotLine(12345)).toBe('daily snapshots... 12,345 loaded');
+  });
+
+  it('shows zero without falling back to "..."', () => {
+    expect(formatSnapshotLine(0)).toBe('daily snapshots... 0 loaded');
+  });
+
+  it('falls back to "..." for a missing count', () => {
+    expect(formatSnapshotLine(null)).toBe('daily snapshots... ... loaded');
+    expect(formatSnapshotLine(undefined)).toBe('daily snapshots... ... loaded');
   });
 });
 
