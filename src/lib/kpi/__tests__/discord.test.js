@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDiscordPayload, isValidDiscordWebhook } from '../discord.js';
+import { buildDiscordPayload, buildFluxCloudActivityPayload, isValidDiscordWebhook } from '../discord.js';
 import { buildKpiDataset } from '../metrics.js';
 
 describe('isValidDiscordWebhook — SSRF guard', () => {
@@ -179,42 +179,149 @@ describe('buildDiscordPayload', () => {
         expect(JSON.stringify(embed).length).toBeLessThan(6000);
     });
 
-    describe('instant section (apps expiring in 24h)', () => {
-        function dailyReport(instant) {
-            const dataset = buildKpiDataset({
-                current: { start: '2026-08-20', end: '2026-08-20' },
-                comparison: { start: '2026-08-19', end: '2026-08-19' },
+    describe('daily rendering', () => {
+        function dailyDataset(instant) {
+            return buildKpiDataset({
+                current: { start: '2026-09-04', end: '2026-09-04' },
+                comparison: { start: '2026-09-03', end: '2026-09-03' },
                 currentSnapshots: snapshots(),
                 comparisonSnapshots: snapshots({ node_total: 5800 }),
                 currentRevenue: { flux: 200, usd: 9 },
                 comparisonRevenue: { flux: 100, usd: 4 },
                 instant
             });
+        }
+
+        function dailyReport(instant) {
             return {
                 timeframe: 'daily',
-                current: { start: '2026-08-20', end: '2026-08-20' },
-                comparison: { start: '2026-08-19', end: '2026-08-19' },
-                dataset,
-                generatedAt: '2026-08-21T00:00:00.000Z'
+                current: { start: '2026-09-04', end: '2026-09-04' },
+                comparison: { start: '2026-09-03', end: '2026-09-03' },
+                dataset: dailyDataset(instant),
+                generatedAt: '2026-09-05T00:00:00.000Z'
             };
         }
 
-        it('heads the field INSTANT and shows the count without a fabricated delta', () => {
-            const embed = buildDiscordPayload(dailyReport({ expiring: 12 })).embeds[0];
-            const field = embed.fields.find(f => f.name === 'Expiring (24h) - INSTANT');
+        it('shows plain single dates instead of "X to X" ranges', () => {
+            const embed = buildDiscordPayload(dailyReport()).embeds[0];
+            expect(embed.description).toContain('Sep 4, 2026 vs Sep 3, 2026');
+            expect(embed.description).toContain('2026-09-04 | 2026-09-03');
+            expect(embed.description).not.toContain('to 2026-09-04');
+        });
+
+        it('drops the aggregation suffix and note — daily snapshots are not averaged', () => {
+            const embed = buildDiscordPayload(dailyReport()).embeds[0];
+            const names = embed.fields.map(f => f.name);
+            expect(names).toEqual(['Revenue', 'Nodes', 'Resource Utilization', 'Applications', 'Data coverage']);
+            for (const field of embed.fields) {
+                expect(field.value).not.toContain('AVERAGE');
+                expect(field.value).not.toContain('SUM of all days');
+            }
+        });
+
+        it('reads the price row as that day\'s price, not an average', () => {
+            const embed = buildDiscordPayload(dailyReport()).embeds[0];
+            const revenue = embed.fields[0];
+            expect(revenue.value).toContain('FLUX price');
+            expect(revenue.value).not.toContain('(avg)');
+            expect(revenue.value).not.toContain('Except');
+        });
+
+        it('renders Flux Cloud as a two-column table with no delta columns', () => {
+            const embed = buildDiscordPayload(dailyReport({
+                fluxCloud: { appsDeployed: 7149, appsExpiring24h: 12 }
+            })).embeds[0];
+
+            const field = embed.fields.find(f => f.name === 'Flux Cloud');
             expect(field).toBeDefined();
-            expect(field.value).toContain('Point-in-time reading taken when the report was generated');
+            expect(field.value).not.toContain('+/-');
             const block = field.value.split('```')[1];
-            const row = block.split('\n').find(l => l.includes('Apps expiring'));
-            expect(row).toContain('12');
-            // +/- and +/-% carry explicit placeholders, not a made-up comparison
-            expect(row).toMatch(/-\s+n\/a\s*$/);
+            const rows = block.split('\n').filter(Boolean);
+            expect(rows[1]).toContain('Apps deployed');
+            expect(rows[1]).toContain('7,149');
+            expect(rows[2]).toContain('Expiring (24h)');
+            expect(rows[2]).toContain('12');
+            // No comparison cells at all — the row ends after Qty
+            expect(rows[1].trim().split(/\s+/)).toHaveLength(3);
         });
 
         it('says the reading was unavailable rather than inventing a count', () => {
-            const embed = buildDiscordPayload(dailyReport({ expiring: null })).embeds[0];
-            const field = embed.fields.find(f => f.name === 'Expiring (24h) - INSTANT');
+            const embed = buildDiscordPayload(dailyReport({
+                fluxCloud: { appsDeployed: null, appsExpiring24h: null }
+            })).embeds[0];
+            const field = embed.fields.find(f => f.name === 'Flux Cloud');
             expect(field.value).toContain('Not available at report time');
+        });
+    });
+
+    describe('Flux Cloud Activity message', () => {
+        const apps = [
+            { name: 'minecraft-server', repo: 'runonflux/minecraft-java:latest', instances: 3, cpu: 2, ram: 6144, hdd: 25 },
+            { name: 'presearch', repo: 'presearch/presearch-node:latest', instances: 1, cpu: 0.5, ram: 512, hdd: 10 }
+        ];
+
+        function activityReport(overrides = {}) {
+            return {
+                timeframe: 'daily',
+                current: { start: '2026-09-04', end: '2026-09-04' },
+                comparison: { start: '2026-09-03', end: '2026-09-03' },
+                currentLabel: 'Sep 4, 2026',
+                dataset: { sections: [], availableMetrics: 0, totalMetrics: 0, empty: false },
+                fluxCloud: {
+                    appsDeployed: 7149,
+                    deployedToday: { cached: true, apps },
+                    expiring24h: { cached: true, apps: apps.slice(0, 1) },
+                    ...overrides
+                },
+                generatedAt: '2026-09-05T00:00:00.000Z'
+            };
+        }
+
+        it('builds the second embed with per-app detail tables', () => {
+            const payload = buildFluxCloudActivityPayload(activityReport());
+            expect(payload.embeds).toHaveLength(1);
+            const embed = payload.embeds[0];
+            expect(embed.title).toBe('FluxTracker Flux Cloud Activity');
+            expect(embed.fields.map(f => f.name)).toEqual(['Deployments (24 hours)', 'Expiring today']);
+
+            const deployments = embed.fields[0].value;
+            expect(deployments).toContain('Total: 2');
+            expect(deployments).toContain('minecraft-server');
+            expect(deployments).toContain('runonflux/minecraft-java:latest');
+            expect(deployments).toContain('6.1G');  // 6144MB, same rounding the carousel uses
+            expect(deployments).toContain('25G');
+        });
+
+        it('caps the table to the field limit and summarises the rest', () => {
+            const many = Array.from({ length: 120 }, (_, i) => ({
+                name: `app-${i}`,
+                repo: `registry/example/app-${i}:tag`,
+                instances: 1, cpu: 1, ram: 1024, hdd: 10
+            }));
+            const embed = buildFluxCloudActivityPayload(activityReport({
+                deployedToday: { cached: true, apps: many }
+            })).embeds[0];
+            const field = embed.fields[0];
+
+            expect(field.value.length).toBeLessThanOrEqual(1024);
+            expect(field.value).toContain('Total: 120');
+            expect(field.value).toMatch(/\+ \d+ more not listed \(total 120\)/);
+            // First rows listed, later rows summarised
+            expect(field.value).toContain('app-0');
+            expect(field.value).not.toContain('app-119');
+        });
+
+        it('handles empty and unavailable lists without fabricating data', () => {
+            const embed = buildFluxCloudActivityPayload(activityReport({
+                deployedToday: { cached: true, apps: [] },
+                expiring24h: null
+            })).embeds[0];
+            expect(embed.fields[0].value).toBe('None in the last 24 hours.');
+            expect(embed.fields[1].value).toBe('Not available at report time.');
+        });
+
+        it('returns null for non-daily reports (no activity message)', () => {
+            expect(buildFluxCloudActivityPayload({ fluxCloud: null })).toBeNull();
         });
     });
 });

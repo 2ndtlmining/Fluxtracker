@@ -135,7 +135,9 @@ describe('buildKpiDataset', () => {
         expect(d.empty).toBe(false);
     });
 
-    describe('instant section (apps expiring in 24h)', () => {
+    describe('instant section (Flux Cloud)', () => {
+        const instant = { fluxCloud: { appsDeployed: 7149, appsExpiring24h: 12 } };
+
         it('is absent when the caller passes no instant readings', () => {
             const d = buildKpiDataset({
                 current, comparison,
@@ -144,31 +146,34 @@ describe('buildKpiDataset', () => {
                 currentRevenue: revenue,
                 comparisonRevenue: revenue
             });
-            expect(d.sections.map(s => s.key)).not.toContain('expiring');
+            expect(d.sections.map(s => s.key)).not.toContain('fluxCloud');
         });
 
-        it('reports the live expiring count without inventing a comparison', () => {
+        it('reports the live counts without inventing a comparison', () => {
             const d = buildKpiDataset({
                 current, comparison,
                 currentSnapshots: makeSnapshots(),
                 comparisonSnapshots: makeSnapshots(),
                 currentRevenue: revenue,
                 comparisonRevenue: revenue,
-                instant: { expiring: 12 }
+                instant
             });
 
-            const section = d.sections.find(s => s.key === 'expiring');
-            expect(section.title).toBe('Expiring (24h)');
+            const section = d.sections.find(s => s.key === 'fluxCloud');
+            expect(section.title).toBe('Flux Cloud');
             expect(section.aggregation).toBe('instant');
             expect(section.mixedAggregation).toBe(false);
 
-            const metric = section.metrics.find(m => m.key === 'count');
-            expect(metric.available).toBe(true);
-            expect(metric.current).toBe(12);
-            expect(metric.comparison).toBeNull();
-            expect(metric.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
-            expect(d.totalMetrics).toBe(22);
-            expect(d.availableMetrics).toBe(22);
+            const deployed = section.metrics.find(m => m.key === 'appsDeployed');
+            const expiring = section.metrics.find(m => m.key === 'appsExpiring24h');
+            expect(deployed.available).toBe(true);
+            expect(deployed.current).toBe(7149);
+            expect(deployed.comparison).toBeNull();
+            expect(deployed.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
+            expect(expiring.available).toBe(true);
+            expect(expiring.current).toBe(12);
+            expect(d.totalMetrics).toBe(23);
+            expect(d.availableMetrics).toBe(23);
         });
 
         it('an absent reading is unavailable, not a fake zero', () => {
@@ -178,14 +183,17 @@ describe('buildKpiDataset', () => {
                 comparisonSnapshots: makeSnapshots(),
                 currentRevenue: revenue,
                 comparisonRevenue: revenue,
-                instant: { expiring: null }
+                instant: { fluxCloud: { appsDeployed: null, appsExpiring24h: 12 } }
             });
 
-            const metric = d.sections.find(s => s.key === 'expiring').metrics[0];
-            expect(metric.available).toBe(false);
-            expect(metric.current).toBeNull();
+            const section = d.sections.find(s => s.key === 'fluxCloud');
+            const deployed = section.metrics.find(m => m.key === 'appsDeployed');
+            const expiring = section.metrics.find(m => m.key === 'appsExpiring24h');
+            expect(deployed.available).toBe(false);
+            expect(deployed.current).toBeNull();
+            expect(expiring.available).toBe(true);
             // The rest of the report is still deliverable
-            expect(d.availableMetrics).toBe(21);
+            expect(d.availableMetrics).toBe(22);
             expect(d.empty).toBe(false);
         });
     });

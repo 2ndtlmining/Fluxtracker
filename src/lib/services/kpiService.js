@@ -9,8 +9,8 @@ import {
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily } from '../kpi/metrics.js';
-import { buildDiscordPayload, isValidDiscordWebhook } from '../kpi/discord.js';
-import { getCachedExpiringApps } from './carouselService.js';
+import { buildDiscordPayload, buildFluxCloudActivityPayload, isValidDiscordWebhook } from '../kpi/discord.js';
+import { getFluxCloudSnapshot } from './carouselService.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('kpiService');
@@ -46,18 +46,38 @@ async function getPeriodRevenue({ start, end }) {
 }
 
 /**
- * Count of deployed apps expiring within ~24 hours (2880 blocks), from the same
- * carousel source the dashboard's "Expiring Soon" tab uses. Returns null when the
- * upstream fetch fails and nothing is cached — an absent reading, never a fake zero.
+ * Live Flux Cloud state for the daily report: the two instant metrics the main
+ * report shows, plus the per-app detail the Flux Cloud Activity message lists.
+ * `cached === false` means the on-demand fetch failed with nothing ever stored —
+ * an absent reading, never a fake zero.
  */
-async function getExpiringAppsCount() {
+async function getFluxCloudData() {
     try {
-        const { stats, cached } = await getCachedExpiringApps();
-        if (!cached && stats.length === 0) return null;
-        return stats.length;
+        const snapshot = await getFluxCloudSnapshot();
+
+        return {
+            instant: {
+                fluxCloud: {
+                    appsDeployed: snapshot.totalAppsDeployed,
+                    appsExpiring24h: snapshot.appsExpiring24h.cached
+                        ? snapshot.appsExpiring24h.apps.length
+                        : null
+                }
+            },
+            activity: {
+                appsDeployed: snapshot.totalAppsDeployed,
+                deployedToday: snapshot.appsDeployedToday,
+                expiring24h: snapshot.appsExpiring24h
+            }
+        };
     } catch (error) {
-        log.warn({ err: error }, 'Could not read expiring apps for the KPI report');
-        return null;
+        log.warn({ err: error }, 'Flux Cloud data unavailable for the daily KPI report');
+        // The section still renders — with "Not available at report time" rows — so a
+        // failed read is visible, not silently missing from the report.
+        return {
+            instant: { fluxCloud: { appsDeployed: null, appsExpiring24h: null } },
+            activity: null
+        };
     }
 }
 
@@ -79,11 +99,9 @@ export async function buildKpiReport(timeframe, now = new Date()) {
             getOldestTransactionDate()
         ]);
 
-    // The expiring-apps reading only exists "now", so it rides on the daily report,
+    // The Flux Cloud reading only exists "now", so it rides on the daily report,
     // where the whole point is the state of the network today.
-    const instant = timeframe === 'daily'
-        ? { expiring: await getExpiringAppsCount() }
-        : undefined;
+    const fluxCloud = timeframe === 'daily' ? await getFluxCloudData() : null;
 
     const dataset = buildKpiDataset({
         current,
@@ -93,7 +111,7 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         currentRevenue,
         comparisonRevenue,
         earliestRevenueDate: earliestRevenueDate ? String(earliestRevenueDate).slice(0, 10) : null,
-        instant
+        instant: fluxCloud?.instant
     });
 
     return {
@@ -104,23 +122,18 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         currentLabel: formatPeriod(timeframe, current),
         comparisonLabel: formatPeriod(timeframe, comparison),
         dataset,
+        // Per-app Flux Cloud detail, present only on daily. Discord renders it as a
+        // second "Flux Cloud Activity" message; other consumers can ignore it.
+        fluxCloud: fluxCloud?.activity ?? null,
         generatedAt: new Date(now).toISOString()
     };
 }
 
 /**
- * POST the report to a Discord webhook.
- *
- * The URL is re-validated here, not just at the API boundary — this is the function that
- * actually makes the outbound request, so it is the last place the SSRF guard can live.
+ * POST one payload to a Discord webhook. The URL must already be validated; this is
+ * the function that actually makes the outbound request, so the redirect guard lives here.
  */
-export async function sendToDiscord(webhookUrl, report) {
-    if (!isValidDiscordWebhook(webhookUrl)) {
-        throw new Error('Not a valid Discord webhook URL');
-    }
-
-    const payload = buildDiscordPayload(report);
-
+async function postWebhook(webhookUrl, payload) {
     try {
         await axios.post(webhookUrl, payload, {
             timeout: WEBHOOK_TIMEOUT_MS,
@@ -128,7 +141,6 @@ export async function sendToDiscord(webhookUrl, report) {
             maxRedirects: 0,          // a redirect could leave the discord.com allowlist
             validateStatus: s => s >= 200 && s < 300
         });
-        return { delivered: true };
     } catch (error) {
         const status = error.response?.status;
 
@@ -141,6 +153,40 @@ export async function sendToDiscord(webhookUrl, report) {
 
         log.error({ err: error, status }, 'Discord webhook delivery failed');
         throw new Error('Could not deliver the report to Discord.');
+    }
+}
+
+/**
+ * POST the report to a Discord webhook. On the daily timeframe a second message —
+ * "Flux Cloud Activity", the per-app detail behind the report's Flux Cloud section —
+ * follows the main one. Both go to the same webhook.
+ *
+ * The URL is re-validated here, not just at the API boundary — this is the function that
+ * actually makes the outbound requests, so it is the last place the SSRF guard can live.
+ *
+ * @returns {{delivered: boolean, activityDelivered?: boolean, activityError?: string}}
+ *   `activityDelivered: false` means the main report arrived but the follow-up message
+ *   failed — the caller surfaces that instead of failing the whole submission (and
+ *   prompting a retry that would duplicate the main report).
+ */
+export async function sendToDiscord(webhookUrl, report) {
+    if (!isValidDiscordWebhook(webhookUrl)) {
+        throw new Error('Not a valid Discord webhook URL');
+    }
+
+    await postWebhook(webhookUrl, buildDiscordPayload(report));
+
+    const activityPayload = buildFluxCloudActivityPayload(report);
+    if (!activityPayload) {
+        return { delivered: true };
+    }
+
+    try {
+        await postWebhook(webhookUrl, activityPayload);
+        return { delivered: true, activityDelivered: true };
+    } catch (error) {
+        log.error({ err: error }, 'Flux Cloud Activity message failed after the main report was delivered');
+        return { delivered: true, activityDelivered: false, activityError: error.message };
     }
 }
 

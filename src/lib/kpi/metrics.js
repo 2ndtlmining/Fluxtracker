@@ -108,17 +108,18 @@ export const SECTIONS = [
 /**
  * Point-in-time section: read when the report is generated rather than aggregated
  * from history. Included only for the daily timeframe, where the report is about
- * the state of the network now. There is deliberately no comparison figure — we do
- * not snapshot "apps expiring in 24h" per day, so yesterday's value cannot be known
- * and an up/down arrow would be invented.
+ * the state of the network now. There is deliberately no comparison figure — these
+ * values are never snapshotted per day, so yesterday's numbers cannot be known and
+ * an up/down arrow would be invented.
  */
-export const EXPIRING_SECTION = {
-    key: 'expiring',
-    title: 'Expiring (24h)',
+export const FLUX_CLOUD_SECTION = {
+    key: 'fluxCloud',
+    title: 'Flux Cloud',
     source: 'instant',
     aggregation: 'instant',
     metrics: [
-        { key: 'count', label: 'Apps expiring', format: 'int' }
+        { key: 'appsDeployed', label: 'Apps deployed', format: 'int' },
+        { key: 'appsExpiring24h', label: 'Expiring (24h)', format: 'int' }
     ]
 };
 
@@ -186,9 +187,10 @@ export function computeChange(current, comparison) {
  * @param {{flux:number, usd:number, days:number}} input.currentRevenue
  * @param {{flux:number, usd:number, days:number}} input.comparisonRevenue
  * @param {string|null} [input.earliestRevenueDate] first date we have any transaction for
- * @param {{expiring?:number|null}} [input.instant] point-in-time readings taken at report
- *   generation time. When present the instant sections (EXPIRING_SECTION) are appended;
- *   omit it entirely for timeframes where they don't apply.
+ * @param {{fluxCloud?:{appsDeployed?:number|null, appsExpiring24h?:number|null}}} [input.instant]
+ *   point-in-time readings taken at report generation time, keyed by instant-section key and
+ *   metric key. When present the instant sections (FLUX_CLOUD_SECTION) are appended; omit it
+ *   entirely for timeframes where they don't apply.
  */
 export function buildKpiDataset({
     current,
@@ -211,15 +213,16 @@ export function buildKpiDataset({
     const currentDays = dayCount(current.start, current.end);
     const comparisonDays = dayCount(comparison.start, comparison.end);
 
-    const sections = (instant ? [...SECTIONS, EXPIRING_SECTION] : SECTIONS).map(section => {
+    const sections = (instant ? [...SECTIONS, FLUX_CLOUD_SECTION] : SECTIONS).map(section => {
         const metrics = section.metrics.map(metric => {
             let cur;
             let cmp;
 
             if (section.source === 'instant') {
-                // A live reading: current comes from the caller, and there is no
-                // comparison because the value was never snapshotted historically.
-                const value = instant[section.key];
+                // Live readings: values come from the caller, and there is no comparison
+                // because they are never snapshotted historically.
+                const sectionValues = instant[section.key] || {};
+                const value = sectionValues[metric.key];
                 const present = typeof value === 'number' && Number.isFinite(value);
                 cur = { value: present ? value : null, covered: present, coveredDays: present ? 1 : 0, expectedDays: 1 };
                 cmp = { value: null, covered: true, coveredDays: 0, expectedDays: 0 };

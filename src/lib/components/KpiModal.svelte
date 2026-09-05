@@ -111,9 +111,10 @@
         const partial = data.metricsReported < data.metricsTotal
           ? ` ${data.metricsTotal - data.metricsReported} metric(s) lacked full history and were marked as insufficient data.`
           : '';
+        const warning = data.warning ? ` ${data.warning}` : '';
         result = {
           ok: true,
-          message: `Report sent: ${data.currentLabel} vs ${data.comparisonLabel}.${partial}`
+          message: `Report sent: ${data.currentLabel} vs ${data.comparisonLabel}.${partial}${warning}`
         };
       } else {
         result = { ok: false, message: data.error || 'Could not send the report.' };
