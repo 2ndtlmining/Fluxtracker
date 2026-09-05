@@ -1,13 +1,18 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import {
-    FLUX_LOGO,
+    LOGO_LINES,
+    LOGO_WIDTH,
     pickBootStartBlock,
     computeAnimatedBlock,
     mergeSyncTarget,
     formatNetworkLine,
     formatVersionLine,
-    buildSyncBlockLines
+    buildSyncBlockLines,
+    buildSyncPatternLines,
+    padLines,
+    composeRevealFrame,
+    SYNC_FILLER_LINES
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -26,8 +31,18 @@
   const BOOT_TIMEOUT_MS = 4000;
   const COUNTER_DURATION_MS = 1100;
 
+  // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
+  // Total is 1500ms, double the previous flat 750ms sync, so the change reads as alive
+  // rather than flickering past before it can be noticed.
+  const SYNC_PHASE1_MS = 300; // logo -> sync pattern, reveals bottom-up
+  const SYNC_HOLD1_MS = 150;  // pause on the full sync pattern
+  const SYNC_PHASE2_MS = 300; // pattern -> status text, reveals top-down
+  const SYNC_HOLD2_MS = 450;  // pause on the full status text so it's actually readable
+  const SYNC_PHASE3_MS = 300; // status text -> logo, reveals top-down
+
   let state = 'booting'; // 'booting' | 'ready' | 'syncing'
   let lines = [];
+  let frameLines = LOGO_LINES; // fixed-box content shown once booted — the logo, or a sync frame
   let showLogo = false;
   let logoSettled = false;
   let reducedMotion = false;
@@ -132,6 +147,7 @@
 
   function finishBoot() {
     showLogo = true;
+    frameLines = LOGO_LINES;
     schedule(() => { logoSettled = true; }, reducedMotion ? 0 : 350);
     schedule(() => {
       state = 'ready';
@@ -139,18 +155,63 @@
     }, reducedMotion ? 30 : 450);
   }
 
+  /** Animate `frameLines` from `baseLines` to `incomingLines`, revealing row-by-row over `duration`. */
+  function runReveal(baseLines, incomingLines, direction, duration, onDone) {
+    const start = performance.now();
+    function frame(now) {
+      const progress = Math.min(1, (now - start) / duration);
+      const revealedCount = Math.round(progress * baseLines.length);
+      frameLines = composeRevealFrame(baseLines, incomingLines, revealedCount, direction);
+      if (progress >= 1) {
+        onDone();
+        return;
+      }
+      rafId = requestAnimationFrame(frame);
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
+  /**
+   * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
+   * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
+   * texture from the bottom up, the pattern gives way to the real status text from the top
+   * down, then the logo repaints from the top down. `activeSyncEnd` is read live when the
+   * status text is built so a sync that arrives mid-animation is reflected without restarting.
+   */
   function startSync(fromBlock, toBlock) {
     state = 'syncing';
     activeSyncEnd = toBlock;
-    lines = buildSyncBlockLines(fromBlock, toBlock);
 
-    schedule(() => {
-      pushLine('sync complete');
+    const patternLines = buildSyncPatternLines(LOGO_LINES.length, LOGO_WIDTH);
+    const buildTextLines = () =>
+      padLines([...buildSyncBlockLines(fromBlock, activeSyncEnd), 'sync complete'], LOGO_LINES.length, SYNC_FILLER_LINES);
+
+    if (reducedMotion) {
+      frameLines = buildTextLines();
       schedule(() => {
+        frameLines = LOGO_LINES;
         state = 'ready';
         activeSyncEnd = null;
-      }, reducedMotion ? 30 : 250);
-    }, reducedMotion ? 30 : 500);
+      }, 30);
+      return;
+    }
+
+    runReveal(LOGO_LINES, patternLines, 'bottom-up', SYNC_PHASE1_MS, () => {
+      frameLines = patternLines;
+      schedule(() => {
+        const textLines = buildTextLines();
+        runReveal(patternLines, textLines, 'top-down', SYNC_PHASE2_MS, () => {
+          frameLines = textLines;
+          schedule(() => {
+            runReveal(textLines, LOGO_LINES, 'top-down', SYNC_PHASE3_MS, () => {
+              frameLines = LOGO_LINES;
+              state = 'ready';
+              activeSyncEnd = null;
+            });
+          }, SYNC_HOLD2_MS);
+        });
+      }, SYNC_HOLD1_MS);
+    });
   }
 
   $: if (syncRequest && syncRequest.id !== lastHandledSyncId) {
@@ -175,12 +236,12 @@
 </script>
 
 <div class="terminal-header">
-  {#if state !== 'ready' || !showLogo}
+  {#if state === 'booting'}
     <pre class="terminal-lines">{lines.join('\n')}</pre>
   {/if}
 
   {#if showLogo}
-    <pre class="ascii-logo" class:settled={logoSettled}>{FLUX_LOGO}</pre>
+    <pre class="ascii-logo" class:settled={logoSettled}>{frameLines.join('\n')}</pre>
   {/if}
 </div>
 
