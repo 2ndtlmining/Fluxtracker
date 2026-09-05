@@ -154,6 +154,7 @@
         {blockHeight}
         {totalNodes}
         {totalApps}
+        {snapshotCount}
         {appVersion}
         {arcaneOsCodename}
         {apiStatus}
@@ -163,7 +164,7 @@
         on:bootComplete={handleBootComplete}
       />
       <div class="build-info">
-        Build: <span class="text-cyan">{appVersion} {arcaneOsCodename}</span>
+        Build: <span class="build-version">{appVersion}</span>{#if arcaneOsCodename}{' '}<span class="build-codename">{arcaneOsCodename}</span>{/if}
       </div>
     </div>
 
@@ -252,6 +253,17 @@
     font-size: 0.75rem;
     color: var(--text-muted);
     font-weight: 400;
+  }
+
+  /* Version gets the same green the memory stat uses when healthy; the ArcaneOS
+     codename gets the carousel's purple. Both values stay API-driven — only the
+     colours are styled here. */
+  .build-version {
+    color: var(--accent-green);
+  }
+
+  .build-codename {
+    color: var(--accent-purple);
   }
 
   .header-stats {

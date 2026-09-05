@@ -10,6 +10,7 @@
     computeAnimatedBlock,
     mergeSyncTarget,
     formatStatusLine,
+    formatSnapshotLine,
     formatSummaryLine,
     buildSyncBlockLines,
     buildSyncPatternLines,
@@ -22,6 +23,7 @@
   export let blockHeight = null;
   export let totalNodes = 0;
   export let totalApps = 0;
+  export let snapshotCount = 0;
   export let appVersion = '...';
   export let arcaneOsCodename = '';
   export let apiStatus = 'checking';
@@ -139,9 +141,7 @@
       }
     }, BOOT_TIMEOUT_MS);
 
-    schedule(() => pushLine('> initializing telemetry...'), 150 * BOOT_SLOWDOWN);
-    schedule(() => replaceLastLine('> initializing telemetry... OK'), 350 * BOOT_SLOWDOWN);
-    schedule(() => pushLine('> connecting to flux network...'), 450 * BOOT_SLOWDOWN);
+    schedule(() => pushLine('> connecting to flux network...'), 300 * BOOT_SLOWDOWN);
 
     schedule(() => waitForData(), 650 * BOOT_SLOWDOWN);
   }
@@ -162,13 +162,16 @@
     }
 
     pushLine(formatStatusLine(apiStatus, dbStatus));
+    // Real tracker data — the snapshot line is only written once the header
+    // fetch has landed, so the number is live, never a placeholder.
+    schedule(() => pushLine(formatSnapshotLine(snapshotCount)), 150 * BOOT_SLOWDOWN);
 
     const target = blockHeight;
     const startBlock = pickBootStartBlock(target);
-    animateBlockCounter(startBlock, target, () => {
+    schedule(() => animateBlockCounter(startBlock, target, () => {
       pushLine(formatSummaryLine(appVersion, arcaneOsCodename, totalNodes, totalApps));
       schedule(() => finishBoot(), 550 * BOOT_SLOWDOWN);
-    });
+    }), 300 * BOOT_SLOWDOWN);
   }
 
   function finishBoot() {
