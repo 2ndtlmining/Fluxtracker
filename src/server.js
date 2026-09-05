@@ -321,13 +321,14 @@ app.get('/api/health', async (req, res) => {
 // Consolidated header stats endpoint (replaces separate /api/health + /api/stats calls from header)
 app.get('/api/header', async (req, res) => {
     return withDbFallback(headerCache, 'header', res, async () => {
-        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus] = await Promise.all([
+        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus, dbReachable] = await Promise.all([
             getCurrentMetrics(),
             getDatabaseStats(),
             getLastNSnapshots(1),
             getSyncStatus('revenue'),
             getTxidCount(),
-            getSnapshotSystemStatus()
+            getSnapshotSystemStatus(),
+            probeDb()
         ]);
 
         // Fetch block height and ArcaneOS codename in parallel (external API calls)
@@ -385,7 +386,8 @@ app.get('/api/header', async (req, res) => {
                     }
                     : null
             },
-            appVersion: APP_VERSION
+            appVersion: APP_VERSION,
+            dbStatus: dbReachable ? 'online' : 'offline'
         };
     });
 });
