@@ -527,6 +527,7 @@ part-finished week would always look like a collapse next to a full one.
 
 | Time frame | Period | Worked example (today = Fri 21 Aug 2026) |
 |---|---|---|
+| Daily | Yesterday (UTC) | Aug 20 vs Aug 19 |
 | Weekly | Monday-Sunday (ISO week) | Aug 10-16 vs Aug 3-9 |
 | Monthly | 1st to last day of the calendar month | Jul 2026 vs Jun 2026 |
 | Quarterly | Calendar quarter (Q1 Jan-Mar, Q2 Apr-Jun, Q3 Jul-Sep, Q4 Oct-Dec) | Q2 2026 vs Q1 2026 |
@@ -547,6 +548,12 @@ Two aggregation rules, chosen to match the live dashboard:
 | Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
 | Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
+| Expiring (24h) | Apps expiring — **Daily reports only** | **Point-in-time at report generation** | live app data (same source as the carousel's "Expiring Soon" tab) |
+
+The **Expiring (24h)** row is the one metric with no comparison column. Apps expiring within
+24 hours is a reading taken when the report is generated; we never snapshot it per day, so
+yesterday's figure cannot be known and a +/- column would be invented. The Discord table shows
+the count with `-` / `n/a` in the delta columns instead.
 
 **FLUX price is the one averaged row in a summed section.** It is there because without it the
 two rows above it cannot be read: FLUX revenue flat while USD revenue falls is a price move, not

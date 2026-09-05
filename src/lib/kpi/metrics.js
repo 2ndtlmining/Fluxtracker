@@ -106,6 +106,23 @@ export const SECTIONS = [
 ];
 
 /**
+ * Point-in-time section: read when the report is generated rather than aggregated
+ * from history. Included only for the daily timeframe, where the report is about
+ * the state of the network now. There is deliberately no comparison figure — we do
+ * not snapshot "apps expiring in 24h" per day, so yesterday's value cannot be known
+ * and an up/down arrow would be invented.
+ */
+export const EXPIRING_SECTION = {
+    key: 'expiring',
+    title: 'Expiring (24h)',
+    source: 'instant',
+    aggregation: 'instant',
+    metrics: [
+        { key: 'count', label: 'Apps expiring', format: 'int' }
+    ]
+};
+
+/**
  * Average a snapshot column over a period, ignoring days with no value.
  *
  * Zero is treated as "no data" rather than a real reading: none of these metrics can
@@ -169,6 +186,9 @@ export function computeChange(current, comparison) {
  * @param {{flux:number, usd:number, days:number}} input.currentRevenue
  * @param {{flux:number, usd:number, days:number}} input.comparisonRevenue
  * @param {string|null} [input.earliestRevenueDate] first date we have any transaction for
+ * @param {{expiring?:number|null}} [input.instant] point-in-time readings taken at report
+ *   generation time. When present the instant sections (EXPIRING_SECTION) are appended;
+ *   omit it entirely for timeframes where they don't apply.
  */
 export function buildKpiDataset({
     current,
@@ -177,7 +197,8 @@ export function buildKpiDataset({
     comparisonSnapshots,
     currentRevenue,
     comparisonRevenue,
-    earliestRevenueDate = null
+    earliestRevenueDate = null,
+    instant = null
 }) {
     // A period that starts before we were recording transactions produces a partial sum,
     // which is far more misleading than showing nothing: comparing a full 2025 against a
@@ -190,14 +211,21 @@ export function buildKpiDataset({
     const currentDays = dayCount(current.start, current.end);
     const comparisonDays = dayCount(comparison.start, comparison.end);
 
-    const sections = SECTIONS.map(section => {
+    const sections = (instant ? [...SECTIONS, EXPIRING_SECTION] : SECTIONS).map(section => {
         const metrics = section.metrics.map(metric => {
             let cur;
             let cmp;
 
-            // A metric naming a snapshot column is averaged from daily_snapshots wherever it
-            // sits; everything else in the revenue section comes from the revenue totals.
-            if (metric.column) {
+            if (section.source === 'instant') {
+                // A live reading: current comes from the caller, and there is no
+                // comparison because the value was never snapshotted historically.
+                const value = instant[section.key];
+                const present = typeof value === 'number' && Number.isFinite(value);
+                cur = { value: present ? value : null, covered: present, coveredDays: present ? 1 : 0, expectedDays: 1 };
+                cmp = { value: null, covered: true, coveredDays: 0, expectedDays: 0 };
+            } else if (metric.column) {
+                // A metric naming a snapshot column is averaged from daily_snapshots wherever it
+                // sits; everything else in the revenue section comes from the revenue totals.
                 cur = averageColumn(currentSnapshots, metric.column, currentDays);
                 cmp = averageColumn(comparisonSnapshots, metric.column, comparisonDays);
             } else if (section.key === 'revenue') {
@@ -229,7 +257,11 @@ export function buildKpiDataset({
                 available,
                 current: currentValue,
                 comparison: comparisonValue,
-                change: computeChange(currentValue, comparisonValue),
+                // A point-in-time row has no "change" — the honest cell is a note, not a
+                // fabricated delta against a value we never recorded.
+                change: section.source === 'instant'
+                    ? { absolute: null, percent: null, note: 'Point-in-time' }
+                    : computeChange(currentValue, comparisonValue),
                 coverage: {
                     current: { days: cur.coveredDays, of: cur.expectedDays },
                     comparison: { days: cmp.coveredDays, of: cmp.expectedDays },
