@@ -77,6 +77,15 @@ export function formatStatusLine(apiStatus, dbStatus) {
 }
 
 /**
+ * Boot row showing real tracker data — the snapshot total from /api/header —
+ * written only once the data is ready, so the number is always live.
+ */
+export function formatSnapshotLine(count) {
+  const n = Number.isFinite(count) ? count.toLocaleString('en-US') : '...';
+  return `daily snapshots... ${n} loaded`;
+}
+
+/**
  * Final boot line: build version and network stats condensed into one row so
  * the boot output fits the six-row logo box.
  */
