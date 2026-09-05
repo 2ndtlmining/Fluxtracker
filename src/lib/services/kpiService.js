@@ -10,6 +10,7 @@ import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily } from '../kpi/metrics.js';
 import { buildDiscordPayload, isValidDiscordWebhook } from '../kpi/discord.js';
+import { getCachedExpiringApps } from './carouselService.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('kpiService');
@@ -45,9 +46,25 @@ async function getPeriodRevenue({ start, end }) {
 }
 
 /**
+ * Count of deployed apps expiring within ~24 hours (2880 blocks), from the same
+ * carousel source the dashboard's "Expiring Soon" tab uses. Returns null when the
+ * upstream fetch fails and nothing is cached — an absent reading, never a fake zero.
+ */
+async function getExpiringAppsCount() {
+    try {
+        const { stats, cached } = await getCachedExpiringApps();
+        if (!cached && stats.length === 0) return null;
+        return stats.length;
+    } catch (error) {
+        log.warn({ err: error }, 'Could not read expiring apps for the KPI report');
+        return null;
+    }
+}
+
+/**
  * Compute a full KPI report for a timeframe. Pure data — delivery is separate.
  *
- * @param {'weekly'|'monthly'|'quarterly'|'yearly'} timeframe
+ * @param {'daily'|'weekly'|'monthly'|'quarterly'|'yearly'} timeframe
  * @param {Date} [now] injectable for tests
  */
 export async function buildKpiReport(timeframe, now = new Date()) {
@@ -62,6 +79,12 @@ export async function buildKpiReport(timeframe, now = new Date()) {
             getOldestTransactionDate()
         ]);
 
+    // The expiring-apps reading only exists "now", so it rides on the daily report,
+    // where the whole point is the state of the network today.
+    const instant = timeframe === 'daily'
+        ? { expiring: await getExpiringAppsCount() }
+        : undefined;
+
     const dataset = buildKpiDataset({
         current,
         comparison,
@@ -69,7 +92,8 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         comparisonSnapshots,
         currentRevenue,
         comparisonRevenue,
-        earliestRevenueDate: earliestRevenueDate ? String(earliestRevenueDate).slice(0, 10) : null
+        earliestRevenueDate: earliestRevenueDate ? String(earliestRevenueDate).slice(0, 10) : null,
+        instant
     });
 
     return {

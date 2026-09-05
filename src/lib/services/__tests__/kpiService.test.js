@@ -8,6 +8,9 @@ vi.mock('../../db/database.js', () => ({
     getOldestTransactionDate: vi.fn(),
     getRevenueFromAddressesForDateRange: vi.fn()
 }));
+vi.mock('../carouselService.js', () => ({
+    getCachedExpiringApps: vi.fn()
+}));
 
 import axios from 'axios';
 import {
@@ -17,6 +20,7 @@ import {
     getOldestTransactionDate,
     getRevenueFromAddressesForDateRange
 } from '../../db/database.js';
+import { getCachedExpiringApps } from '../carouselService.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
 
 const NOW = new Date('2026-08-21T12:00:00Z');
@@ -41,6 +45,7 @@ beforeEach(() => {
     getRevenueForDateRange.mockResolvedValue(1000);
     getDailyRevenueUSDInRange.mockResolvedValue([{ daily_revenue_usd: 20 }, { daily_revenue_usd: 22 }]);
     getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 250, payments: 5 });
+    getCachedExpiringApps.mockResolvedValue({ stats: [{ name: 'app-a' }, { name: 'app-b' }], cached: true });
 });
 
 describe('buildKpiReport', () => {
@@ -95,6 +100,47 @@ describe('buildKpiReport', () => {
 
         const report = await buildKpiReport('yearly', NOW);
         expect(report.dataset.empty).toBe(true);
+    });
+});
+
+describe('buildKpiReport — daily', () => {
+    it('compares yesterday against the day before it, never today', async () => {
+        const report = await buildKpiReport('daily', NOW);
+
+        expect(report.timeframe).toBe('daily');
+        expect(report.current).toEqual({ start: '2026-08-20', end: '2026-08-20' });
+        expect(report.comparison).toEqual({ start: '2026-08-19', end: '2026-08-19' });
+        expect(report.currentLabel).toBe('Aug 20, 2026');
+        expect(report.comparisonLabel).toBe('Aug 19, 2026');
+        expect(getSnapshotsInRange).toHaveBeenCalledWith('2026-08-20', '2026-08-20');
+        expect(getSnapshotsInRange).toHaveBeenCalledWith('2026-08-19', '2026-08-19');
+    });
+
+    it('carries the live expiring-apps count as a point-in-time section', async () => {
+        const report = await buildKpiReport('daily', NOW);
+
+        const section = report.dataset.sections.find(s => s.key === 'expiring');
+        expect(section).toBeDefined();
+        expect(section.metrics[0].available).toBe(true);
+        expect(section.metrics[0].current).toBe(2);
+        expect(section.metrics[0].comparison).toBeNull();
+        expect(section.metrics[0].change.note).toBe('Point-in-time');
+    });
+
+    it('does not include the expiring section for other timeframes', async () => {
+        const report = await buildKpiReport('weekly', NOW);
+        expect(report.dataset.sections.map(s => s.key)).not.toContain('expiring');
+    });
+
+    it('an expiring-apps fetch failure leaves the metric unavailable, not zero', async () => {
+        getCachedExpiringApps.mockResolvedValue({ stats: [], cached: false });
+
+        const report = await buildKpiReport('daily', NOW);
+        const metric = report.dataset.sections.find(s => s.key === 'expiring').metrics[0];
+        expect(metric.available).toBe(false);
+        expect(metric.current).toBeNull();
+        // The rest of the report still computes
+        expect(report.dataset.empty).toBe(false);
     });
 });
 

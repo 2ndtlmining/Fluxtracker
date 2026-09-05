@@ -124,8 +124,7 @@ describe('buildDiscordPayload', () => {
         expect(/\p{Extended_Pictographic}/u.test(json)).toBe(false);
     });
 
-    it('signs the deltas rather than using arrows', () => {
-        const embed = buildDiscordPayload(report()).embeds[0];
+    it('signs the deltas rather than using arrows', () => {        const embed = buildDiscordPayload(report()).embeds[0];
         const revenue = embed.fields[0].value;
         expect(revenue).toContain('+100.0%');
         expect(revenue).not.toMatch(/[↑↓▲▼]/);
@@ -178,5 +177,44 @@ describe('buildDiscordPayload', () => {
             expect(field.value.length).toBeLessThanOrEqual(1024);
         }
         expect(JSON.stringify(embed).length).toBeLessThan(6000);
+    });
+
+    describe('instant section (apps expiring in 24h)', () => {
+        function dailyReport(instant) {
+            const dataset = buildKpiDataset({
+                current: { start: '2026-08-20', end: '2026-08-20' },
+                comparison: { start: '2026-08-19', end: '2026-08-19' },
+                currentSnapshots: snapshots(),
+                comparisonSnapshots: snapshots({ node_total: 5800 }),
+                currentRevenue: { flux: 200, usd: 9 },
+                comparisonRevenue: { flux: 100, usd: 4 },
+                instant
+            });
+            return {
+                timeframe: 'daily',
+                current: { start: '2026-08-20', end: '2026-08-20' },
+                comparison: { start: '2026-08-19', end: '2026-08-19' },
+                dataset,
+                generatedAt: '2026-08-21T00:00:00.000Z'
+            };
+        }
+
+        it('heads the field INSTANT and shows the count without a fabricated delta', () => {
+            const embed = buildDiscordPayload(dailyReport({ expiring: 12 })).embeds[0];
+            const field = embed.fields.find(f => f.name === 'Expiring (24h) - INSTANT');
+            expect(field).toBeDefined();
+            expect(field.value).toContain('Point-in-time reading taken when the report was generated');
+            const block = field.value.split('```')[1];
+            const row = block.split('\n').find(l => l.includes('Apps expiring'));
+            expect(row).toContain('12');
+            // +/- and +/-% carry explicit placeholders, not a made-up comparison
+            expect(row).toMatch(/-\s+n\/a\s*$/);
+        });
+
+        it('says the reading was unavailable rather than inventing a count', () => {
+            const embed = buildDiscordPayload(dailyReport({ expiring: null })).embeds[0];
+            const field = embed.fields.find(f => f.name === 'Expiring (24h) - INSTANT');
+            expect(field.value).toContain('Not available at report time');
+        });
     });
 });

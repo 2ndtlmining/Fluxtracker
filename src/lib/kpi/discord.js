@@ -42,7 +42,8 @@ const COLS = { label: 16, qty: 15, delta: 14, percent: 9 };
  */
 const AGGREGATION_TEXT = {
     sum: 'SUM of all days in the period',
-    average: 'AVERAGE of the daily values across the period'
+    average: 'AVERAGE of the daily values across the period',
+    instant: 'Point-in-time reading taken when the report was generated'
 };
 
 function sectionTable(section) {
@@ -55,6 +56,10 @@ function sectionTable(section) {
 
     for (const metric of section.metrics) {
         if (!metric.available) {
+            if (section.source === 'instant') {
+                lines.push(pad(metric.label, COLS.label) + 'Not available at report time');
+                continue;
+            }
             const missing = metric.coverage?.missing;
             const why = missing > 0
                 ? `Insufficient data (${missing} day${missing === 1 ? '' : 's'} missing)`
@@ -62,11 +67,19 @@ function sectionTable(section) {
             lines.push(pad(metric.label, COLS.label) + why);
             continue;
         }
+        // A point-in-time row has no comparison to diff against; printing a real-looking
+        // delta would imply one exists.
+        const delta = section.source === 'instant'
+            ? '-'
+            : formatDelta(metric.change, metric.format);
+        const percent = section.source === 'instant'
+            ? 'n/a'
+            : formatPercent(metric.change);
         lines.push(
             pad(metric.label, COLS.label) +
             pad(formatValue(metric.current, metric.format), COLS.qty, 'right') +
-            pad(formatDelta(metric.change, metric.format), COLS.delta, 'right') +
-            pad(formatPercent(metric.change), COLS.percent, 'right')
+            pad(delta, COLS.delta, 'right') +
+            pad(percent, COLS.percent, 'right')
         );
     }
 
@@ -85,7 +98,11 @@ export function buildDiscordPayload(report) {
     const timeframeTitle = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
 
     const fields = dataset.sections.map(section => {
-        const aggregationNote = section.aggregation === 'sum' ? 'SUM' : 'AVERAGE';
+        const aggregationNote = section.aggregation === 'sum'
+            ? 'SUM'
+            : section.aggregation === 'instant'
+                ? 'INSTANT'
+                : 'AVERAGE';
 
         // A row aggregated differently from its section is called out by name. Without this
         // the section heading would claim every number under it is a period total, and the

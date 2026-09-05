@@ -135,6 +135,61 @@ describe('buildKpiDataset', () => {
         expect(d.empty).toBe(false);
     });
 
+    describe('instant section (apps expiring in 24h)', () => {
+        it('is absent when the caller passes no instant readings', () => {
+            const d = buildKpiDataset({
+                current, comparison,
+                currentSnapshots: makeSnapshots(),
+                comparisonSnapshots: makeSnapshots(),
+                currentRevenue: revenue,
+                comparisonRevenue: revenue
+            });
+            expect(d.sections.map(s => s.key)).not.toContain('expiring');
+        });
+
+        it('reports the live expiring count without inventing a comparison', () => {
+            const d = buildKpiDataset({
+                current, comparison,
+                currentSnapshots: makeSnapshots(),
+                comparisonSnapshots: makeSnapshots(),
+                currentRevenue: revenue,
+                comparisonRevenue: revenue,
+                instant: { expiring: 12 }
+            });
+
+            const section = d.sections.find(s => s.key === 'expiring');
+            expect(section.title).toBe('Expiring (24h)');
+            expect(section.aggregation).toBe('instant');
+            expect(section.mixedAggregation).toBe(false);
+
+            const metric = section.metrics.find(m => m.key === 'count');
+            expect(metric.available).toBe(true);
+            expect(metric.current).toBe(12);
+            expect(metric.comparison).toBeNull();
+            expect(metric.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
+            expect(d.totalMetrics).toBe(22);
+            expect(d.availableMetrics).toBe(22);
+        });
+
+        it('an absent reading is unavailable, not a fake zero', () => {
+            const d = buildKpiDataset({
+                current, comparison,
+                currentSnapshots: makeSnapshots(),
+                comparisonSnapshots: makeSnapshots(),
+                currentRevenue: revenue,
+                comparisonRevenue: revenue,
+                instant: { expiring: null }
+            });
+
+            const metric = d.sections.find(s => s.key === 'expiring').metrics[0];
+            expect(metric.available).toBe(false);
+            expect(metric.current).toBeNull();
+            // The rest of the report is still deliverable
+            expect(d.availableMetrics).toBe(21);
+            expect(d.empty).toBe(false);
+        });
+    });
+
     it('averages the FLUX price inside the summed revenue section', () => {
         const d = buildKpiDataset({
             current, comparison,

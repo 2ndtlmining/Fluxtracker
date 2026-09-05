@@ -10,6 +10,7 @@
   let previouslyFocused = null;
 
   const TIMEFRAMES = [
+    { key: 'daily', label: 'Daily' },
     { key: 'weekly', label: 'Weekly' },
     { key: 'monthly', label: 'Monthly' },
     { key: 'quarterly', label: 'Quarterly' },

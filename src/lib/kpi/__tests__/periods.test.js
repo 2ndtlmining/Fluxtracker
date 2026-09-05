@@ -155,9 +155,44 @@ describe('getPeriodRanges — yearly (calendar year)', () => {
     });
 });
 
+describe('getPeriodRanges — daily (last completed UTC day)', () => {
+    it('compares yesterday against the day before it', () => {
+        expect(ranges('daily', '2026-08-21')).toEqual([
+            '2026-08-20..2026-08-20',
+            '2026-08-19..2026-08-19'
+        ]);
+    });
+
+    it('just after midnight UTC: yesterday is still the last completed day', () => {
+        const r = getPeriodRanges('daily', new Date('2026-08-21T00:05:00Z'));
+        expect(r.current).toEqual({ start: '2026-08-20', end: '2026-08-20' });
+        expect(r.comparison).toEqual({ start: '2026-08-19', end: '2026-08-19' });
+    });
+
+    it('on Jan 1 the last day of the previous year is the current period', () => {
+        expect(ranges('daily', '2026-01-01')).toEqual([
+            '2025-12-31..2025-12-31',
+            '2025-12-30..2025-12-30'
+        ]);
+    });
+
+    it('crosses a leap day cleanly', () => {
+        expect(ranges('daily', '2024-03-01')).toEqual([
+            '2024-02-29..2024-02-29',
+            '2024-02-28..2024-02-28'
+        ]);
+    });
+
+    it('labels the period "Day" and formats as a single date', () => {
+        const r = getPeriodRanges('daily', at('2026-08-21'));
+        expect(r.label).toBe('Day');
+        expect(formatPeriod('daily', r.current)).toBe('Aug 20, 2026');
+    });
+});
+
 describe('getPeriodRanges — invariants', () => {
     it('the comparison period always ends the day before the current one starts', () => {
-        for (const tf of ['weekly', 'monthly', 'quarterly', 'yearly']) {
+        for (const tf of ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']) {
             for (const day of ['2026-08-21', '2026-01-01', '2026-12-31', '2024-02-29']) {
                 const r = getPeriodRanges(tf, at(day));
                 const gap = dayCount(r.comparison.end, r.current.start);
@@ -167,7 +202,7 @@ describe('getPeriodRanges — invariants', () => {
     });
 
     it('the current period always ends strictly before today', () => {
-        for (const tf of ['weekly', 'monthly', 'quarterly', 'yearly']) {
+        for (const tf of ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']) {
             const r = getPeriodRanges(tf, at('2026-08-21'));
             expect(r.current.end < '2026-08-21', `${tf}`).toBe(true);
         }

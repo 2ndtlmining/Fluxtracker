@@ -10,7 +10,7 @@
  * `toISOString()`).
  */
 
-export const TIMEFRAMES = ['weekly', 'monthly', 'quarterly', 'yearly'];
+export const TIMEFRAMES = ['daily', 'weekly', 'monthly', 'quarterly', 'yearly'];
 
 const MS_PER_DAY = 86400000;
 
@@ -71,6 +71,19 @@ export function getPeriodRanges(timeframe, now = new Date()) {
     const today = startOfUtcDay(now);
 
     switch (timeframe) {
+        case 'daily': {
+            // Yesterday — the last completed UTC day — versus the day before it.
+            // Today must never appear: its revenue is still accruing, which is the
+            // same partial-period trap the other timeframes avoid.
+            const currentStart = today - MS_PER_DAY;
+            return {
+                timeframe,
+                current: range(currentStart, currentStart),
+                comparison: range(currentStart - MS_PER_DAY, currentStart - MS_PER_DAY),
+                label: 'Day'
+            };
+        }
+
         case 'weekly': {
             // The in-progress week starts on this Monday; the last completed week is the
             // seven days before it. When today IS Monday, that's simply the previous week.
@@ -140,6 +153,8 @@ export function formatPeriod(timeframe, { start, end }) {
     const e = new Date(`${end}T00:00:00Z`);
 
     switch (timeframe) {
+        case 'daily':
+            return `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}, ${s.getUTCFullYear()}`;
         case 'weekly': {
             const sameMonth = s.getUTCMonth() === e.getUTCMonth();
             const left = `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}`;
