@@ -3,22 +3,25 @@
   import {
     LOGO_LINES,
     LOGO_WIDTH,
+    BOOT_LINE_COUNT,
+    ROW_KIND_TEXT,
+    ROW_KIND_LOGO,
     pickBootStartBlock,
     computeAnimatedBlock,
     mergeSyncTarget,
-    formatNetworkLine,
-    formatVersionLine,
+    formatStatusLine,
+    formatSummaryLine,
     buildSyncBlockLines,
     buildSyncPatternLines,
     padLines,
     composeRevealFrame,
+    composeRevealKinds,
     SYNC_FILLER_LINES
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
   export let totalApps = 0;
-  export let snapshotCount = 0;
   export let appVersion = '...';
   export let arcaneOsCodename = '';
   export let apiStatus = 'checking';
@@ -28,12 +31,22 @@
 
   const dispatch = createEventDispatcher();
 
-  const BOOT_TIMEOUT_MS = 4000;
-  const COUNTER_DURATION_MS = 1100;
+  // Boot pacing. Everything the boot sequence schedules is multiplied by
+  // BOOT_SLOWDOWN, so the whole read takes about twice as long as it used to
+  // (~2.3s -> ~4.6s) and the number is tunable in exactly one place.
+  const BOOT_SLOWDOWN = 2;
+  const BOOT_TIMEOUT_MS = 4000 * BOOT_SLOWDOWN; // must exceed the slowest boot path
+  const COUNTER_DURATION_MS = 1100 * BOOT_SLOWDOWN;
+
+  // Boot text -> logo transition: the logo wipes over the boot text row by row,
+  // top-down, inside the same fixed box.
+  const BOOT_REVEAL_MS = 400;
+  const BOOT_SETTLE_MS = 350 * BOOT_SLOWDOWN; // glow settle after the reveal
+  const BOOT_READY_DELAY_MS = 450 * BOOT_SLOWDOWN;
 
   // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
   // Total is 1500ms, double the previous flat 750ms sync, so the change reads as alive
-  // rather than flickering past before it can be noticed.
+  // rather than flickering past before it can be noticed. Not affected by BOOT_SLOWDOWN.
   const SYNC_PHASE1_MS = 300; // logo -> sync pattern, reveals bottom-up
   const SYNC_HOLD1_MS = 150;  // pause on the full sync pattern
   const SYNC_PHASE2_MS = 300; // pattern -> status text, reveals top-down
@@ -41,9 +54,12 @@
   const SYNC_PHASE3_MS = 300; // status text -> logo, reveals top-down
 
   let state = 'booting'; // 'booting' | 'ready' | 'syncing'
-  let lines = [];
-  let frameLines = LOGO_LINES; // fixed-box content shown once booted — the logo, or a sync frame
-  let showLogo = false;
+  // The single fixed box: every phase of the header (boot text, logo, sync
+  // frames) is rendered here, always exactly LOGO_LINES.length rows, so the
+  // header keeps one constant size from first paint onwards.
+  let frameLines = padLines([], BOOT_LINE_COUNT);
+  let frameKinds = Array(BOOT_LINE_COUNT).fill(ROW_KIND_TEXT);
+  let bootTextLines = [];
   let logoSettled = false;
   let reducedMotion = false;
 
@@ -60,12 +76,24 @@
     return id;
   }
 
+  function textKinds() {
+    return Array(BOOT_LINE_COUNT).fill(ROW_KIND_TEXT);
+  }
+
+  function logoKinds() {
+    return Array(BOOT_LINE_COUNT).fill(ROW_KIND_LOGO);
+  }
+
   function pushLine(text) {
-    lines = [...lines, text];
+    bootTextLines = [...bootTextLines, text];
+    frameLines = padLines(bootTextLines, BOOT_LINE_COUNT);
+    frameKinds = textKinds();
   }
 
   function replaceLastLine(text) {
-    lines = [...lines.slice(0, -1), text];
+    bootTextLines = [...bootTextLines.slice(0, -1), text];
+    frameLines = padLines(bootTextLines, BOOT_LINE_COUNT);
+    frameKinds = textKinds();
   }
 
   function animateBlockCounter(startBlock, targetBlock, onDone) {
@@ -95,31 +123,32 @@
 
   function startBoot() {
     state = 'booting';
-    lines = [];
-    showLogo = false;
+    bootTextLines = [];
+    frameLines = padLines([], BOOT_LINE_COUNT);
+    frameKinds = textKinds();
     logoSettled = false;
 
     pushLine('> ./start_flux_tracker');
 
     bootTimeoutId = schedule(() => {
       if (state === 'booting') {
-        pushLine('> connecting to flux network... ERROR');
+        replaceLastLine('> connecting to flux network... ERROR');
         pushLine('> telemetry unavailable');
-        schedule(() => finishBoot(), 400);
+        schedule(() => finishBoot(), 400 * BOOT_SLOWDOWN);
       }
     }, BOOT_TIMEOUT_MS);
 
-    schedule(() => pushLine('> initializing telemetry...'), 150);
-    schedule(() => replaceLastLine('> initializing telemetry... OK'), 350);
-    schedule(() => pushLine('> connecting to flux network...'), 450);
+    schedule(() => pushLine('> initializing telemetry...'), 150 * BOOT_SLOWDOWN);
+    schedule(() => replaceLastLine('> initializing telemetry... OK'), 350 * BOOT_SLOWDOWN);
+    schedule(() => pushLine('> connecting to flux network...'), 450 * BOOT_SLOWDOWN);
 
-    schedule(() => waitForData(), 650);
+    schedule(() => waitForData(), 650 * BOOT_SLOWDOWN);
   }
 
   function waitForData() {
     if (state !== 'booting') return;
     if (!dataReady) {
-      schedule(waitForData, 100);
+      schedule(waitForData, 100 * BOOT_SLOWDOWN);
       return;
     }
     if (bootTimeoutId) clearTimeout(bootTimeoutId);
@@ -127,41 +156,53 @@
     replaceLastLine(`> connecting to flux network... ${apiStatus === 'offline' ? 'ERROR' : 'OK'}`);
     if (apiStatus === 'offline') {
       pushLine('> telemetry unavailable');
-      schedule(() => finishBoot(), 400);
+      schedule(() => finishBoot(), 400 * BOOT_SLOWDOWN);
       return;
     }
 
-    pushLine(`> api......................... ${apiStatus === 'online' ? 'OK' : 'ERROR'}`);
-    pushLine(`> database.................... ${dbStatus === 'online' ? 'OK' : 'OFFLINE'}`);
+    pushLine(formatStatusLine(apiStatus, dbStatus));
 
     const target = blockHeight;
     const startBlock = pickBootStartBlock(target);
     animateBlockCounter(startBlock, target, () => {
-      pushLine(formatVersionLine(appVersion, arcaneOsCodename));
-      schedule(() => pushLine(formatNetworkLine(totalNodes, totalApps)), 150);
-      schedule(() => pushLine(`tracker ${snapshotCount} snapshots`), 280);
-      schedule(() => pushLine('> telemetry ready'), 400);
-      schedule(() => finishBoot(), 550);
+      pushLine(formatSummaryLine(appVersion, arcaneOsCodename, totalNodes, totalApps));
+      schedule(() => finishBoot(), 550 * BOOT_SLOWDOWN);
     });
   }
 
   function finishBoot() {
-    showLogo = true;
-    frameLines = LOGO_LINES;
-    schedule(() => { logoSettled = true; }, reducedMotion ? 0 : 350);
-    schedule(() => {
-      state = 'ready';
-      dispatch('bootComplete');
-    }, reducedMotion ? 30 : 450);
+    const baseLines = padLines(bootTextLines, BOOT_LINE_COUNT);
+
+    if (reducedMotion) {
+      frameLines = LOGO_LINES;
+      frameKinds = logoKinds();
+      logoSettled = true;
+      schedule(() => {
+        state = 'ready';
+        dispatch('bootComplete');
+      }, 30);
+      return;
+    }
+
+    runReveal(baseLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', BOOT_REVEAL_MS, () => {
+      frameLines = LOGO_LINES;
+      frameKinds = logoKinds();
+      schedule(() => { logoSettled = true; }, BOOT_SETTLE_MS);
+      schedule(() => {
+        state = 'ready';
+        dispatch('bootComplete');
+      }, BOOT_READY_DELAY_MS);
+    });
   }
 
-  /** Animate `frameLines` from `baseLines` to `incomingLines`, revealing row-by-row over `duration`. */
-  function runReveal(baseLines, incomingLines, direction, duration, onDone) {
+  /** Animate the box from one frame to another, revealing row-by-row (with matching style kinds). */
+  function runReveal(baseLines, baseKinds, incomingLines, incomingKinds, direction, duration, onDone) {
     const start = performance.now();
     function frame(now) {
       const progress = Math.min(1, (now - start) / duration);
       const revealedCount = Math.round(progress * baseLines.length);
       frameLines = composeRevealFrame(baseLines, incomingLines, revealedCount, direction);
+      frameKinds = composeRevealKinds(baseKinds, incomingKinds, revealedCount, direction);
       if (progress >= 1) {
         onDone();
         return;
@@ -175,36 +216,42 @@
    * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
    * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
    * texture from the bottom up, the pattern gives way to the real status text from the top
-   * down, then the logo repaints from the top down. `activeSyncEnd` is read live when the
+   * down, then the logo repaints from the top down. The status text uses the same style as
+   * the boot text, so both reads share one voice. `activeSyncEnd` is read live when the
    * status text is built so a sync that arrives mid-animation is reflected without restarting.
    */
   function startSync(fromBlock, toBlock) {
     state = 'syncing';
     activeSyncEnd = toBlock;
 
-    const patternLines = buildSyncPatternLines(LOGO_LINES.length, LOGO_WIDTH);
+    const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH);
     const buildTextLines = () =>
-      padLines([...buildSyncBlockLines(fromBlock, activeSyncEnd), 'sync complete'], LOGO_LINES.length, SYNC_FILLER_LINES);
+      padLines([...buildSyncBlockLines(fromBlock, activeSyncEnd), 'sync complete'], BOOT_LINE_COUNT, SYNC_FILLER_LINES);
 
     if (reducedMotion) {
       frameLines = buildTextLines();
+      frameKinds = textKinds();
       schedule(() => {
         frameLines = LOGO_LINES;
+        frameKinds = logoKinds();
         state = 'ready';
         activeSyncEnd = null;
       }, 30);
       return;
     }
 
-    runReveal(LOGO_LINES, patternLines, 'bottom-up', SYNC_PHASE1_MS, () => {
+    runReveal(LOGO_LINES, logoKinds(), patternLines, logoKinds(), 'bottom-up', SYNC_PHASE1_MS, () => {
       frameLines = patternLines;
+      frameKinds = logoKinds();
       schedule(() => {
         const textLines = buildTextLines();
-        runReveal(patternLines, textLines, 'top-down', SYNC_PHASE2_MS, () => {
+        runReveal(patternLines, logoKinds(), textLines, textKinds(), 'top-down', SYNC_PHASE2_MS, () => {
           frameLines = textLines;
+          frameKinds = textKinds();
           schedule(() => {
-            runReveal(textLines, LOGO_LINES, 'top-down', SYNC_PHASE3_MS, () => {
+            runReveal(textLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
               frameLines = LOGO_LINES;
+              frameKinds = logoKinds();
               state = 'ready';
               activeSyncEnd = null;
             });
@@ -235,63 +282,61 @@
   });
 </script>
 
-<div class="terminal-header">
-  {#if state === 'booting'}
-    <pre class="terminal-lines">{lines.join('\n')}</pre>
-  {/if}
-
-  {#if showLogo}
-    <pre class="ascii-logo" class:settled={logoSettled}>{frameLines.join('\n')}</pre>
-  {/if}
-</div>
+<pre
+  class="terminal-box"
+  class:settled={logoSettled}
+  style="--box-rows: {BOOT_LINE_COUNT};"
+>{#each frameLines as line, i}<span class="row-{frameKinds[i]}">{line + '\n'}</span>{/each}</pre>
 
 <style>
-  .terminal-header {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-height: 2.2rem;
-  }
-
-  .terminal-lines {
+  /* The fixed box: always --box-rows rows of --box-row height, whatever it is
+     showing (boot text, logo, sync pattern or sync text), so the header keeps
+     one constant size from first paint through every refresh. */
+  .terminal-box {
     margin: 0;
     font-family: inherit;
     font-size: 0.7rem;
-    line-height: 1.4;
-    color: var(--text-dim);
-    white-space: pre-wrap;
+    line-height: var(--box-row, 0.95rem);
+    height: calc(var(--box-rows, 6) * var(--box-row, 0.95rem));
+    overflow: hidden;
+    white-space: pre;
   }
 
-  .ascii-logo {
-    margin: 0;
-    font-family: inherit;
+  /* Terminal text rows — same font and colour the boot output has always used. */
+  .row-text {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  /* Logo (and sync-pattern) rows — the bright persistent identity. Line-height
+     comes from the box, so logo rows and text rows always align row for row. */
+  .row-logo {
     font-size: clamp(0.4rem, 1.4vw, 0.95rem);
-    line-height: 1;
-    white-space: pre;
     color: var(--text-primary);
     text-shadow: 0 0 8px #00ffff99;
-    opacity: 0;
-    transform: translateY(2px);
-    transition: opacity 0.35s ease-out, transform 0.35s ease-out, text-shadow 0.4s ease-out;
+    transition: text-shadow 0.4s ease-out;
   }
 
-  .ascii-logo.settled {
-    opacity: 1;
-    transform: translateY(0);
+  .terminal-box.settled .row-logo {
     text-shadow: var(--glow-cyan);
   }
 
   @media (max-width: 480px) {
-    .ascii-logo {
-      font-size: clamp(0.32rem, 2.4vw, 0.6rem);
+    .terminal-box {
+      --box-row: 0.8rem;
     }
-    .terminal-lines {
+
+    .row-text {
       font-size: 0.6rem;
+    }
+
+    .row-logo {
+      font-size: clamp(0.32rem, 2.4vw, 0.6rem);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .ascii-logo {
+    .row-logo {
       transition: none;
     }
   }
