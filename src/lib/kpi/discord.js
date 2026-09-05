@@ -186,10 +186,13 @@ export function buildDiscordPayload(report) {
 // FLUX CLOUD ACTIVITY (second message, daily only)
 // ============================================
 
-// Per-app detail rows can run long, so the table is built to a character budget
-// and anything beyond it is summarised, keeping the field under Discord's 1024-char
-// limit no matter how many apps deployed or expire.
-const ACTIVITY_COLS = { name: 18, repo: 32, instances: 5, cpu: 6, ram: 7, ssd: 6 };
+// Per-app detail rows. Discord soft-wraps code blocks at the panel width, so the
+// table must stay narrow enough to hold one line per app: no repo column (it alone
+// was wide enough to force a wrap), names capped at 8 characters. ~35 chars/row
+// keeps every row on one line even on mobile, and the budget cap plus "+N more"
+// tail keeps the field under Discord's 1024-char limit no matter how many apps
+// deployed or expired.
+const ACTIVITY_COLS = { instances: 5, name: 8, cpu: 5, ram: 6, ssd: 6 };
 const ACTIVITY_ROW_BUDGET = 950;
 
 function truncateCell(text, width) {
@@ -216,9 +219,8 @@ function activitySsd(hdd) {
 function activityTable(apps) {
     const c = ACTIVITY_COLS;
     const header =
-        pad('App name', c.name) + ' ' +
-        pad('Repo', c.repo) + ' ' +
         pad('Inst', c.instances, 'right') + ' ' +
+        pad('Name', c.name) + ' ' +
         pad('CPU', c.cpu, 'right') + ' ' +
         pad('RAM', c.ram, 'right') + ' ' +
         pad('SSD', c.ssd, 'right');
@@ -228,9 +230,8 @@ function activityTable(apps) {
 
     for (const app of apps) {
         const row =
-            pad(truncateCell(app.name, c.name), c.name) + ' ' +
-            pad(truncateCell(app.repo, c.repo), c.repo) + ' ' +
             pad(String(app.instances ?? 0), c.instances, 'right') + ' ' +
+            pad(truncateCell(app.name, c.name), c.name) + ' ' +
             pad(activityCpu(app.cpu), c.cpu, 'right') + ' ' +
             pad(activityRam(app.ram), c.ram, 'right') + ' ' +
             pad(activitySsd(app.hdd), c.ssd, 'right');
