@@ -9,6 +9,7 @@ import {
   formatSummaryLine,
   formatSyncBlocksLine,
   formatTransactionsLine,
+  formatNetworkLine,
   buildSyncPatternLines,
   pickPatternChars,
   PATTERN_CHARS,
@@ -340,5 +341,15 @@ describe('formatTransactionsLine', () => {
   it('falls back to "..." for a missing count', () => {
     expect(formatTransactionsLine(null)).toBe('... transactions loaded successfully');
     expect(formatTransactionsLine(undefined)).toBe('... transactions loaded successfully');
+  });
+});
+
+describe('formatNetworkLine', () => {
+  it('formats nodes and apps with thousands separators', () => {
+    expect(formatNetworkLine(12481, 3842)).toBe('network 12,481 nodes | apps 3,842');
+  });
+
+  it('falls back to "..." for missing values', () => {
+    expect(formatNetworkLine(null, undefined)).toBe('network ... nodes | apps ...');
   });
 });
