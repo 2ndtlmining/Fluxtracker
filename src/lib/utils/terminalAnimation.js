@@ -97,31 +97,21 @@ export function formatSummaryLine(appVersion, codename, totalNodes, totalApps) {
 }
 
 /**
- * Build the terminal lines for the sync animation. Enumerates each new block
- * individually when there are few (the common case — one poll cycle rarely
- * misses more than a handful of blocks); condenses to a single range line
- * otherwise so the animation never grows unbounded.
+ * Sync counter row: X counts up from the previous block height to the freshly
+ * polled one (boot-style), Y is the target. `... OK` is appended once X lands.
  */
-export function buildSyncBlockLines(previousBlockHeight, newBlockHeight) {
-  if (typeof previousBlockHeight !== 'number' || typeof newBlockHeight !== 'number') return [];
-  if (newBlockHeight <= previousBlockHeight) return [];
-
-  const MAX_LINES = 6;
-  const total = newBlockHeight - previousBlockHeight;
-
-  if (total <= MAX_LINES) {
-    const lines = [];
-    for (let b = previousBlockHeight + 1; b <= newBlockHeight; b++) {
-      lines.push(`loading new blocks ${b}`);
-    }
-    return lines;
-  }
-
-  return [`loading new blocks ${previousBlockHeight + 1}–${newBlockHeight}`];
+export function formatSyncBlocksLine(current, target) {
+  return `synched blocks ${current ?? '...'} / ${target ?? '...'}`;
 }
 
-/** Extra sync-flavor lines used to pad the status text out to a full box — never fake data, just filler. */
-export const SYNC_FILLER_LINES = ['syncing mempool...', 'verifying chain state...'];
+/**
+ * Sync row showing the tracker's real transaction total — read live from the
+ * header data, never a placeholder.
+ */
+export function formatTransactionsLine(count) {
+  const n = Number.isFinite(count) ? count.toLocaleString('en-US') : '...';
+  return `${n} transactions loaded successfully`;
+}
 
 /**
  * Pool of single-width ASCII texture characters for the sync pattern. Symbols

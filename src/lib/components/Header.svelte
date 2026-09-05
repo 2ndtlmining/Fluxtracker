@@ -155,6 +155,7 @@
         {totalNodes}
         {totalApps}
         {snapshotCount}
+        {transactionCount}
         {appVersion}
         {arcaneOsCodename}
         {apiStatus}

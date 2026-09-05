@@ -12,19 +12,20 @@
     formatStatusLine,
     formatSnapshotLine,
     formatSummaryLine,
-    buildSyncBlockLines,
     buildSyncPatternLines,
     pickPatternChars,
     padLines,
     composeRevealFrame,
     composeRevealKinds,
-    SYNC_FILLER_LINES
+    formatSyncBlocksLine,
+    formatTransactionsLine
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
   export let totalApps = 0;
   export let snapshotCount = 0;
+  export let transactionCount = 0;
   export let appVersion = '...';
   export let arcaneOsCodename = '';
   export let apiStatus = 'checking';
@@ -48,14 +49,16 @@
   const BOOT_READY_DELAY_MS = 450 * BOOT_SLOWDOWN;
 
   // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
-  // SYNC_SLOWDOWN stretches the whole sequence so the status text is readable:
-  // the base phases total 1500ms, doubled to 3000ms. Not affected by BOOT_SLOWDOWN.
+  // SYNC_SLOWDOWN stretches the whole sequence so the text is readable. Inside the text
+  // phase the blocks counter counts up (HOLD2) and the transactions-loaded line lands
+  // below it (HOLD3), mirroring how the boot text builds line by line.
   const SYNC_SLOWDOWN = 2;
   const SYNC_PHASE1_MS = 300 * SYNC_SLOWDOWN; // logo -> sync pattern, reveals bottom-up
   const SYNC_HOLD1_MS = 150 * SYNC_SLOWDOWN;  // pause on the full sync pattern
-  const SYNC_PHASE2_MS = 300 * SYNC_SLOWDOWN; // pattern -> status text, reveals top-down
-  const SYNC_HOLD2_MS = 450 * SYNC_SLOWDOWN;  // pause on the full status text so it's actually readable
-  const SYNC_PHASE3_MS = 300 * SYNC_SLOWDOWN; // status text -> logo, reveals top-down
+  const SYNC_PHASE2_MS = 300 * SYNC_SLOWDOWN; // pattern -> text, reveals top-down
+  const SYNC_HOLD2_MS = 450 * SYNC_SLOWDOWN;  // blocks counter counts up inside the text frame
+  const SYNC_HOLD3_MS = 150 * SYNC_SLOWDOWN;  // pause on the transactions-loaded payoff line
+  const SYNC_PHASE3_MS = 300 * SYNC_SLOWDOWN; // text -> logo, reveals top-down
 
   let state = 'booting'; // 'booting' | 'ready' | 'syncing'
   // The single fixed box: every phase of the header (boot text, logo, sync
@@ -217,26 +220,72 @@
     rafId = requestAnimationFrame(frame);
   }
 
+  /** Replace a single row of the current frame without touching the others. */
+  function setFrameLine(index, text) {
+    frameLines = frameLines.map((line, i) => (i === index ? text : line));
+  }
+
+  /**
+   * Boot-style count-up inside the text frame's top row: X climbs from the
+   * previous block height to the freshly polled one and lands with `... OK`.
+   * `activeSyncEnd` is read live so a sync that arrives mid-count extends the
+   * target without restarting.
+   */
+  function animateSyncCounter(fromBlock, onDone) {
+    const start = performance.now();
+
+    function frame(now) {
+      const target = typeof activeSyncEnd === 'number' ? activeSyncEnd : fromBlock;
+      const done = () => {
+        setFrameLine(0, `${formatSyncBlocksLine(target, target)} ... OK`);
+        onDone();
+      };
+      if (reducedMotion || fromBlock === null || target === null || target <= fromBlock) {
+        done();
+        return;
+      }
+      const progress = Math.min(1, (now - start) / SYNC_HOLD2_MS);
+      const value = computeAnimatedBlock(fromBlock, target, progress);
+      setFrameLine(0, formatSyncBlocksLine(value, target));
+      if (progress >= 1) {
+        done();
+        return;
+      }
+      rafId = requestAnimationFrame(frame);
+    }
+    rafId = requestAnimationFrame(frame);
+  }
+
   /**
    * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
    * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
-   * texture from the bottom up, the pattern gives way to the real status text from the top
-   * down, then the logo repaints from the top down. The pattern and the status text both
-   * use the same style as the boot text, so all three reads share one voice. The pattern
-   * is woven from a fresh random character pair on every sync. `activeSyncEnd` is read
-   * live when the status text is built so a sync that arrives mid-animation is reflected
-   * without restarting.
+   * texture from the bottom up, the pattern gives way to the live status text from the top
+   * down, then the logo repaints from the top down. Like the boot text, the status text
+   * builds as it reads: the blocks counter counts up first, then the real transaction
+   * total lands below it, and `sync complete` closes it out. Both use the same style as
+   * the boot text, so all reads share one voice. The pattern is woven from a fresh random
+   * character pair on every sync.
    */
   function startSync(fromBlock, toBlock) {
     state = 'syncing';
     activeSyncEnd = toBlock;
 
     const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH, pickPatternChars());
+    // Revealed while the counter is still counting: the transactions row stays
+    // empty until its number lands in HOLD3.
     const buildTextLines = () =>
-      padLines([...buildSyncBlockLines(fromBlock, activeSyncEnd), 'sync complete'], BOOT_LINE_COUNT, SYNC_FILLER_LINES);
+      padLines([formatSyncBlocksLine(fromBlock, activeSyncEnd), 'loading transactions...', '', 'sync complete'], BOOT_LINE_COUNT);
 
     if (reducedMotion) {
-      frameLines = buildTextLines();
+      frameLines = padLines(
+        [
+          `${formatSyncBlocksLine(activeSyncEnd, activeSyncEnd)} ... OK`,
+          'loading transactions...',
+          formatTransactionsLine(transactionCount),
+          'sync complete'
+        ],
+        BOOT_LINE_COUNT
+      );
       frameKinds = textKinds();
       schedule(() => {
         frameLines = LOGO_LINES;
@@ -255,14 +304,17 @@
         runReveal(patternLines, textKinds(), textLines, textKinds(), 'top-down', SYNC_PHASE2_MS, () => {
           frameLines = textLines;
           frameKinds = textKinds();
-          schedule(() => {
-            runReveal(textLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
-              frameLines = LOGO_LINES;
-              frameKinds = logoKinds();
-              state = 'ready';
-              activeSyncEnd = null;
-            });
-          }, SYNC_HOLD2_MS);
+          animateSyncCounter(fromBlock, () => {
+            setFrameLine(2, formatTransactionsLine(transactionCount));
+            schedule(() => {
+              runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
+                frameLines = LOGO_LINES;
+                frameKinds = logoKinds();
+                state = 'ready';
+                activeSyncEnd = null;
+              });
+            }, SYNC_HOLD3_MS);
+          });
         });
       }, SYNC_HOLD1_MS);
     });
