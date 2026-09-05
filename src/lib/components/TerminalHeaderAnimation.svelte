@@ -45,13 +45,14 @@
   const BOOT_READY_DELAY_MS = 450 * BOOT_SLOWDOWN;
 
   // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
-  // Total is 1500ms, double the previous flat 750ms sync, so the change reads as alive
-  // rather than flickering past before it can be noticed. Not affected by BOOT_SLOWDOWN.
-  const SYNC_PHASE1_MS = 300; // logo -> sync pattern, reveals bottom-up
-  const SYNC_HOLD1_MS = 150;  // pause on the full sync pattern
-  const SYNC_PHASE2_MS = 300; // pattern -> status text, reveals top-down
-  const SYNC_HOLD2_MS = 450;  // pause on the full status text so it's actually readable
-  const SYNC_PHASE3_MS = 300; // status text -> logo, reveals top-down
+  // SYNC_SLOWDOWN stretches the whole sequence so the status text is readable:
+  // the base phases total 1500ms, doubled to 3000ms. Not affected by BOOT_SLOWDOWN.
+  const SYNC_SLOWDOWN = 2;
+  const SYNC_PHASE1_MS = 300 * SYNC_SLOWDOWN; // logo -> sync pattern, reveals bottom-up
+  const SYNC_HOLD1_MS = 150 * SYNC_SLOWDOWN;  // pause on the full sync pattern
+  const SYNC_PHASE2_MS = 300 * SYNC_SLOWDOWN; // pattern -> status text, reveals top-down
+  const SYNC_HOLD2_MS = 450 * SYNC_SLOWDOWN;  // pause on the full status text so it's actually readable
+  const SYNC_PHASE3_MS = 300 * SYNC_SLOWDOWN; // status text -> logo, reveals top-down
 
   let state = 'booting'; // 'booting' | 'ready' | 'syncing'
   // The single fixed box: every phase of the header (boot text, logo, sync
@@ -291,14 +292,20 @@
 <style>
   /* The fixed box: always --box-rows rows of --box-row height, whatever it is
      showing (boot text, logo, sync pattern or sync text), so the header keeps
-     one constant size from first paint through every refresh. */
+     one constant size from first paint through every refresh.
+     overflow: clip (not hidden) keeps the logo's glow from being chopped into
+     a hard-edged block at the box bounds: the clip sits overflow-clip-margin
+     (32px — just past the widest --glow-cyan blur) outside the box, so the
+     glow fades naturally like it did before the box was introduced, while a
+     too-long boot/sync line on a narrow screen still can't run away. */
   .terminal-box {
     margin: 0;
     font-family: inherit;
     font-size: 0.7rem;
     line-height: var(--box-row, 0.95rem);
     height: calc(var(--box-rows, 6) * var(--box-row, 0.95rem));
-    overflow: hidden;
+    overflow: clip;
+    overflow-clip-margin: 32px;
     white-space: pre;
   }
 
