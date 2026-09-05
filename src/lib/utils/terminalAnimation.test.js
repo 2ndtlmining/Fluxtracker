@@ -7,7 +7,8 @@ import {
   formatStatusLine,
   formatSnapshotLine,
   formatSummaryLine,
-  buildSyncBlockLines,
+  formatSyncBlocksLine,
+  formatTransactionsLine,
   buildSyncPatternLines,
   pickPatternChars,
   PATTERN_CHARS,
@@ -315,21 +316,29 @@ describe('composeRevealKinds', () => {
   });
 });
 
-describe('buildSyncBlockLines', () => {
-  it('lists each new block individually when there are few', () => {
-    expect(buildSyncBlockLines(294912, 294915)).toEqual([
-      'loading new blocks 294913',
-      'loading new blocks 294914',
-      'loading new blocks 294915'
-    ]);
+describe('formatSyncBlocksLine', () => {
+  it('shows the counting X and the target Y', () => {
+    expect(formatSyncBlocksLine(294913, 294915)).toBe('synched blocks 294913 / 294915');
+    expect(formatSyncBlocksLine(294915, 294915)).toBe('synched blocks 294915 / 294915');
   });
 
-  it('condenses to a range when there are many new blocks', () => {
-    expect(buildSyncBlockLines(294912, 295000)).toEqual(['loading new blocks 294913–295000']);
+  it('falls back to "..." for missing values', () => {
+    expect(formatSyncBlocksLine(null, 294915)).toBe('synched blocks ... / 294915');
+    expect(formatSyncBlocksLine(294913, null)).toBe('synched blocks 294913 / ...');
+  });
+});
+
+describe('formatTransactionsLine', () => {
+  it('shows the live transaction total with thousands separators', () => {
+    expect(formatTransactionsLine(8472)).toBe('8,472 transactions loaded successfully');
   });
 
-  it('returns an empty array when there is nothing new', () => {
-    expect(buildSyncBlockLines(294912, 294912)).toEqual([]);
-    expect(buildSyncBlockLines(294912, 294900)).toEqual([]);
+  it('shows zero without falling back to "..."', () => {
+    expect(formatTransactionsLine(0)).toBe('0 transactions loaded successfully');
+  });
+
+  it('falls back to "..." for a missing count', () => {
+    expect(formatTransactionsLine(null)).toBe('... transactions loaded successfully');
+    expect(formatTransactionsLine(undefined)).toBe('... transactions loaded successfully');
   });
 });
