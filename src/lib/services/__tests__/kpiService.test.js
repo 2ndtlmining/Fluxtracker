@@ -9,7 +9,7 @@ vi.mock('../../db/database.js', () => ({
     getRevenueFromAddressesForDateRange: vi.fn()
 }));
 vi.mock('../carouselService.js', () => ({
-    getCachedExpiringApps: vi.fn()
+    getFluxCloudSnapshot: vi.fn()
 }));
 
 import axios from 'axios';
@@ -20,7 +20,7 @@ import {
     getOldestTransactionDate,
     getRevenueFromAddressesForDateRange
 } from '../../db/database.js';
-import { getCachedExpiringApps } from '../carouselService.js';
+import { getFluxCloudSnapshot } from '../carouselService.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
 
 const NOW = new Date('2026-08-21T12:00:00Z');
@@ -45,7 +45,11 @@ beforeEach(() => {
     getRevenueForDateRange.mockResolvedValue(1000);
     getDailyRevenueUSDInRange.mockResolvedValue([{ daily_revenue_usd: 20 }, { daily_revenue_usd: 22 }]);
     getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 250, payments: 5 });
-    getCachedExpiringApps.mockResolvedValue({ stats: [{ name: 'app-a' }, { name: 'app-b' }], cached: true });
+    getFluxCloudSnapshot.mockResolvedValue({
+        totalAppsDeployed: 7149,
+        appsDeployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
+        appsExpiring24h: { cached: true, apps: [{ name: 'app-b', repo: 'runonflux/app-b:latest', instances: 1, cpu: 0.5, ram: 512, hdd: 5 }] }
+    });
 });
 
 describe('buildKpiReport', () => {
@@ -116,31 +120,106 @@ describe('buildKpiReport — daily', () => {
         expect(getSnapshotsInRange).toHaveBeenCalledWith('2026-08-19', '2026-08-19');
     });
 
-    it('carries the live expiring-apps count as a point-in-time section', async () => {
+    it('carries the live Flux Cloud counts as a point-in-time section', async () => {
         const report = await buildKpiReport('daily', NOW);
 
-        const section = report.dataset.sections.find(s => s.key === 'expiring');
+        const section = report.dataset.sections.find(s => s.key === 'fluxCloud');
         expect(section).toBeDefined();
-        expect(section.metrics[0].available).toBe(true);
-        expect(section.metrics[0].current).toBe(2);
-        expect(section.metrics[0].comparison).toBeNull();
-        expect(section.metrics[0].change.note).toBe('Point-in-time');
+        const deployed = section.metrics.find(m => m.key === 'appsDeployed');
+        const expiring = section.metrics.find(m => m.key === 'appsExpiring24h');
+        expect(deployed.available).toBe(true);
+        expect(deployed.current).toBe(7149);
+        expect(deployed.comparison).toBeNull();
+        expect(expiring.available).toBe(true);
+        expect(expiring.current).toBe(1);
     });
 
-    it('does not include the expiring section for other timeframes', async () => {
-        const report = await buildKpiReport('weekly', NOW);
-        expect(report.dataset.sections.map(s => s.key)).not.toContain('expiring');
+    it('attaches the per-app Flux Cloud detail for the activity message', async () => {
+        const report = await buildKpiReport('daily', NOW);
+
+        expect(report.fluxCloud).toBeDefined();
+        expect(report.fluxCloud.appsDeployed).toBe(7149);
+        expect(report.fluxCloud.deployedToday.apps[0].name).toBe('app-a');
+        expect(report.fluxCloud.deployedToday.apps[0].repo).toBe('runonflux/app-a:latest');
+        expect(report.fluxCloud.expiring24h.apps[0].name).toBe('app-b');
     });
 
-    it('an expiring-apps fetch failure leaves the metric unavailable, not zero', async () => {
-        getCachedExpiringApps.mockResolvedValue({ stats: [], cached: false });
+    it('a Flux Cloud read failure renders the section as unavailable, not missing or zero', async () => {
+        getFluxCloudSnapshot.mockRejectedValue(new Error('down'));
 
         const report = await buildKpiReport('daily', NOW);
-        const metric = report.dataset.sections.find(s => s.key === 'expiring').metrics[0];
-        expect(metric.available).toBe(false);
-        expect(metric.current).toBeNull();
+        const section = report.dataset.sections.find(s => s.key === 'fluxCloud');
+        expect(section).toBeDefined();
+        expect(section.metrics.every(m => !m.available)).toBe(true);
         // The rest of the report still computes
         expect(report.dataset.empty).toBe(false);
+        // Nothing to detail in the activity message
+        expect(report.fluxCloud).toBeNull();
+    });
+
+    it('does not include the Flux Cloud section for other timeframes', async () => {
+        const report = await buildKpiReport('weekly', NOW);
+        expect(report.dataset.sections.map(s => s.key)).not.toContain('fluxCloud');
+        expect(report.fluxCloud).toBeNull();
+    });
+});
+
+describe('sendToDiscord — Flux Cloud Activity (daily second message)', () => {
+    const VALID = 'https://discord.com/api/webhooks/123456789/token';
+
+    function dailyReport() {
+        return {
+            timeframe: 'daily',
+            current: { start: '2026-09-04', end: '2026-09-04' },
+            comparison: { start: '2026-09-03', end: '2026-09-03' },
+            currentLabel: 'Sep 4, 2026',
+            comparisonLabel: 'Sep 3, 2026',
+            dataset: { sections: [], availableMetrics: 0, totalMetrics: 0, empty: false },
+            fluxCloud: {
+                appsDeployed: 7149,
+                deployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
+                expiring24h: { cached: true, apps: [] }
+            },
+            generatedAt: '2026-09-05T00:00:00.000Z'
+        };
+    }
+
+    it('sends both messages to the same webhook', async () => {
+        axios.post.mockResolvedValue({ status: 204 });
+
+        const result = await sendToDiscord(VALID, dailyReport());
+
+        expect(axios.post).toHaveBeenCalledTimes(2);
+        expect(axios.post.mock.calls[0][1].embeds[0].title).toBe('FluxTracker KPI Report - Daily');
+        expect(axios.post.mock.calls[1][1].embeds[0].title).toBe('FluxTracker Flux Cloud Activity');
+        expect(result).toEqual({ delivered: true, activityDelivered: true });
+    });
+
+    it('a failed activity message does not fail the delivered main report', async () => {
+        axios.post.mockResolvedValueOnce({ status: 204 }).mockRejectedValueOnce({ response: { status: 400 } });
+
+        const result = await sendToDiscord(VALID, dailyReport());
+
+        expect(result.delivered).toBe(true);
+        expect(result.activityDelivered).toBe(false);
+        expect(result.activityError).toMatch(/rejected the report payload/);
+    });
+
+    it('non-daily reports send only the main message', async () => {
+        axios.post.mockResolvedValue({ status: 204 });
+
+        const weekly = {
+            timeframe: 'weekly',
+            current: { start: '2026-08-10', end: '2026-08-16' },
+            comparison: { start: '2026-08-03', end: '2026-08-09' },
+            dataset: { sections: [], availableMetrics: 0, totalMetrics: 0, empty: false },
+            fluxCloud: null,
+            generatedAt: '2026-08-21T00:00:00.000Z'
+        };
+        const result = await sendToDiscord(VALID, weekly);
+
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ delivered: true });
     });
 });
 

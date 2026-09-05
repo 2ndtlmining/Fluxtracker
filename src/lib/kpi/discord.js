@@ -46,40 +46,47 @@ const AGGREGATION_TEXT = {
     instant: 'Point-in-time reading taken when the report was generated'
 };
 
-function sectionTable(section) {
+/**
+ * The daily report reads single-day snapshots — nothing is summed or averaged — so it
+ * renders bare: no "- SUM/AVERAGE" field suffix, no aggregation line, and the price
+ * row is that day's price rather than an average.
+ */
+function sectionHeading(section, isDaily) {
+    return isDaily ? section.title : `${section.title} - ${section.aggregation === 'sum' ? 'SUM' : section.aggregation === 'instant' ? 'INSTANT' : 'AVERAGE'}`;
+}
+
+function metricLabel(metric, isDaily) {
+    if (isDaily && metric.key === 'fluxPrice') return 'FLUX price';
+    return metric.label;
+}
+
+function sectionTable(section, isDaily) {
+    // Instant sections carry no comparison at all — their table has no delta columns.
+    const instant = section.source === 'instant';
     const lines = [
         pad('Metric', COLS.label) +
         pad('Qty', COLS.qty, 'right') +
-        pad('+/-', COLS.delta, 'right') +
-        pad('+/-%', COLS.percent, 'right')
+        (instant ? '' : pad('+/-', COLS.delta, 'right') + pad('+/-%', COLS.percent, 'right'))
     ];
 
     for (const metric of section.metrics) {
         if (!metric.available) {
-            if (section.source === 'instant') {
-                lines.push(pad(metric.label, COLS.label) + 'Not available at report time');
+            if (instant) {
+                lines.push(pad(metricLabel(metric, isDaily), COLS.label) + 'Not available at report time');
                 continue;
             }
             const missing = metric.coverage?.missing;
             const why = missing > 0
                 ? `Insufficient data (${missing} day${missing === 1 ? '' : 's'} missing)`
                 : 'Insufficient data (no history)';
-            lines.push(pad(metric.label, COLS.label) + why);
+            lines.push(pad(metricLabel(metric, isDaily), COLS.label) + why);
             continue;
         }
-        // A point-in-time row has no comparison to diff against; printing a real-looking
-        // delta would imply one exists.
-        const delta = section.source === 'instant'
-            ? '-'
-            : formatDelta(metric.change, metric.format);
-        const percent = section.source === 'instant'
-            ? 'n/a'
-            : formatPercent(metric.change);
         lines.push(
-            pad(metric.label, COLS.label) +
+            pad(metricLabel(metric, isDaily), COLS.label) +
             pad(formatValue(metric.current, metric.format), COLS.qty, 'right') +
-            pad(delta, COLS.delta, 'right') +
-            pad(percent, COLS.percent, 'right')
+            (instant ? '' : pad(formatDelta(metric.change, metric.format), COLS.delta, 'right') +
+                pad(formatPercent(metric.change), COLS.percent, 'right'))
         );
     }
 
@@ -92,12 +99,21 @@ function sectionTable(section) {
  */
 export function buildDiscordPayload(report) {
     const { timeframe, current, comparison, dataset, generatedAt } = report;
+    const isDaily = timeframe === 'daily';
 
     const currentLabel = formatPeriod(timeframe, current);
     const comparisonLabel = formatPeriod(timeframe, comparison);
     const timeframeTitle = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
 
+    // A daily report covers single days, so the raw date line reads as plain dates
+    // rather than "X to X" ranges.
+    const dateLine = isDaily
+        ? `${current.start} | ${comparison.start}`
+        : `${current.start} to ${current.end}  |  ${comparison.start} to ${comparison.end}`;
+
     const fields = dataset.sections.map(section => {
+        // Daily snapshots are not aggregated (a one-day "average" is the day itself),
+        // so the aggregation note and heading suffix are dropped on daily only.
         const aggregationNote = section.aggregation === 'sum'
             ? 'SUM'
             : section.aggregation === 'instant'
@@ -107,7 +123,7 @@ export function buildDiscordPayload(report) {
         // A row aggregated differently from its section is called out by name. Without this
         // the section heading would claim every number under it is a period total, and the
         // average FLUX price row would read as the sum of every daily price.
-        const exceptions = section.mixedAggregation
+        const exceptions = !isDaily && section.mixedAggregation
             ? section.metrics.filter(m => m.aggregation !== section.aggregation)
             : [];
         const exceptionNote = exceptions.length
@@ -115,15 +131,17 @@ export function buildDiscordPayload(report) {
               `${AGGREGATION_TEXT[exceptions[0].aggregation]}.`
             : '';
 
+        const aggregationLine = isDaily ? '' : `${AGGREGATION_TEXT[section.aggregation]}${exceptionNote}\n`;
+
         let value =
-            `${AGGREGATION_TEXT[section.aggregation]}${exceptionNote}\n` +
-            '```\n' + sectionTable(section) + '\n```';
+            `${aggregationLine}` +
+            '```\n' + sectionTable(section, isDaily) + '\n```';
         if (value.length > MAX_FIELD_CHARS) {
             value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
         }
 
         return {
-            name: `${section.title} - ${aggregationNote}`,
+            name: sectionHeading(section, isDaily),
             value,
             inline: false
         };
@@ -154,11 +172,120 @@ export function buildDiscordPayload(report) {
                 title: `FluxTracker KPI Report - ${timeframeTitle}`,
                 description:
                     `${currentLabel} vs ${comparisonLabel}\n` +
-                    `${current.start} to ${current.end}  |  ${comparison.start} to ${comparison.end}`,
+                    dateLine,
                 color: EMBED_COLOR,
                 fields,
                 footer: { text: 'via FluxTracker' },
                 timestamp: generatedAt
+            }
+        ]
+    };
+}
+
+// ============================================
+// FLUX CLOUD ACTIVITY (second message, daily only)
+// ============================================
+
+// Per-app detail rows can run long, so the table is built to a character budget
+// and anything beyond it is summarised, keeping the field under Discord's 1024-char
+// limit no matter how many apps deployed or expire.
+const ACTIVITY_COLS = { name: 18, repo: 32, instances: 5, cpu: 6, ram: 7, ssd: 6 };
+const ACTIVITY_ROW_BUDGET = 950;
+
+function truncateCell(text, width) {
+    const s = String(text || '');
+    return s.length <= width ? s : s.slice(0, width - 3) + '...';
+}
+
+function activityCpu(cpu) {
+    const v = Math.round((cpu || 0) * 100) / 100;
+    return String(v);
+}
+
+function activityRam(ram) {
+    const v = ram || 0;
+    return v >= 1000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}G` : `${v}M`;
+}
+
+function activitySsd(hdd) {
+    const v = hdd || 0;
+    return v >= 1000 ? `${(v / 1000).toFixed(1).replace(/\.0$/, '')}T` : `${v}G`;
+}
+
+/** Fixed-width per-app table, capped to a character budget with a "+N more" tail. */
+function activityTable(apps) {
+    const c = ACTIVITY_COLS;
+    const header =
+        pad('App name', c.name) + ' ' +
+        pad('Repo', c.repo) + ' ' +
+        pad('Inst', c.instances, 'right') + ' ' +
+        pad('CPU', c.cpu, 'right') + ' ' +
+        pad('RAM', c.ram, 'right') + ' ' +
+        pad('SSD', c.ssd, 'right');
+    const lines = [header];
+    let used = header.length;
+    let shown = 0;
+
+    for (const app of apps) {
+        const row =
+            pad(truncateCell(app.name, c.name), c.name) + ' ' +
+            pad(truncateCell(app.repo, c.repo), c.repo) + ' ' +
+            pad(String(app.instances ?? 0), c.instances, 'right') + ' ' +
+            pad(activityCpu(app.cpu), c.cpu, 'right') + ' ' +
+            pad(activityRam(app.ram), c.ram, 'right') + ' ' +
+            pad(activitySsd(app.hdd), c.ssd, 'right');
+        if (shown > 0 && used + row.length + 1 > ACTIVITY_ROW_BUDGET) break;
+        lines.push(row);
+        used += row.length + 1;
+        shown++;
+    }
+
+    return { table: lines.join('\n'), shown, total: apps.length };
+}
+
+function activityField(title, list) {
+    if (!list) {
+        return { name: title, value: 'Not available at report time.', inline: false };
+    }
+    if (!list.apps || list.apps.length === 0) {
+        return { name: title, value: 'None in the last 24 hours.', inline: false };
+    }
+
+    const { table, shown, total } = activityTable(list.apps);
+    let value = 'Total: ' + total + '\n```\n' + table + '\n```';
+    if (shown < total) {
+        value += `\n+ ${total - shown} more not listed (total ${total}).`;
+    }
+    if (value.length > MAX_FIELD_CHARS) {
+        value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
+    }
+    return { name: title, value, inline: false };
+}
+
+/**
+ * Second daily message: the per-app detail behind the main report's Flux Cloud
+ * section — what was deployed in the last 24 hours and what expires within them.
+ * Point-in-time, like the section it expands.
+ */
+export function buildFluxCloudActivityPayload(report) {
+    const fc = report.fluxCloud;
+    if (!fc) return null;
+
+    return {
+        username: 'FluxTracker',
+        embeds: [
+            {
+                title: 'FluxTracker Flux Cloud Activity',
+                description:
+                    `${report.currentLabel}\n` +
+                    `${report.current.start} | point-in-time at ${report.generatedAt}`,
+                color: EMBED_COLOR,
+                fields: [
+                    activityField('Deployments (24 hours)', fc.deployedToday),
+                    activityField('Expiring today', fc.expiring24h)
+                ],
+                footer: { text: 'via FluxTracker' },
+                timestamp: report.generatedAt
             }
         ]
     };
