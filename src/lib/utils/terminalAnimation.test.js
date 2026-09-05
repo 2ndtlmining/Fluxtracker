@@ -7,7 +7,12 @@ import {
   formatNetworkLine,
   formatVersionLine,
   buildSyncBlockLines,
-  FLUX_LOGO
+  buildSyncPatternLines,
+  padLines,
+  composeRevealFrame,
+  FLUX_LOGO,
+  LOGO_LINES,
+  LOGO_WIDTH
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -111,6 +116,78 @@ describe('formatVersionLine', () => {
 
   it('omits the codename when absent', () => {
     expect(formatVersionLine('v1.03', '')).toBe('version v1.03 loaded');
+  });
+});
+
+describe('LOGO_LINES / LOGO_WIDTH', () => {
+  it('LOGO_LINES matches the number of lines in FLUX_LOGO', () => {
+    expect(LOGO_LINES).toEqual(FLUX_LOGO.split('\n'));
+  });
+
+  it('LOGO_WIDTH is the length of the longest logo line', () => {
+    expect(LOGO_WIDTH).toBe(Math.max(...LOGO_LINES.map(l => l.length)));
+  });
+});
+
+describe('buildSyncPatternLines', () => {
+  it('returns the requested number of lines, each of the requested width', () => {
+    const lines = buildSyncPatternLines(6, 10);
+    expect(lines).toHaveLength(6);
+    lines.forEach(line => expect(line).toHaveLength(10));
+  });
+
+  it('alternates the starting character between adjacent rows', () => {
+    const lines = buildSyncPatternLines(2, 4);
+    expect(lines[0][0]).not.toBe(lines[1][0]);
+  });
+
+  it('only ever uses + and = characters', () => {
+    const lines = buildSyncPatternLines(4, 8);
+    lines.forEach(line => expect(line).toMatch(/^[+=]+$/));
+  });
+});
+
+describe('padLines', () => {
+  it('returns the input unchanged when it already has enough lines', () => {
+    expect(padLines(['a', 'b', 'c'], 3)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('truncates when there are too many lines', () => {
+    expect(padLines(['a', 'b', 'c', 'd'], 2)).toEqual(['a', 'b']);
+  });
+
+  it('pads with filler lines, cycling through them, when there are too few', () => {
+    expect(padLines(['a'], 4, ['x', 'y'])).toEqual(['a', 'x', 'y', 'x']);
+  });
+
+  it('pads with blank lines when no filler is given', () => {
+    expect(padLines(['a'], 3)).toEqual(['a', '', '']);
+  });
+});
+
+describe('composeRevealFrame', () => {
+  const base = ['B0', 'B1', 'B2', 'B3'];
+  const incoming = ['I0', 'I1', 'I2', 'I3'];
+
+  it('reveals no rows at revealedCount 0', () => {
+    expect(composeRevealFrame(base, incoming, 0, 'top-down')).toEqual(base);
+  });
+
+  it('reveals all rows at revealedCount === length', () => {
+    expect(composeRevealFrame(base, incoming, 4, 'top-down')).toEqual(incoming);
+  });
+
+  it('reveals from the top down', () => {
+    expect(composeRevealFrame(base, incoming, 2, 'top-down')).toEqual(['I0', 'I1', 'B2', 'B3']);
+  });
+
+  it('reveals from the bottom up', () => {
+    expect(composeRevealFrame(base, incoming, 2, 'bottom-up')).toEqual(['B0', 'B1', 'I2', 'I3']);
+  });
+
+  it('clamps an out-of-range revealedCount', () => {
+    expect(composeRevealFrame(base, incoming, -3, 'top-down')).toEqual(base);
+    expect(composeRevealFrame(base, incoming, 99, 'top-down')).toEqual(incoming);
   });
 });
 
