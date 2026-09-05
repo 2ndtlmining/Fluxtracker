@@ -286,10 +286,22 @@ describe('buildDiscordPayload', () => {
 
             const deployments = embed.fields[0].value;
             expect(deployments).toContain('Total: 2');
-            expect(deployments).toContain('minecraft-server');
-            expect(deployments).toContain('runonflux/minecraft-java:latest');
+            // Names capped at 8 characters ('minec' + '...')
+            expect(deployments).toContain('minec...');
+            expect(deployments).toContain('prese...');
             expect(deployments).toContain('6.1G');  // 6144MB, same rounding the carousel uses
             expect(deployments).toContain('25G');
+            // Repo column dropped — it alone was wide enough to force row wrapping
+            expect(deployments).not.toContain('runonflux/minecraft-java');
+        });
+
+        it('keeps every row on one line (header and rows share the same short width)', () => {
+            const embed = buildFluxCloudActivityPayload(activityReport()).embeds[0];
+            const block = embed.fields[0].value.split('```')[1];
+            const lines = block.split('\n').filter(Boolean);
+            // No line wraps into a second visual line: all lines share the header's width
+            const widths = lines.map(l => l.length);
+            expect(Math.max(...widths)).toBeLessThanOrEqual(40);
         });
 
         it('caps the table to the field limit and summarises the rest', () => {

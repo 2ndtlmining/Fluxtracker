@@ -594,7 +594,13 @@ export async function getFluxCloudSnapshot() {
     let totalAppsDeployed = null;
     try {
         const { appsData } = await getSharedFluxApiData();
-        totalAppsDeployed = Array.isArray(appsData) ? appsData.length : null;
+        // Count apps, not specs and not instances: the registry can hold more than one
+        // spec per app name (each re-deployment adds one), and the Deployments/Expiring
+        // lists below read the same registry as apps. Deduping by name keeps the three
+        // figures in the same unit.
+        totalAppsDeployed = Array.isArray(appsData)
+            ? new Set(appsData.map(app => app?.name).filter(Boolean)).size
+            : null;
     } catch (error) {
         log.warn({ err: error }, 'Flux Cloud snapshot: could not count deployed apps');
     }
