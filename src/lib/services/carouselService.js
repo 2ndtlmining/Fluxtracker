@@ -149,6 +149,7 @@ export async function fetchLatestDeployedApps() {
                 type: 'deployed',
                 rank: index + 1,
                 name: app.name,
+                repo: extractRepo(app),
                 details: details,
                 // Keep individual values for potential future use
                 instances: instances,
@@ -437,6 +438,19 @@ export function getCachedCarouselData() {
 }
 
 /**
+ * The app's docker repo (repotag), working across both spec formats: the old
+ * single-component shape carries it on the spec, the compose shape carries one
+ * per component — the first one wins for display.
+ */
+function extractRepo(appSpec) {
+    if (Array.isArray(appSpec?.compose)) {
+        const component = appSpec.compose.find(c => c && c.repotag);
+        return component?.repotag || '';
+    }
+    return appSpec?.repotag || '';
+}
+
+/**
  * Fetch apps expiring within 2880 blocks (~24 hours)
  */
 export async function fetchExpiringApps() {
@@ -488,6 +502,7 @@ export async function fetchExpiringApps() {
                 type: 'expiring',
                 rank: index + 1,
                 name: app.name,
+                repo: extractRepo(app),
                 instances: instances,
                 cpu: cpu,
                 ram: ram,
@@ -564,5 +579,32 @@ export async function getCachedExpiringApps() {
         cached: !!cachedExpiringApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
         fresh: isFresh
+    };
+}
+
+/**
+ * Point-in-time Flux Cloud state for the daily KPI report and its Flux Cloud
+ * Activity message. Reads the same shared Flux API cache the two carousel
+ * fetchers use, so this is cheap after either has run. The `cached` flags tell
+ * the caller whether each list is a real reading or an on-demand fetch that
+ * failed with nothing ever stored — a failed fetch must reach the report as
+ * "not available", never as a zero.
+ */
+export async function getFluxCloudSnapshot() {
+    let totalAppsDeployed = null;
+    try {
+        const { appsData } = await getSharedFluxApiData();
+        totalAppsDeployed = Array.isArray(appsData) ? appsData.length : null;
+    } catch (error) {
+        log.warn({ err: error }, 'Flux Cloud snapshot: could not count deployed apps');
+    }
+
+    const deployed = await getCachedDeployedApps();
+    const expiring = await getCachedExpiringApps();
+
+    return {
+        totalAppsDeployed,
+        appsDeployedToday: { cached: deployed.cached, apps: deployed.stats },
+        appsExpiring24h: { cached: expiring.cached, apps: expiring.stats }
     };
 }
