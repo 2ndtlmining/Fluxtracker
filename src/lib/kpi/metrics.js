@@ -118,7 +118,7 @@ export const FLUX_CLOUD_SECTION = {
     source: 'instant',
     aggregation: 'instant',
     metrics: [
-        { key: 'appsDeployed', label: 'Apps deployed', format: 'int' },
+        { key: 'appsDeployed', label: 'Deployed (24h)', format: 'int' },
         { key: 'appsExpiring24h', label: 'Expiring (24h)', format: 'int' }
     ]
 };

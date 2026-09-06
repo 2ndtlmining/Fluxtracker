@@ -65,6 +65,9 @@ function dedupeAppsByName(apps, prefer) {
 /**
  * Live Flux Cloud state for the daily report: the two instant metrics the main
  * report shows, plus the per-app detail the Flux Cloud Activity message lists.
+ * The report's figures ARE the activity message's totals — `Deployed (24h)` is the
+ * deduped length of the deployments list, `Expiring (24h)` of the expiring list —
+ * so the section and its detail can never disagree.
  * `cached === false` means the on-demand fetch failed with nothing ever stored —
  * an absent reading, never a fake zero.
  */
@@ -84,12 +87,11 @@ async function getFluxCloudData() {
         return {
             instant: {
                 fluxCloud: {
-                    appsDeployed: snapshot.totalAppsDeployed,
+                    appsDeployed: snapshot.appsDeployedToday.cached ? deployedToday.length : null,
                     appsExpiring24h: snapshot.appsExpiring24h.cached ? expiring24h.length : null
                 }
             },
             activity: {
-                appsDeployed: snapshot.totalAppsDeployed,
                 deployedToday: { cached: snapshot.appsDeployedToday.cached, apps: deployedToday },
                 expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h }
             }
