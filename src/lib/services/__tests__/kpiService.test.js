@@ -46,7 +46,6 @@ beforeEach(() => {
     getDailyRevenueUSDInRange.mockResolvedValue([{ daily_revenue_usd: 20 }, { daily_revenue_usd: 22 }]);
     getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 250, payments: 5 });
     getFluxCloudSnapshot.mockResolvedValue({
-        totalAppsDeployed: 7149,
         appsDeployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
         appsExpiring24h: { cached: true, apps: [{ name: 'app-b', repo: 'runonflux/app-b:latest', instances: 1, cpu: 0.5, ram: 512, hdd: 5 }] }
     });
@@ -128,7 +127,7 @@ describe('buildKpiReport — daily', () => {
         const deployed = section.metrics.find(m => m.key === 'appsDeployed');
         const expiring = section.metrics.find(m => m.key === 'appsExpiring24h');
         expect(deployed.available).toBe(true);
-        expect(deployed.current).toBe(7149);
+        expect(deployed.current).toBe(1);   // the deduped length of the deployments list
         expect(deployed.comparison).toBeNull();
         expect(expiring.available).toBe(true);
         expect(expiring.current).toBe(1);
@@ -138,7 +137,6 @@ describe('buildKpiReport — daily', () => {
         const report = await buildKpiReport('daily', NOW);
 
         expect(report.fluxCloud).toBeDefined();
-        expect(report.fluxCloud.appsDeployed).toBe(7149);
         expect(report.fluxCloud.deployedToday.apps[0].name).toBe('app-a');
         expect(report.fluxCloud.deployedToday.apps[0].repo).toBe('runonflux/app-a:latest');
         expect(report.fluxCloud.expiring24h.apps[0].name).toBe('app-b');
@@ -147,9 +145,8 @@ describe('buildKpiReport — daily', () => {
     it('lists one row per app in the activity detail, matching the report counts', async () => {
         // A re-deployment leaves the old spec in the registry next to the new one: the
         // same app must appear once, keeping the newest registration (deployments) and
-        // the most urgent expiry (expiring) — the same unit as Apps deployed.
+        // the most urgent expiry (expiring).
         getFluxCloudSnapshot.mockResolvedValue({
-            totalAppsDeployed: 2,
             appsDeployedToday: { cached: true, apps: [
                 { name: 'redeployed', repo: 'runonflux/old:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blockAge: 2800 },
                 { name: 'redeployed', repo: 'runonflux/new:latest', instances: 2, cpu: 2, ram: 2048, hdd: 20, blockAge: 100 },
@@ -171,8 +168,9 @@ describe('buildKpiReport — daily', () => {
         expect(expiring.map(a => a.name)).toEqual(['dup']);
         expect(expiring[0].repo).toBe('runonflux/new:latest'); // most urgent expiry wins
 
-        // The main report's instant count matches the activity table total
+        // The main report's instant counts match the activity table totals exactly
         const section = report.dataset.sections.find(s => s.key === 'fluxCloud');
+        expect(section.metrics.find(m => m.key === 'appsDeployed').current).toBe(2);
         expect(section.metrics.find(m => m.key === 'appsExpiring24h').current).toBe(1);
     });
 
