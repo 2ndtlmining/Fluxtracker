@@ -587,14 +587,24 @@ export async function getCachedExpiringApps() {
 export async function getFluxCloudSnapshot() {
     let totalAppsDeployed = null;
     try {
-        const { appsData } = await getSharedFluxApiData();
-        // Count apps, not specs and not instances: the registry can hold more than one
-        // spec per app name (each re-deployment adds one), and the Deployments/Expiring
-        // lists below read the same registry as apps. Deduping by name keeps the three
-        // figures in the same unit.
-        totalAppsDeployed = Array.isArray(appsData)
-            ? new Set(appsData.map(app => app?.name).filter(Boolean)).size
-            : null;
+        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
+        // Apps, not specs and not instances — and only apps still deployed. The registry
+        // keeps one spec per (re)deployment and lags pruning expired apps, so both
+        // filters matter: dedupe by name AND drop registrations whose expiry block has
+        // passed. That is the same "unique active apps" unit the Deployments and
+        // Expiring lists use, so the three figures stay comparable.
+        if (Array.isArray(appsData)) {
+            const activeAppNames = new Set();
+            for (const app of appsData) {
+                if (!app?.name) continue;
+                if (app.expire) {
+                    const expiryBlock = (app.height || 0) + app.expire;
+                    if (expiryBlock < currentBlockHeight) continue; // expired registration
+                }
+                activeAppNames.add(app.name);
+            }
+            totalAppsDeployed = activeAppNames.size;
+        }
     } catch (error) {
         log.warn({ err: error }, 'Flux Cloud snapshot: could not count deployed apps');
     }
