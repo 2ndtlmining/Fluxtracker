@@ -1,21 +1,23 @@
 // ============================================
 // KPI SCHEDULER — env-configured scheduled reports
 // ============================================
-// Sends the daily (and optionally weekly) KPI report to a Discord webhook without
-// anyone clicking anything. Configured entirely via env vars (the operator's .env or
-// docker run -e — both npm and Docker runs read process.env identically):
+// Sends the scheduled KPI reports to a Discord webhook without anyone clicking
+// anything. Configured entirely via env vars (the operator's .env or docker run -e —
+// both npm and Docker runs read process.env identically):
 //
 //   KPI_WEBHOOK_URL        Discord webhook; unset/invalid = feature off
-//   KPI_SCHEDULE           'daily', 'weekly', or 'daily,weekly'
-//   KPI_SCHEDULE_HOUR_UTC  hour of day the daily run fires (weekly: Mondays, same
-//                          hour, unless the week was missed — week-key dedupe lets
-//                          it catch up any day)
+//   KPI_SCHEDULE           any comma-separated list of KPI timeframes:
+//                          daily, weekly, monthly, quarterly, yearly
+//   KPI_SCHEDULE_HOUR_UTC  hour of day (UTC) the daily run fires; the other
+//                          timeframes go out in the same hour once their period has
+//                          completed (monthly on the 1st, quarterly on the 1st of
+//                          the quarter's first month, yearly on Jan 1)
 //
 // Restart-safe dedupe with NO schema change: a success records a receipt in the
-// existing sync_status table (`kpi_daily` / `kpi_weekly`), so a restart after the
-// scheduled hour cannot double-send, while a server that was down at the scheduled
-// hour catches up on the next tick (or at boot). Failures are retried every tick;
-// the failure notice goes to the same webhook once per period.
+// existing sync_status table (`kpi_<timeframe>`), so a restart after the scheduled
+// hour cannot double-send, while a server that was down at the scheduled hour
+// catches up on the next tick (or at boot). Failures are retried every tick; the
+// failure notice goes to the same webhook once per period.
 //
 // The manual footer button is untouched: the scheduler calls buildKpiReport() +
 // sendToDiscord() directly, bypassing the POST endpoint and its rate limiter.
@@ -27,6 +29,7 @@ import {
     isValidDiscordWebhook
 } from './kpiService.js';
 import { getSyncStatus, updateSyncStatus } from '../db/database.js';
+import { TIMEFRAMES } from '../kpi/periods.js';
 import { isDue, periodKey } from '../kpi/schedulerTime.js';
 import { createLogger } from '../logger.js';
 
@@ -47,14 +50,15 @@ let schedulerState = {
 
 /**
  * Pure env parsing — invalid values degrade to the documented defaults instead of
- * crashing the server.
+ * crashing the server. Schedule entries must be real KPI timeframes (daily..yearly);
+ * anything else is dropped with the rest of the validation.
  */
 export function parseKpiSchedulerConfig(env = process.env) {
     const webhookUrl = (env.KPI_WEBHOOK_URL || '').trim() || null;
     const schedule = (env.KPI_SCHEDULE || '')
         .split(',')
         .map(tf => tf.trim().toLowerCase())
-        .filter(tf => tf === 'daily' || tf === 'weekly');
+        .filter(tf => TIMEFRAMES.includes(tf));
     const parsedHour = Number.parseInt(env.KPI_SCHEDULE_HOUR_UTC ?? '2', 10);
     const hourUtc = Number.isInteger(parsedHour) && parsedHour >= 0 && parsedHour <= 23 ? parsedHour : 2;
     return { webhookUrl, schedule, hourUtc };
@@ -94,7 +98,7 @@ export function startKpiScheduler({ runImmediately = true } = {}) {
         if (config.webhookUrl || config.schedule.length > 0) {
             log.warn(
                 { hasWebhook: Boolean(config.webhookUrl), schedule: config.schedule },
-                'KPI scheduler disabled: KPI_WEBHOOK_URL must be a valid Discord webhook URL and KPI_SCHEDULE must contain daily and/or weekly'
+                'KPI scheduler disabled: KPI_WEBHOOK_URL must be a valid Discord webhook URL and KPI_SCHEDULE must contain valid timeframes (daily, weekly, monthly, quarterly, yearly)'
             );
         } else {
             log.info('KPI scheduler disabled: KPI_WEBHOOK_URL / KPI_SCHEDULE not set');

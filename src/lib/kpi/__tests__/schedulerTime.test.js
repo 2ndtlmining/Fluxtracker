@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { utcDayKey, isoWeekKey, periodKey, isDue } from '../schedulerTime.js';
+import {
+    utcDayKey,
+    isoWeekKey,
+    monthlyKey,
+    quarterlyKey,
+    yearlyKey,
+    periodKey,
+    isDue
+} from '../schedulerTime.js';
 
 const ms = iso => Date.parse(`${iso}Z`);
 
@@ -38,6 +46,15 @@ describe('periodKey', () => {
         expect(periodKey('daily', ms('2026-09-05T03:00'))).toBe('2026-09-05');
         expect(periodKey('weekly', ms('2026-09-05T03:00'))).toBe('2026-W36');
     });
+
+    it('monthly, quarterly and yearly use their calendar keys', () => {
+        expect(periodKey('monthly', ms('2026-09-05T03:00'))).toBe('2026-09');
+        expect(periodKey('quarterly', ms('2026-09-05T03:00'))).toBe('2026-Q3');
+        expect(periodKey('yearly', ms('2026-09-05T03:00'))).toBe('2026');
+        // Quarter and year rollovers
+        expect(periodKey('quarterly', ms('2026-10-01T03:00'))).toBe('2026-Q4');
+        expect(periodKey('yearly', ms('2026-01-01T03:00'))).toBe('2026');
+    });
 });
 
 describe('isDue', () => {
@@ -73,5 +90,24 @@ describe('isDue', () => {
     it('weekly catches up any day of the week (no Monday-only gate)', () => {
         // Missed Monday, server back Thursday: the period is complete, send it
         expect(isDue('weekly', ms('2026-09-03T03:00'), HOUR, ms('2026-08-28T02:00'))).toBe(true);
+    });
+
+    it('monthly is due once the calendar month has rolled over', () => {
+        // Sep 1: August completed — the receipt from Aug 25 is a previous period
+        expect(isDue('monthly', ms('2026-09-01T03:00'), HOUR, ms('2026-08-25T02:00'))).toBe(true);
+        // Sent this month: not due again
+        expect(isDue('monthly', ms('2026-09-20T03:00'), HOUR, ms('2026-09-01T02:00'))).toBe(false);
+        // Before the hour: not due yet even on rollover day
+        expect(isDue('monthly', ms('2026-09-01T01:00'), HOUR, ms('2026-08-25T02:00'))).toBe(false);
+    });
+
+    it('quarterly is due on quarter rollover', () => {
+        expect(isDue('quarterly', ms('2026-10-01T03:00'), HOUR, ms('2026-09-20T02:00'))).toBe(true);
+        expect(isDue('quarterly', ms('2026-10-05T03:00'), HOUR, ms('2026-10-01T02:00'))).toBe(false);
+    });
+
+    it('yearly is due on year rollover', () => {
+        expect(isDue('yearly', ms('2026-01-01T03:00'), HOUR, ms('2025-12-20T02:00'))).toBe(true);
+        expect(isDue('yearly', ms('2026-06-01T03:00'), HOUR, ms('2026-01-01T02:00'))).toBe(false);
     });
 });
