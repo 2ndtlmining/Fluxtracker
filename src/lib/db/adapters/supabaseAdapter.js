@@ -892,15 +892,19 @@ export async function getSyncStatus(syncType) {
 }
 
 export async function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {
+    // Upsert, not update: rows for new sync types (e.g. the KPI scheduler's
+    // kpi_daily/kpi_weekly receipts) do not exist until first written — a plain
+    // .update() with .eq() on a missing row matches 0 rows and silently no-ops,
+    // breaking dedupe forever. sync_type is UNIQUE in the schema, so onConflict works.
     const { error } = await supabase
         .from('sync_status')
-        .update({
+        .upsert({
+            sync_type: syncType,
             last_sync: Date.now(),
             last_sync_block: lastBlock,
             status,
             error_message: errorMessage
-        })
-        .eq('sync_type', syncType);
+        }, { onConflict: 'sync_type' });
 
     if (error) {
         log.error(`updateSyncStatus error: ${error.message}`);

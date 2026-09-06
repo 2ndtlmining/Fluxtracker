@@ -10,9 +10,22 @@
 
 const MS_PER_DAY = 86400000;
 
+/**
+ * "2026-09-05T03:00:00.000Z" — UTC ISO string. Built from getUTC* parts rather than
+ * Date#toISOString(): under vitest fake timers the clock replacement makes
+ * toISOString intermittently throw "Invalid time value" after setSystemTime jumps,
+ * while getUTC* accessors stay reliable (see the monthly/quarterly/yearly keys).
+ */
+export function isoUtc(ms) {
+    const t = new Date(ms);
+    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}` +
+        `T${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}:${String(t.getUTCSeconds()).padStart(2, '0')}.000Z`;
+}
+
 /** "2026-09-05" — UTC day key. */
 export function utcDayKey(ms) {
-    return new Date(ms).toISOString().slice(0, 10);
+    const t = new Date(ms);
+    return `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, '0')}-${String(t.getUTCDate()).padStart(2, '0')}`;
 }
 
 /**

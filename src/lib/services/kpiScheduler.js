@@ -30,7 +30,7 @@ import {
 } from './kpiService.js';
 import { getSyncStatus, updateSyncStatus } from '../db/database.js';
 import { TIMEFRAMES } from '../kpi/periods.js';
-import { isDue, periodKey } from '../kpi/schedulerTime.js';
+import { isDue, periodKey, isoUtc } from '../kpi/schedulerTime.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('kpiScheduler');
@@ -67,6 +67,7 @@ export function parseKpiSchedulerConfig(env = process.env) {
 export function getKpiSchedulerState() {
     return {
         configured: schedulerState.configured,
+        reason: schedulerState.reason ?? null,
         schedule: schedulerState.schedule,
         hourUtc: schedulerState.hourUtc,
         lastRuns: schedulerState.lastRuns
@@ -87,8 +88,16 @@ export function startKpiScheduler({ runImmediately = true } = {}) {
     const webhookValid = Boolean(config.webhookUrl) && isValidDiscordWebhook(config.webhookUrl);
 
     if (!webhookValid || config.schedule.length === 0) {
+        // Say exactly why in /api/health — a disabled scheduler with no reason is how
+        // this misconfiguration hid from a user checking /api/health.
+        const reason = !config.webhookUrl
+            ? 'missing_webhook'
+            : !webhookValid
+                ? 'invalid_webhook'
+                : 'no_valid_schedule';
         schedulerState = {
             configured: false,
+            reason,
             schedule: [],
             hourUtc: config.hourUtc,
             webhookUrl: null,
@@ -97,17 +106,18 @@ export function startKpiScheduler({ runImmediately = true } = {}) {
         };
         if (config.webhookUrl || config.schedule.length > 0) {
             log.warn(
-                { hasWebhook: Boolean(config.webhookUrl), schedule: config.schedule },
+                { hasWebhook: Boolean(config.webhookUrl), schedule: config.schedule, reason },
                 'KPI scheduler disabled: KPI_WEBHOOK_URL must be a valid Discord webhook URL and KPI_SCHEDULE must contain valid timeframes (daily, weekly, monthly, quarterly, yearly)'
             );
         } else {
-            log.info('KPI scheduler disabled: KPI_WEBHOOK_URL / KPI_SCHEDULE not set');
+            log.info({ reason }, 'KPI scheduler disabled: KPI_WEBHOOK_URL / KPI_SCHEDULE not set');
         }
         return getKpiSchedulerState();
     }
 
     schedulerState = {
         configured: true,
+        reason: null,
         schedule: config.schedule,
         hourUtc: config.hourUtc,
         webhookUrl: config.webhookUrl,
@@ -149,6 +159,20 @@ async function tick() {
 }
 
 /**
+ * Receipt timestamps are epoch millis in both adapters (sqlite INTEGER, supabase
+ * BIGINT). Number() handles that; Date.parse() only handles strings and would return
+ * NaN for a number, which used to poison every period-key comparison after the
+ * upsert fix made receipts actually persist.
+ */
+function receiptToMs(value) {
+    if (value == null) return null;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
  * One timeframe attempt: due-check against the success receipt, then deliver and
  * record. Failures are retried on later ticks (the success receipt is untouched by
  * a failed attempt, so the report stays due).
@@ -156,9 +180,9 @@ async function tick() {
 async function runForTimeframe(timeframe) {
     const receiptType = `${RECEIPT_PREFIX}${timeframe}`;
     const receipt = await getSyncStatus(receiptType).catch(() => null);
-    const lastSyncMs = receipt?.last_sync ? Date.parse(receipt.last_sync) : null;
+    const lastSyncMs = receiptToMs(receipt?.last_sync);
 
-    if (!isDue(timeframe, new Date(), schedulerState.hourUtc, lastSyncMs)) {
+    if (!isDue(timeframe, Date.now(), schedulerState.hourUtc, lastSyncMs)) {
         return { sent: false, reason: 'not due' };
     }
 
@@ -174,7 +198,7 @@ async function runForTimeframe(timeframe) {
 
         await sendToDiscord(schedulerState.webhookUrl, report);
         await updateSyncStatus(receiptType, 'completed');
-        schedulerState.lastRuns[timeframe] = { at: new Date().toISOString(), ok: true };
+        schedulerState.lastRuns[timeframe] = { at: isoUtc(Date.now()), ok: true };
         log.info({ timeframe }, 'Scheduled KPI report delivered');
         return { sent: true };
     } catch (error) {
@@ -191,11 +215,13 @@ async function runForTimeframe(timeframe) {
  */
 async function recordFailureAndNotice(timeframe, error) {
     const failureType = `${RECEIPT_PREFIX}${timeframe}_failed`;
-    const now = new Date();
+    // Date.now() (number), not new Date(): keeps the period-key comparison on a plain
+    // epoch value in both backends and test environments.
+    const nowMs = Date.now();
     const failureReceipt = await getSyncStatus(failureType).catch(() => null);
-    const lastFailureMs = failureReceipt?.last_sync ? Date.parse(failureReceipt.last_sync) : null;
+    const lastFailureMs = receiptToMs(failureReceipt?.last_sync);
     const noticedThisPeriod = lastFailureMs !== null
-        && periodKey(timeframe, lastFailureMs) === periodKey(now.getTime());
+        && periodKey(timeframe, lastFailureMs) === periodKey(timeframe, nowMs);
 
     if (!noticedThisPeriod) {
         try {
@@ -206,6 +232,6 @@ async function recordFailureAndNotice(timeframe, error) {
     }
 
     await updateSyncStatus(failureType, 'notified', error.message);
-    schedulerState.lastRuns[timeframe] = { at: now.toISOString(), ok: false, error: error.message };
+    schedulerState.lastRuns[timeframe] = { at: isoUtc(nowMs), ok: false, error: error.message };
     log.error({ timeframe, err: error }, 'Scheduled KPI report failed');
 }
