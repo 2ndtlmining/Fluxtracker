@@ -237,6 +237,28 @@ describe('buildKpiDataset', () => {
         expect(formatPercent(cpu.change)).toBe('+10.0%');
     });
 
+    it('reports RAM and SSD with their real TB unit, like CPU uses cores', () => {
+        // The snapshot columns are named *_gb but hold terabytes; a missing format key
+        // used to fall through to a bare number ("RAM used 18") with no unit at all.
+        const d = buildKpiDataset({
+            current, comparison,
+            currentSnapshots: makeSnapshots({ used_ram_gb: 17.25, used_storage_gb: 254 }),
+            comparisonSnapshots: makeSnapshots({ used_ram_gb: 16.75, used_storage_gb: 252 }),
+            currentRevenue: revenue,
+            comparisonRevenue: revenue
+        });
+
+        const resources = d.sections.find(s => s.key === 'resources');
+        const ram = resources.metrics.find(m => m.key === 'ram');
+        const ssd = resources.metrics.find(m => m.key === 'ssd');
+        expect(ram.format).toBe('tb');
+        expect(ssd.format).toBe('tb');
+        expect(formatValue(ram.current, ram.format)).toBe('17.3 TB');
+        expect(formatValue(ssd.current, ssd.format)).toBe('254.0 TB');
+        // The +/- column carries the unit too, exactly like the CPU row's "+7 cores"
+        expect(formatDelta(ram.change, ram.format)).toBe('+0.5 TB');
+    });
+
     it('marks the price row insufficient when snapshots carry no price', () => {
         // flux_price_usd is nullable, and zero means the collector failed that day
         const d = buildKpiDataset({

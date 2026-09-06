@@ -80,8 +80,8 @@ export const SECTIONS = [
         aggregation: 'average',
         metrics: [
             { key: 'cpu', label: 'CPU used', column: 'used_cpu_cores', format: 'cores' },
-            { key: 'ram', label: 'RAM used', column: 'used_ram_gb', format: 'gb' },
-            { key: 'ssd', label: 'SSD used', column: 'used_storage_gb', format: 'gb' },
+            { key: 'ram', label: 'RAM used', column: 'used_ram_gb', format: 'tb' },
+            { key: 'ssd', label: 'SSD used', column: 'used_storage_gb', format: 'tb' },
             // Shown alongside the raw figures rather than instead of them. "1.2M cores used"
             // says nothing on its own — the same number is healthy growth or a capacity
             // collapse depending on what the network can hold. These columns are already
