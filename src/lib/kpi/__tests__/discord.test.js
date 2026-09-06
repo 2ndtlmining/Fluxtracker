@@ -237,7 +237,7 @@ describe('buildDiscordPayload', () => {
             expect(field.value).not.toContain('+/-');
             const block = field.value.split('```')[1];
             const rows = block.split('\n').filter(Boolean);
-            expect(rows[1]).toContain('Apps deployed');
+            expect(rows[1]).toContain('Deployed (24h)');
             expect(rows[1]).toContain('7,149');
             expect(rows[2]).toContain('Expiring (24h)');
             expect(rows[2]).toContain('12');
