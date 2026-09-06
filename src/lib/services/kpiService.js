@@ -46,6 +46,23 @@ async function getPeriodRevenue({ start, end }) {
 }
 
 /**
+ * One row per app, not per spec: a re-deployment leaves the old spec in the registry
+ * alongside the new one, so the same app can appear twice in a 24h window. Deployments
+ * keep the newest registration (lowest blockAge); expiring rows keep the most urgent
+ * expiry (lowest blocksUntilExpiry). Matches the "unique active apps" unit of the
+ * report's Apps deployed figure.
+ */
+function dedupeAppsByName(apps, prefer) {
+    const byName = new Map();
+    for (const app of apps) {
+        if (!app?.name) continue;
+        const existing = byName.get(app.name);
+        if (!existing || prefer(app, existing)) byName.set(app.name, app);
+    }
+    return [...byName.values()];
+}
+
+/**
  * Live Flux Cloud state for the daily report: the two instant metrics the main
  * report shows, plus the per-app detail the Flux Cloud Activity message lists.
  * `cached === false` means the on-demand fetch failed with nothing ever stored —
@@ -55,19 +72,26 @@ async function getFluxCloudData() {
     try {
         const snapshot = await getFluxCloudSnapshot();
 
+        const deployedToday = dedupeAppsByName(
+            snapshot.appsDeployedToday.apps,
+            (a, b) => (a.blockAge ?? Infinity) < (b.blockAge ?? Infinity)
+        );
+        const expiring24h = dedupeAppsByName(
+            snapshot.appsExpiring24h.apps,
+            (a, b) => (a.blocksUntilExpiry ?? Infinity) < (b.blocksUntilExpiry ?? Infinity)
+        );
+
         return {
             instant: {
                 fluxCloud: {
                     appsDeployed: snapshot.totalAppsDeployed,
-                    appsExpiring24h: snapshot.appsExpiring24h.cached
-                        ? snapshot.appsExpiring24h.apps.length
-                        : null
+                    appsExpiring24h: snapshot.appsExpiring24h.cached ? expiring24h.length : null
                 }
             },
             activity: {
                 appsDeployed: snapshot.totalAppsDeployed,
-                deployedToday: snapshot.appsDeployedToday,
-                expiring24h: snapshot.appsExpiring24h
+                deployedToday: { cached: snapshot.appsDeployedToday.cached, apps: deployedToday },
+                expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h }
             }
         };
     } catch (error) {

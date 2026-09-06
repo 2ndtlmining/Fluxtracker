@@ -144,6 +144,38 @@ describe('buildKpiReport — daily', () => {
         expect(report.fluxCloud.expiring24h.apps[0].name).toBe('app-b');
     });
 
+    it('lists one row per app in the activity detail, matching the report counts', async () => {
+        // A re-deployment leaves the old spec in the registry next to the new one: the
+        // same app must appear once, keeping the newest registration (deployments) and
+        // the most urgent expiry (expiring) — the same unit as Apps deployed.
+        getFluxCloudSnapshot.mockResolvedValue({
+            totalAppsDeployed: 2,
+            appsDeployedToday: { cached: true, apps: [
+                { name: 'redeployed', repo: 'runonflux/old:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blockAge: 2800 },
+                { name: 'redeployed', repo: 'runonflux/new:latest', instances: 2, cpu: 2, ram: 2048, hdd: 20, blockAge: 100 },
+                { name: 'solo', repo: 'runonflux/solo:latest', instances: 1, cpu: 1, ram: 512, hdd: 5, blockAge: 50 }
+            ] },
+            appsExpiring24h: { cached: true, apps: [
+                { name: 'dup', repo: 'runonflux/old:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blocksUntilExpiry: 500 },
+                { name: 'dup', repo: 'runonflux/new:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blocksUntilExpiry: 100 }
+            ] }
+        });
+
+        const report = await buildKpiReport('daily', NOW);
+
+        const deployed = report.fluxCloud.deployedToday.apps;
+        expect(deployed.map(a => a.name)).toEqual(['redeployed', 'solo']);
+        expect(deployed[0].repo).toBe('runonflux/new:latest'); // newest registration wins
+
+        const expiring = report.fluxCloud.expiring24h.apps;
+        expect(expiring.map(a => a.name)).toEqual(['dup']);
+        expect(expiring[0].repo).toBe('runonflux/new:latest'); // most urgent expiry wins
+
+        // The main report's instant count matches the activity table total
+        const section = report.dataset.sections.find(s => s.key === 'fluxCloud');
+        expect(section.metrics.find(m => m.key === 'appsExpiring24h').current).toBe(1);
+    });
+
     it('a Flux Cloud read failure renders the section as unavailable, not missing or zero', async () => {
         getFluxCloudSnapshot.mockRejectedValue(new Error('down'));
 
