@@ -6,15 +6,18 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 
 - **Real-time Flux network monitoring** -- Node counts by tier (Cumulus, Nimbus, Stratus), cloud resource utilization (CPU, RAM, Storage), and deployed app totals
 - **Revenue transaction tracking** -- Syncs with the Flux blockchain daemon, attributes payments to deployed apps, and classifies app type (git/docker)
-- **Price history** -- FLUX/USD price via CoinGecko and CryptoCompare, stored daily for historical charts and USD revenue calculations
+- **Price history** -- FLUX/USD daily closes via Binance, CoinGecko and CryptoCompare, stored for historical charts and USD revenue calculations
 - **Docker repository snapshots** -- Daily tracking of running instances for every Docker image on the network, with automatic category breakdowns (Gaming, Crypto Nodes, WordPress)
 - **Historical data visualization** -- Interactive Chart.js charts with configurable time ranges and category filters
 - **Period-over-period comparisons** -- Toggle between daily, weekly, monthly, quarterly, and yearly comparisons across all metrics
+- **KPI Discord reports** -- Manual (footer button, any webhook) and scheduled (env-configured) reports of Revenue, Nodes, Resource Utilization, Applications and Flux Cloud, comparing two completed periods
+- **Terminal header** -- Animated boot sequence that resolves into a permanent FLUX ASCII logo, with a short sync animation whenever a new block is detected
 - **CSV export** -- Download revenue transaction data as CSV
 - **Carousel dashboard** -- Live feed of recently deployed and expiring apps on the network
 - **Automated sync** -- Background schedulers for revenue sync (5 min), service tests (1 hr), carousel updates (1 hr), and daily snapshots
-- **Automated backups** -- Daily backup of critical snapshot tables to Cloudflare R2 with 30-day retention and one-click restore
+- **Automated backups** -- Daily backup of critical tables to Cloudflare R2 with 30-day retention and one-click restore
 - **Auto-failover** -- Circuit breaker automatically switches to a failover Supabase instance when the primary is unreachable
+- **Resilient outbound fetches** -- One shared retry + per-endpoint circuit breaker for every external API read, so a dead upstream can't stall the dashboard
 
 ## Tech Stack
 
@@ -313,6 +316,9 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 
 | Method | Endpoint                              | Description                                    |
 |--------|---------------------------------------|------------------------------------------------|
+| GET    | `/api/health`                         | Combined health (DB, snapshot, backup, price history, KPI scheduler) |
+| GET    | `/api/health/live`                    | Liveness only (process is running)             |
+| GET    | `/api/health/ready`                   | Readiness (DB reachable)                       |
 | GET    | `/api/admin/snapshot-status`          | Snapshot system health and state                |
 | GET    | `/api/admin/revenue-status`           | Revenue sync status, block height, tx count    |
 | GET    | `/api/admin/test-status`              | Service test scheduler status                  |
@@ -440,6 +446,22 @@ curl -X POST localhost:3000/api/admin/recategorize-repos
 The category endpoint also re-validates stored rows against the current config at read time, so a
 newly excluded image disappears from the cards immediately — the admin call fixes history.
 
+## Terminal Header
+
+The static `FLUX / TRACKER` title is gone. The header is now an animated terminal: a boot
+sequence types out real `/api/header` data (api/database checks, a counting block height,
+version and network stats), then resolves into a permanent **FLUX ASCII logo** with a cyan glow.
+Whenever a new block is detected while the page is open, the logo briefly wipes into a
+random-character sync texture and the live sync status — inside the **same fixed-height box**,
+so the header never grows or shrinks.
+
+- One voice for all header text: the boot output, the sync status and the build line share font
+  and colour; the build line shows the version (green) and ArcaneOS codename (purple), both
+  API-driven
+- Reduced-motion users get the final states without the animation
+- The header is covered by a headless-browser acceptance harness: `scripts/header-smoke/` (see
+  its README) — run it before and after any header change
+
 Adding a **featured breakdown column** (the named entries inside a category, e.g. `gaming_palworld`)
 is separate: add the repo to `GAMING_REPOS`/`CRYPTO_REPOS` and `schemaMigrator` creates the column at
 startup, because `METRIC_COLUMNS` is derived from that config. Note its `imageMatch` must list every
@@ -447,15 +469,28 @@ image that merges into the row, or the featured number and the card disagree —
 read 170 against a card showing 266 for exactly this reason. Historical values keep their old basis,
 so expect a step in the trend line on the day a change lands.
 
+## Tests
+
+```bash
+npm test            # vitest — 690+ tests
+```
+
+The pure logic is deliberately separated from the components so it is unit-testable: KPI period
+arithmetic, aggregation and Discord formatting (`src/lib/kpi/`), the terminal header animation
+(`src/lib/utils/terminalAnimation.js`), app categorisation (`src/lib/__tests__/categorization.test.js`),
+the fetch breaker and resilient fetch, the scheduler time math, and the adapter layer. The terminal
+header additionally has the headless-browser harness in `scripts/header-smoke/` that drives a real
+browser against a dev server and asserts size/style/timing invariants.
+
 ## Backup & Resilience
 
 ### Automated Backups (Cloudflare R2)
 
-The `daily_snapshots` and `repo_snapshots` tables contain irreplaceable point-in-time data that cannot be re-derived from blockchain or external APIs. Backups protect against data loss if the Supabase instance is lost.
+The `daily_snapshots`, `repo_snapshots` and `flux_price_history` tables contain irreplaceable point-in-time data that cannot be re-derived from blockchain or external APIs. Backups protect against data loss if the Supabase instance is lost.
 
 - **Trigger**: Automatically after each successful daily snapshot (fire-and-forget, never blocks the snapshot)
 - **Manual**: `POST /api/admin/backup`
-- **Storage**: Cloudflare R2 at `backups/{YYYY-MM-DD}/daily_snapshots.json` + `repo_snapshots.json`
+- **Storage**: Cloudflare R2 at `backups/{YYYY-MM-DD}/daily_snapshots.json` + `repo_snapshots.json` + `flux_price_history.json`
 - **Retention**: 30 days (older backups pruned automatically)
 - **Restore**: `POST /api/admin/restore` with `{ "date": "2026-03-18" }` -- upserts data into the current DB
 - **Health**: Backup is "healthy" if not configured (not expected) OR last backup is less than 48 hours old
@@ -471,12 +506,17 @@ If a failover Supabase instance is configured (`SUPABASE_FAILOVER_URL` + `SUPABA
 - Manual toggle: `POST /api/admin/failover`
 - Status: `GET /api/admin/failover-status`
 
-### Circuit Breaker
+### Circuit Breakers
 
-States: CLOSED (normal) -> OPEN (DB unreachable, all requests blocked) -> HALF_OPEN (probing with one request)
+Two independent breakers protect the app from hammering an unreachable dependency:
+
+**Database** (`src/lib/db/circuitBreaker.js`): CLOSED (normal) -> OPEN (DB unreachable, all requests blocked) -> HALF_OPEN (probing with one request)
 
 - Failure threshold: 5 consecutive failures
 - Cooldown: 60 seconds before probing
+- On the first transition to OPEN it triggers the auto-failover described above
+
+**Outbound API fetches** (`src/lib/services/fetchBreaker.js`): the same state machine, keyed **per endpoint**, wired into `resilientFetch.js` — the shared HTTP GET primitive every external API read goes through (retry + timeout + optional shape validation). One dead upstream (a Flux stats endpoint, an exchange) is short-circuited for the cooldown instead of being timed out against on every cycle, and one open endpoint never blocks another. Threshold 5 / cooldown 60s via `FETCH_CIRCUIT_BREAKER_CONFIG`. The Discord webhook POST is deliberately outside this path — a retry could duplicate a user-visible report.
 
 ### Health Endpoint
 
@@ -488,7 +528,8 @@ States: CLOSED (normal) -> OPEN (DB unreachable, all requests blocked) -> HALF_O
   "db": { "status": "connected", "circuit": "CLOSED", "activeInstance": "primary" },
   "snapshot": { "healthy": true, "todaySnapshotExists": true },
   "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "ageHours": 2.1 },
-  "priceHistory": { "days": 1720, "oldest": "2021-12-10", "newest": "2026-08-20", "healthy": true }
+  "priceHistory": { "days": 1720, "oldest": "2021-12-10", "newest": "2026-08-20", "healthy": true },
+  "kpiScheduler": { "configured": true, "schedule": ["daily"], "hourUtc": 2, "lastRuns": { "daily": { "at": "2026-09-06T02:00:14.512Z", "ok": true } } }
 }
 ```
 
@@ -528,7 +569,8 @@ curl -X POST localhost:3000/api/admin/backfill-usd       # then fill in the NULL
 
 A **KPI** button in the footer (between GitHub and Refresh) opens a dialog where you pick a time
 frame and a Discord webhook, and FluxTracker posts a formatted report of Revenue, Nodes, Resource
-Utilization and Applications comparing two completed periods.
+Utilization, Applications and Flux Cloud comparing two completed periods. Daily reports can also
+send themselves on a schedule (see [Scheduled reports](#scheduled-reports)).
 
 ### Time frames
 
@@ -555,23 +597,34 @@ Two aggregation rules, chosen to match the live dashboard:
 | Revenue | Flux, USD, Team-funded, Team-funded %, Fiat, Fiat % | **Sum across the period** | `revenue_transactions` |
 | Revenue | FLUX price (avg) | **Average of daily snapshots** | `daily_snapshots.flux_price_usd` |
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
-| Resource Utilization | CPU used, RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
+| Resource Utilization | CPU used (cores), RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
 | Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
-| Expiring (24h) | Apps expiring — **Daily reports only** | **Point-in-time at report generation** | live app data (same source as the carousel's "Expiring Soon" tab) |
+| Flux Cloud | Deployed (24h), Expiring (24h) — **Daily reports only** | **Point-in-time at report generation** | live app data (same registry the carousel reads) |
 
-The **Expiring (24h)** row is the one metric with no comparison column. Apps expiring within
-24 hours is a reading taken when the report is generated; we never snapshot it per day, so
-yesterday's figure cannot be known and a +/- column would be invented. The Discord table shows
-the count with `-` / `n/a` in the delta columns instead.
+The **Flux Cloud** rows are the one part of the report with no comparison column. Both are 24h
+windows read when the report is generated; we never snapshot them per day, so yesterday's
+figure cannot be known and a +/- column would be invented. They render as a two-column table
+(`Metric | Qty`). **The daily report is followed by a second Discord message, "Flux Cloud
+Activity"**, which is the detail behind those two numbers: per-app tables
+(`Inst | Name | CPU | RAM | SSD`) for the apps deployed in the last 24 hours and the apps
+expiring within them — and the section's counts equal the Activity message's totals exactly,
+since both come from the same deduped lists.
+
+**Daily reports read differently from the rest.** A daily report covers single days — nothing
+is summed or averaged — so it drops the `- SUM`/`- AVERAGE` heading suffixes and aggregation
+notes the other timeframes carry, shows the two dates plainly (`2026-09-04 | 2026-09-03`), and
+renders the price row as that day's price rather than an average. Weekly/monthly/quarterly/
+yearly reports are unchanged.
 
 **FLUX price is the one averaged row in a summed section.** It is there because without it the
 two rows above it cannot be read: FLUX revenue flat while USD revenue falls is a price move, not
 a drop in demand, and nothing else in the report distinguishes those. A period *total* of daily
 prices would be meaningless, so the row is averaged and the Discord embed names the exception
-underneath the `Revenue - SUM` heading rather than letting the heading misdescribe it.
+underneath the `Revenue - SUM` heading rather than letting the heading misdescribe it. On daily
+reports the row is simply that day's price, and the averaging note disappears with the rest.
 
-**Utilization percentages sit alongside the raw figures, not instead of them.** "880,000 cores
+**Utilization percentages sit alongside the raw figures, not instead of them.** "9,031 cores
 used" is the same number whether the network grew or capacity collapsed; the percentage is what
 separates those. Both are shown so a reader can see which one moved.
 
@@ -611,7 +664,9 @@ separate lines rather than only showing a total: **subtract them before reading 
 a demand signal.**
 
 To measure demand directly, count apps *deployed* during the period rather than revenue received.
-That is a different metric and not currently in the report.
+The daily report's Flux Cloud section is a step in that direction — `Deployed (24h)` counts the
+apps deployed in the last 24 hours — but it is a 24h window, not a full-period count, so it is
+not directly comparable against a week's or month's revenue.
 
 Worked examples:
 
@@ -686,9 +741,10 @@ misleading report.
 
 **Discord** — posted to a user-supplied incoming webhook as a rich embed, one field per section,
 each wrapped in a code block so the Qty / +/- / +/-% columns stay aligned on desktop and mobile.
-Every section states its aggregation twice — in the field name (`Revenue - SUM`,
-`Nodes - AVERAGE`) and in a line above the table — so a reader never has to guess whether a
-number is a period total or a daily mean.
+Weekly and longer reports state their aggregation twice — in the field name (`Revenue - SUM`,
+`Nodes - AVERAGE`) and in a line above the table. Daily reports read single-day snapshots and
+drop both, so the heading is just the section name. Daily is also two messages: the report
+followed by the "Flux Cloud Activity" detail message.
 Deliberately plain: **no emoji anywhere**, direction carried by explicit `+`/`-` signs, a single
 restrained accent color on the embed border.
 
@@ -701,6 +757,26 @@ XLSX writer (`exceljs`) added as dependencies, and four environment variables �
 `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, with `SMTP_FROM` for the sender address. No separate
 application is required; the existing Express server sends directly. The KPI computation is
 already delivery-agnostic, so only the transport and the attachment builder are new.
+
+### Scheduled reports
+
+The daily (and optionally weekly) report can send itself. Configure three environment
+variables (see [Environment Variables](#environment-variables)): `KPI_WEBHOOK_URL` (the Discord
+webhook), `KPI_SCHEDULE` (`daily`, `weekly`, or `daily,weekly`) and `KPI_SCHEDULE_HOUR_UTC`
+(default `2`). All unset or invalid = scheduler off, one log line, everything else unaffected.
+
+- Checks every 10 minutes and sends once per period: the daily report goes out after 02:00 UTC
+  covering yesterday; the weekly report goes out in the same hour, covering the last completed
+  ISO week.
+- **A restart never double-sends**: a success receipt is recorded in the existing `sync_status`
+  table, and a server that was down at the scheduled hour catches up at boot (or on the next
+  tick) because the receipt proves which period was last delivered.
+- **Failures are visible, never silent**: a failed run is retried on the next tick, a failure
+  notice is posted to the same webhook once per period, and `/api/health` exposes
+  `kpiScheduler: { configured, schedule, hourUtc, lastRuns }`.
+- The footer **KPI button keeps working independently** — enter any webhook in the dialog and
+  send manually; the manual path has its own rate limiting and never interferes with the
+  schedule.
 
 ### Rate limits and abuse prevention
 
@@ -823,6 +899,7 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 | `scripts/import-repo-json.mjs`        | Import Docker repo snapshot data from a JSON file    |
 | `scripts/apply-rpc-to-cloud.mjs`      | Apply RPC functions to a remote Supabase instance via direct PG connection |
 | `scripts/apply-prices-from-csv.mjs`   | Import historical FLUX/USD price data from a CSV file |
+| `scripts/header-smoke/`               | Terminal header acceptance harness (headless Edge/Chrome; see its README) |
 
 ## Project Structure
 
@@ -833,7 +910,15 @@ src/
     +page.svelte               # Main dashboard page
   lib/
     config.js                  # All configuration (addresses, intervals, categories, API URLs)
-    components/                # Svelte components (StatCard, Chart, RevenueTransactions, etc.)
+    components/                # Svelte components (StatCard, Chart, RevenueTransactions, KpiModal, TerminalHeaderAnimation, etc.)
+    kpi/
+      periods.js               # KPI period arithmetic (pure, unit-tested)
+      metrics.js               # KPI metric definitions, aggregation, formatting
+      discord.js               # Discord embed builders (report, Flux Cloud Activity, failure notice)
+      rateLimiter.js           # Manual report rate limiting
+      schedulerTime.js         # Scheduler due-date math (pure, unit-tested)
+    utils/
+      terminalAnimation.js     # Header boot/sync animation logic (pure, unit-tested)
     db/
       database.js              # Adapter router (selects Supabase or SQLite)
       adapters/
@@ -842,11 +927,16 @@ src/
       supabaseClient.js        # Supabase client initialization (guarded for SQLite mode)
       schemaMigrator.js        # Dynamic column migrations (both backends)
       snapshotManager.js       # Daily snapshot scheduler + backup trigger
-      circuitBreaker.js        # Circuit breaker with auto-failover
+      circuitBreaker.js        # DB circuit breaker with auto-failover
       snapshot.js              # Snapshot data access
     services/
       revenueService.js        # Blockchain transaction sync logic
       revenueScheduler.js      # Revenue sync interval manager
+      kpiService.js            # KPI report computation + Discord delivery
+      kpiScheduler.js          # Env-configured scheduled KPI reports
+      resilientFetch.js        # Shared HTTP GET (retry, timeout, shape validation)
+      fetchBreaker.js          # Per-endpoint circuit breaker for outbound fetches
+      runningAppsProvider.js   # Shared running-apps payload (one fetch per cycle)
       backupService.js         # Cloudflare R2 backup/restore service
       bootstrapService.js      # R2 bootstrap for SQLite mode (first-start data import)
       cloudService.js          # Cloud utilization metrics (CPU, RAM, Storage)
@@ -855,6 +945,7 @@ src/
       cryptoService.js         # Crypto node instance tracking
       wordpressService.js      # WordPress instance counting
       priceHistoryService.js   # FLUX/USD price history sync
+      hostLocationService.js   # Server geolocation (6h cache)
       carouselService.js       # Carousel feed data (deployed/expiring apps)
       servicesScheduler.js     # Service test and carousel scheduler
 supabase/
@@ -862,7 +953,9 @@ supabase/
     001_initial_schema.sql     # Tables, indexes, seed data
     002_rpc_functions.sql      # PostgreSQL RPC functions
     003_enable_rls.sql         # Row Level Security
-scripts/                       # One-time utility scripts
+    004-006                    # Partial index, app-name index, USD batch update
+scripts/                       # Utility scripts
+  header-smoke/                # Terminal header acceptance harness (headless browser)
 Dockerfile                     # Multi-stage production build
 startup.sh                     # Container entrypoint (starts both servers)
 .env.example                   # Environment variable template
