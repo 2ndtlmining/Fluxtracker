@@ -1064,9 +1064,19 @@ export async function getSyncStatus(syncType) {
 
 export async function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {
     try {
+        // Upsert, not UPDATE: rows for new sync types (e.g. the KPI scheduler's
+        // kpi_daily/kpi_weekly receipts) do not exist until first written — a plain
+        // UPDATE would match 0 rows and silently no-op, breaking dedupe forever.
+        // ON CONFLICT DO UPDATE preserves columns not in the payload (next_sync).
         getDb().prepare(
-            'UPDATE sync_status SET last_sync = ?, last_sync_block = ?, status = ?, error_message = ? WHERE sync_type = ?'
-        ).run(Date.now(), lastBlock, status, errorMessage, syncType);
+            `INSERT INTO sync_status (sync_type, last_sync, last_sync_block, status, error_message)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(sync_type) DO UPDATE SET
+                last_sync = excluded.last_sync,
+                last_sync_block = excluded.last_sync_block,
+                status = excluded.status,
+                error_message = excluded.error_message`
+        ).run(syncType, Date.now(), lastBlock, status, errorMessage);
     } catch (error) {
         log.error(`updateSyncStatus error: ${error.message}`);
     }

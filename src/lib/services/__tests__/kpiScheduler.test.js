@@ -6,6 +6,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * Dependencies are mocked: kpiService (build/send/notice/webhook validation) and the
  * database (sync_status receipts). Time is faked so due-ness is deterministic; ticks
  * are driven explicitly via runSchedulerTick() (the interval never fires in tests).
+ *
+ * IMPORTANT: the receipt mock is STATEFUL — getSyncStatus reads a map that
+ * updateSyncStatus writes, mimicking real persistence. A stateless mock here is what
+ * let the 10-minute re-send bug ship: the mocked receipt "persisted" only because the
+ * test fed it, while the real adapter silently no-oped.
  */
 
 vi.mock('../kpiService.js', () => ({
@@ -42,13 +47,30 @@ const REPORT = {
     comparisonLabel: 'Sep 3, 2026'
 };
 
+// Stateful receipt store: updateSyncStatus WRITES here, getSyncStatus READS here.
+const receipts = new Map();
+
 beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-05T03:00:00Z')); // after the default 02:00 hour
+    // Spy on Date.now() (a static) instead of using fake timers: @sinonjs's fake
+    // Date is corrupted by setSystemTime jumps (toISOString/getUTC* intermittently
+    // break), while a static spy leaves every real Date constructor untouched.
+    // Time jumps below are just Date.now.mockReturnValue(...). The scheduler's
+    // 10-min interval is real but unref'd and cleared in afterEach.
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-05T03:00:00Z')); // after the default 02:00 hour
+
+    receipts.clear();
+    getSyncStatus.mockImplementation(async type => receipts.get(type) ?? null);
+    updateSyncStatus.mockImplementation(async (type, status, errorMessage = null) => {
+        receipts.set(type, {
+            ...(receipts.get(type) || {}),
+            last_sync: Date.now(),   // faked clock — same value isDue() compares
+            status,
+            error_message: errorMessage
+        });
+    });
 
     isValidDiscordWebhook.mockReturnValue(true);
-    getSyncStatus.mockResolvedValue(null);              // never sent
     buildKpiReport.mockResolvedValue({ ...REPORT });
     sendToDiscord.mockResolvedValue({ delivered: true });
     sendSchedulerFailureNotice.mockResolvedValue();
@@ -60,7 +82,7 @@ beforeEach(() => {
 
 afterEach(() => {
     stopKpiScheduler();
-    vi.useRealTimers();
+    vi.restoreAllMocks();
     delete process.env.KPI_WEBHOOK_URL;
     delete process.env.KPI_SCHEDULE;
     delete process.env.KPI_SCHEDULE_HOUR_UTC;
@@ -103,49 +125,60 @@ describe('parseKpiSchedulerConfig', () => {
 });
 
 describe('graceful without configuration', () => {
-    it('no webhook: scheduler disabled, nothing sent', async () => {
+    it('no webhook: scheduler disabled with reason missing_webhook, nothing sent', async () => {
         delete process.env.KPI_WEBHOOK_URL;
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('missing_webhook');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
         expect(sendToDiscord).not.toHaveBeenCalled();
     });
 
-    it('no schedule: scheduler disabled', async () => {
+    it('no schedule: scheduler disabled with reason no_valid_schedule', async () => {
         delete process.env.KPI_SCHEDULE;
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('no_valid_schedule');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
     });
 
-    it('an invalid webhook disables the scheduler', async () => {
+    it('an invalid webhook disables the scheduler with reason invalid_webhook', async () => {
         process.env.KPI_WEBHOOK_URL = 'https://evil.com/api/webhooks/1/a';
         isValidDiscordWebhook.mockReturnValue(false);
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('invalid_webhook');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
+    });
+
+    it('a configured scheduler reports reason null', async () => {
+        const state = boot();
+        expect(state.configured).toBe(true);
+        expect(state.reason).toBeNull();
     });
 });
 
 describe('scheduled delivery', () => {
-    it('sends the due daily report and records the receipt', async () => {
+    it('sends the due daily report and persists the receipt', async () => {
         boot();
         await runSchedulerTick();
 
         expect(buildKpiReport).toHaveBeenCalledWith('daily');
         expect(sendToDiscord).toHaveBeenCalledWith(VALID_URL, expect.objectContaining({ timeframe: 'daily' }));
-        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_daily', 'completed');
+        // The receipt must actually persist — this is the stateful-mock regression
+        // guard for the 10-minute re-send bug
+        expect(receipts.get('kpi_daily').status).toBe('completed');
         expect(getKpiSchedulerState().lastRuns.daily.ok).toBe(true);
     });
 
     it('does not send before the configured hour', async () => {
-        vi.setSystemTime(new Date('2026-09-05T01:30:00Z'));
+        Date.now.mockReturnValue(Date.parse('2026-09-05T01:30:00Z'));
         boot();
         await runSchedulerTick();
 
@@ -153,7 +186,7 @@ describe('scheduled delivery', () => {
     });
 
     it('does not re-send when the receipt is from the same UTC day', async () => {
-        getSyncStatus.mockResolvedValue({ last_sync: '2026-09-05T02:00:00.000Z' });
+        receipts.set('kpi_daily', { last_sync: Date.parse('2026-09-05T02:00:00Z') });
         boot();
         await runSchedulerTick();
 
@@ -163,7 +196,7 @@ describe('scheduled delivery', () => {
 
     it('catches up when the server was down at the scheduled hour', async () => {
         // Receipt from yesterday 02:00 (last successful send), now it is today 03:00
-        getSyncStatus.mockResolvedValue({ last_sync: '2026-09-04T02:00:00.000Z' });
+        receipts.set('kpi_daily', { last_sync: Date.parse('2026-09-04T02:00:00Z') });
         boot();
         await runSchedulerTick();
 
@@ -174,12 +207,12 @@ describe('scheduled delivery', () => {
     it('weekly skips within the same ISO week and catches up across weeks', async () => {
         process.env.KPI_SCHEDULE = 'weekly';
 
-        getSyncStatus.mockResolvedValue({ last_sync: '2026-09-04T02:00:00.000Z' }); // Friday, same ISO week
+        receipts.set('kpi_weekly', { last_sync: Date.parse('2026-09-04T02:00:00Z') }); // Friday, same ISO week
         boot();
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
 
-        getSyncStatus.mockResolvedValue({ last_sync: '2026-08-28T02:00:00.000Z' }); // previous ISO week
+        receipts.set('kpi_weekly', { last_sync: Date.parse('2026-08-28T02:00:00Z') }); // previous ISO week
         await runSchedulerTick();
         expect(buildKpiReport).toHaveBeenCalledWith('weekly');
         expect(sendToDiscord).toHaveBeenCalledTimes(1);
@@ -187,19 +220,18 @@ describe('scheduled delivery', () => {
 
     it('monthly fires on month rollover and settles after its once-per-month send', async () => {
         process.env.KPI_SCHEDULE = 'monthly';
-        vi.setSystemTime(new Date('2026-09-01T03:00:00Z'));  // August completed
-        let monthlyReceipt = { last_sync: '2026-08-25T02:00:00.000Z' };
-        getSyncStatus.mockImplementation(async type => (type === 'kpi_monthly' ? monthlyReceipt : null));
+        Date.now.mockReturnValue(Date.parse('2026-09-01T03:00:00Z'));  // August completed
+        receipts.set('kpi_monthly', { last_sync: Date.parse('2026-08-25T02:00:00Z') });
 
         boot();
         await runSchedulerTick();
         expect(buildKpiReport).toHaveBeenCalledWith('monthly');
         expect(sendToDiscord).toHaveBeenCalledTimes(1);
-        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_monthly', 'completed');
+        // The stateful mock persisted the receipt with the faked "now"
+        expect(receipts.get('kpi_monthly').last_sync).toBe(Date.now());
 
-        // The persisted receipt now points at this month's send
-        monthlyReceipt = { last_sync: '2026-09-01T03:00:00.000Z' };
-        vi.setSystemTime(new Date('2026-09-20T03:00:00Z'));
+        // Sent this month: never again until the next rollover
+        Date.now.mockReturnValue(Date.parse('2026-09-20T03:00:00Z'));
         await runSchedulerTick();
         expect(buildKpiReport).toHaveBeenCalledTimes(1);
     });
@@ -207,13 +239,13 @@ describe('scheduled delivery', () => {
     it('fires every scheduled timeframe in one rollover tick', async () => {
         process.env.KPI_SCHEDULE = 'daily,weekly,monthly,quarterly,yearly';
         // Oct 1: all five periods completed at midnight
-        vi.setSystemTime(new Date('2026-10-01T03:00:00Z'));
+        Date.now.mockReturnValue(Date.parse('2026-10-01T03:00:00Z'));
         boot();
         await runSchedulerTick();
 
         for (const tf of ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']) {
             expect(buildKpiReport).toHaveBeenCalledWith(tf);
-            expect(updateSyncStatus).toHaveBeenCalledWith(`kpi_${tf}`, 'completed');
+            expect(receipts.get(`kpi_${tf}`).status).toBe('completed');
         }
         expect(sendToDiscord).toHaveBeenCalledTimes(5);
     });
@@ -228,7 +260,7 @@ describe('failures', () => {
         expect(sendToDiscord).not.toHaveBeenCalled();
         expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(1);
         expect(sendSchedulerFailureNotice).toHaveBeenCalledWith(VALID_URL, 'daily', expect.stringContaining('Not enough historical data'));
-        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_daily_failed', 'notified', expect.any(String));
+        expect(receipts.get('kpi_daily_failed').status).toBe('notified');
         expect(getKpiSchedulerState().lastRuns.daily.ok).toBe(false);
     });
 
@@ -238,27 +270,35 @@ describe('failures', () => {
         await runSchedulerTick();
 
         expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(1);
-        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_daily_failed', 'notified', expect.stringContaining('rejected'));
+        expect(receipts.get('kpi_daily_failed').status).toBe('notified');
         // The success receipt was NOT recorded — the report stays due and is retried
-        expect(updateSyncStatus).not.toHaveBeenCalledWith('kpi_daily', 'completed');
+        expect(receipts.get('kpi_daily')).toBeUndefined();
     });
 
     it('retries a failed report on later ticks without re-noticing in the same period', async () => {
         sendToDiscord.mockRejectedValue(new Error('down'));
         boot();
-        await runSchedulerTick();   // first attempt: notice sent
+        await runSchedulerTick();   // first attempt: notice sent, failure receipt persisted
 
-        // The failure receipt now points at this period
-        getSyncStatus.mockImplementation(async type => (
-            type === 'kpi_daily_failed' ? { last_sync: '2026-09-05T03:00:00.000Z' } : null
-        ));
-
-        vi.setSystemTime(new Date('2026-09-05T03:10:00Z'));   // next tick, same period
+        Date.now.mockReturnValue(Date.parse('2026-09-05T03:10:00Z'));   // next tick, same period
         await runSchedulerTick();
 
         expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(1);  // still once
-        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_daily_failed', 'notified', expect.any(String));
+        expect(receipts.get('kpi_daily_failed').status).toBe('notified');
         expect(sendToDiscord).toHaveBeenCalledTimes(2);               // but the send is retried
+    });
+
+    it('re-notices in a NEW period after a previously failed period', async () => {
+        sendToDiscord.mockRejectedValue(new Error('down'));
+        boot();
+        await runSchedulerTick();   // daily fails on Sep 5, notice #1, receipt persisted
+
+        // Next day: the daily report is due again (different period) — a fresh failure
+        // must notice again
+        Date.now.mockReturnValue(Date.parse('2026-09-06T03:00:00Z'));
+        await runSchedulerTick();
+
+        expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(2);
     });
 
     it('starts idempotently — a second start does not double the schedule', async () => {
