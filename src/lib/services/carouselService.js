@@ -1,7 +1,7 @@
 // flux-performance-dashboard/src/lib/services/carouselService.js
 
-import axios from 'axios';
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
+import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -77,13 +77,13 @@ async function getSharedFluxApiData() {
     if (cachedFluxApiData && age < FLUX_API_CACHE_DURATION) {
         return cachedFluxApiData;
     }
-    const [blockHeightResponse, appsResponse] = await Promise.all([
-        axios.get(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000 }),
-        axios.get(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000 })
+    const [blockHeightBody, appsBody] = await Promise.all([
+        resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000, breakerKey: 'flux-blockheight' }),
+        resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000, breakerKey: 'global-apps-specs' })
     ]);
     cachedFluxApiData = {
-        currentBlockHeight: blockHeightResponse.data?.data || 0,
-        appsData: appsResponse.data?.data || []
+        currentBlockHeight: blockHeightBody?.data || 0,
+        appsData: appsBody?.data || []
     };
     lastFluxApiCacheTime = Date.now();
     return cachedFluxApiData;
@@ -223,17 +223,14 @@ function formatStorage(hdd) {
  */
 async function fetchTopApps() {
     try {
-        const response = await axios.get(
-            API_ENDPOINTS.RUNNING_APPS,
-            { timeout: 15000 }
-        );
-        
+        const body = await resilientFetch(API_ENDPOINTS.RUNNING_APPS, { timeout: 15000, breakerKey: 'running-apps' });
+
         // Check for API error response
-        if (response.data && response.data.status === 'error' && response.data.data) {
-            throw new Error(`API Error: ${response.data.data.message}`);
+        if (body && body.status === 'error' && body.data) {
+            throw new Error(`API Error: ${body.data.message}`);
         }
-        
-        const appsData = response.data.data;
+
+        const appsData = body?.data;
         
         if (!Array.isArray(appsData)) {
             throw new Error('Invalid data structure received from apps API');
@@ -295,16 +292,13 @@ async function fetchTopApps() {
  */
 async function fetchTopBenchmarks() {
     try {
-        const response = await axios.get(
-            API_ENDPOINTS.API_NODE_BENCHMARKS,
-            { timeout: 15000 }
-        );
-        
-        if (response.data.status !== 'success' || !Array.isArray(response.data.data)) {
-            throw new Error('Invalid benchmark data received');
-        }
-        
-        const benchmarks = response.data.data;
+        const body = await resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARKS, {
+            timeout: 15000,
+            breakerKey: 'node-benchmarks',
+            validate: d => d?.status === 'success' && Array.isArray(d.data)
+        });
+
+        const benchmarks = body.data;
         
         // Filter out invalid/incomplete benchmarks
         const validBenchmarks = benchmarks.filter(item => 

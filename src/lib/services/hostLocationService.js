@@ -1,4 +1,4 @@
-import axios from 'axios';
+import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('hostLocationService');
@@ -40,7 +40,7 @@ function normalize({ city, region, country, countryCode, ip, source }) {
 
 // HTTPS, no key required
 async function fromIpwhois() {
-    const { data } = await axios.get('https://ipwho.is/', { timeout: TIMEOUT_MS });
+    const data = await resilientFetch('https://ipwho.is/', { timeout: TIMEOUT_MS, breakerKey: 'ipwhois' });
     if (!data?.success) throw new Error(data?.message || 'ipwho.is returned success=false');
     return normalize({
         city: data.city,
@@ -54,9 +54,9 @@ async function fromIpwhois() {
 
 // HTTP only on the free tier, which is fine for a server-side call
 async function fromIpApi() {
-    const { data } = await axios.get(
+    const data = await resilientFetch(
         'http://ip-api.com/json/?fields=status,message,country,countryCode,regionName,city,query',
-        { timeout: TIMEOUT_MS }
+        { timeout: TIMEOUT_MS, breakerKey: 'ip-api' }
     );
     if (data?.status !== 'success') throw new Error(data?.message || 'ip-api.com lookup failed');
     return normalize({
