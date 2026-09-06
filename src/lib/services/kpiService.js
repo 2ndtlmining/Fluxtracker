@@ -9,7 +9,7 @@ import {
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily } from '../kpi/metrics.js';
-import { buildDiscordPayload, buildFluxCloudActivityPayload, isValidDiscordWebhook } from '../kpi/discord.js';
+import { buildDiscordPayload, buildFluxCloudActivityPayload, buildSchedulerFailurePayload, isValidDiscordWebhook } from '../kpi/discord.js';
 import { getFluxCloudSnapshot } from './carouselService.js';
 import { createLogger } from '../logger.js';
 
@@ -183,6 +183,17 @@ async function postWebhook(webhookUrl, payload) {
 }
 
 /**
+ * Validated single-payload poster for non-report senders (the scheduler's failure
+ * notice). Re-validates the URL here — the last place the SSRF guard can live.
+ */
+export async function postToDiscordWebhook(webhookUrl, payload) {
+    if (!isValidDiscordWebhook(webhookUrl)) {
+        throw new Error('Not a valid Discord webhook URL');
+    }
+    await postWebhook(webhookUrl, payload);
+}
+
+/**
  * POST the report to a Discord webhook. On the daily timeframe a second message —
  * "Flux Cloud Activity", the per-app detail behind the report's Flux Cloud section —
  * follows the main one. Both go to the same webhook.
@@ -214,6 +225,14 @@ export async function sendToDiscord(webhookUrl, report) {
         log.error({ err: error }, 'Flux Cloud Activity message failed after the main report was delivered');
         return { delivered: true, activityDelivered: false, activityError: error.message };
     }
+}
+
+/**
+ * Failure notice for the scheduler: one embed saying the scheduled report failed and
+ * will be retried. Same webhook the reports go to; same SSRF guard.
+ */
+export async function sendSchedulerFailureNotice(webhookUrl, timeframe, errorMessage) {
+    await postToDiscordWebhook(webhookUrl, buildSchedulerFailurePayload(timeframe, errorMessage));
 }
 
 /**

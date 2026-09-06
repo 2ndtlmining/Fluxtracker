@@ -130,6 +130,16 @@ Optional -- Bootstrap from R2 (Docker/SQLite instances, all 4 required):
 | `BOOTSTRAP_R2_SECRET_ACCESS_KEY` | R2 API token secret key      |
 | `BOOTSTRAP_R2_BUCKET_NAME`    | R2 bucket name                  |
 
+Optional -- Scheduled KPI reports (all unset = feature off):
+
+| Variable                       | Description                     |
+|--------------------------------|---------------------------------|
+| `KPI_WEBHOOK_URL`             | Discord webhook the scheduled reports are posted to. Unset or invalid = scheduler disabled. |
+| `KPI_SCHEDULE`                | Which timeframes to auto-send: `daily`, `weekly`, or `daily,weekly` |
+| `KPI_SCHEDULE_HOUR_UTC`       | Hour of day (UTC) the daily run fires; the weekly report goes out Mondays in the same hour (default `2`) |
+
+When configured, the scheduler checks every 10 minutes and sends the report once per period (a restart never double-sends; a server that was down at the scheduled hour catches up on boot). The footer KPI button keeps working independently with any webhook you enter in the dialog.
+
 ### Database Setup
 
 Run the SQL migration files in your Supabase SQL Editor, in order:

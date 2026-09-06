@@ -90,6 +90,7 @@ import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
 import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 import { buildKpiReport, sendToDiscord, isValidDiscordWebhook } from './lib/services/kpiService.js';
+import { startKpiScheduler, stopKpiScheduler, getKpiSchedulerState } from './lib/services/kpiScheduler.js';
 import { TIMEFRAMES } from './lib/kpi/periods.js';
 import { consumeRateLimit, refundTarget, LIMITS } from './lib/kpi/rateLimiter.js';
 
@@ -314,7 +315,8 @@ app.get('/api/health', async (req, res) => {
             lastBackup: backupStatus.lastBackup,
             ageHours: backupStatus.ageHours
         },
-        priceHistory: priceHistoryInfo
+        priceHistory: priceHistoryInfo,
+        kpiScheduler: getKpiSchedulerState()
     });
 });
 
@@ -1904,6 +1906,7 @@ app.listen(PORT, '0.0.0.0', async () => {
     if (dbOk) {
         log.info('database ready — starting all schedulers');
         startSchedulers();
+        startKpiScheduler();
     } else {
         log.warn('database not reachable — server is running in DEGRADED mode (stale cache or 503, schedulers deferred)');
 
@@ -1919,6 +1922,7 @@ app.listen(PORT, '0.0.0.0', async () => {
                     clearInterval(retryInterval);
                     log.info('database connected — starting schedulers now');
                     startSchedulers();
+                    startKpiScheduler();
                 }
             } finally {
                 initRetryRunning = false;
@@ -1942,6 +1946,7 @@ function shutdownGracefully(signal) {
     stopCarouselUpdates();
     stopRevenueSync();
     stopSnapshotChecker();
+    stopKpiScheduler();
     process.exit(0);
 }
 

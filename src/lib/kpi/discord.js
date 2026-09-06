@@ -94,6 +94,28 @@ function sectionTable(section, isDaily) {
 }
 
 /**
+ * Failure notice for a missed/failed scheduled report. Posted once per period to
+ * the configured webhook; /api/health is the backstop when this cannot deliver.
+ */
+export function buildSchedulerFailurePayload(timeframe, errorMessage) {
+    return {
+        username: 'FluxTracker',
+        embeds: [
+            {
+                title: 'FluxTracker scheduled KPI report failed',
+                description:
+                    `Timeframe: ${timeframe}\n` +
+                    `Error: ${errorMessage}\n` +
+                    'The scheduler retries on its next check; see /api/health for state.',
+                color: EMBED_COLOR,
+                footer: { text: 'via FluxTracker' },
+                timestamp: new Date().toISOString()
+            }
+        ]
+    };
+}
+
+/**
  * @param {object} report from buildKpiReport()
  * @returns Discord webhook JSON body
  */
