@@ -138,8 +138,8 @@ Optional -- Scheduled KPI reports (all unset = feature off):
 | Variable                       | Description                     |
 |--------------------------------|---------------------------------|
 | `KPI_WEBHOOK_URL`             | Discord webhook the scheduled reports are posted to. Unset or invalid = scheduler disabled. |
-| `KPI_SCHEDULE`                | Which timeframes to auto-send: `daily`, `weekly`, or `daily,weekly` |
-| `KPI_SCHEDULE_HOUR_UTC`       | Hour of day (UTC) the daily run fires; the weekly report goes out Mondays in the same hour (default `2`) |
+| `KPI_SCHEDULE`                | Which timeframes to auto-send, comma-separated: `daily`, `weekly`, `monthly`, `quarterly`, `yearly` (e.g. `daily,weekly`) |
+| `KPI_SCHEDULE_HOUR_UTC`       | Hour of day (UTC) the daily run fires; the other timeframes go out in the same hour once their period has completed (weekly on Mondays, monthly on the 1st, quarterly on the quarter's first day, yearly on Jan 1; default `2`) |
 
 When configured, the scheduler checks every 10 minutes and sends the report once per period (a restart never double-sends; a server that was down at the scheduled hour catches up on boot). The footer KPI button keeps working independently with any webhook you enter in the dialog.
 
@@ -760,14 +760,17 @@ already delivery-agnostic, so only the transport and the attachment builder are 
 
 ### Scheduled reports
 
-The daily (and optionally weekly) report can send itself. Configure three environment
+Any of the five timeframes can send itself. Configure three environment
 variables (see [Environment Variables](#environment-variables)): `KPI_WEBHOOK_URL` (the Discord
-webhook), `KPI_SCHEDULE` (`daily`, `weekly`, or `daily,weekly`) and `KPI_SCHEDULE_HOUR_UTC`
-(default `2`). All unset or invalid = scheduler off, one log line, everything else unaffected.
+webhook), `KPI_SCHEDULE` (any comma-separated list of `daily`, `weekly`, `monthly`,
+`quarterly`, `yearly`) and `KPI_SCHEDULE_HOUR_UTC` (default `2`). All unset or invalid =
+scheduler off, one log line, everything else unaffected.
 
-- Checks every 10 minutes and sends once per period: the daily report goes out after 02:00 UTC
-  covering yesterday; the weekly report goes out in the same hour, covering the last completed
-  ISO week.
+- Checks every 10 minutes and sends once per period, all in the configured hour: the daily
+  report covers yesterday; weekly the last completed ISO week (Mondays); monthly fires on the
+  1st, quarterly on the quarter's first day, yearly on Jan 1 — each covering the period that
+  has just completed. A report missed while the server was down catches up on boot or the next
+  tick.
 - **A restart never double-sends**: a success receipt is recorded in the existing `sync_status`
   table, and a server that was down at the scheduled hour catches up at boot (or on the next
   tick) because the receipt proves which period was last delivered.

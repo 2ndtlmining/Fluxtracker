@@ -89,6 +89,13 @@ describe('parseKpiSchedulerConfig', () => {
         });
     });
 
+    it('accepts every KPI timeframe in the schedule', () => {
+        const config = parseKpiSchedulerConfig({
+            KPI_SCHEDULE: 'daily, weekly, monthly, quarterly, yearly'
+        });
+        expect(config.schedule).toEqual(['daily', 'weekly', 'monthly', 'quarterly', 'yearly']);
+    });
+
     it('an out-of-range hour falls back to 2', () => {
         expect(parseKpiSchedulerConfig({ KPI_SCHEDULE_HOUR_UTC: '25' }).hourUtc).toBe(2);
         expect(parseKpiSchedulerConfig({ KPI_SCHEDULE_HOUR_UTC: 'abc' }).hourUtc).toBe(2);
@@ -176,6 +183,39 @@ describe('scheduled delivery', () => {
         await runSchedulerTick();
         expect(buildKpiReport).toHaveBeenCalledWith('weekly');
         expect(sendToDiscord).toHaveBeenCalledTimes(1);
+    });
+
+    it('monthly fires on month rollover and settles after its once-per-month send', async () => {
+        process.env.KPI_SCHEDULE = 'monthly';
+        vi.setSystemTime(new Date('2026-09-01T03:00:00Z'));  // August completed
+        let monthlyReceipt = { last_sync: '2026-08-25T02:00:00.000Z' };
+        getSyncStatus.mockImplementation(async type => (type === 'kpi_monthly' ? monthlyReceipt : null));
+
+        boot();
+        await runSchedulerTick();
+        expect(buildKpiReport).toHaveBeenCalledWith('monthly');
+        expect(sendToDiscord).toHaveBeenCalledTimes(1);
+        expect(updateSyncStatus).toHaveBeenCalledWith('kpi_monthly', 'completed');
+
+        // The persisted receipt now points at this month's send
+        monthlyReceipt = { last_sync: '2026-09-01T03:00:00.000Z' };
+        vi.setSystemTime(new Date('2026-09-20T03:00:00Z'));
+        await runSchedulerTick();
+        expect(buildKpiReport).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires every scheduled timeframe in one rollover tick', async () => {
+        process.env.KPI_SCHEDULE = 'daily,weekly,monthly,quarterly,yearly';
+        // Oct 1: all five periods completed at midnight
+        vi.setSystemTime(new Date('2026-10-01T03:00:00Z'));
+        boot();
+        await runSchedulerTick();
+
+        for (const tf of ['daily', 'weekly', 'monthly', 'quarterly', 'yearly']) {
+            expect(buildKpiReport).toHaveBeenCalledWith(tf);
+            expect(updateSyncStatus).toHaveBeenCalledWith(`kpi_${tf}`, 'completed');
+        }
+        expect(sendToDiscord).toHaveBeenCalledTimes(5);
     });
 });
 
