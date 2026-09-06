@@ -103,33 +103,42 @@ describe('parseKpiSchedulerConfig', () => {
 });
 
 describe('graceful without configuration', () => {
-    it('no webhook: scheduler disabled, nothing sent', async () => {
+    it('no webhook: scheduler disabled with reason missing_webhook, nothing sent', async () => {
         delete process.env.KPI_WEBHOOK_URL;
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('missing_webhook');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
         expect(sendToDiscord).not.toHaveBeenCalled();
     });
 
-    it('no schedule: scheduler disabled', async () => {
+    it('no schedule: scheduler disabled with reason no_valid_schedule', async () => {
         delete process.env.KPI_SCHEDULE;
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('no_valid_schedule');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
     });
 
-    it('an invalid webhook disables the scheduler', async () => {
+    it('an invalid webhook disables the scheduler with reason invalid_webhook', async () => {
         process.env.KPI_WEBHOOK_URL = 'https://evil.com/api/webhooks/1/a';
         isValidDiscordWebhook.mockReturnValue(false);
         const state = boot();
 
         expect(state.configured).toBe(false);
+        expect(state.reason).toBe('invalid_webhook');
         await runSchedulerTick();
         expect(buildKpiReport).not.toHaveBeenCalled();
+    });
+
+    it('a configured scheduler reports reason null', async () => {
+        const state = boot();
+        expect(state.configured).toBe(true);
+        expect(state.reason).toBeNull();
     });
 });
 

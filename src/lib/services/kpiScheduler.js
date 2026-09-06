@@ -67,6 +67,7 @@ export function parseKpiSchedulerConfig(env = process.env) {
 export function getKpiSchedulerState() {
     return {
         configured: schedulerState.configured,
+        reason: schedulerState.reason ?? null,
         schedule: schedulerState.schedule,
         hourUtc: schedulerState.hourUtc,
         lastRuns: schedulerState.lastRuns
@@ -87,8 +88,16 @@ export function startKpiScheduler({ runImmediately = true } = {}) {
     const webhookValid = Boolean(config.webhookUrl) && isValidDiscordWebhook(config.webhookUrl);
 
     if (!webhookValid || config.schedule.length === 0) {
+        // Say exactly why in /api/health — a disabled scheduler with no reason is how
+        // this exact misconfiguration hid from a user checking /api/health.
+        const reason = !config.webhookUrl
+            ? 'missing_webhook'
+            : !webhookValid
+                ? 'invalid_webhook'
+                : 'no_valid_schedule';
         schedulerState = {
             configured: false,
+            reason,
             schedule: [],
             hourUtc: config.hourUtc,
             webhookUrl: null,
@@ -97,17 +106,18 @@ export function startKpiScheduler({ runImmediately = true } = {}) {
         };
         if (config.webhookUrl || config.schedule.length > 0) {
             log.warn(
-                { hasWebhook: Boolean(config.webhookUrl), schedule: config.schedule },
+                { hasWebhook: Boolean(config.webhookUrl), schedule: config.schedule, reason },
                 'KPI scheduler disabled: KPI_WEBHOOK_URL must be a valid Discord webhook URL and KPI_SCHEDULE must contain valid timeframes (daily, weekly, monthly, quarterly, yearly)'
             );
         } else {
-            log.info('KPI scheduler disabled: KPI_WEBHOOK_URL / KPI_SCHEDULE not set');
+            log.info({ reason }, 'KPI scheduler disabled: KPI_WEBHOOK_URL / KPI_SCHEDULE not set');
         }
         return getKpiSchedulerState();
     }
 
     schedulerState = {
         configured: true,
+        reason: null,
         schedule: config.schedule,
         hourUtc: config.hourUtc,
         webhookUrl: config.webhookUrl,
