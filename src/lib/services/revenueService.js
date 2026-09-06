@@ -1,5 +1,5 @@
-import axios from 'axios';
 import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC } from '../config.js';
+import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 import {
     updateCurrentMetrics,
@@ -120,9 +120,9 @@ export async function fetchFluxPrice() {
 
     // 1. CoinGecko
     try {
-        const response = await axios.get(API_ENDPOINTS.PRICE_COINGECKO, { timeout: 10000 });
-        if (response.data?.zelcash?.usd) {
-            const price = response.data.zelcash.usd;
+        const data = await resilientFetch(API_ENDPOINTS.PRICE_COINGECKO, { timeout: 10000, breakerKey: 'coingecko-price' });
+        if (data?.zelcash?.usd) {
+            const price = data.zelcash.usd;
             log.info({ price }, 'FLUX price fetched from CoinGecko: $%s', price);
             await updateCurrentMetrics({ flux_price_usd: price });
             return price;
@@ -133,9 +133,9 @@ export async function fetchFluxPrice() {
 
     // 2. Flux Explorer  (returns { status:200, currency:"USD", rate:X })
     try {
-        const response = await axios.get(API_ENDPOINTS.PRICE_EXPLORER, { timeout: 10000 });
-        if (response.data?.rate) {
-            const price = parseFloat(response.data.rate);
+        const data = await resilientFetch(API_ENDPOINTS.PRICE_EXPLORER, { timeout: 10000, breakerKey: 'flux-explorer-rate' });
+        if (data?.rate) {
+            const price = parseFloat(data.rate);
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from Explorer: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
@@ -148,9 +148,9 @@ export async function fetchFluxPrice() {
 
     // 3. CryptoCompare  (returns { USD: X })
     try {
-        const response = await axios.get(API_ENDPOINTS.PRICE_CRYPTOCOMPARE, { timeout: 10000 });
-        if (response.data?.USD) {
-            const price = parseFloat(response.data.USD);
+        const data = await resilientFetch(API_ENDPOINTS.PRICE_CRYPTOCOMPARE, { timeout: 10000, breakerKey: 'cryptocompare-price' });
+        if (data?.USD) {
+            const price = parseFloat(data.USD);
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from CryptoCompare: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
@@ -174,17 +174,14 @@ export async function fetchFluxPrice() {
  */
 export async function fetchCurrentBlockHeight() {
     try {
-        const response = await axios.get(
-            `${API_ENDPOINTS.DAEMON}/getblockcount`,
-            { timeout: 10000 }
-        );
-        
-        if (response.data && response.data.status === 'success') {
-            return response.data.data;
-        }
-        
-        throw new Error('Failed to fetch block height');
-        
+        const body = await resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, {
+            timeout: 10000,
+            breakerKey: 'flux-explorer-blockheight',
+            validate: d => d?.status === 'success'
+        });
+
+        return body.data;
+
     } catch (error) {
         log.error({ err: error }, 'Error fetching block height');
         throw error;
@@ -225,18 +222,24 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
             try {
                 const url = `${API_ENDPOINTS.DAEMON}/getaddresstxids/${address}/${from}/${to}`;
 
-                const response = await axios.get(url, { timeout: 60000 });
+                // resilientFetch with no retries: the chunk loop below owns the retry and
+                // backoff policy (exponential, partial-failure tolerant). The breaker only
+                // guards against hammering a dead daemon across many chunks.
+                const body = await resilientFetch(url, {
+                    timeout: 60000,
+                    breakerKey: 'flux-daemon-getaddresstxids'
+                });
 
-                if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
-                    const count = response.data.data.length;
+                if (body && body.status === 'success' && Array.isArray(body.data)) {
+                    const count = body.data.length;
                     if (count > 0) {
                         log.info({ from, to, count }, 'blocks %d-%d: %d txids found', from, to, count);
                     }
-                    allTxids.push(...response.data.data);
+                    allTxids.push(...body.data);
                     chunkSuccess = true;
                     break;
                 } else {
-                    log.warn({ from, to, attempt, maxRetries: MAX_RETRIES, status: response.data?.status, data: response.data?.data ?? response.data }, 'blocks %d-%d: unexpected response (attempt %d/%d)', from, to, attempt, MAX_RETRIES);
+                    log.warn({ from, to, attempt, maxRetries: MAX_RETRIES, status: body?.status, data: body?.data ?? body }, 'blocks %d-%d: unexpected response (attempt %d/%d)', from, to, attempt, MAX_RETRIES);
                 }
             } catch (error) {
                 log.error({ err: error, from, to, attempt, maxRetries: MAX_RETRIES }, 'blocks %d-%d: fetch error (attempt %d/%d)', from, to, attempt, MAX_RETRIES);
@@ -271,28 +274,28 @@ async function fetchAddressTxidsInRange(address, startBlock, endBlock) {
  * Fetch raw transaction details from Flux daemon with retry logic
  */
 async function fetchRawTransaction(txid, retries = 3) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            const url = `${API_ENDPOINTS.DAEMON}/getrawtransaction/${txid}/1`;
-            const response = await axios.get(url, { timeout: 15000 });
+    const url = `${API_ENDPOINTS.DAEMON}/getrawtransaction/${txid}/1`;
 
-            if (response.data && response.data.status === 'success') {
-                return response.data.data;
-            }
+    try {
+        // Network failures are retried; a daemon ANSWER with a non-success status is not
+        // (an unknown txid would stay unknown), matching the old no-retry path for it.
+        const body = await resilientFetch(url, {
+            timeout: 15000,
+            retries: retries - 1,
+            delayMs: 1000,
+            breakerKey: 'flux-daemon-getrawtransaction'
+        });
 
-            return null;
-        } catch (error) {
-            if (attempt < retries) {
-                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
-                log.warn({ txid: txid.substring(0, 10), attempt, retries, delayMs: delay }, 'Retry %d/%d for tx %s in %dms', attempt, retries, txid.substring(0, 10), delay);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                log.error({ txid: txid.substring(0, 10), retries }, 'Failed to fetch tx %s after %d attempts', txid.substring(0, 10), retries);
-                return null;
-            }
+        if (body?.status === 'success') {
+            return body.data;
         }
+
+        return null;
+    } catch (error) {
+        // A missing/failed transaction is tolerated: sync continues without it.
+        log.error({ txid: txid.substring(0, 10), retries }, 'Failed to fetch tx %s after %d attempts', txid.substring(0, 10), retries);
+        return null;
     }
-    return null;
 }
 
 // ============================================
@@ -316,11 +319,14 @@ const globalSpecsCache = {
 
 async function fetchGlobalSpecs() {
     try {
-        const response = await axios.get(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 30000 });
-        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+        const body = await resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, {
+            timeout: 30000,
+            breakerKey: 'global-apps-specs'
+        });
+        if (body && body.status === 'success' && Array.isArray(body.data)) {
             globalSpecsCache.map.clear();
             globalSpecsCache.typeMap.clear();
-            for (const appSpec of response.data.data) {
+            for (const appSpec of body.data) {
                 const hash = appSpec.hash;
                 const name = appSpec.name;
                 if (hash && name) {
@@ -362,12 +368,15 @@ function determineAppType(appSpec) {
 async function fetchPermanentMessages() {
     try {
         log.info('Fetching permanent messages for app name lookup');
-        const response = await axios.get(`${API_ENDPOINTS.APPS}/permanentmessages`, { timeout: 30000 });
+        const body = await resilientFetch(`${API_ENDPOINTS.APPS}/permanentmessages`, {
+            timeout: 30000,
+            breakerKey: 'permanent-messages'
+        });
 
-        if (response.data && response.data.status === 'success' && Array.isArray(response.data.data)) {
+        if (body && body.status === 'success' && Array.isArray(body.data)) {
             permanentMessagesCache.map.clear();
             permanentMessagesCache.typeMap.clear();
-            for (const msg of response.data.data) {
+            for (const msg of body.data) {
                 const hash = msg.hash;
                 const appSpec = msg.zelAppSpecification || msg.appSpecifications;
                 const name = appSpec?.name || msg.name;

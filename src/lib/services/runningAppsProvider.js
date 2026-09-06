@@ -1,5 +1,5 @@
-import axios from 'axios';
 import { API_ENDPOINTS, categorizeImage } from '../config.js';
+import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('runningAppsProvider');
@@ -7,80 +7,68 @@ const log = createLogger('runningAppsProvider');
 // gaming, crypto, wordpress and cloud each used to download this ~450KB payload separately
 // on every cycle. One fetch per cycle, shared.
 const DEFAULT_TTL_MS = 60 * 1000;
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 2;    // attempts after the first (3 total, as the old inline loop had)
 const RETRY_DELAY_MS = 5000;
 
 let cache = null;      // { imageCounts, totalInstances, nodeCount, fetchedAt }
 let inFlight = null;   // dedupes concurrent callers within one cycle
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
+async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_MS } = {}) {
+    const body = await resilientFetch(API_ENDPOINTS.RUNNING_APPS, {
+        timeout: 15000,
+        retries,
+        delayMs,
+        breakerKey: 'running-apps'
+    });
 
-async function fetchRunningApps() {
-    let lastError;
+    if (body?.status === 'error' && body.data) {
+        throw new Error(`API Error: ${body.data.name} - ${body.data.message}`);
+    }
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-            const response = await axios.get(API_ENDPOINTS.RUNNING_APPS, { timeout: 15000 });
+    const nodes = body?.data;
+    if (!Array.isArray(nodes) || nodes.length === 0) {
+        throw new Error('RUNNING_APPS returned empty or invalid data');
+    }
 
-            if (response.data?.status === 'error' && response.data.data) {
-                throw new Error(`API Error: ${response.data.data.name} - ${response.data.data.message}`);
-            }
+    // Key on the full image string (tag included) — that's what repo_snapshots stores,
+    // and the read queries strip the tag when they group.
+    const imageCounts = new Map();
+    let totalInstances = 0;
 
-            const nodes = response.data?.data;
-            if (!Array.isArray(nodes) || nodes.length === 0) {
-                throw new Error('RUNNING_APPS returned empty or invalid data');
-            }
+    for (const node of nodes) {
+        const runningApps = node?.apps?.runningapps;
+        if (!Array.isArray(runningApps)) continue;
 
-            // Key on the full image string (tag included) — that's what repo_snapshots stores,
-            // and the read queries strip the tag when they group.
-            const imageCounts = new Map();
-            let totalInstances = 0;
-
-            for (const node of nodes) {
-                const runningApps = node?.apps?.runningapps;
-                if (!Array.isArray(runningApps)) continue;
-
-                for (const app of runningApps) {
-                    const image = app?.Image || '';
-                    if (!image) continue;
-                    imageCounts.set(image, (imageCounts.get(image) || 0) + 1);
-                    totalInstances++;
-                }
-            }
-
-            log.info(
-                { nodes: nodes.length, uniqueImages: imageCounts.size, totalInstances },
-                'Running apps fetched: %d instances across %d images',
-                totalInstances,
-                imageCounts.size
-            );
-
-            return { imageCounts, totalInstances, nodeCount: nodes.length, fetchedAt: Date.now() };
-
-        } catch (error) {
-            lastError = error;
-            log.warn('Running apps fetch attempt %d/%d failed: %s', attempt, MAX_RETRIES, error.message);
-            if (attempt < MAX_RETRIES) await sleep(RETRY_DELAY_MS);
+        for (const app of runningApps) {
+            const image = app?.Image || '';
+            if (!image) continue;
+            imageCounts.set(image, (imageCounts.get(image) || 0) + 1);
+            totalInstances++;
         }
     }
 
-    throw lastError;
+    log.info(
+        { nodes: nodes.length, uniqueImages: imageCounts.size, totalInstances },
+        'Running apps fetched: %d instances across %d images',
+        totalInstances,
+        imageCounts.size
+    );
+
+    return { imageCounts, totalInstances, nodeCount: nodes.length, fetchedAt: Date.now() };
 }
 
 /**
  * Shared snapshot of every running app on the network.
  * Concurrent callers within the TTL share one fetch.
  */
-export async function getRunningApps({ ttlMs = DEFAULT_TTL_MS, force = false } = {}) {
+export async function getRunningApps({ ttlMs = DEFAULT_TTL_MS, force = false, retries, delayMs } = {}) {
     if (!force && cache && Date.now() - cache.fetchedAt < ttlMs) {
         return cache;
     }
 
     if (inFlight) return inFlight;
 
-    inFlight = fetchRunningApps()
+    inFlight = fetchRunningApps({ retries, delayMs })
         .then(result => {
             cache = result;
             return result;

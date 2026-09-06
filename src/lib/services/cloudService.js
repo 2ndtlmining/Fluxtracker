@@ -1,7 +1,7 @@
-import axios from 'axios';
 import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
 import { getRunningApps } from './runningAppsProvider.js';
+import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('cloudService');
@@ -22,31 +22,6 @@ export function getLatestRepoCounts() {
 // Retry configuration
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 1000; // 1 second
-
-/**
- * Sleep/delay function
- */
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Retry wrapper for API calls
- */
-async function retryApiCall(apiCall, retries = MAX_RETRIES) {
-    for (let i = 0; i < retries; i++) {
-        try {
-            return await apiCall();
-        } catch (error) {
-            if (i < retries - 1) {
-                log.warn('API call failed (attempt %d/%d), retrying...', i + 1, retries);
-                await sleep(RETRY_DELAY);
-            } else {
-                throw error;
-            }
-        }
-    }
-}
 
 /**
  * Get cached cloud data from database
@@ -93,15 +68,19 @@ export async function fetchCloudStats() {
         
         // Fetch both network utilization and node benchmarks with retries
         let networkUtilsData, benchmarksData;
-        
+
         try {
             const [resFluxNetworkUtils, resNodeBenchmarks] = await Promise.all([
-                retryApiCall(() => axios.get(API_ENDPOINTS.API_FLUX_NETWORK_UTILISATION, { timeout: 15000 })),
-                retryApiCall(() => axios.get(API_ENDPOINTS.API_NODE_BENCHMARKS, { timeout: 15000 }))
+                resilientFetch(API_ENDPOINTS.API_FLUX_NETWORK_UTILISATION, {
+                    timeout: 15000, retries: MAX_RETRIES, delayMs: RETRY_DELAY, breakerKey: 'cloud-utilisation'
+                }),
+                resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARKS, {
+                    timeout: 15000, retries: MAX_RETRIES, delayMs: RETRY_DELAY, breakerKey: 'node-benchmarks'
+                })
             ]);
-            
-            networkUtilsData = resFluxNetworkUtils.data;
-            benchmarksData = resNodeBenchmarks.data;
+
+            networkUtilsData = resFluxNetworkUtils;
+            benchmarksData = resNodeBenchmarks;
         } catch (apiError) {
             log.warn('API calls failed: %s', apiError.message);
 

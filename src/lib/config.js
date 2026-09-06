@@ -444,6 +444,14 @@ export const CIRCUIT_BREAKER_CONFIG = {
     COOLDOWN_MS: 60_000,    // Time in OPEN before probing (HALF_OPEN)
 };
 
+// Per-endpoint breaker for OUTBOUND API fetches (resilientFetch + fetchBreaker). The DB
+// breaker above protects the database; this one stops the services from hammering a dead
+// Flux/exchange API for the whole cooldown instead of timing out on every cycle.
+export const FETCH_CIRCUIT_BREAKER_CONFIG = {
+    FAILURE_THRESHOLD: 5,   // Consecutive failed calls to the same endpoint before OPEN
+    COOLDOWN_MS: 60_000,    // Time in OPEN before a single probe is allowed (HALF_OPEN)
+};
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================

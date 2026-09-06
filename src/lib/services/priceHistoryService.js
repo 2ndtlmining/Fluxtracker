@@ -1,5 +1,5 @@
-import axios from 'axios';
 import { API_ENDPOINTS, REVENUE_SYNC } from '../config.js';
+import { resilientFetch } from './resilientFetch.js';
 import {
     insertPriceHistoryBatch,
     getLatestPriceDate,
@@ -68,8 +68,8 @@ async function fetchFromBinance(fromDate, toDate) {
     // 1000 candles per page; 12 pages covers ~33 years, the loop normally exits far sooner
     for (let page = 0; page < 12; page++) {
         const url = `${API_ENDPOINTS.PRICE_HISTORY_BINANCE}&startTime=${startTime}`;
-        const response = await axios.get(url, { timeout: 30000 });
-        const candles = response.data;
+        // No retries here: the source chain below (CoinGecko, CryptoCompare) is the retry.
+        const candles = await resilientFetch(url, { timeout: 30000, breakerKey: 'binance-klines' });
 
         if (!Array.isArray(candles) || candles.length === 0) break;
 
@@ -92,8 +92,11 @@ async function fetchFromBinance(fromDate, toDate) {
  * Shape: { prices: [[msTimestamp, price], ...] }
  */
 async function fetchFromCoinGecko() {
-    const response = await axios.get(API_ENDPOINTS.PRICE_HISTORY_COINGECKO, { timeout: 30000 });
-    const points = response.data?.prices;
+    const body = await resilientFetch(API_ENDPOINTS.PRICE_HISTORY_COINGECKO, {
+        timeout: 30000,
+        breakerKey: 'coingecko-market-chart'
+    });
+    const points = body?.prices;
     if (!Array.isArray(points)) return [];
 
     // Multiple intraday points can share a date near the range edges — last one wins
@@ -114,16 +117,17 @@ async function fetchFromCryptoCompare() {
     const apiKey = process.env.CRYPTOCOMPARE_API_KEY;
     if (!apiKey) return null; // signals "not configured", not "failed"
 
-    const response = await axios.get(API_ENDPOINTS.PRICE_HISTORY_CRYPTOCOMPARE, {
+    const body = await resilientFetch(API_ENDPOINTS.PRICE_HISTORY_CRYPTOCOMPARE, {
         timeout: 30000,
-        headers: { Authorization: `Apikey ${apiKey}` }
+        breakerKey: 'cryptocompare-histoday',
+        axiosConfig: { headers: { Authorization: `Apikey ${apiKey}` } }
     });
 
-    if (response.data?.Response === 'Error') {
-        throw new Error(response.data.Message || 'CryptoCompare error');
+    if (body?.Response === 'Error') {
+        throw new Error(body.Message || 'CryptoCompare error');
     }
 
-    const points = response.data?.Data?.Data;
+    const points = body?.Data?.Data;
     if (!Array.isArray(points)) return [];
 
     return points
