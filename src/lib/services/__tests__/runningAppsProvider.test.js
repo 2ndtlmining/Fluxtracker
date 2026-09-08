@@ -93,16 +93,20 @@ describe('getRunningApps', () => {
     });
 
     it('counts an unresolved container toward totalInstances but not any image bucket', async () => {
-        mockResolution({}); // nothing resolves
-        axios.get.mockResolvedValue(apiResponse({ '/fluxcloudgit_bsserver': 2 }));
+        // Mixed with a resolved entry so the batch isn't a total resolution failure
+        // (that scenario — the globalappsspecifications-outage guard — is covered below).
+        mockResolution({ '/fluxa_1': 'a/b:1' });
+        axios.get.mockResolvedValue(apiResponse({ '/fluxcloudgit_bsserver': 2, '/fluxa_1': 1 }));
 
         const result = await getRunningApps();
 
-        expect(result.totalInstances).toBe(2);
-        expect(result.imageCounts.size).toBe(0);
+        expect(result.totalInstances).toBe(3);
+        expect(result.imageCounts.size).toBe(1);
+        expect(result.imageCounts.has('a/b:1')).toBe(true);
     });
 
     it('serves the cache instead of refetching within the TTL', async () => {
+        mockResolution({ '/fluxa_1': 'a/b:1' });
         axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await getRunningApps();
@@ -114,6 +118,7 @@ describe('getRunningApps', () => {
 
     it('collapses concurrent callers into a single fetch', async () => {
         // This is the case that matters: four services all run in the same cycle
+        mockResolution({ '/fluxa_1': 'a/b:1' });
         axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await Promise.all([getRunningApps(), getRunningApps(), getRunningApps(), getRunningApps()]);
@@ -122,6 +127,7 @@ describe('getRunningApps', () => {
     });
 
     it('refetches when force is set', async () => {
+        mockResolution({ '/fluxa_1': 'a/b:1' });
         axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await getRunningApps();
@@ -152,6 +158,47 @@ describe('getRunningApps', () => {
         await pending;
 
         vi.useRealTimers();
+    });
+
+    it('tallies a watchtower container by name, not by resolution, and keeps it out of imageCounts', async () => {
+        // Watchtower has no globalappsspecifications entry and never resolves; presearch does.
+        mockResolution({ '/fluxPresearch_ps1': 'presearch/node:latest' });
+        axios.get.mockResolvedValue(apiResponse({ '/watchtower': 3, '/fluxWatchTower_wt2': 1, '/fluxPresearch_ps1': 5 }));
+
+        const result = await getRunningApps();
+
+        expect(result.watchtowerCount).toBe(4);
+        expect(result.imageCounts.has('containrrr/watchtower:latest')).toBe(false);
+        expect(result.imageCounts.get('presearch/node:latest')).toBe(5);
+        expect(result.totalInstances).toBe(9);
+    });
+
+    it('rejects when every non-watchtower instance is unresolved', async () => {
+        vi.useFakeTimers();
+        mockResolution({}); // nothing resolves
+        axios.get.mockResolvedValue(apiResponse({ '/fluxcloudgit_bsserver': 2, '/fluxother_x': 1 }));
+
+        const pending = expect(getRunningApps()).rejects.toThrow(/resolved zero apps/);
+        await vi.runAllTimersAsync();
+        await pending;
+
+        vi.useRealTimers();
+    });
+
+    it('returns unresolvedCount and watchtowerCount alongside imageCounts for a mixed batch', async () => {
+        mockResolution({ '/fluxPresearch_ps1': 'presearch/node:latest' });
+        axios.get.mockResolvedValue(apiResponse({
+            '/fluxPresearch_ps1': 3,   // resolves
+            '/fluxUnknown_x1': 2,      // unresolved
+            '/watchtower': 1           // watchtower
+        }));
+
+        const result = await getRunningApps();
+
+        expect(result.imageCounts.get('presearch/node:latest')).toBe(3);
+        expect(result.unresolvedCount).toBe(2);
+        expect(result.watchtowerCount).toBe(1);
+        expect(result.totalInstances).toBe(6);
     });
 });
 
