@@ -1,5 +1,6 @@
 import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { ensureGlobalSpecsCache, getAppNameByHash, getAppTypeByName, determineAppType } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
 import {
     updateCurrentMetrics,
@@ -309,62 +310,6 @@ const permanentMessagesCache = {
     TTL: 60 * 60 * 1000  // 1 hour
 };
 
-// Secondary fallback: globalappsspecifications (hash -> name + type)
-const globalSpecsCache = {
-    map: new Map(),      // hash -> name
-    typeMap: new Map(),  // name (lowercase) -> 'git' | 'docker'
-    lastFetched: 0,
-    TTL: 60 * 60 * 1000
-};
-
-async function fetchGlobalSpecs() {
-    try {
-        const body = await resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, {
-            timeout: 30000,
-            breakerKey: 'global-apps-specs'
-        });
-        if (body && body.status === 'success' && Array.isArray(body.data)) {
-            globalSpecsCache.map.clear();
-            globalSpecsCache.typeMap.clear();
-            for (const appSpec of body.data) {
-                const hash = appSpec.hash;
-                const name = appSpec.name;
-                if (hash && name) {
-                    globalSpecsCache.map.set(hash, name);
-                    globalSpecsCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
-                }
-            }
-            globalSpecsCache.lastFetched = Date.now();
-            log.info({ count: globalSpecsCache.map.size }, 'Loaded %d app names from global specs', globalSpecsCache.map.size);
-        }
-    } catch (error) {
-        log.warn({ err: error }, 'Failed to fetch global specs');
-    }
-}
-
-/**
- * Determine if an app is git-based (runonflux/Orbit) or docker-based.
- * Works with both old single-component and new compose-array spec formats.
- */
-function determineAppType(appSpec) {
-    if (!appSpec) return 'docker';
-
-    // New compose format: array of components each with a repotag
-    if (Array.isArray(appSpec.compose)) {
-        const isGit = appSpec.compose.some(
-            c => c.repotag && c.repotag.toLowerCase().includes('runonflux/orbit')
-        );
-        return isGit ? 'git' : 'docker';
-    }
-
-    // Old single-component format: repotag directly on spec
-    if (appSpec.repotag && appSpec.repotag.toLowerCase().includes('runonflux/orbit')) {
-        return 'git';
-    }
-
-    return 'docker';
-}
-
 async function fetchPermanentMessages() {
     try {
         log.info('Fetching permanent messages for app name lookup');
@@ -393,17 +338,16 @@ async function fetchPermanentMessages() {
     }
 }
 
+// The globalappsspecifications half of this cache now lives in appSpecsCache.js, shared
+// with runningAppsProvider.js. permanentMessages stays here — it's only needed for
+// historical/undeployed-app transaction lookups, not live categorization.
 async function ensurePermanentMessagesCache() {
     const pmAge = Date.now() - permanentMessagesCache.lastFetched;
-    const gsAge = Date.now() - globalSpecsCache.lastFetched;
-    const fetches = [];
+    const fetches = [ensureGlobalSpecsCache()];
     if (pmAge > permanentMessagesCache.TTL || permanentMessagesCache.map.size === 0) {
         fetches.push(fetchPermanentMessages());
     }
-    if (gsAge > globalSpecsCache.TTL || globalSpecsCache.map.size === 0) {
-        fetches.push(fetchGlobalSpecs());
-    }
-    if (fetches.length > 0) await Promise.all(fetches);
+    await Promise.all(fetches);
 }
 
 /**
@@ -433,11 +377,11 @@ function extractAppHashFromTx(tx) {
 }
 
 /**
- * Look up app name from hash — permanentMessages first, globalSpecs as fallback
+ * Look up app name from hash — permanentMessages first, globalSpecs (shared cache) as fallback
  */
 function lookupAppName(hash) {
     if (!hash) return null;
-    return permanentMessagesCache.map.get(hash) || globalSpecsCache.map.get(hash) || null;
+    return permanentMessagesCache.map.get(hash) || getAppNameByHash(hash) || null;
 }
 
 /**
@@ -446,7 +390,7 @@ function lookupAppName(hash) {
 function lookupAppType(appName) {
     if (!appName) return null;
     return permanentMessagesCache.typeMap.get(appName.toLowerCase())
-        || globalSpecsCache.typeMap.get(appName.toLowerCase())
+        || getAppTypeByName(appName)
         || null;
 }
 
