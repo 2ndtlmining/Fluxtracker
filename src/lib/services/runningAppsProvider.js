@@ -1,5 +1,6 @@
 import { API_ENDPOINTS, categorizeImage } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('runningAppsProvider');
@@ -14,12 +15,15 @@ let cache = null;      // { imageCounts, totalInstances, nodeCount, fetchedAt }
 let inFlight = null;   // dedupes concurrent callers within one cycle
 
 async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_MS } = {}) {
-    const body = await resilientFetch(API_ENDPOINTS.RUNNING_APPS, {
-        timeout: 15000,
-        retries,
-        delayMs,
-        breakerKey: 'running-apps'
-    });
+    const [body] = await Promise.all([
+        resilientFetch(API_ENDPOINTS.RUNNING_APPS, {
+            timeout: 15000,
+            retries,
+            delayMs,
+            breakerKey: 'running-apps'
+        }),
+        ensureGlobalSpecsCache()
+    ]);
 
     if (body?.status === 'error' && body.data) {
         throw new Error(`API Error: ${body.data.name} - ${body.data.message}`);
@@ -30,28 +34,39 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
         throw new Error('RUNNING_APPS returned empty or invalid data');
     }
 
-    // Key on the full image string (tag included) — that's what repo_snapshots stores,
-    // and the read queries strip the tag when they group.
+    // FluxOS v8.18 dropped `Image` from this endpoint; each entry now carries `Names`
+    // (the Docker container name), which we resolve back to a repotag via
+    // appSpecsCache so categorizeImage() and friends keep working unchanged. An
+    // unresolved name (spec not in globalappsspecifications — private/enterprise apps,
+    // mostly) still counts toward totalInstances, just not toward any image bucket.
     const imageCounts = new Map();
     let totalInstances = 0;
+    let unresolvedCount = 0;
 
     for (const node of nodes) {
         const runningApps = node?.apps?.runningapps;
         if (!Array.isArray(runningApps)) continue;
 
         for (const app of runningApps) {
-            const image = app?.Image || '';
-            if (!image) continue;
-            imageCounts.set(image, (imageCounts.get(image) || 0) + 1);
+            const containerName = app?.Names?.[0];
+            if (!containerName) continue;
             totalInstances++;
+
+            const resolved = resolveRunningAppName(containerName);
+            if (!resolved) {
+                unresolvedCount++;
+                continue;
+            }
+            imageCounts.set(resolved.repotag, (imageCounts.get(resolved.repotag) || 0) + 1);
         }
     }
 
     log.info(
-        { nodes: nodes.length, uniqueImages: imageCounts.size, totalInstances },
-        'Running apps fetched: %d instances across %d images',
+        { nodes: nodes.length, uniqueImages: imageCounts.size, totalInstances, unresolvedCount },
+        'Running apps fetched: %d instances across %d images (%d unresolved)',
         totalInstances,
-        imageCounts.size
+        imageCounts.size,
+        unresolvedCount
     );
 
     return { imageCounts, totalInstances, nodeCount: nodes.length, fetchedAt: Date.now() };

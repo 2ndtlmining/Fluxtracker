@@ -6,13 +6,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * gaming/crypto/wordpress/cloud each used to download this ~450KB response separately every
  * cycle, and each counted category totals its own way — which is why the metrics card said
  * Gaming 309 while the gaming category card said 343.
+ *
+ * FluxOS v8.18 dropped `Image` from this endpoint; it now returns `Names` (the Docker
+ * container name), which runningAppsProvider resolves back to a repotag via
+ * appSpecsCache.resolveRunningAppName(). These tests mock that resolver directly rather than
+ * reconstructing globalappsspecifications fixtures — the resolution logic itself is covered
+ * by appSpecsCache.test.js.
  */
 
 vi.mock('axios', () => ({
     default: { get: vi.fn() }
 }));
 
+vi.mock('../appSpecsCache.js', () => ({
+    ensureGlobalSpecsCache: vi.fn().mockResolvedValue(undefined),
+    resolveRunningAppName: vi.fn()
+}));
+
 import axios from 'axios';
+import { resolveRunningAppName } from '../appSpecsCache.js';
 import {
     getRunningApps,
     getCachedRunningApps,
@@ -23,35 +35,55 @@ import {
 } from '../runningAppsProvider.js';
 import { GAMING_REPOS } from '../../config.js';
 
-/** Build a stats.runonflux.io style response from image -> instance count. */
-function apiResponse(imageCounts) {
+/** Build a stats.runonflux.io style response from containerName -> instance count. */
+function apiResponse(nameCounts) {
     const nodes = [];
-    for (const [image, count] of Object.entries(imageCounts)) {
+    for (const [name, count] of Object.entries(nameCounts)) {
         for (let i = 0; i < count; i++) {
-            nodes.push({ apps: { runningapps: [{ Image: image }] } });
+            nodes.push({ apps: { runningapps: [{ Names: [name] }] } });
         }
     }
     return { data: { data: nodes } };
 }
 
-const LIVE_SAMPLE = {
-    'thijsvanloef/palworld-server-docker:latest': 6,
-    'itzg/minecraft-server:latest': 4,
-    'itzg/minecraft-bedrock-server:latest': 2,
-    'runonflux/minecraft-server-website:latest': 3,
-    'presearch/node:latest': 5,
-    'runonflux/wp-nginx:latest': 2,
-    'mysql:8.3.0': 7
+/** Wires resolveRunningAppName's mock to a fixed containerName -> repotag map. */
+function mockResolution(nameToRepotag) {
+    resolveRunningAppName.mockImplementation(name => {
+        const repotag = nameToRepotag[name];
+        return repotag ? { appName: name, repotag } : null;
+    });
+}
+
+const LIVE_SAMPLE_NAMES = {
+    '/fluxPalworld_pal1': 'thijsvanloef/palworld-server-docker:latest',
+    '/fluxMinecraft_mc1': 'itzg/minecraft-server:latest',
+    '/fluxBedrock_mc2': 'itzg/minecraft-bedrock-server:latest',
+    '/fluxWebsite_mc3': 'runonflux/minecraft-server-website:latest',
+    '/fluxPresearch_ps1': 'presearch/node:latest',
+    '/fluxWp_wp1': 'runonflux/wp-nginx:latest',
+    '/fluxDb_db1': 'mysql:8.3.0'
+};
+
+const LIVE_SAMPLE_COUNTS = {
+    '/fluxPalworld_pal1': 6,
+    '/fluxMinecraft_mc1': 4,
+    '/fluxBedrock_mc2': 2,
+    '/fluxWebsite_mc3': 3,
+    '/fluxPresearch_ps1': 5,
+    '/fluxWp_wp1': 2,
+    '/fluxDb_db1': 7
 };
 
 beforeEach(() => {
     vi.clearAllMocks();
     clearRunningAppsCache();
+    mockResolution(LIVE_SAMPLE_NAMES);
 });
 
 describe('getRunningApps', () => {
-    it('aggregates instances per image across nodes', async () => {
-        axios.get.mockResolvedValue(apiResponse({ 'a/b:1': 3, 'c/d:2': 2 }));
+    it('aggregates instances per resolved repotag across nodes', async () => {
+        mockResolution({ '/fluxa_1': 'a/b:1', '/fluxc_2': 'c/d:2' });
+        axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 3, '/fluxc_2': 2 }));
 
         const result = await getRunningApps();
 
@@ -60,8 +92,18 @@ describe('getRunningApps', () => {
         expect(result.totalInstances).toBe(5);
     });
 
+    it('counts an unresolved container toward totalInstances but not any image bucket', async () => {
+        mockResolution({}); // nothing resolves
+        axios.get.mockResolvedValue(apiResponse({ '/fluxcloudgit_bsserver': 2 }));
+
+        const result = await getRunningApps();
+
+        expect(result.totalInstances).toBe(2);
+        expect(result.imageCounts.size).toBe(0);
+    });
+
     it('serves the cache instead of refetching within the TTL', async () => {
-        axios.get.mockResolvedValue(apiResponse({ 'a/b:1': 1 }));
+        axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await getRunningApps();
         await getRunningApps();
@@ -72,7 +114,7 @@ describe('getRunningApps', () => {
 
     it('collapses concurrent callers into a single fetch', async () => {
         // This is the case that matters: four services all run in the same cycle
-        axios.get.mockResolvedValue(apiResponse({ 'a/b:1': 1 }));
+        axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await Promise.all([getRunningApps(), getRunningApps(), getRunningApps(), getRunningApps()]);
 
@@ -80,7 +122,7 @@ describe('getRunningApps', () => {
     });
 
     it('refetches when force is set', async () => {
-        axios.get.mockResolvedValue(apiResponse({ 'a/b:1': 1 }));
+        axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 1 }));
 
         await getRunningApps();
         await getRunningApps({ force: true });
@@ -115,7 +157,7 @@ describe('getRunningApps', () => {
 
 describe('countByCategory', () => {
     it('counts every gaming image, not just the configured ones', async () => {
-        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE));
+        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE_COUNTS));
         const runningApps = await getRunningApps();
 
         // palworld 6 + minecraft 4 + bedrock 2 = 12. The website is excluded.
@@ -123,14 +165,14 @@ describe('countByCategory', () => {
     });
 
     it('excludes companion websites from the total', async () => {
-        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE));
+        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE_COUNTS));
         const runningApps = await getRunningApps();
 
         expect(countByCategory(runningApps, 'gaming')).not.toBe(15);
     });
 
     it('counts crypto and wordpress', async () => {
-        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE));
+        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE_COUNTS));
         const runningApps = await getRunningApps();
 
         expect(countByCategory(runningApps, 'crypto')).toBe(5);
@@ -140,7 +182,7 @@ describe('countByCategory', () => {
 
 describe('countConfiguredRepos', () => {
     it('sums every image a configured repo matches', async () => {
-        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE));
+        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE_COUNTS));
         const runningApps = await getRunningApps();
 
         const counts = countConfiguredRepos(runningApps, GAMING_REPOS);
@@ -151,7 +193,8 @@ describe('countConfiguredRepos', () => {
     });
 
     it('returns a zeroed entry for every configured repo', async () => {
-        axios.get.mockResolvedValue(apiResponse({ 'mysql:8.3.0': 1 }));
+        mockResolution({ '/fluxDb_db1': 'mysql:8.3.0' });
+        axios.get.mockResolvedValue(apiResponse({ '/fluxDb_db1': 1 }));
         const runningApps = await getRunningApps();
 
         const counts = countConfiguredRepos(runningApps, GAMING_REPOS);
@@ -162,7 +205,7 @@ describe('countConfiguredRepos', () => {
     });
 
     it('counts an image toward at most one configured repo', async () => {
-        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE));
+        axios.get.mockResolvedValue(apiResponse(LIVE_SAMPLE_COUNTS));
         const runningApps = await getRunningApps();
 
         const counts = countConfiguredRepos(runningApps, GAMING_REPOS);
@@ -174,7 +217,8 @@ describe('countConfiguredRepos', () => {
 
 describe('toRepoCounts', () => {
     it('produces the plain object createRepoSnapshots expects', async () => {
-        axios.get.mockResolvedValue(apiResponse({ 'a/b:1': 3, 'c/d:2': 2 }));
+        mockResolution({ '/fluxa_1': 'a/b:1', '/fluxc_2': 'c/d:2' });
+        axios.get.mockResolvedValue(apiResponse({ '/fluxa_1': 3, '/fluxc_2': 2 }));
         const runningApps = await getRunningApps();
 
         expect(toRepoCounts(runningApps)).toEqual({ 'a/b:1': 3, 'c/d:2': 2 });
