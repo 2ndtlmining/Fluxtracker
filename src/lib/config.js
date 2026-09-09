@@ -107,10 +107,10 @@ export const API_ENDPOINTS = {
     // Stats APIs
     STATS_BASE: 'https://stats.runonflux.io',
     FLUXINFO: 'https://stats.runonflux.io/fluxinfo?projection=flux',
-    RUNNING_APPS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
-    
+    RUNNING_APPS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Names',
+
     // WordPress API - UPDATED to use running apps endpoint
-    WORDPRESS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image',
+    WORDPRESS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Names',
     
     // Price APIs (tried in order)
     PRICE_COINGECKO: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',

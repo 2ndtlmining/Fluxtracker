@@ -327,31 +327,28 @@ export async function fetchCloudStats() {
  * - Gitapps%: (Gitapps / Total apps) * 100
  * - Dockerapps%: (Dockerapps / Total apps) * 100
  */
-async function fetchAppCount() {
+export async function fetchAppCount() {
     try {
         // Shared with gaming/crypto/wordpress — one download per cycle instead of four
         const runningApps = await getRunningApps();
         const repoCountMap = runningApps.imageCounts;
 
-        let totalAppsRaw = 0;      // Total including Watchtower
-        let watchtowerCount = 0;
-        let gitappsCount = 0;      // Count of Git apps (runonflux/orbit)
+        // totalInstances is the true running-instance census; imageCounts only holds
+        // the fraction that resolved to a known app spec (~76-78% live — see
+        // runningAppsProvider.js). Summing imageCounts here would silently undercount
+        // total_apps by that unresolved fraction. Watchtower is tallied by the provider
+        // (from the container name — Image is no longer available to check here).
+        const watchtowerCount = runningApps.watchtowerCount || 0;
+        const totalApps = runningApps.totalInstances - watchtowerCount;
+
+        let gitappsCount = 0;      // Count of Git apps (runonflux/orbit), among resolved images
 
         for (const [image, instances] of repoCountMap) {
-            totalAppsRaw += instances;
-
-            if (image.includes('containrrr/watchtower')) {
-                watchtowerCount += instances;
-            }
-
             if (image.includes('runonflux/orbit')) {
                 gitappsCount += instances;
             }
         }
 
-        // Total apps excludes Watchtower
-        const totalApps = totalAppsRaw - watchtowerCount;
-        
         // NEW: Calculate Docker apps (Total apps - Git apps)
         // Note: Watchtower is already excluded from totalApps, so we don't subtract it again
         const dockerappsCount = totalApps - gitappsCount;

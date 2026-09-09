@@ -2,6 +2,7 @@
 
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { getRunningApps } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -219,53 +220,33 @@ function formatStorage(hdd) {
 }
 
 /**
- * Fetch top 10 running apps
+ * Fetch top 10 running apps.
+ *
+ * Reuses runningAppsProvider's shared per-cycle fetch instead of hitting RUNNING_APPS
+ * separately — this used to duplicate the ~450KB download every cycle.
  */
-async function fetchTopApps() {
+export async function fetchTopApps() {
     try {
-        const body = await resilientFetch(API_ENDPOINTS.RUNNING_APPS, { timeout: 15000, breakerKey: 'running-apps' });
+        const runningApps = await getRunningApps();
 
-        // Check for API error response
-        if (body && body.status === 'error' && body.data) {
-            throw new Error(`API Error: ${body.data.message}`);
-        }
-
-        const appsData = body?.data;
-        
-        if (!Array.isArray(appsData)) {
-            throw new Error('Invalid data structure received from apps API');
-        }
-        
-        // Count all running images across all nodes
+        // Group by image-without-tag, since gaming/crypto category images ship several
+        // tagged variants (e.g. Minecraft Java vs a pinned version).
         const imageCounts = {};
-        
-        appsData.forEach(node => {
-            if (node.apps && node.apps.runningapps) {
-                node.apps.runningapps.forEach(app => {
-                    const image = app.Image || '';
-                    
-                    if (!image) return;
-                    
-                    // Skip excluded images
-                    const isExcluded = EXCLUDED_IMAGES.some(excluded => 
-                        image.toLowerCase().includes(excluded.toLowerCase())
-                    );
-                    if (isExcluded) return;
-                    
-                    const imageWithoutTag = image.split(':')[0];
-                    
-                    if (!imageCounts[imageWithoutTag]) {
-                        imageCounts[imageWithoutTag] = {
-                            name: imageWithoutTag,
-                            count: 0
-                        };
-                    }
-                    
-                    imageCounts[imageWithoutTag].count++;
-                });
+
+        for (const [image, count] of runningApps.imageCounts) {
+            const isExcluded = EXCLUDED_IMAGES.some(excluded =>
+                image.toLowerCase().includes(excluded.toLowerCase())
+            );
+            if (isExcluded) continue;
+
+            const imageWithoutTag = image.split(':')[0];
+
+            if (!imageCounts[imageWithoutTag]) {
+                imageCounts[imageWithoutTag] = { name: imageWithoutTag, count: 0 };
             }
-        });
-        
+            imageCounts[imageWithoutTag].count += count;
+        }
+
         // Convert to array, sort, and take top 10
         const topApps = Object.values(imageCounts)
             .sort((a, b) => b.count - a.count)
@@ -278,9 +259,9 @@ async function fetchTopApps() {
                 value: app.count,
                 unit: 'instances'
             }));
-        
+
         return topApps;
-        
+
     } catch (error) {
         log.error({ err: error }, 'Error fetching top apps');
         return [];
