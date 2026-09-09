@@ -1616,6 +1616,16 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
             response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
             response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
 
+            // Decentralization (issue #108 Phase 3): "current" reads live from
+            // decentralizationService rather than rawCurrent/current_metrics, since that's
+            // where the always-fresh reading actually lives -- same reasoning /api/decentralization
+            // already uses.
+            const liveDecentralization = await getDecentralizationStats();
+            response.changes.decentralization = calculateChange(
+                liveDecentralization.datacenterPercent ?? 0,
+                pastSnapshot.decentralization_datacenter_percent
+            );
+
             // Gaming comparisons with individual breakdowns
             response.changes.gaming = {
                 ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),

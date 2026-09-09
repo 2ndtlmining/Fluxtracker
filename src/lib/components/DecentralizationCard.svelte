@@ -7,6 +7,7 @@
   export let stats = null;
   export let loading = false;
   export let error = false;
+  export let comparison = null; // { change: number, trend: 'up'|'down'|'neutral' } | null
 
   $: hasData = stats && stats.classifiedCount > 0;
   $: hasDatacenters = hasData && stats.topDatacenters && stats.topDatacenters.length > 0;
@@ -43,7 +44,15 @@
     <div class="metric-row">
       <div class="metric-heading">
         <span class="metric-label">In known datacenters</span>
-        <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
+        <span class="metric-value-group">
+          <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
+          {#if comparison}
+            <span class="metric-trend" class:up={comparison.trend === 'up'} class:down={comparison.trend === 'down'} class:neutral={comparison.trend === 'neutral'}>
+              {#if comparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if comparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {comparison.change >= 0 ? '+' : ''}{comparison.change.toFixed(1)}%
+            </span>
+          {/if}
+        </span>
       </div>
       <div class="ascii-bar">{formatAsciiBar(stats.datacenterPercent)}</div>
       <div class="metric-detail">{formatNumber(stats.datacenterCount)} of {formatNumber(stats.classifiedCount)} classified nodes</div>
@@ -170,6 +179,47 @@
     font-weight: 700;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+  }
+
+  .metric-value-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  /* Comparison indicator (mirrors CloudCard.svelte's .metric-change) */
+  .metric-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    width: fit-content;
+  }
+
+  .metric-trend.up {
+    color: var(--accent-green);
+    background: rgba(0, 255, 65, 0.1);
+    border: 1px solid rgba(0, 255, 65, 0.3);
+  }
+
+  .metric-trend.down {
+    color: var(--accent-red);
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+  }
+
+  .metric-trend.neutral {
+    color: var(--text-dim);
+    background: rgba(139, 146, 176, 0.1);
+    border: 1px solid rgba(139, 146, 176, 0.3);
+  }
+
+  .metric-trend .trend-arrow {
+    font-size: 0.875rem;
+    font-weight: 700;
   }
 
   /* ASCII bar -- a real text character (not a CSS div fill), so it inherits the
