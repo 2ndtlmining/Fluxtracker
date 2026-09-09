@@ -50,11 +50,22 @@
   // over a long-lived session this exhausts the browser's connection buffer
   // (observed as "net::ERR_NO_BUFFER_SPACE" on /api/header).
   const FETCH_TIMEOUT_MS = 15000;
+
+  // /api/carousel/deployed|expiring can trigger a synchronous on-demand refetch server-side
+  // (carouselService.js's getCachedDeployedApps()/getCachedExpiringApps(), when the 20-minute
+  // freshness window has lapsed) that itself budgets up to 15s for its own upstream Flux API
+  // calls. Giving the client the same 15s for the whole round trip left zero margin for that
+  // budget plus real network/processing time -- the exact cause of issue #126's intermittent
+  // "signal is aborted without reason". 15s server worst case + 10s buffer.
+  const CAROUSEL_FETCH_TIMEOUT_MS = 25000;
   let isPolling = false;
 
   function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error(`fetch timed out after ${timeoutMs}ms: ${url}`)),
+      timeoutMs
+    );
     return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
   }
 
@@ -171,7 +182,7 @@
   }
 
   async function fetchLatestApp(url, pick) {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(url, CAROUSEL_FETCH_TIMEOUT_MS);
     if (!response.ok) throw new Error(`${url} responded ${response.status}`);
     const data = await response.json();
     return pick(data?.stats || []);

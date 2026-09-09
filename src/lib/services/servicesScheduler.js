@@ -1,7 +1,7 @@
 // flux-performance-dashboard/src/lib/services/servicesScheduler.js
 
 import { testAllServices } from './test-allServices.js';
-import { fetchCarouselData } from './carouselService.js';  // UPDATED: Use new function name
+import { fetchCarouselData, fetchLatestDeployedApps, fetchExpiringApps } from './carouselService.js';  // UPDATED: Use new function name
 import { runDecentralizationCycle } from './decentralizationService.js';
 import { CLOUD_CONFIG, GAMING_CONFIG, WORDPRESS_CONFIG, CAROUSEL_CONFIG, DECENTRALIZATION_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
@@ -78,7 +78,9 @@ async function runTests() {
 /**
  * Run carousel update
  */
-async function runCarouselUpdate() {
+// Exported for tests only (mirrors kpiScheduler.js's runSchedulerTick pattern) --
+// startCarouselUpdates()'s setInterval never fires in tests.
+export async function runCarouselUpdate() {
     const now = new Date();
     log.info('Carousel sync scheduled run at %s', now.toISOString());
 
@@ -90,13 +92,33 @@ async function runCarouselUpdate() {
     
     try {
         isCarouselRunning = true;
-        
+
         // UPDATED: Fetch all carousel data (apps + benchmarks)
         const carouselStats = await fetchCarouselData();
-        
+
+        // Proactively refresh the deployed/expiring caches on this same 10-minute cycle
+        // (CAROUSEL_CONFIG.updateInterval), well inside their 20-minute freshnessThreshold --
+        // so the on-demand refetch inside getCachedDeployedApps()/getCachedExpiringApps()
+        // (server.js's /api/carousel/* routes) almost never fires from a live client request.
+        // That on-demand path is still there as a fallback; this just makes it rare instead
+        // of routine, since it was the header's client-side poll (issue #126) landing on a
+        // cold cache and racing the ~15s upstream fetch it triggers. Independent try/catch per
+        // table, same pattern as backupService -- one failing must not skip the other or the
+        // benchmark fetch above.
+        try {
+            await fetchLatestDeployedApps();
+        } catch (error) {
+            log.error({ err: error }, 'Proactive deployed-apps cache refresh failed');
+        }
+        try {
+            await fetchExpiringApps();
+        } catch (error) {
+            log.error({ err: error }, 'Proactive expiring-apps cache refresh failed');
+        }
+
         lastCarouselRun = Date.now();
         consecutiveCarouselFailures = 0;
-        
+
         log.info('Carousel updated with %d stats', carouselStats.length);
 
     } catch (error) {
