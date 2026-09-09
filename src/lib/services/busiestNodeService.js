@@ -21,6 +21,10 @@ const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour, matches BUSIEST_NODE_CONFIG.up
 let cache = null;
 let cacheFetchedAt = 0;
 let inFlight = null;
+// The full network's node IPs from the same fetch -- decentralizationService reuses this
+// rather than making its own call to stats.runonflux.io, so the two features share one
+// hourly ~4MB fetch instead of two.
+let networkNodeIps = [];
 
 async function fetchBusiestNode() {
     const [body] = await Promise.all([
@@ -36,6 +40,15 @@ async function fetchBusiestNode() {
     if (!Array.isArray(nodes) || nodes.length === 0) {
         throw new Error('API_BUSIEST_NODE returned empty or invalid data');
     }
+
+    // Multiple node entries can share one physical IP (a host running several Flux
+    // instances on different ports) -- dedup so a heavily multi-instanced host doesn't
+    // skew the decentralization stats by counting as several nodes.
+    networkNodeIps = [...new Set(
+        nodes
+            .map(node => node?.geolocation?.ip || (node?.ip || '').split(':')[0] || null)
+            .filter(Boolean)
+    )];
 
     let busiestNode = null;
     let busiestCount = 0;
@@ -121,9 +134,19 @@ export function getCachedBusiestNode() {
     return cache;
 }
 
+/**
+ * The deduped node IPs from the last successful fetch, or [] before the first one lands.
+ * Never triggers a network call -- decentralizationService pairs this with its own call to
+ * getBusiestNode() (a cheap no-op once the hourly cache is warm) to seed its own fetch.
+ */
+export function getCachedNetworkNodeIps() {
+    return networkNodeIps;
+}
+
 /** Test hook — drops the cached result. */
 export function clearBusiestNodeCache() {
     cache = null;
     cacheFetchedAt = 0;
     inFlight = null;
+    networkNodeIps = [];
 }

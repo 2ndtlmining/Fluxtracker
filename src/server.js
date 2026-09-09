@@ -80,7 +80,8 @@ import {
 } from './lib/services/revenueService.js';
 
 // Import testAllServices
-import { startServiceTests, getServiceTestSchedulerStatus, startCarouselUpdates,stopCarouselUpdates, getCarouselSchedulerStatus  } from './lib/services/servicesScheduler.js';
+import { startServiceTests, getServiceTestSchedulerStatus, startCarouselUpdates,stopCarouselUpdates, getCarouselSchedulerStatus, startDecentralizationUpdates, stopDecentralizationUpdates, getDecentralizationSchedulerStatus } from './lib/services/servicesScheduler.js';
+import { getDecentralizationStats } from './lib/services/decentralizationService.js';
 import { testAllServices } from './lib/services/test-allServices.js';
 
 // Import backfill functions
@@ -1767,6 +1768,21 @@ app.get('/api/busiest-node', async (req, res) => {
     }
 });
 
+// Decentralization metric (issue #108) — the scheduler (servicesScheduler.js) refreshes
+// this in the background every 5 minutes; this just returns the cached snapshot instantly.
+app.get('/api/decentralization', async (req, res) => {
+    try {
+        const stats = await getDecentralizationStats();
+        res.json({ ...stats, timestamp: new Date().toISOString() });
+    } catch (error) {
+        log.error({ err: error }, 'decentralization stats API error');
+        res.status(500).json({
+            error: 'Failed to fetch decentralization stats',
+            message: error.message
+        });
+    }
+});
+
 // Carousel endpoint for latest deployed apps
 app.get('/api/carousel/deployed', async (req, res) => {
     try {
@@ -1899,6 +1915,14 @@ function startSchedulers() {
         log.error({ err: error }, 'could not initialize snapshot checker');
     }
 
+    // Start the decentralization classification batches (issue #108, runs every 5 minutes)
+    try {
+        log.info('decentralization scheduler initialized');
+        startDecentralizationUpdates();
+    } catch (error) {
+        log.error({ err: error }, 'could not initialize decentralization scheduler');
+    }
+
     // Run failed txid cleanup daily
     setInterval(async () => {
         try {
@@ -1964,6 +1988,7 @@ function shutdownGracefully(signal) {
     stopRevenueSync();
     stopSnapshotChecker();
     stopKpiScheduler();
+    stopDecentralizationUpdates();
     process.exit(0);
 }
 

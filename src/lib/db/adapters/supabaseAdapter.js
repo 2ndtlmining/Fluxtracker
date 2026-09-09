@@ -1525,6 +1525,69 @@ export async function upsertRepoSnapshots(rows) {
     return total;
 }
 
+// ============================================
+// NODE IP CLASSIFICATION (decentralization metric, issue #108)
+// ============================================
+
+/**
+ * Every classified node IP -- lightweight projection (no asn/org) since callers only need
+ * ip/isDatacenter/classifiedAt to decide what's stale and to aggregate the stats. Must page
+ * — PostgREST caps every response at db-max-rows (1000), and this table can grow past that
+ * as more of the network gets classified.
+ */
+export async function getAllNodeIpClassifications() {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('node_ip_classification')
+            .select('ip, is_datacenter, classified_at')
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Fetch node_ip_classification failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows.map(row => ({
+        ip: row.ip,
+        isDatacenter: !!row.is_datacenter,
+        classifiedAt: row.classified_at
+    }));
+}
+
+export async function upsertNodeIpClassifications(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const payload = rows.map(row => ({
+        ip: row.ip,
+        asn: row.asn ?? null,
+        org: row.org ?? null,
+        is_datacenter: !!row.isDatacenter,
+        classified_at: row.classifiedAt
+    }));
+
+    const CHUNK_SIZE = 500;
+    let total = 0;
+
+    for (let i = 0; i < payload.length; i += CHUNK_SIZE) {
+        const chunk = payload.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('node_ip_classification')
+            .upsert(chunk, { onConflict: 'ip' });
+
+        if (error) throw new Error(`Upsert node_ip_classification chunk ${i} failed: ${error.message}`);
+        total += chunk.length;
+    }
+
+    return total;
+}
+
 export async function closeDatabase() {
     // No-op for Supabase - connection is managed by the client
     log.info('[DB] Supabase client does not require explicit close');

@@ -21,6 +21,7 @@ import { resolveRunningAppName } from '../appSpecsCache.js';
 import {
     getBusiestNode,
     getCachedBusiestNode,
+    getCachedNetworkNodeIps,
     clearBusiestNodeCache
 } from '../busiestNodeService.js';
 
@@ -146,5 +147,43 @@ describe('getCachedBusiestNode', () => {
         await getBusiestNode();
 
         expect(getCachedBusiestNode().ip).toBe('4.4.4.4');
+    });
+});
+
+describe('getCachedNetworkNodeIps', () => {
+    it('returns [] when nothing has been fetched yet', () => {
+        expect(getCachedNetworkNodeIps()).toEqual([]);
+    });
+
+    it('returns every node IP from the last fetch, decentralizationService\'s candidate set', async () => {
+        axios.get.mockResolvedValue(apiResponse([
+            node({ ip: '1.1.1.1', names: ['/fluxfm1_myapp'] }),
+            node({ ip: '2.2.2.2', names: [] }),
+            node({ ip: '3.3.3.3', names: [] })
+        ]));
+
+        await getBusiestNode();
+
+        expect(getCachedNetworkNodeIps().sort()).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3']);
+    });
+
+    it('dedupes IPs shared by multiple node entries (one host running several instances)', async () => {
+        axios.get.mockResolvedValue(apiResponse([
+            node({ ip: '1.1.1.1', names: ['/fluxfm1_myapp'] }),
+            node({ ip: '1.1.1.1', names: [] })
+        ]));
+
+        await getBusiestNode();
+
+        expect(getCachedNetworkNodeIps()).toEqual(['1.1.1.1']);
+    });
+
+    it('is cleared by the test hook alongside the busiest-node cache', async () => {
+        axios.get.mockResolvedValue(apiResponse([node({ ip: '1.1.1.1', names: ['/fluxfm1_myapp'] })]));
+        await getBusiestNode();
+
+        clearBusiestNodeCache();
+
+        expect(getCachedNetworkNodeIps()).toEqual([]);
     });
 });

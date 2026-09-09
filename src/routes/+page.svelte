@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG } from '$lib/config.js';
+  import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG, DECENTRALIZATION_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
@@ -14,6 +14,7 @@
   import { Package } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
+  import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -34,6 +35,14 @@
   let busiestNodeLoading = true;
   let busiestNodeError = false;
   let busiestNodeInterval;
+
+  // Decentralization card — refreshes on its own interval matching the backend's
+  // classification batch cadence (see DECENTRALIZATION_CONFIG); the endpoint itself just
+  // returns a cached snapshot, so this is cheap regardless of frequency.
+  let decentralizationStats = null;
+  let decentralizationLoading = true;
+  let decentralizationError = false;
+  let decentralizationInterval;
   
   // Comparison period toggle
   let comparisonPeriod = 'D'; // D, W, M, Q, Y
@@ -129,7 +138,8 @@
     fetchMetrics(),
     fetchRevenue(comparisonPeriod),     // NEW - fetch revenue for current period
     fetchComparison(comparisonPeriod),
-    fetchBusiestNode()
+    fetchBusiestNode(),
+    fetchDecentralization()
   ]);
 
   prefetchComparisons();
@@ -138,6 +148,7 @@
   interval = setInterval(refreshAll, DASHBOARD_REFRESH_MS);
   // Busiest Node refreshes on its own, much slower interval (see BUSIEST_NODE_CONFIG)
   busiestNodeInterval = setInterval(fetchBusiestNode, BUSIEST_NODE_CONFIG.updateInterval);
+  decentralizationInterval = setInterval(fetchDecentralization, DECENTRALIZATION_CONFIG.updateInterval);
 });
 
 async function refreshAll() {
@@ -163,6 +174,25 @@ async function fetchBusiestNode() {
     busiestNodeError = true;
   } finally {
     busiestNodeLoading = false;
+  }
+}
+
+async function fetchDecentralization() {
+  try {
+    const response = await fetch(`${API_URL}/api/decentralization`);
+    const data = await response.json();
+
+    if (data && !data.error) {
+      decentralizationStats = data;
+      decentralizationError = false;
+    } else {
+      decentralizationError = true;
+    }
+  } catch (error) {
+    console.error('Error fetching decentralization stats:', error);
+    decentralizationError = true;
+  } finally {
+    decentralizationLoading = false;
   }
 }
 
@@ -199,6 +229,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
   onDestroy(() => {
     if (interval) clearInterval(interval);
     if (busiestNodeInterval) clearInterval(busiestNodeInterval);
+    if (decentralizationInterval) clearInterval(decentralizationInterval);
   });
   
   async function fetchMetrics() {
@@ -423,6 +454,10 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       <!-- Busiest Node (issue #108) — identity, resource utilization and the app list
            together in one card; splitting it into two read as two unrelated things. -->
       <BusiestNodeCard node={busiestNode} loading={busiestNodeLoading} error={busiestNodeError} />
+
+      <!-- Decentralization (issue #108) — % of node IPs in known datacenters vs. not,
+           classified gradually in the background; coverage fills in over time. -->
+      <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} />
     </div>
 
     <!-- Historical Performance Chart -->
