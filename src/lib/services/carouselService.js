@@ -2,7 +2,6 @@
 
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
-import { getRunningApps } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -22,38 +21,27 @@ let cachedFluxApiData = null;
 let lastFluxApiCacheTime = 0;
 const FLUX_API_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-// Images to exclude from top apps (health check/monitoring apps)
-const EXCLUDED_IMAGES = [
-    'containrrr/watchtower',  // Health check image on all servers
-];
-
 /**
  * Fetch all carousel data (top apps + benchmark stats)
  * Returns combined array of all stats for the carousel
  */
 export async function fetchCarouselData() {
     try {
-        log.info('Fetching carousel data (apps + benchmarks)...');
-        
-        // Fetch both in parallel
-        const [topApps, benchmarkStats] = await Promise.all([
-            fetchTopApps(),
-            fetchTopBenchmarks()
-        ]);
-        
-        // Combine all stats into one array
-        const allStats = [
-            ...topApps,
-            ...benchmarkStats
-        ];
-        
-        // Cache the combined results
-        cachedCarouselData = allStats;
+        log.info('Fetching carousel data (benchmarks)...');
+
+        // Top Repos was removed (issue #106) — it counted running instances by resolved
+        // repotag, which only covers ~76-78% of instances since FluxOS v8.18 dropped the
+        // Image field. An undercounted "top apps" leaderboard is misleading, not just
+        // incomplete, so it's gone rather than shown with a caveat.
+        const benchmarkStats = await fetchTopBenchmarks();
+
+        // Cache the results
+        cachedCarouselData = benchmarkStats;
         lastFetchTime = Date.now();
-        
-        log.info({ total: allStats.length, topApps: topApps.length, benchmarks: benchmarkStats.length }, 'Carousel data fetched');
-        
-        return allStats;
+
+        log.info({ total: benchmarkStats.length }, 'Carousel data fetched');
+
+        return benchmarkStats;
         
     } catch (error) {
         log.error({ err: error }, 'Error fetching carousel data');
@@ -216,55 +204,6 @@ function formatStorage(hdd) {
         return `${(hdd / 1000).toFixed(1)} TB SSD`;
     } else {
         return `${hdd} GB SSD`;
-    }
-}
-
-/**
- * Fetch top 10 running apps.
- *
- * Reuses runningAppsProvider's shared per-cycle fetch instead of hitting RUNNING_APPS
- * separately — this used to duplicate the ~450KB download every cycle.
- */
-export async function fetchTopApps() {
-    try {
-        const runningApps = await getRunningApps();
-
-        // Group by image-without-tag, since gaming/crypto category images ship several
-        // tagged variants (e.g. Minecraft Java vs a pinned version).
-        const imageCounts = {};
-
-        for (const [image, count] of runningApps.imageCounts) {
-            const isExcluded = EXCLUDED_IMAGES.some(excluded =>
-                image.toLowerCase().includes(excluded.toLowerCase())
-            );
-            if (isExcluded) continue;
-
-            const imageWithoutTag = image.split(':')[0];
-
-            if (!imageCounts[imageWithoutTag]) {
-                imageCounts[imageWithoutTag] = { name: imageWithoutTag, count: 0 };
-            }
-            imageCounts[imageWithoutTag].count += count;
-        }
-
-        // Convert to array, sort, and take top 10
-        const topApps = Object.values(imageCounts)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 10)
-            .map((app, index) => ({
-                type: 'app',
-                rank: index + 1,
-                label: `#${index + 1} App`,
-                name: app.name,
-                value: app.count,
-                unit: 'instances'
-            }));
-
-        return topApps;
-
-    } catch (error) {
-        log.error({ err: error }, 'Error fetching top apps');
-        return [];
     }
 }
 

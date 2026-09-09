@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
-  import { DollarSign, Gamepad2, Coins, Server, Cloud, Package, Download, Container } from 'lucide-svelte';
+  import { DollarSign, Server, Cloud, Package, Download } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -30,16 +30,6 @@
   let chartData = { labels: [], data: [], rawDates: [] };
   let availableMetrics = [];
 
-  // Docker Repos state
-  let repoList = [];
-  let repoSearchQuery = '';
-  let selectedRepo = null;
-  let showRepoDropdown = false;
-  let filteredRepoList = [];
-
-  // Dynamic category repos (gaming/crypto loaded from repo_snapshots)
-  let dynamicCategoryRepos = {};
-
   // Category definitions
   let categories = {
     revenue: {
@@ -50,22 +40,6 @@
         { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
         { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
         { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
-      ]
-    },
-    gaming: {
-      label: 'Gaming Apps',
-      color: 'rgb(138, 43, 226)',
-      dynamic: true,
-      metrics: [
-        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' }
-      ]
-    },
-    crypto: {
-      label: 'Crypto Nodes',
-      color: 'rgb(255, 165, 0)',
-      dynamic: true,
-      metrics: [
-        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' }
       ]
     },
     nodes: {
@@ -94,22 +68,14 @@
       ]
     },
     apps: {
+      // Only the true instance census (unaffected by FluxOS v8.18 — see runningAppsProvider.js).
+      // wordpress_count, gitapps_count/percent, dockerapps_count/percent all derive from
+      // resolved-image categorization, which only covers ~76-78% of running instances since
+      // the API dropped Image — removed rather than shown as an undercount (issue #106).
       label: 'Applications',
       color: 'rgb(255, 100, 255)',
       metrics: [
-        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
-        { id: 'wordpress_count', label: 'WordPress Sites', field: 'wordpress_count', format: 'number' },
-        { id: 'gitapps_count', label: 'Git Apps', field: 'gitapps_count', format: 'number' },
-        { id: 'dockerapps_count', label: 'Docker Apps', field: 'dockerapps_count', format: 'number' },
-        { id: 'gitapps_percent', label: 'Git Apps %', field: 'gitapps_percent', format: 'percent' },
-        { id: 'dockerapps_percent', label: 'Docker Apps %', field: 'dockerapps_percent', format: 'percent' },
-      ]
-    },
-    docker_repos: {
-      label: 'Docker Repos',
-      color: 'rgb(59, 130, 246)',
-      metrics: [
-        { id: 'repo_instances', label: 'Instance Count', field: 'instance_count', format: 'number' }
+        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' }
       ]
     }
   };
@@ -151,11 +117,8 @@
     const wasUSD = usdMetrics.includes(lastMetric);
     const isNowUSD = usdMetrics.includes(selectedMetric);
     const needsRefetch = selectedCategory === 'revenue' && wasUSD !== isNowUSD;
-    
-    // Dynamic categories need re-fetch per metric (each repo is a different API call)
-    const isDynamic = categories[selectedCategory]?.dynamic;
 
-    if (needsRefetch || isDynamic) {
+    if (needsRefetch) {
       console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
       lastMetric = selectedMetric;
       fetchAllData();
@@ -197,12 +160,6 @@
     // Get API URL in browser context
     API_URL = getApiUrl();
 
-    // Pre-load dynamic category repos if starting on a dynamic category
-    const cat = categories[selectedCategory];
-    if (cat?.dynamic) {
-      await loadDynamicCategoryRepos(selectedCategory);
-    }
-
     await fetchAllData();
   });
 
@@ -223,53 +180,7 @@
 
       console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
 
-      // For DYNAMIC categories (gaming/crypto), use repo_snapshots endpoints
-      const currentCat = categories[selectedCategory];
-      if (currentCat?.dynamic) {
-        const metric = availableMetrics.find(m => m.id === selectedMetric);
-
-        if (metric?.repoImage) {
-          // Individual repo history
-          const histRes = await fetch(`${API_URL}/api/history/repos/history?image=${encodeURIComponent(metric.repoImage)}&limit=${limitParam}`);
-          if (!histRes.ok) throw new Error(`API error: ${histRes.status}`);
-          const histResult = await histRes.json();
-          allSnapshots = (histResult.data || []).map(row => ({
-            snapshot_date: row.snapshot_date,
-            total_count: row.instance_count,
-            instance_count: row.instance_count
-          }));
-        } else {
-          // Category total (aggregate)
-          const histRes = await fetch(`${API_URL}/api/history/category/${selectedCategory}?limit=${limitParam}`);
-          if (!histRes.ok) throw new Error(`API error: ${histRes.status}`);
-          const histResult = await histRes.json();
-          allSnapshots = (histResult.data || []).map(row => ({
-            snapshot_date: row.snapshot_date,
-            total_count: row.total_count
-          }));
-        }
-      } else if (selectedCategory === 'docker_repos') {
-        if (!selectedRepo) {
-          // Fetch repo list for dropdown
-          const listRes = await fetch(`${API_URL}/api/history/repos/list`);
-          if (!listRes.ok) throw new Error(`API error: ${listRes.status}`);
-          const listResult = await listRes.json();
-          repoList = listResult.data || [];
-          filteredRepoList = repoList;
-          allSnapshots = [];
-          loading = false;
-          return;
-        }
-
-        // Fetch history for selected repo
-        const histRes = await fetch(`${API_URL}/api/history/repos/history?image=${encodeURIComponent(selectedRepo)}&limit=${limitParam}`);
-        if (!histRes.ok) throw new Error(`API error: ${histRes.status}`);
-        const histResult = await histRes.json();
-        allSnapshots = (histResult.data || []).map(row => ({
-          snapshot_date: row.snapshot_date,
-          instance_count: row.instance_count
-        }));
-      } else if (selectedCategory === 'revenue') {
+      if (selectedCategory === 'revenue') {
       // For REVENUE category, use transaction-based endpoint for real-time data
         // Check if USD metric is selected
         const metric = availableMetrics.find(m => m.id === selectedMetric);
@@ -700,85 +611,12 @@
     console.log('✅ Chart rendered successfully');
   }
 
-  async function handleCategoryChange(categoryId) {
+  function handleCategoryChange(categoryId) {
     console.log(`User clicked category: ${categoryId}`);
     selectedCategory = categoryId;
-    // Reset repo state when switching away from docker_repos
-    if (categoryId !== 'docker_repos') {
-      selectedRepo = null;
-      repoSearchQuery = '';
-      showRepoDropdown = false;
-    }
-
-    // For dynamic categories, populate repo metrics if not already loaded
-    const cat = categories[categoryId];
-    if (cat?.dynamic && !dynamicCategoryRepos[categoryId]) {
-      await loadDynamicCategoryRepos(categoryId);
-    }
 
     // Fetch new data when category changes (revenue vs snapshots)
     fetchAllData();
-  }
-
-  async function loadDynamicCategoryRepos(categoryId) {
-    try {
-      const res = await fetch(`${API_URL}/api/history/category/${categoryId}/repos`);
-      if (!res.ok) return;
-      const result = await res.json();
-      const repos = result.data || [];
-      dynamicCategoryRepos[categoryId] = repos;
-
-      // Build dynamic metrics: Total first, then individual repos
-      // API returns { image_name, displayName } objects
-      const repoMetrics = repos.map(repo => {
-        const imageName = typeof repo === 'string' ? repo : repo.image_name;
-        const label = (typeof repo === 'object' && repo.displayName) ? repo.displayName : imageName.split('/').pop().split(':')[0];
-        return {
-          id: `repo_${imageName}`,
-          label,
-          field: 'instance_count',
-          format: 'number',
-          repoImage: imageName
-        };
-      });
-
-      categories[categoryId].metrics = [
-        { id: 'category_total', label: 'Total (all)', field: 'total_count', format: 'number' },
-        ...repoMetrics
-      ];
-
-      // Trigger reactivity
-      categories = categories;
-    } catch (err) {
-      console.error(`Failed to load repos for ${categoryId}:`, err);
-    }
-  }
-
-  function handleRepoSelect(repo) {
-    selectedRepo = repo;
-    repoSearchQuery = repo;
-    showRepoDropdown = false;
-    fetchAllData();
-  }
-
-  function handleRepoSearchInput(event) {
-    repoSearchQuery = event.target.value;
-    showRepoDropdown = true;
-    filteredRepoList = repoList.filter(r =>
-      r.toLowerCase().includes(repoSearchQuery.toLowerCase())
-    );
-  }
-
-  function handleRepoSearchFocus() {
-    showRepoDropdown = true;
-    filteredRepoList = repoList.filter(r =>
-      r.toLowerCase().includes(repoSearchQuery.toLowerCase())
-    );
-  }
-
-  function handleRepoSearchBlur() {
-    // Delay to allow click on dropdown items
-    setTimeout(() => { showRepoDropdown = false; }, 200);
   }
 
   function handleMetricChange(event) {
@@ -852,11 +690,7 @@
       <h3 class="chart-title">{title}</h3>
       {#if !loading && !error}
         <span class="chart-subtitle">
-          {#if selectedCategory === 'docker_repos' && selectedRepo}
-            {selectedRepo}
-          {:else}
-            {availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
-          {/if}
+          {availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
         </span>
       {/if}
     </div>
@@ -891,56 +725,20 @@
         </select>
       </div>
 
-      <!-- Metric Selector (or Repo Search for docker_repos) -->
-      {#if selectedCategory === 'docker_repos'}
-        <div class="control-group repo-search-container">
-          <label for="repo-search-{title}">Docker Image:</label>
-          <div class="repo-search-wrapper">
-            <input
-              id="repo-search-{title}"
-              type="text"
-              class="chart-select repo-search-input"
-              placeholder="Search Docker images..."
-              value={repoSearchQuery}
-              on:input={handleRepoSearchInput}
-              on:focus={handleRepoSearchFocus}
-              on:blur={handleRepoSearchBlur}
-            />
-            {#if showRepoDropdown && filteredRepoList.length > 0}
-              <div class="repo-dropdown">
-                {#each filteredRepoList.slice(0, 50) as repo}
-                  <button
-                    class="repo-dropdown-item"
-                    class:selected={repo === selectedRepo}
-                    on:mousedown|preventDefault={() => handleRepoSelect(repo)}
-                  >
-                    {repo}
-                  </button>
-                {/each}
-                {#if filteredRepoList.length > 50}
-                  <div class="repo-dropdown-more">
-                    ...{filteredRepoList.length - 50} more results
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        </div>
-      {:else}
-        <div class="control-group">
-          <label for="metric-{title}">Metric:</label>
-          <select
-            id="metric-{title}"
-            bind:value={selectedMetric}
-            on:change={handleMetricChange}
-            class="chart-select"
-          >
-            {#each availableMetrics as metric}
-              <option value={metric.id}>{metric.label}</option>
-            {/each}
-          </select>
-        </div>
-      {/if}
+      <!-- Metric Selector -->
+      <div class="control-group">
+        <label for="metric-{title}">Metric:</label>
+        <select
+          id="metric-{title}"
+          bind:value={selectedMetric}
+          on:change={handleMetricChange}
+          class="chart-select"
+        >
+          {#each availableMetrics as metric}
+            <option value={metric.id}>{metric.label}</option>
+          {/each}
+        </select>
+      </div>
 
       <!-- CSV Export Button -->
       {#if !loading && !error && chartData.labels.length > 0}
@@ -968,18 +766,12 @@
         <span class="category-icon">
           {#if id === 'revenue'}
             <DollarSign size={16} strokeWidth={2} />
-          {:else if id === 'gaming'}
-            <Gamepad2 size={16} strokeWidth={2} />
-          {:else if id === 'crypto'}
-            <Coins size={16} strokeWidth={2} />
           {:else if id === 'nodes'}
             <Server size={16} strokeWidth={2} />
           {:else if id === 'resources'}
             <Cloud size={16} strokeWidth={2} />
           {:else if id === 'apps'}
             <Package size={16} strokeWidth={2} />
-          {:else if id === 'docker_repos'}
-            <Container size={16} strokeWidth={2} />
           {/if}
         </span>
         <span class="category-label">{category.label}</span>
@@ -998,14 +790,6 @@
       <div class="chart-error">
         <span class="error-icon">!</span>
         <p>{error}</p>
-      </div>
-    {:else if selectedCategory === 'docker_repos' && !selectedRepo}
-      <div class="chart-loading">
-        <Container size={40} strokeWidth={1.5} />
-        <p>Search and select a Docker image above to view its history</p>
-        {#if repoList.length > 0}
-          <p class="repo-count-hint">{repoList.length} Docker images tracked</p>
-        {/if}
       </div>
     {:else}
       <canvas bind:this={chartCanvas}></canvas>
@@ -1228,69 +1012,6 @@
 
   .error-icon {
     font-size: 2rem;
-  }
-
-  /* Repo Search */
-  .repo-search-container {
-    position: relative;
-  }
-
-  .repo-search-wrapper {
-    position: relative;
-  }
-
-  .repo-search-input {
-    min-width: 250px;
-  }
-
-  .repo-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    max-height: 300px;
-    overflow-y: auto;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-top: none;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-    z-index: 100;
-  }
-
-  .repo-dropdown-item {
-    display: block;
-    width: 100%;
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: none;
-    border: none;
-    color: var(--text-white);
-    font-family: 'Courier New', monospace;
-    font-size: 0.8rem;
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .repo-dropdown-item:hover {
-    background: rgba(59, 130, 246, 0.2);
-  }
-
-  .repo-dropdown-item.selected {
-    background: rgba(59, 130, 246, 0.3);
-    color: rgb(59, 130, 246);
-  }
-
-  .repo-dropdown-more {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    color: var(--text-muted);
-    font-size: 0.75rem;
-    font-style: italic;
-    text-align: center;
-  }
-
-  .repo-count-hint {
-    font-size: 0.8rem;
-    color: var(--text-muted);
   }
 
   /* Responsive */
