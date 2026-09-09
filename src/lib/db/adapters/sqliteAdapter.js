@@ -429,6 +429,8 @@ export async function createDailySnapshot(snapshot) {
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,
+        apps_deployed_today: snapshot.apps_deployed_today ?? null,
+        apps_expiring_today: snapshot.apps_expiring_today ?? null,
         sync_status: snapshot.sync_status || 'completed',
         created_at: Date.now()
     };

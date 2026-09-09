@@ -23,6 +23,10 @@ vi.mock('../../services/cloudService.js', () => ({
     getLatestRepoCounts: vi.fn(() => null),
 }));
 
+vi.mock('../../services/carouselService.js', () => ({
+    getFluxCloudActivity: vi.fn(),
+}));
+
 vi.mock('../circuitBreaker.js', () => ({
     shouldAllowRequest: vi.fn(() => true),
     recordSuccess: vi.fn(),
@@ -56,6 +60,7 @@ import {
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
 import { getDecentralizationStats, getFullDatacenterBreakdown } from '../../services/decentralizationService.js';
+import { getFluxCloudActivity } from '../../services/carouselService.js';
 
 // ============================================
 // Helpers
@@ -132,6 +137,10 @@ describe('snapshotManager', () => {
         getLatestRepoCounts.mockReturnValue(null);
         getDecentralizationStats.mockResolvedValue({ datacenterCount: 40, classifiedCount: 100, datacenterPercent: 40 });
         getFullDatacenterBreakdown.mockResolvedValue([]);
+        getFluxCloudActivity.mockResolvedValue({
+            deployedToday: { cached: true, apps: [{ name: 'app-a' }, { name: 'app-b' }] },
+            expiring24h: { cached: true, apps: [{ name: 'app-c' }] },
+        });
     });
 
     afterEach(() => {
@@ -364,6 +373,48 @@ describe('snapshotManager', () => {
             expect(result.success).toBe(true);
             const [snapshotData] = createDailySnapshot.mock.calls[0];
             expect(snapshotData.decentralization_datacenter_percent).toBeNull();
+        });
+    });
+
+    describe('Flux Cloud activity snapshot collection', () => {
+        it('writes the deduped app counts onto the daily snapshot', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getFluxCloudActivity.mockResolvedValue({
+                deployedToday: { cached: true, apps: [{ name: 'app-a' }, { name: 'app-b' }] },
+                expiring24h: { cached: true, apps: [{ name: 'app-c' }] },
+            });
+
+            await takeManualSnapshot();
+
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.apps_deployed_today).toBe(2);
+            expect(snapshotData.apps_expiring_today).toBe(1);
+        });
+
+        it('writes null (not 0) when the on-demand fetch failed with nothing cached', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getFluxCloudActivity.mockResolvedValue({
+                deployedToday: { cached: false, apps: [] },
+                expiring24h: { cached: false, apps: [] },
+            });
+
+            await takeManualSnapshot();
+
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.apps_deployed_today).toBeNull();
+            expect(snapshotData.apps_expiring_today).toBeNull();
+        });
+
+        it('a getFluxCloudActivity failure does not block the daily_snapshots row from being written', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getFluxCloudActivity.mockRejectedValue(new Error('Flux Cloud API unavailable'));
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.apps_deployed_today).toBeNull();
+            expect(snapshotData.apps_expiring_today).toBeNull();
         });
     });
 });

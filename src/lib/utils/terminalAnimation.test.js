@@ -14,6 +14,8 @@ import {
   BOOT_LINE_COUNT,
   ROW_KIND_TEXT,
   ROW_KIND_LOGO,
+  ROW_KIND_EXPIRING,
+  ROW_KIND_DEPLOYED,
   pickLatestDeployed,
   pickLatestExpiring,
   isGitDeployment,
@@ -22,6 +24,8 @@ import {
   formatExpiringFrame,
   formatDeploymentReducedMotionLines,
   formatExpiringReducedMotionLines,
+  deploymentFrameKinds,
+  expiringFrameKinds,
   DOCKER_ICON_LINE,
   GIT_ICON_LINE,
   EXPIRING_ICON_LINE
@@ -449,6 +453,32 @@ describe('formatExpiringFrame', () => {
     for (const line of frame) {
       expect(line.length).toBeLessThanOrEqual(LOGO_WIDTH);
     }
+  });
+});
+
+describe('deploymentFrameKinds', () => {
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(deploymentFrameKinds().length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('marks only the first and last rows as ROW_KIND_DEPLOYED, matching formatDeploymentFrame\'s icon bookends', () => {
+    const kinds = deploymentFrameKinds();
+    expect(kinds[0]).toBe(ROW_KIND_DEPLOYED);
+    expect(kinds[kinds.length - 1]).toBe(ROW_KIND_DEPLOYED);
+    expect(kinds.slice(1, -1)).toEqual(Array(BOOT_LINE_COUNT - 2).fill(ROW_KIND_TEXT));
+  });
+});
+
+describe('expiringFrameKinds', () => {
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(expiringFrameKinds().length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('marks only the first and last rows as ROW_KIND_EXPIRING, matching formatExpiringFrame\'s icon bookends', () => {
+    const kinds = expiringFrameKinds();
+    expect(kinds[0]).toBe(ROW_KIND_EXPIRING);
+    expect(kinds[kinds.length - 1]).toBe(ROW_KIND_EXPIRING);
+    expect(kinds.slice(1, -1)).toEqual(Array(BOOT_LINE_COUNT - 2).fill(ROW_KIND_TEXT));
   });
 });
 

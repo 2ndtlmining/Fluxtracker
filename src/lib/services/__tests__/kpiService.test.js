@@ -9,8 +9,12 @@ vi.mock('../../db/database.js', () => ({
     getRevenueFromAddressesForDateRange: vi.fn(),
     getDecentralizationSnapshotHistory: vi.fn(() => Promise.resolve([]))
 }));
+// kpiService.js calls getFluxCloudActivity() directly (not getFluxCloudSnapshot) --
+// mock at that boundary with already-deduped fixtures. The dedup rule itself
+// (dedupeAppsByName/getFluxCloudActivity's own behavior) is carouselService.js's
+// concern and is covered in carouselSnapshot.test.js, not duplicated here.
 vi.mock('../carouselService.js', () => ({
-    getFluxCloudSnapshot: vi.fn()
+    getFluxCloudActivity: vi.fn()
 }));
 
 import axios from 'axios';
@@ -22,7 +26,7 @@ import {
     getRevenueFromAddressesForDateRange,
     getDecentralizationSnapshotHistory
 } from '../../db/database.js';
-import { getFluxCloudSnapshot } from '../carouselService.js';
+import { getFluxCloudActivity } from '../carouselService.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
 
 const NOW = new Date('2026-08-21T12:00:00Z');
@@ -47,9 +51,9 @@ beforeEach(() => {
     getRevenueForDateRange.mockResolvedValue(1000);
     getDailyRevenueUSDInRange.mockResolvedValue([{ daily_revenue_usd: 20 }, { daily_revenue_usd: 22 }]);
     getRevenueFromAddressesForDateRange.mockResolvedValue({ revenue: 250, payments: 5 });
-    getFluxCloudSnapshot.mockResolvedValue({
-        appsDeployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
-        appsExpiring24h: { cached: true, apps: [{ name: 'app-b', repo: 'runonflux/app-b:latest', instances: 1, cpu: 0.5, ram: 512, hdd: 5 }] }
+    getFluxCloudActivity.mockResolvedValue({
+        deployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
+        expiring24h: { cached: true, apps: [{ name: 'app-b', repo: 'runonflux/app-b:latest', instances: 1, cpu: 0.5, ram: 512, hdd: 5 }] }
     });
 });
 
@@ -145,17 +149,16 @@ describe('buildKpiReport — daily', () => {
     });
 
     it('lists one row per app in the activity detail, matching the report counts', async () => {
-        // A re-deployment leaves the old spec in the registry next to the new one: the
-        // same app must appear once, keeping the newest registration (deployments) and
-        // the most urgent expiry (expiring).
-        getFluxCloudSnapshot.mockResolvedValue({
-            appsDeployedToday: { cached: true, apps: [
-                { name: 'redeployed', repo: 'runonflux/old:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blockAge: 2800 },
+        // The dedup rule itself (collapsing a re-deployment's old/new spec rows) lives in
+        // carouselService.js's getFluxCloudActivity and is covered there. Here we only
+        // verify the report passes an already-deduped activity result through untouched,
+        // and that its instant counts match the activity table lengths exactly.
+        getFluxCloudActivity.mockResolvedValue({
+            deployedToday: { cached: true, apps: [
                 { name: 'redeployed', repo: 'runonflux/new:latest', instances: 2, cpu: 2, ram: 2048, hdd: 20, blockAge: 100 },
                 { name: 'solo', repo: 'runonflux/solo:latest', instances: 1, cpu: 1, ram: 512, hdd: 5, blockAge: 50 }
             ] },
-            appsExpiring24h: { cached: true, apps: [
-                { name: 'dup', repo: 'runonflux/old:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blocksUntilExpiry: 500 },
+            expiring24h: { cached: true, apps: [
                 { name: 'dup', repo: 'runonflux/new:latest', instances: 1, cpu: 1, ram: 1024, hdd: 10, blocksUntilExpiry: 100 }
             ] }
         });
@@ -164,11 +167,10 @@ describe('buildKpiReport — daily', () => {
 
         const deployed = report.fluxCloud.deployedToday.apps;
         expect(deployed.map(a => a.name)).toEqual(['redeployed', 'solo']);
-        expect(deployed[0].repo).toBe('runonflux/new:latest'); // newest registration wins
+        expect(deployed[0].repo).toBe('runonflux/new:latest');
 
         const expiring = report.fluxCloud.expiring24h.apps;
         expect(expiring.map(a => a.name)).toEqual(['dup']);
-        expect(expiring[0].repo).toBe('runonflux/new:latest'); // most urgent expiry wins
 
         // The main report's instant counts match the activity table totals exactly
         const section = report.dataset.sections.find(s => s.key === 'fluxCloud');
@@ -177,7 +179,7 @@ describe('buildKpiReport — daily', () => {
     });
 
     it('a Flux Cloud read failure renders the section as unavailable, not missing or zero', async () => {
-        getFluxCloudSnapshot.mockRejectedValue(new Error('down'));
+        getFluxCloudActivity.mockRejectedValue(new Error('down'));
 
         const report = await buildKpiReport('daily', NOW);
         const section = report.dataset.sections.find(s => s.key === 'fluxCloud');

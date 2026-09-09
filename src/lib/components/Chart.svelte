@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
-  import { DollarSign, Server, Cloud, Package, Download } from 'lucide-svelte';
+  import { DollarSign, Server, Cloud, Package, Globe, Download } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -75,7 +75,9 @@
       label: 'Applications',
       color: 'rgb(255, 100, 255)',
       metrics: [
-        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' }
+        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
+        { id: 'apps_deployed_today', label: 'Deployed Today', field: 'apps_deployed_today', format: 'number' },
+        { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number' }
       ]
     },
     decentralization: {
@@ -794,6 +796,8 @@
             <Cloud size={16} strokeWidth={2} />
           {:else if id === 'apps'}
             <Package size={16} strokeWidth={2} />
+          {:else if id === 'decentralization'}
+            <Globe size={16} strokeWidth={2} />
           {/if}
         </span>
         <span class="category-label">{category.label}</span>

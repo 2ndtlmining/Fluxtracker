@@ -5,16 +5,15 @@
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
-  import StatCard from '$lib/components/StatCard.svelte';
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
-  import { Package } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
+  import AppInstancesCard from '$lib/components/AppInstancesCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -43,6 +42,11 @@
   let decentralizationLoading = true;
   let decentralizationError = false;
   let decentralizationInterval;
+
+  // Apps deployed/expiring today (issue #108 follow-up) -- rides on the shared dashboard
+  // refresh, same as the rest of the Total App Instances card.
+  let appsActivity = null;
+  let appsActivityLoading = true;
   
   // Comparison period toggle
   let comparisonPeriod = 'D'; // D, W, M, Q, Y
@@ -77,6 +81,16 @@
   $: decentralizationComparison = comparison ? {
     change: comparison.changes.decentralization?.change || 0,
     trend: comparison.changes.decentralization?.trend || 'neutral'
+  } : null;
+
+  $: appsDeployedComparison = comparison ? {
+    change: comparison.changes.appsDeployed?.change || 0,
+    trend: comparison.changes.appsDeployed?.trend || 'neutral'
+  } : null;
+
+  $: appsExpiringComparison = comparison ? {
+    change: comparison.changes.appsExpiring?.change || 0,
+    trend: comparison.changes.appsExpiring?.trend || 'neutral'
   } : null;
 
   // Node comparison data
@@ -144,7 +158,8 @@
     fetchRevenue(comparisonPeriod),     // NEW - fetch revenue for current period
     fetchComparison(comparisonPeriod),
     fetchBusiestNode(),
-    fetchDecentralization()
+    fetchDecentralization(),
+    fetchAppsActivity()
   ]);
 
   prefetchComparisons();
@@ -161,6 +176,7 @@ async function refreshAll() {
   await fetchRevenue(comparisonPeriod);
   comparisonCache = {};                      // period comparisons are cached by period
   await fetchComparison(comparisonPeriod);
+  await fetchAppsActivity();
 }
 
 async function fetchBusiestNode() {
@@ -198,6 +214,21 @@ async function fetchDecentralization() {
     decentralizationError = true;
   } finally {
     decentralizationLoading = false;
+  }
+}
+
+async function fetchAppsActivity() {
+  try {
+    const response = await fetch(`${API_URL}/api/apps/activity`);
+    const data = await response.json();
+
+    if (data && !data.error) {
+      appsActivity = data;
+    }
+  } catch (error) {
+    console.error('Error fetching apps activity:', error);
+  } finally {
+    appsActivityLoading = false;
   }
 }
 
@@ -349,31 +380,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     return 'neutral';
   }
   
-  // Helper to format change text
-  function formatChange(changeData, showDifference = false) {
-    if (!changeData) return '';
-    
-    if (showDifference && changeData.difference !== undefined) {
-      const sign = changeData.difference >= 0 ? '+' : '';
-      const period = currentPeriod.key === 'D' ? 'today' : `this ${currentPeriod.label.toLowerCase()}`;
-      return `${sign}${Math.round(changeData.difference)} ${period}`;
-    }
-    
-    const sign = changeData.change >= 0 ? '+' : '';
-    return `${sign}${formatCurrency(changeData.change)}%`;
-  }
-  
-  // Helper to format numbers
-  function formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString();
-  }
-  
-  // Helper to format currency
-  function formatCurrency(num) {
-    if (!num) return '0.00';
-    return num.toFixed(2);
-  }
+
 </script>
 
 <div class="dashboard">
@@ -444,16 +451,16 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     <div class="stats-grid-wide">
       <!-- Total App Instances — the one app-count metric still fully accurate after the
            FluxOS v8.18 API change (see issue #106). Gaming/Crypto/WordPress category
-           totals and the Git/Docker split were removed alongside it. -->
-      <StatCard
-        icon={Package}
-        title="Total App Instances"
-        value={loading ? '...' : formatNumber(totalApps)}
-        subtitle="Across the network"
-        change={comparison ? formatChange(comparison.changes.apps, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.apps) : 'neutral'}
-        valueColor="cyan"
-        {loading}
+           totals and the Git/Docker split were removed alongside it. Deployed/expiring
+           today (issue #108 follow-up) uses the space the plain stat card left unused. -->
+      <AppInstancesCard
+        totalApps={loading ? 0 : totalApps}
+        totalComparison={comparison ? { change: comparison.changes.apps?.change || 0, trend: getTrend(comparison.changes.apps) } : null}
+        deployedToday={appsActivity?.deployedToday?.cached ? appsActivity.deployedToday.count : null}
+        deployedComparison={appsDeployedComparison}
+        expiringToday={appsActivity?.expiring24h?.cached ? appsActivity.expiring24h.count : null}
+        expiringComparison={appsExpiringComparison}
+        loading={loading || appsActivityLoading}
       />
 
       <!-- Busiest Node (issue #108) — identity, resource utilization and the app list

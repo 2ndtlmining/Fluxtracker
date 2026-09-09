@@ -16,6 +16,11 @@ const FIXED_COLUMNS = [
     { name: 'decentralization_datacenter_count', type: 'INTEGER' },
     { name: 'decentralization_independent_count', type: 'INTEGER' },
     { name: 'decentralization_datacenter_percent', type: 'DOUBLE PRECISION' },
+    // Same reasoning as the decentralization columns above: no DEFAULT, so a row
+    // predating this feature reads back NULL ("no reading taken"), never a fabricated 0
+    // that would misreport as "nothing was deployed/expiring that day".
+    { name: 'apps_deployed_today', type: 'INTEGER' },
+    { name: 'apps_expiring_today', type: 'INTEGER' },
 ];
 
 // ============================================

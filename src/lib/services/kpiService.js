@@ -11,7 +11,7 @@ import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily, computeTopDatacentersForPeriod } from '../kpi/metrics.js';
 import { buildDiscordPayload, buildFluxCloudActivityPayload, buildSchedulerFailurePayload, isValidDiscordWebhook } from '../kpi/discord.js';
-import { getFluxCloudSnapshot } from './carouselService.js';
+import { getFluxCloudActivity } from './carouselService.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('kpiService');
@@ -47,55 +47,28 @@ async function getPeriodRevenue({ start, end }) {
 }
 
 /**
- * One row per app, not per spec: a re-deployment leaves the old spec in the registry
- * alongside the new one, so the same app can appear twice in a 24h window. Deployments
- * keep the newest registration (lowest blockAge); expiring rows keep the most urgent
- * expiry (lowest blocksUntilExpiry). Matches the "unique active apps" unit of the
- * report's Apps deployed figure.
- */
-function dedupeAppsByName(apps, prefer) {
-    const byName = new Map();
-    for (const app of apps) {
-        if (!app?.name) continue;
-        const existing = byName.get(app.name);
-        if (!existing || prefer(app, existing)) byName.set(app.name, app);
-    }
-    return [...byName.values()];
-}
-
-/**
  * Live Flux Cloud state for the daily report: the two instant metrics the main
  * report shows, plus the per-app detail the Flux Cloud Activity message lists.
  * The report's figures ARE the activity message's totals — `Deployed (24h)` is the
  * deduped length of the deployments list, `Expiring (24h)` of the expiring list —
- * so the section and its detail can never disagree.
+ * so the section and its detail can never disagree. Sourced from
+ * carouselService.getFluxCloudActivity(), the same function the live dashboard card
+ * and the daily snapshot collector use, so none of the three can disagree either.
  * `cached === false` means the on-demand fetch failed with nothing ever stored —
  * an absent reading, never a fake zero.
  */
 async function getFluxCloudData() {
     try {
-        const snapshot = await getFluxCloudSnapshot();
-
-        const deployedToday = dedupeAppsByName(
-            snapshot.appsDeployedToday.apps,
-            (a, b) => (a.blockAge ?? Infinity) < (b.blockAge ?? Infinity)
-        );
-        const expiring24h = dedupeAppsByName(
-            snapshot.appsExpiring24h.apps,
-            (a, b) => (a.blocksUntilExpiry ?? Infinity) < (b.blocksUntilExpiry ?? Infinity)
-        );
+        const activity = await getFluxCloudActivity();
 
         return {
             instant: {
                 fluxCloud: {
-                    appsDeployed: snapshot.appsDeployedToday.cached ? deployedToday.length : null,
-                    appsExpiring24h: snapshot.appsExpiring24h.cached ? expiring24h.length : null
+                    appsDeployed: activity.deployedToday.cached ? activity.deployedToday.apps.length : null,
+                    appsExpiring24h: activity.expiring24h.cached ? activity.expiring24h.apps.length : null
                 }
             },
-            activity: {
-                deployedToday: { cached: snapshot.appsDeployedToday.cached, apps: deployedToday },
-                expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h }
-            }
+            activity
         };
     } catch (error) {
         log.warn({ err: error }, 'Flux Cloud data unavailable for the daily KPI report');
