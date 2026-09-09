@@ -1,16 +1,54 @@
-// Deterministic /api/header + /api/carousel/deployed stub for the header animation
-// acceptance harness. Bumps blockHeight on every request so the 30s header poll sees a
-// new block and triggers the sync animation on its second poll.
+// Deterministic /api/header + /api/carousel/deployed + /api/carousel/expiring stub for
+// the header animation acceptance harness.
 //
-// Deployment scenario (issue #98's harness acceptance criterion): starts with an empty
-// deployed-apps list so the header's baseline-seeding poll has nothing to seed against
-// falsely, then check-header.mjs calls POST /inject-deployment on demand to add a new
-// entry once it's done asserting the boot/sync behavior -- this avoids racing the sync
-// and deployment scenarios against each other on the same poll.
+// Idle-rotation scenario (issue #104 Phase 2): both carousel endpoints start out serving
+// one fixture app each ("initial-*"), so the header's rotation has real data to show
+// from its first poll onward -- no seed-then-inject dance needed since the rotation
+// isn't event-driven any more. From the SECOND call onward each endpoint switches to a
+// different fixture ("updated-*"), so check-header.mjs can assert the rotation picks up
+// the change on a later poll instead of holding onto whatever it first saw (the user's
+// "don't use cached info" requirement).
 import http from 'node:http';
 
 let blockHeight = 294912;
-let deployedApps = [];
+let deployedCalls = 0;
+let expiringCalls = 0;
+
+const INITIAL_DEPLOYED = {
+  name: 'initial-minecraft',
+  repo: 'itzg/minecraft-server:latest',
+  instances: 3,
+  cpu: 2,
+  ram: 4096,
+  hdd: 25,
+  blockAge: 100
+};
+const UPDATED_DEPLOYED = {
+  name: 'updated-minecraft',
+  repo: 'runonflux/orbit:latest', // exercises the octocat icon
+  instances: 2,
+  cpu: 1,
+  ram: 2048,
+  hdd: 10,
+  blockAge: 5
+};
+
+const INITIAL_EXPIRING = {
+  name: 'initial-wordpress',
+  instances: 1,
+  cpu: 1,
+  ram: 1024,
+  hdd: 10,
+  blocksUntilExpiry: 240 // 2h
+};
+const UPDATED_EXPIRING = {
+  name: 'updated-wordpress',
+  instances: 1,
+  cpu: 1,
+  ram: 1024,
+  hdd: 10,
+  blocksUntilExpiry: 20 // 10m -- more urgent, as a real re-fetch would surface
+};
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, {
@@ -52,27 +90,16 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.url.startsWith('/api/carousel/deployed')) {
-    res.end(JSON.stringify({ stats: deployedApps, cached: true, cacheAge: 0, fresh: true }));
+    deployedCalls++;
+    const app = deployedCalls === 1 ? INITIAL_DEPLOYED : UPDATED_DEPLOYED;
+    res.end(JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
     return;
   }
 
-  if (req.method === 'POST' && req.url.startsWith('/inject-deployment')) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      const overrides = body ? JSON.parse(body) : {};
-      deployedApps = [{
-        name: 'test-minecraft',
-        repo: 'itzg/minecraft-server:latest',
-        instances: 3,
-        cpu: 2,
-        ram: 4096,
-        hdd: 25,
-        height: blockHeight,
-        ...overrides
-      }];
-      res.end(JSON.stringify({ ok: true, deployedApps }));
-    });
+  if (req.url.startsWith('/api/carousel/expiring')) {
+    expiringCalls++;
+    const app = expiringCalls === 1 ? INITIAL_EXPIRING : UPDATED_EXPIRING;
+    res.end(JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
     return;
   }
 
