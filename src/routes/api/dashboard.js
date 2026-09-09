@@ -2,7 +2,12 @@
 // decentralization. Mounted at '/api' in server.js (no common sub-prefix).
 import express from 'express';
 
-import { getSnapshotsInRange, getDecentralizationSnapshotHistory } from '../../lib/db/database.js';
+import {
+    getSnapshotsInRange,
+    getDecentralizationSnapshotHistory,
+    getDecentralizationCountrySnapshotHistory,
+    getDecentralizationContinentSnapshotHistory
+} from '../../lib/db/database.js';
 import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getBusiestNode } from '../../lib/services/busiestNodeService.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
@@ -66,16 +71,19 @@ router.get('/decentralization', async (req, res) => {
     }
 });
 
-// Decentralization historical data (issue #108 Phase 3) -- backs the CSV export in
-// DecentralizationCard.svelte. `days` mirrors Chart.svelte's own timeframe options.
+// Decentralization historical data (issue #108 Phase 3, country/continent added in #138)
+// -- backs the CSV export and chart in DecentralizationCard.svelte. `days` mirrors
+// Chart.svelte's own timeframe options.
 router.get('/decentralization/history', async (req, res) => {
     try {
         const days = Math.max(1, parseInt(req.query.days) || 90);
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
 
-        const [breakdown, snapshots] = await Promise.all([
+        const [breakdown, countryBreakdown, continentBreakdown, snapshots] = await Promise.all([
             getDecentralizationSnapshotHistory(startDate, endDate),
+            getDecentralizationCountrySnapshotHistory(startDate, endDate),
+            getDecentralizationContinentSnapshotHistory(startDate, endDate),
             getSnapshotsInRange(startDate, endDate)
         ]);
 
@@ -91,6 +99,8 @@ router.get('/decentralization/history', async (req, res) => {
 
         res.json({
             history: breakdown.map(r => ({ date: r.snapshot_date, org: r.org, count: r.node_count })),
+            countryHistory: countryBreakdown.map(r => ({ date: r.snapshot_date, country: r.country, countryCode: r.country_code, count: r.node_count })),
+            continentHistory: continentBreakdown.map(r => ({ date: r.snapshot_date, continent: r.continent, continentCode: r.continent_code, count: r.node_count })),
             headline
         });
     } catch (error) {

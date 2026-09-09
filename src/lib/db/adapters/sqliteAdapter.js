@@ -249,9 +249,54 @@ function createSchema() {
             asn INTEGER,
             org TEXT,
             is_datacenter INTEGER NOT NULL DEFAULT 0,
-            classified_at INTEGER NOT NULL
+            classified_at INTEGER NOT NULL,
+            country TEXT,
+            country_code TEXT,
+            continent TEXT,
+            continent_code TEXT
         )
     `);
+    // Self-healing for a DB created before issue #138 (CREATE TABLE IF NOT EXISTS above
+    // doesn't add columns to an existing table) -- same "ALTER, swallow duplicate-column"
+    // pattern schemaMigrator.js uses for daily_snapshots/current_metrics.
+    for (const col of ['country', 'country_code', 'continent', 'continent_code']) {
+        try {
+            d.exec(`ALTER TABLE node_ip_classification ADD COLUMN ${col} TEXT`);
+        } catch (error) {
+            if (!error.message?.includes('duplicate column name')) throw error;
+        }
+    }
+
+    // Per-country/continent decentralization breakdown, issue #138 -- same shape as
+    // decentralization_snapshots (one row per (date, dimension-value)), just grouped by
+    // country/continent instead of org.
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS decentralization_country_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            country TEXT NOT NULL,
+            country_code TEXT,
+            node_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            UNIQUE(snapshot_date, country)
+        )
+    `);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_country_snapshot_date ON decentralization_country_snapshots(snapshot_date)`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_country ON decentralization_country_snapshots(country)`);
+
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS decentralization_continent_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            continent TEXT NOT NULL,
+            continent_code TEXT,
+            node_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            UNIQUE(snapshot_date, continent)
+        )
+    `);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_continent_snapshot_date ON decentralization_continent_snapshots(snapshot_date)`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_continent ON decentralization_continent_snapshots(continent)`);
 }
 
 // ============================================
@@ -1632,12 +1677,16 @@ export async function upsertRepoSnapshots(rows) {
  * this is a plain unpaginated SELECT.
  */
 export async function getAllNodeIpClassifications() {
-    const rows = getDb().prepare('SELECT ip, org, is_datacenter, classified_at FROM node_ip_classification').all();
+    const rows = getDb().prepare('SELECT ip, org, is_datacenter, classified_at, country, country_code, continent, continent_code FROM node_ip_classification').all();
     return rows.map(row => ({
         ip: row.ip,
         org: row.org,
         isDatacenter: !!row.is_datacenter,
-        classifiedAt: row.classified_at
+        classifiedAt: row.classified_at,
+        country: row.country,
+        countryCode: row.country_code,
+        continent: row.continent,
+        continentCode: row.continent_code
     }));
 }
 
@@ -1645,13 +1694,17 @@ export async function upsertNodeIpClassifications(rows) {
     if (!rows || rows.length === 0) return 0;
 
     const stmt = getDb().prepare(`
-        INSERT INTO node_ip_classification (ip, asn, org, is_datacenter, classified_at)
-        VALUES (@ip, @asn, @org, @is_datacenter, @classified_at)
+        INSERT INTO node_ip_classification (ip, asn, org, is_datacenter, classified_at, country, country_code, continent, continent_code)
+        VALUES (@ip, @asn, @org, @is_datacenter, @classified_at, @country, @country_code, @continent, @continent_code)
         ON CONFLICT(ip) DO UPDATE SET
             asn = @asn,
             org = @org,
             is_datacenter = @is_datacenter,
-            classified_at = @classified_at
+            classified_at = @classified_at,
+            country = @country,
+            country_code = @country_code,
+            continent = @continent,
+            continent_code = @continent_code
     `);
 
     const insertAll = getDb().transaction((items) => {
@@ -1661,7 +1714,11 @@ export async function upsertNodeIpClassifications(rows) {
                 asn: row.asn ?? null,
                 org: row.org ?? null,
                 is_datacenter: row.isDatacenter ? 1 : 0,
-                classified_at: row.classifiedAt
+                classified_at: row.classifiedAt,
+                country: row.country ?? null,
+                country_code: row.countryCode ?? null,
+                continent: row.continent ?? null,
+                continent_code: row.continentCode ?? null
             });
         }
     });
@@ -1705,6 +1762,82 @@ export async function getDecentralizationSnapshotHistory(startDate, endDate) {
     return getDb().prepare(`
         SELECT snapshot_date, org, node_count
         FROM decentralization_snapshots
+        WHERE snapshot_date >= ? AND snapshot_date <= ?
+        ORDER BY snapshot_date ASC, node_count DESC
+    `).all(startDate, endDate);
+}
+
+// ============================================
+// DECENTRALIZATION COUNTRY/CONTINENT SNAPSHOTS (issue #138)
+// ============================================
+
+export async function createDecentralizationCountrySnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO decentralization_country_snapshots (snapshot_date, country, country_code, node_count, created_at)
+        VALUES (@snapshot_date, @country, @country_code, @node_count, @created_at)
+        ON CONFLICT(snapshot_date, country) DO UPDATE SET
+            country_code = @country_code,
+            node_count = @node_count
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const item of items) {
+            stmt.run({
+                snapshot_date: snapshotDate,
+                country: item.country,
+                country_code: item.countryCode ?? null,
+                node_count: item.count,
+                created_at: Date.now()
+            });
+        }
+    });
+
+    insertAll(breakdown);
+    return breakdown.length;
+}
+
+export async function getDecentralizationCountrySnapshotHistory(startDate, endDate) {
+    return getDb().prepare(`
+        SELECT snapshot_date, country, country_code, node_count
+        FROM decentralization_country_snapshots
+        WHERE snapshot_date >= ? AND snapshot_date <= ?
+        ORDER BY snapshot_date ASC, node_count DESC
+    `).all(startDate, endDate);
+}
+
+export async function createDecentralizationContinentSnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO decentralization_continent_snapshots (snapshot_date, continent, continent_code, node_count, created_at)
+        VALUES (@snapshot_date, @continent, @continent_code, @node_count, @created_at)
+        ON CONFLICT(snapshot_date, continent) DO UPDATE SET
+            continent_code = @continent_code,
+            node_count = @node_count
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const item of items) {
+            stmt.run({
+                snapshot_date: snapshotDate,
+                continent: item.continent,
+                continent_code: item.continentCode ?? null,
+                node_count: item.count,
+                created_at: Date.now()
+            });
+        }
+    });
+
+    insertAll(breakdown);
+    return breakdown.length;
+}
+
+export async function getDecentralizationContinentSnapshotHistory(startDate, endDate) {
+    return getDb().prepare(`
+        SELECT snapshot_date, continent, continent_code, node_count
+        FROM decentralization_continent_snapshots
         WHERE snapshot_date >= ? AND snapshot_date <= ?
         ORDER BY snapshot_date ASC, node_count DESC
     `).all(startDate, endDate);

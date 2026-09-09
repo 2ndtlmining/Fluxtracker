@@ -112,4 +112,9 @@ export const {
     // Decentralization snapshots (historical -- issue #108 Phase 3)
     createDecentralizationSnapshots,
     getDecentralizationSnapshotHistory,
+    // Decentralization country/continent snapshots (issue #138)
+    createDecentralizationCountrySnapshots,
+    getDecentralizationCountrySnapshotHistory,
+    createDecentralizationContinentSnapshots,
+    getDecentralizationContinentSnapshotHistory,
 } = adapter;

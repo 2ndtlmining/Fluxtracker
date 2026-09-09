@@ -28,7 +28,9 @@ import {
     runDecentralizationCycle,
     getDecentralizationStats,
     clearDecentralizationStatsCache,
-    getFullDatacenterBreakdown
+    getFullDatacenterBreakdown,
+    getFullCountryBreakdown,
+    getFullContinentBreakdown
 } from '../decentralizationService.js';
 
 function ipwhoisResponse(overrides = {}) {
@@ -37,6 +39,10 @@ function ipwhoisResponse(overrides = {}) {
             success: true,
             ip: '1.2.3.4',
             connection: { asn: 24940, org: 'Hetzner Online GmbH', isp: 'Hetzner Online GmbH', domain: 'hetzner.com' },
+            country: 'Germany',
+            country_code: 'DE',
+            continent: 'Europe',
+            continent_code: 'EU',
             ...overrides
         }
     };
@@ -49,11 +55,17 @@ function ipApiResponse(overrides = {}) {
             as: 'AS24940 Hetzner Online GmbH',
             isp: 'Hetzner Online GmbH',
             org: 'Hetzner Online GmbH',
+            country: 'Germany',
+            countryCode: 'DE',
+            continent: 'Europe',
+            continentCode: 'EU',
             query: '1.2.3.4',
             ...overrides
         }
     };
 }
+
+const GERMANY = { country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' };
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -93,7 +105,42 @@ describe('classifyIp', () => {
 
         const result = await classifyIp('1.2.3.4');
 
-        expect(result).toEqual({ asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true });
+        expect(result).toEqual({ asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, ...GERMANY });
+    });
+
+    it('extracts country/continent from ipwho.is\'s response (issue #138)', async () => {
+        axios.get.mockResolvedValueOnce(ipwhoisResponse({
+            connection: { asn: 16509, org: 'Amazon.com, Inc.', isp: 'Amazon.com, Inc.' },
+            country: 'Australia',
+            country_code: 'AU',
+            continent: 'Oceania',
+            continent_code: 'OC'
+        }));
+
+        const result = await classifyIp('1.2.3.4');
+
+        expect(result).toMatchObject({ country: 'Australia', countryCode: 'AU', continent: 'Oceania', continentCode: 'OC' });
+    });
+
+    it('extracts country/continent from ip-api.com\'s response when ipwho.is fails (issue #138)', async () => {
+        axios.get
+            .mockRejectedValueOnce(new Error('network down'))
+            .mockResolvedValueOnce(ipApiResponse({ country: 'Australia', countryCode: 'AU', continent: 'Oceania', continentCode: 'OC' }));
+
+        const result = await classifyIp('1.2.3.4');
+
+        expect(result).toMatchObject({ country: 'Australia', countryCode: 'AU', continent: 'Oceania', continentCode: 'OC' });
+    });
+
+    it('reports null country/continent rather than throwing when both providers omit them', async () => {
+        axios.get.mockResolvedValueOnce({ data: { success: true, connection: { asn: 1, org: 'Some Org' } } });
+
+        const result = await classifyIp('1.2.3.4');
+
+        expect(result.country).toBeNull();
+        expect(result.countryCode).toBeNull();
+        expect(result.continent).toBeNull();
+        expect(result.continentCode).toBeNull();
     });
 
     it('strips the app port before looking up the IP', async () => {
@@ -112,7 +159,7 @@ describe('classifyIp', () => {
 
         const result = await classifyIp('1.2.3.4');
 
-        expect(result).toEqual({ asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true });
+        expect(result).toEqual({ asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, ...GERMANY });
         expect(axios.get).toHaveBeenCalledTimes(2);
     });
 
@@ -162,6 +209,8 @@ describe('runDecentralizationCycle', () => {
         const [rows] = upsertNodeIpClassifications.mock.calls[0];
         expect(rows.map(r => r.ip).sort()).toEqual(['1.1.1.1', '2.2.2.2']);
         expect(rows.every(r => r.isDatacenter === true)).toBe(true);
+        // Issue #138: country/continent ride along with every classification result.
+        expect(rows.every(r => r.country === 'Germany' && r.continent === 'Europe')).toBe(true);
     });
 
     it('skips IPs already classified recently (not stale)', async () => {
@@ -426,5 +475,91 @@ describe('getFullDatacenterBreakdown', () => {
         const breakdown = await getFullDatacenterBreakdown();
 
         expect(breakdown).toEqual([{ org: 'Provider A', count: 1 }]);
+    });
+});
+
+describe('getFullCountryBreakdown', () => {
+    it('groups every classified node by country, uncapped', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', country: 'France', countryCode: 'FR', isDatacenter: false, classifiedAt: Date.now() }
+        ]);
+
+        const breakdown = await getFullCountryBreakdown();
+
+        expect(breakdown).toEqual(expect.arrayContaining([
+            { country: 'Germany', countryCode: 'DE', count: 2 },
+            { country: 'France', countryCode: 'FR', count: 1 }
+        ]));
+        expect(breakdown).toHaveLength(2);
+    });
+
+    it('groups a missing/null country under "(unknown)" rather than dropping it', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', country: null, countryCode: null, isDatacenter: true, classifiedAt: Date.now() }
+        ]);
+
+        const breakdown = await getFullCountryBreakdown();
+
+        expect(breakdown).toEqual([{ country: '(unknown)', countryCode: null, count: 1 }]);
+    });
+
+    it('only counts candidates still in the current network node-IP set', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '9', country: 'France', countryCode: 'FR', isDatacenter: true, classifiedAt: Date.now() } // no longer a live node
+        ]);
+
+        const breakdown = await getFullCountryBreakdown();
+
+        expect(breakdown).toEqual([{ country: 'Germany', countryCode: 'DE', count: 1 }]);
+    });
+
+    it('returns [] when nothing is classified yet', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([]);
+
+        expect(await getFullCountryBreakdown()).toEqual([]);
+    });
+});
+
+describe('getFullContinentBreakdown', () => {
+    it('groups every classified node by continent, uncapped', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', continent: 'Europe', continentCode: 'EU', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', continent: 'Europe', continentCode: 'EU', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', continent: 'North America', continentCode: 'NA', isDatacenter: false, classifiedAt: Date.now() }
+        ]);
+
+        const breakdown = await getFullContinentBreakdown();
+
+        expect(breakdown).toEqual(expect.arrayContaining([
+            { continent: 'Europe', continentCode: 'EU', count: 2 },
+            { continent: 'North America', continentCode: 'NA', count: 1 }
+        ]));
+        expect(breakdown).toHaveLength(2);
+    });
+
+    it('groups a missing/null continent under "(unknown)" rather than dropping it', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', continent: null, continentCode: null, isDatacenter: true, classifiedAt: Date.now() }
+        ]);
+
+        const breakdown = await getFullContinentBreakdown();
+
+        expect(breakdown).toEqual([{ continent: '(unknown)', continentCode: null, count: 1 }]);
+    });
+
+    it('returns [] when nothing is classified yet', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([]);
+
+        expect(await getFullContinentBreakdown()).toEqual([]);
     });
 });

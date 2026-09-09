@@ -1548,7 +1548,7 @@ export async function getAllNodeIpClassifications() {
     while (true) {
         const { data, error } = await supabase
             .from('node_ip_classification')
-            .select('ip, org, is_datacenter, classified_at')
+            .select('ip, org, is_datacenter, classified_at, country, country_code, continent, continent_code')
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch node_ip_classification failed: ${error.message}`);
@@ -1563,7 +1563,11 @@ export async function getAllNodeIpClassifications() {
         ip: row.ip,
         org: row.org,
         isDatacenter: !!row.is_datacenter,
-        classifiedAt: row.classified_at
+        classifiedAt: row.classified_at,
+        country: row.country,
+        countryCode: row.country_code,
+        continent: row.continent,
+        continentCode: row.continent_code
     }));
 }
 
@@ -1575,7 +1579,11 @@ export async function upsertNodeIpClassifications(rows) {
         asn: row.asn ?? null,
         org: row.org ?? null,
         is_datacenter: !!row.isDatacenter,
-        classified_at: row.classifiedAt
+        classified_at: row.classifiedAt,
+        country: row.country ?? null,
+        country_code: row.countryCode ?? null,
+        continent: row.continent ?? null,
+        continent_code: row.continentCode ?? null
     }));
 
     const CHUNK_SIZE = 500;
@@ -1634,6 +1642,102 @@ export async function getDecentralizationSnapshotHistory(startDate, endDate) {
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch decentralization_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
+// ============================================
+// DECENTRALIZATION COUNTRY/CONTINENT SNAPSHOTS (issue #138)
+// ============================================
+
+export async function createDecentralizationCountrySnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const rows = breakdown.map(item => ({
+        snapshot_date: snapshotDate,
+        country: item.country,
+        country_code: item.countryCode ?? null,
+        node_count: item.count,
+        created_at: Date.now()
+    }));
+
+    const { error } = await supabase
+        .from('decentralization_country_snapshots')
+        .upsert(rows, { onConflict: 'snapshot_date,country' });
+
+    if (error) throw new Error(`Upsert decentralization_country_snapshots failed: ${error.message}`);
+    return rows.length;
+}
+
+/** Must page — see getDecentralizationSnapshotHistory() for the identical pattern. */
+export async function getDecentralizationCountrySnapshotHistory(startDate, endDate) {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('decentralization_country_snapshots')
+            .select('snapshot_date, country, country_code, node_count')
+            .gte('snapshot_date', startDate)
+            .lte('snapshot_date', endDate)
+            .order('snapshot_date', { ascending: true })
+            .order('node_count', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Fetch decentralization_country_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
+export async function createDecentralizationContinentSnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const rows = breakdown.map(item => ({
+        snapshot_date: snapshotDate,
+        continent: item.continent,
+        continent_code: item.continentCode ?? null,
+        node_count: item.count,
+        created_at: Date.now()
+    }));
+
+    const { error } = await supabase
+        .from('decentralization_continent_snapshots')
+        .upsert(rows, { onConflict: 'snapshot_date,continent' });
+
+    if (error) throw new Error(`Upsert decentralization_continent_snapshots failed: ${error.message}`);
+    return rows.length;
+}
+
+/** Must page — see getDecentralizationSnapshotHistory() for the identical pattern. */
+export async function getDecentralizationContinentSnapshotHistory(startDate, endDate) {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('decentralization_continent_snapshots')
+            .select('snapshot_date, continent, continent_code, node_count')
+            .gte('snapshot_date', startDate)
+            .lte('snapshot_date', endDate)
+            .order('snapshot_date', { ascending: true })
+            .order('node_count', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Fetch decentralization_continent_snapshots failed: ${error.message}`);
         if (!data || data.length === 0) break;
 
         rows.push(...data);

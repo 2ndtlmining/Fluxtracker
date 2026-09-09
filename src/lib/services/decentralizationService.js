@@ -51,22 +51,43 @@ async function classifyViaIpwhois(ip) {
     });
     if (!data?.success) throw new Error(data?.message || 'ipwho.is returned success=false');
     const conn = data.connection || {};
-    return { asn: Number.isFinite(conn.asn) ? conn.asn : null, org: conn.org || conn.isp || null };
+    return {
+        asn: Number.isFinite(conn.asn) ? conn.asn : null,
+        org: conn.org || conn.isp || null,
+        // Issue #138: already present in ipwho.is's default (non-paid) response, unused
+        // until now -- same fields hostLocationService.js already reads for the server's
+        // own location lookup.
+        country: data.country || null,
+        countryCode: data.country_code || null,
+        continent: data.continent || null,
+        continentCode: data.continent_code || null
+    };
 }
 
 async function classifyViaIpApi(ip) {
     const data = await resilientFetch(
-        `http://ip-api.com/json/${ip}?fields=status,message,as,isp,org,query`,
+        // Issue #138: country/continent added to the requested fields -- confirmed live
+        // that ip-api.com's free tier returns them (e.g. {"continent":"Oceania",
+        // "continentCode":"OC","country":"Australia","countryCode":"AU"}), no key needed.
+        `http://ip-api.com/json/${ip}?fields=status,message,as,isp,org,country,countryCode,continent,continentCode,query`,
         { timeout: LOOKUP_TIMEOUT_MS, breakerKey: 'decentralization-ipapi' }
     );
     if (data?.status !== 'success') throw new Error(data?.message || 'ip-api.com lookup failed');
-    return { asn: parseAsn(data.as), org: data.org || data.isp || null };
+    return {
+        asn: parseAsn(data.as),
+        org: data.org || data.isp || null,
+        country: data.country || null,
+        countryCode: data.countryCode || null,
+        continent: data.continent || null,
+        continentCode: data.continentCode || null
+    };
 }
 
 /**
- * Classify one IP's ASN/org and whether it's a known datacenter/cloud provider. Tries
- * ipwho.is first, falls back to ip-api.com — same two-provider chain hostLocationService.js
- * uses, same reasoning: one provider's outage or rate-limit shouldn't stall classification.
+ * Classify one IP's ASN/org/country/continent and whether it's a known datacenter/cloud
+ * provider. Tries ipwho.is first, falls back to ip-api.com — same two-provider chain
+ * hostLocationService.js uses, same reasoning: one provider's outage or rate-limit
+ * shouldn't stall classification.
  */
 export async function classifyIp(rawIp) {
     const ip = normalizeIp(rawIp);
@@ -77,8 +98,8 @@ export async function classifyIp(rawIp) {
 
     for (const [name, fn] of providers) {
         try {
-            const { asn, org } = await fn(ip);
-            return { asn, org, isDatacenter: isKnownDatacenterOrg(org) };
+            const { asn, org, country, countryCode, continent, continentCode } = await fn(ip);
+            return { asn, org, isDatacenter: isKnownDatacenterOrg(org), country, countryCode, continent, continentCode };
         } catch (error) {
             errors.push(`${name}: ${error.message}`);
         }
@@ -146,6 +167,56 @@ export async function getFullDatacenterBreakdown() {
     return breakdown;
 }
 
+/**
+ * Every distinct country's classified-node count, uncapped -- issue #138, mirrors
+ * getFullDatacenterBreakdown() exactly but grouped by country instead of org. Used only by
+ * the daily snapshot collector. A missing/null country (classification pending, or both
+ * providers omitted it) groups under the reserved '(unknown)' sentinel rather than being
+ * dropped, same pattern as getFullDatacenterBreakdown()'s 'Unknown'/'(independent)'.
+ */
+export async function getFullCountryBreakdown() {
+    const candidateIps = getCachedNetworkNodeIps();
+    const candidateSet = new Set(candidateIps);
+    const allClassifications = await getAllNodeIpClassifications();
+    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
+
+    const counts = new Map(); // country -> { countryCode, count }
+    for (const row of relevant) {
+        const key = row.country || '(unknown)';
+        const code = row.country ? (row.countryCode || null) : null;
+        const existing = counts.get(key);
+        if (existing) {
+            existing.count++;
+        } else {
+            counts.set(key, { countryCode: code, count: 1 });
+        }
+    }
+
+    return [...counts.entries()].map(([country, { countryCode, count }]) => ({ country, countryCode, count }));
+}
+
+/** Every distinct continent's classified-node count, uncapped -- issue #138, same shape as getFullCountryBreakdown(). */
+export async function getFullContinentBreakdown() {
+    const candidateIps = getCachedNetworkNodeIps();
+    const candidateSet = new Set(candidateIps);
+    const allClassifications = await getAllNodeIpClassifications();
+    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
+
+    const counts = new Map(); // continent -> { continentCode, count }
+    for (const row of relevant) {
+        const key = row.continent || '(unknown)';
+        const code = row.continent ? (row.continentCode || null) : null;
+        const existing = counts.get(key);
+        if (existing) {
+            existing.count++;
+        } else {
+            counts.set(key, { continentCode: code, count: 1 });
+        }
+    }
+
+    return [...counts.entries()].map(([continent, { continentCode, count }]) => ({ continent, continentCode, count }));
+}
+
 /** Recomputes and caches the stats snapshot from an in-memory classification list. */
 function computeAndCacheStats(allClassifications, candidateIps) {
     const candidateSet = new Set(candidateIps);
@@ -206,8 +277,8 @@ export async function runDecentralizationCycle() {
     const results = [];
     for (const ip of toClassify) {
         try {
-            const { asn, org, isDatacenter } = await classifyIp(ip);
-            results.push({ ip, asn, org, isDatacenter, classifiedAt: Date.now() });
+            const { asn, org, isDatacenter, country, countryCode, continent, continentCode } = await classifyIp(ip);
+            results.push({ ip, asn, org, isDatacenter, country, countryCode, continent, continentCode, classifiedAt: Date.now() });
         } catch (error) {
             log.warn('Classification failed for %s: %s', ip, error.message);
         }
@@ -216,7 +287,16 @@ export async function runDecentralizationCycle() {
     if (results.length > 0) {
         await upsertNodeIpClassifications(results);
         for (const row of results) {
-            known.set(row.ip, { ip: row.ip, org: row.org, isDatacenter: row.isDatacenter, classifiedAt: row.classifiedAt });
+            known.set(row.ip, {
+                ip: row.ip,
+                org: row.org,
+                isDatacenter: row.isDatacenter,
+                country: row.country,
+                countryCode: row.countryCode,
+                continent: row.continent,
+                continentCode: row.continentCode,
+                classifiedAt: row.classifiedAt
+            });
         }
     }
 
