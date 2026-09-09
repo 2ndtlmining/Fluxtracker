@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
-  import { DollarSign, Server, Cloud, Package, Globe, Download } from 'lucide-svelte';
+  import { DollarSign, Server, Cloud, Package, Globe, Download, Users } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -116,6 +116,19 @@
         { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent' },
         { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true },
         { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true }
+      ]
+    },
+    team_funded: {
+      // Issue #146: Flux team's own FLUX_TEAM_ADDRESSES spend, trended daily -- FLUX amount,
+      // $ amount, and % of that day's total revenue, so a rising share is visible over time.
+      // Transaction-based (like Revenue), not snapshot-based, so full history is available
+      // immediately rather than only from whenever snapshotting started.
+      label: 'Team Funded',
+      color: 'rgb(255, 215, 0)',
+      metrics: [
+        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
+        { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true },
+        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent' }
       ]
     }
   };
@@ -284,6 +297,46 @@
         }
 
         allSnapshots = buildEntitySnapshots(selectedEntity);
+      } else if (selectedCategory === 'team_funded') {
+        // Team Funded (issue #146): fetch the team-addresses daily trend plus the existing
+        // total-revenue-daily endpoint for the same range, then compute % of revenue
+        // client-side per day -- same convention as the decentralization entity percentages,
+        // never stored. Percent is always share of total FLUX (matches the Revenue card's
+        // existing selfFundedShare, which is also FLUX-based, not USD-based).
+        console.log('💵 Fetching Team Funded revenue trend');
+        const endDate = new Date();
+        const endDateStr = endDate.toISOString().split('T')[0];
+        const startDateStr = timeframe?.days
+          ? (() => {
+              const d = new Date(endDate);
+              d.setDate(d.getDate() - timeframe.days);
+              return d.toISOString().split('T')[0];
+            })()
+          : '2018-01-01'; // 'All' -- predates Flux mainnet, so this just covers every real row
+
+        const [teamRes, totalRes] = await Promise.all([
+          fetch(`${API_URL}/api/history/revenue/team-funded/daily?start_date=${startDateStr}&end_date=${endDateStr}`),
+          fetch(`${API_URL}/api/history/revenue/daily?start_date=${startDateStr}&end_date=${endDateStr}`)
+        ]);
+
+        if (!teamRes.ok || !totalRes.ok) {
+          throw new Error('API error fetching Team Funded data');
+        }
+
+        const [teamJson, totalJson] = await Promise.all([teamRes.json(), totalRes.json()]);
+        const teamRows = teamJson.data || [];
+        const totalFluxByDate = new Map((totalJson.data || []).map(r => [r.date, r.daily_revenue || 0]));
+
+        allSnapshots = teamRows.map(r => {
+          const totalFlux = totalFluxByDate.get(r.date) || 0;
+          return {
+            date: r.date,
+            team_funded_flux: r.daily_revenue || 0,
+            team_funded_usd: r.daily_revenue_usd || 0,
+            // $0-revenue days report 0%, never NaN/Infinity
+            team_funded_percent: totalFlux > 0 ? (r.daily_revenue / totalFlux) * 100 : 0
+          };
+        });
       } else {
         // For other categories, use snapshot data
         console.log('📊 Fetching from snapshots');
@@ -467,9 +520,10 @@
       }
       
       const weekData = weeklyMap.get(weekKey);
-      
-      // For revenue, sum up. For other metrics, average
-      if (selectedCategory === 'revenue') {
+
+      // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
+      // For other metrics (including Team Funded's % of revenue), average.
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         weekData.total += value;
       } else {
         weekData.total += value;
@@ -488,8 +542,8 @@
     });
     
     const data = sortedWeeks.map(([key, weekData]) => {
-      if (selectedCategory === 'revenue') {
-        return weekData.total; // Sum for revenue
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+        return weekData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return weekData.count > 0 ? weekData.total / weekData.count : 0; // Average for others
       }
@@ -533,9 +587,10 @@
       }
       
       const monthData = monthlyMap.get(monthKey);
-      
-      // For revenue, sum up. For other metrics, average
-      if (selectedCategory === 'revenue') {
+
+      // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
+      // For other metrics (including Team Funded's % of revenue), average.
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         monthData.total += value;
       } else {
         monthData.total += value;
@@ -553,8 +608,8 @@
     });
     
     const data = sortedMonths.map(([key, monthData]) => {
-      if (selectedCategory === 'revenue') {
-        return monthData.total; // Sum for revenue
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+        return monthData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return monthData.count > 0 ? monthData.total / monthData.count : 0; // Average for others
       }
@@ -1016,6 +1071,8 @@
             <Package size={16} strokeWidth={2} />
           {:else if id === 'decentralization'}
             <Globe size={16} strokeWidth={2} />
+          {:else if id === 'team_funded'}
+            <Users size={16} strokeWidth={2} />
           {/if}
         </span>
         <span class="category-label">{category.label}</span>

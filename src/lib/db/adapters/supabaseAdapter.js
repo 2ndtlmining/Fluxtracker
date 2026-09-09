@@ -749,6 +749,44 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
     return data || [];
 }
 
+// Team Funded historical trend (issue #146). A per-day GROUP BY needs to run server-side,
+// unlike getRevenueFromAddressesForDateRange()'s single-range sum (which gets away with a
+// plain .in() + client-side sum) -- so this goes through an RPC function, same as every
+// other per-day revenue query in this adapter.
+export async function getDailyRevenueFromAddressesInRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return [];
+
+    const { data, error } = await supabase.rpc('get_daily_revenue_from_addresses_in_range', {
+        p_start: startDate,
+        p_end: endDate,
+        p_addresses: addresses
+    });
+
+    if (error) {
+        log.error(`getDailyRevenueFromAddressesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueFromAddressesInRange failed: ${error.message}`);
+    }
+    log.info(`Retrieved daily revenue from ${addresses.length} addresses for ${(data || []).length} days (${startDate} to ${endDate})`);
+    return data || [];
+}
+
+export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return [];
+
+    const { data, error } = await supabase.rpc('get_daily_revenue_usd_from_addresses_in_range', {
+        p_start: startDate,
+        p_end: endDate,
+        p_addresses: addresses
+    });
+
+    if (error) {
+        log.error(`getDailyRevenueUSDFromAddressesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueUSDFromAddressesInRange failed: ${error.message}`);
+    }
+    log.info(`Retrieved daily USD revenue from ${addresses.length} addresses for ${(data || []).length} days (${startDate} to ${endDate})`);
+    return data || [];
+}
+
 export async function deleteOldTransactions(daysToKeep = 365) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);

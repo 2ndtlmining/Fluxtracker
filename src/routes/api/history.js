@@ -9,6 +9,8 @@ import {
     getDailyRevenueInRange,
     getDailyRevenueUSDFromTransactions,
     getDailyRevenueUSDInRange,
+    getDailyRevenueFromAddressesInRange,
+    getDailyRevenueUSDFromAddressesInRange,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -16,7 +18,7 @@ import {
     getReposByCategory
 } from '../../lib/db/database.js';
 
-import { getDisplayName, CATEGORY_CONFIG } from '../../lib/config.js';
+import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES } from '../../lib/config.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 
 const router = express.Router();
@@ -66,6 +68,41 @@ router.get('/revenue/daily-usd', async (req, res) => {
             ? await getDailyRevenueUSDInRange(start_date, end_date)
             : await getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
         return { count: revenueData.length, data: revenueData };
+    });
+});
+
+// Team Funded historical trend (issue #146): daily FLUX + USD revenue from
+// FLUX_TEAM_ADDRESSES, merged by date. Transaction-based (not snapshot-based), so full
+// history is available immediately rather than only from the day snapshotting started.
+router.get('/revenue/team-funded/daily', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+
+    const cacheKey = `team-funded:${start_date}:${end_date}`;
+
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
+        const [fluxRows, usdRows] = await Promise.all([
+            getDailyRevenueFromAddressesInRange(start_date, end_date, FLUX_TEAM_ADDRESSES),
+            getDailyRevenueUSDFromAddressesInRange(start_date, end_date, FLUX_TEAM_ADDRESSES)
+        ]);
+
+        const byDate = new Map();
+        for (const row of fluxRows) {
+            byDate.set(row.date, { date: row.date, daily_revenue: row.daily_revenue, daily_revenue_usd: 0 });
+        }
+        for (const row of usdRows) {
+            const existing = byDate.get(row.date);
+            if (existing) {
+                existing.daily_revenue_usd = row.daily_revenue_usd;
+            } else {
+                byDate.set(row.date, { date: row.date, daily_revenue: 0, daily_revenue_usd: row.daily_revenue_usd });
+            }
+        }
+
+        const history = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+        return { count: history.length, data: history };
     });
 });
 

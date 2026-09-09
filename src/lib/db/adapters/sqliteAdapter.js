@@ -988,6 +988,53 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
     }
 }
 
+// Team Funded historical trend (issue #146). Same shape as getDailyRevenueInRange(), with
+// an address-list filter -- mirrors getRevenueFromAddressesForDateRange()'s placeholder
+// pattern, just grouped by day instead of summed over the whole range.
+// RPC equivalent: get_daily_revenue_from_addresses_in_range
+export async function getDailyRevenueFromAddressesInRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return [];
+
+    try {
+        const placeholders = addresses.map(() => '?').join(',');
+        const rows = getDb().prepare(`
+            SELECT date, SUM(amount) AS daily_revenue
+            FROM revenue_transactions
+            WHERE date BETWEEN ? AND ? AND from_address IN (${placeholders})
+            GROUP BY date
+            ORDER BY date ASC
+        `).all(startDate, endDate, ...addresses);
+
+        log.info(`Retrieved daily revenue from ${addresses.length} addresses for ${rows.length} days (${startDate} to ${endDate})`);
+        return rows;
+    } catch (error) {
+        log.error(`getDailyRevenueFromAddressesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueFromAddressesInRange failed: ${error.message}`);
+    }
+}
+
+// RPC equivalent: get_daily_revenue_usd_from_addresses_in_range
+export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate, addresses) {
+    if (!addresses || addresses.length === 0) return [];
+
+    try {
+        const placeholders = addresses.map(() => '?').join(',');
+        const rows = getDb().prepare(`
+            SELECT date, SUM(COALESCE(amount_usd, 0)) AS daily_revenue_usd
+            FROM revenue_transactions
+            WHERE date BETWEEN ? AND ? AND from_address IN (${placeholders})
+            GROUP BY date
+            ORDER BY date ASC
+        `).all(startDate, endDate, ...addresses);
+
+        log.info(`Retrieved daily USD revenue from ${addresses.length} addresses for ${rows.length} days (${startDate} to ${endDate})`);
+        return rows;
+    } catch (error) {
+        log.error(`getDailyRevenueUSDFromAddressesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueUSDFromAddressesInRange failed: ${error.message}`);
+    }
+}
+
 export async function deleteOldTransactions(daysToKeep = 365) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
