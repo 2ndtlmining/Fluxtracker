@@ -18,7 +18,6 @@ import {
   ROW_KIND_DEPLOYED,
   pickLatestDeployed,
   pickLatestExpiring,
-  isGitDeployment,
   truncateForBox,
   formatDeploymentFrame,
   formatExpiringFrame,
@@ -26,8 +25,7 @@ import {
   formatExpiringReducedMotionLines,
   deploymentFrameKinds,
   expiringFrameKinds,
-  DOCKER_ICON_LINE,
-  GIT_ICON_LINE,
+  DEPLOYED_ICON_LINE,
   EXPIRING_ICON_LINE
 } from './terminalAnimation.js';
 
@@ -278,23 +276,6 @@ describe('pickLatestExpiring', () => {
   });
 });
 
-describe('isGitDeployment', () => {
-  it('is true for a runonflux/orbit repotag, case-insensitively', () => {
-    expect(isGitDeployment('runonflux/orbit:latest')).toBe(true);
-    expect(isGitDeployment('RunOnFlux/Orbit:v2')).toBe(true);
-  });
-
-  it('is false for a regular docker repotag', () => {
-    expect(isGitDeployment('itzg/minecraft-server:latest')).toBe(false);
-  });
-
-  it('is false for empty/missing repo rather than throwing', () => {
-    expect(isGitDeployment('')).toBe(false);
-    expect(isGitDeployment(undefined)).toBe(false);
-    expect(isGitDeployment(null)).toBe(false);
-  });
-});
-
 describe('truncateForBox', () => {
   it('returns short text unchanged', () => {
     expect(truncateForBox('Minecraft')).toBe('Minecraft');
@@ -312,22 +293,27 @@ describe('truncateForBox', () => {
   });
 });
 
-describe('DOCKER_ICON_LINE / GIT_ICON_LINE / EXPIRING_ICON_LINE', () => {
-  it('are all non-empty and no wider than the box', () => {
-    for (const icon of [DOCKER_ICON_LINE, GIT_ICON_LINE, EXPIRING_ICON_LINE]) {
-      expect(icon.length).toBeGreaterThan(0);
-      expect(icon.length).toBeLessThanOrEqual(LOGO_WIDTH);
+describe('DEPLOYED_ICON_LINE / EXPIRING_ICON_LINE', () => {
+  it('are exactly LOGO_WIDTH wide -- built as literal arrow-banner strings, not padded/centered', () => {
+    for (const icon of [DEPLOYED_ICON_LINE, EXPIRING_ICON_LINE]) {
+      expect(icon.length).toBe(LOGO_WIDTH);
     }
   });
 
-  it('are all distinct from each other', () => {
-    const icons = [DOCKER_ICON_LINE, GIT_ICON_LINE, EXPIRING_ICON_LINE];
-    expect(new Set(icons).size).toBe(icons.length);
+  it('are distinct from each other', () => {
+    expect(DEPLOYED_ICON_LINE).not.toBe(EXPIRING_ICON_LINE);
+  });
+
+  it('use directional arrows -- converging for deployed (arriving), diverging for expiring (departing)', () => {
+    expect(DEPLOYED_ICON_LINE.startsWith('>')).toBe(true);
+    expect(DEPLOYED_ICON_LINE.endsWith('<')).toBe(true);
+    expect(EXPIRING_ICON_LINE.startsWith('<')).toBe(true);
+    expect(EXPIRING_ICON_LINE.endsWith('>')).toBe(true);
   });
 });
 
 describe('formatDeploymentFrame', () => {
-  const full = { name: 'Minecraft', repo: '2ndtl/mc:latest', instances: 3, cpu: 2, ram: 4096, hdd: 25, height: 1500000 };
+  const full = { name: 'Minecraft', repo: '2ndtl/mc:latest', instances: 3, cpu: 2, ram: 4096, hdd: 25, blockAge: 10 };
 
   it('is always exactly BOOT_LINE_COUNT rows', () => {
     expect(formatDeploymentFrame(full).length).toBe(BOOT_LINE_COUNT);
@@ -337,28 +323,34 @@ describe('formatDeploymentFrame', () => {
     const frame = formatDeploymentFrame(full);
     expect(frame[0]).toBe(frame[frame.length - 1]);
     expect(frame[0].length).toBe(LOGO_WIDTH);
-    expect(frame[0].trim()).toBe(DOCKER_ICON_LINE.trim());
+    expect(frame[0].trim()).toBe(DEPLOYED_ICON_LINE.trim());
   });
 
-  it('shows the octocat icon for a runonflux/orbit repo', () => {
-    const frame = formatDeploymentFrame({ ...full, repo: 'runonflux/orbit:latest' });
-    expect(frame[0].trim()).toBe(GIT_ICON_LINE.trim());
+  it('never shows the word Docker anywhere in the frame (issue #127)', () => {
+    const text = formatDeploymentFrame(full).join('\n');
+    expect(text.toUpperCase()).not.toContain('DOCKER');
   });
 
-  it('includes name, repo, instance count and resources when all present', () => {
+  it('includes name, time-since-deployment, instance count and resources when all present', () => {
     const text = formatDeploymentFrame(full).join('\n');
     expect(text).toContain('Minecraft');
-    expect(text).toContain('2ndtl/mc:latest');
+    expect(text).toContain('AGO');
+    expect(text).toContain('5m ago'); // 10 blocks * 30s = 300s = 5m
     expect(text).toContain('3');
     expect(text).toContain('CPU');
     expect(text).toContain('RAM');
     expect(text).toContain('SSD');
   });
 
-  it('omits the repo row (not a blank row) when repo is empty, without leaving a gap between real rows', () => {
-    const frame = formatDeploymentFrame({ ...full, repo: '' });
+  it('does not show a REPO row -- dropped in favor of AGO (issue #127, only 4 middle slots)', () => {
+    const text = formatDeploymentFrame(full).join('\n');
+    expect(text).not.toContain('REPO');
+  });
+
+  it('omits the AGO row (not a blank row) when blockAge is missing, without leaving a gap between real rows', () => {
+    const frame = formatDeploymentFrame({ ...full, blockAge: undefined });
     const middle = frame.slice(1, -1); // strip the two icon rows
-    expect(middle.join('\n')).not.toContain('REPO');
+    expect(middle.join('\n')).not.toContain('AGO');
 
     // Any blank filler rows are trailing only -- once a blank row appears, every
     // row after it is blank too, so real content is never followed by a gap.
@@ -383,9 +375,9 @@ describe('formatDeploymentFrame', () => {
     expect(text).not.toContain('NaN');
   });
 
-  it('truncates a long name or repo instead of overflowing the box', () => {
+  it('truncates a long name instead of overflowing the box', () => {
     const longName = 'a'.repeat(200);
-    const frame = formatDeploymentFrame({ ...full, name: longName, repo: longName });
+    const frame = formatDeploymentFrame({ ...full, name: longName });
     for (const line of frame) {
       expect(line.length).toBeLessThanOrEqual(LOGO_WIDTH);
     }
@@ -396,11 +388,6 @@ describe('formatDeploymentFrame', () => {
     expect(text).toContain('4.1G');
     expect(text).toContain('1.5T');
   });
-
-  it('defaults to the docker icon when repo is empty (docker is the fallback type)', () => {
-    const frame = formatDeploymentFrame({ ...full, repo: '' });
-    expect(frame[0].trim()).toBe(DOCKER_ICON_LINE.trim());
-  });
 });
 
 describe('formatExpiringFrame', () => {
@@ -410,7 +397,7 @@ describe('formatExpiringFrame', () => {
     expect(formatExpiringFrame(full).length).toBe(BOOT_LINE_COUNT);
   });
 
-  it('bookends the frame with the hourglass icon top and bottom, matching the box width', () => {
+  it('bookends the frame with the diverging-arrows icon top and bottom, matching the box width', () => {
     const frame = formatExpiringFrame(full);
     expect(frame[0]).toBe(frame[frame.length - 1]);
     expect(frame[0].length).toBe(LOGO_WIDTH);
@@ -492,6 +479,17 @@ describe('formatDeploymentReducedMotionLines', () => {
     expect(text).toContain('Minecraft');
     expect(text).toContain('3');
     expect(text).toContain('LATEST DEPLOYMENT');
+  });
+
+  it('carries a human time-since-deployment when blockAge is present (issue #127)', () => {
+    const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3, blockAge: 10 }).join('\n');
+    expect(text).toContain('5m ago'); // 10 blocks * 30s = 300s = 5m
+  });
+
+  it('omits the time-since-deployment line (not a blank/undefined one) when blockAge is missing', () => {
+    const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).join('\n');
+    expect(text).not.toContain('ago');
+    expect(text).not.toContain('undefined');
   });
 
   it('has no icon or repo/resource content -- reduced motion carries only the essentials', () => {
