@@ -13,8 +13,7 @@
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   import { Package } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
-  import BusiestNodeResourcesCard from '$lib/components/BusiestNodeResourcesCard.svelte';
-  import BusiestNodeAppsCard from '$lib/components/BusiestNodeAppsCard.svelte';
+  import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -421,11 +420,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         {loading}
       />
 
-      <!-- Busiest Node (issue #108) — split across two cards so the node's resource
-           utilization and its full app list each get proper room, rather than one
-           cramped card. -->
-      <BusiestNodeResourcesCard node={busiestNode} loading={busiestNodeLoading} error={busiestNodeError} />
-      <BusiestNodeAppsCard node={busiestNode} loading={busiestNodeLoading} error={busiestNodeError} />
+      <!-- Busiest Node (issue #108) — identity, resource utilization and the app list
+           together in one card; splitting it into two read as two unrelated things. -->
+      <BusiestNodeCard node={busiestNode} loading={busiestNodeLoading} error={busiestNodeError} />
     </div>
 
     <!-- Historical Performance Chart -->

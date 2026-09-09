@@ -1,10 +1,12 @@
 <script>
   import { Server } from 'lucide-svelte';
-  import { formatUtilizationBar } from '$lib/utils/resourceBar.js';
+  import { computeUtilizationPercent } from '$lib/utils/resourceBar.js';
 
-  export let node = null;           // { ip, tier, country, countryCode, appCount, resources } | null
+  export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
   export let loading = false;
   export let error = false;
+
+  $: unresolvedCount = node ? node.appCount - (node.appNames?.length || 0) : 0;
 
   function formatNumber(num) {
     if (!num) return '0';
@@ -38,11 +40,7 @@
       {#if node.country}
         <span class="node-location">{node.country}</span>
       {/if}
-    </div>
-
-    <div class="node-app-count">
-      <span class="count-value">{formatNumber(node.appCount)}</span>
-      <span class="count-label">apps running</span>
+      <span class="node-app-count">{formatNumber(node.appCount)} apps running</span>
     </div>
 
     <div class="node-resources">
@@ -51,16 +49,35 @@
         { label: 'RAM', used: node.resources.ram.used, total: node.resources.ram.total, unit: 'GB' },
         { label: 'SSD', used: node.resources.ssd.used, total: node.resources.ssd.total, unit: 'GB' }
       ] as resource}
-        {@const util = formatUtilizationBar(resource.used, resource.total)}
+        {@const percent = computeUtilizationPercent(resource.used, resource.total)}
         <div class="resource-row">
           <div class="resource-heading">
             <span class="resource-label">{resource.label}</span>
-            <span class="resource-percent">{util.percent}%</span>
+            <span class="resource-percent">{Math.round(percent)}%</span>
           </div>
-          <div class="resource-bar" aria-hidden="true">{util.bar}</div>
+          <div class="resource-track">
+            <div class="resource-fill" style="width: {percent}%"></div>
+          </div>
           <div class="resource-detail">{formatDecimal(resource.used)} / {formatDecimal(resource.total)} {resource.unit}</div>
         </div>
       {/each}
+    </div>
+
+    <div class="node-apps">
+      {#if node.appNames && node.appNames.length > 0}
+        <div class="node-apps-list">
+          {#each node.appNames as name}
+            <span class="app-name-pill">{name}</span>
+          {/each}
+        </div>
+        {#if unresolvedCount > 0}
+          <div class="node-unresolved-note">
+            {unresolvedCount} {unresolvedCount === 1 ? 'app' : 'apps'} not yet identifiable
+          </div>
+        {/if}
+      {:else}
+        <div class="node-apps-empty">No identifiable apps on this node</div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -71,6 +88,8 @@
     padding: var(--spacing-lg);
     border-radius: var(--radius-md);
     transition: all 0.3s ease;
+    display: flex;
+    flex-direction: column;
   }
 
   .busiest-node-card:hover {
@@ -131,7 +150,7 @@
     display: flex;
     align-items: baseline;
     gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
     flex-wrap: wrap;
   }
 
@@ -148,24 +167,10 @@
   }
 
   .node-app-count {
-    display: flex;
-    align-items: baseline;
-    gap: var(--spacing-xs);
-    margin-bottom: var(--spacing-md);
-  }
-
-  .count-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    text-shadow: var(--glow-cyan);
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-  }
-
-  .count-label {
     font-size: 0.75rem;
-    color: var(--text-muted);
+    color: var(--text-primary);
+    margin-left: auto;
+    font-weight: 600;
   }
 
   .node-resources {
@@ -173,13 +178,14 @@
     flex-direction: column;
     gap: var(--spacing-sm);
     padding-top: var(--spacing-sm);
+    padding-bottom: var(--spacing-md);
     border-top: 1px solid var(--border-color);
   }
 
   .resource-row {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.25rem;
   }
 
   .resource-heading {
@@ -202,18 +208,60 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .resource-bar {
-    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
-    font-size: 0.75rem;
-    letter-spacing: -1px;
-    color: var(--text-primary);
-    text-shadow: 0 0 6px rgba(0, 255, 255, 0.35);
-    line-height: 1;
+  .resource-track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(139, 146, 176, 0.15);
+    overflow: hidden;
+  }
+
+  .resource-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--text-primary);
+    box-shadow: 0 0 6px rgba(0, 255, 255, 0.5);
+    transition: width 0.4s ease;
   }
 
   .resource-detail {
     font-size: 0.7rem;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  .node-apps {
+    padding-top: var(--spacing-sm);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .node-apps-empty {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: var(--spacing-sm) 0;
+  }
+
+  .node-apps-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    max-height: 6.5rem;
+    overflow-y: auto;
+  }
+
+  .app-name-pill {
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    background: rgba(0, 255, 255, 0.08);
+    border: 1px solid rgba(0, 255, 255, 0.2);
+    border-radius: var(--radius-sm);
+    padding: 0.25rem 0.6rem;
+  }
+
+  .node-unresolved-note {
+    margin-top: var(--spacing-sm);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
   }
 </style>
