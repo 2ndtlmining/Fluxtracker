@@ -6,10 +6,15 @@
   export let totalApps = 0;
   export let totalComparison = null; // { change: number, trend: 'up'|'down'|'neutral' } | null
 
-  // Deployed/expiring today (issue #108 follow-up) -- deduped counts from
+  // New/updated + expiring today (issue #108 follow-up) -- deduped counts from
   // carouselService.getFluxCloudActivity(), the same function the KPI report and the
   // daily snapshot collector use. null means "not available" (an uncached on-demand
   // fetch failure), never a fabricated 0.
+  //
+  // Labeled "New/Updated" rather than "Deployed" (issue #130): the underlying data is
+  // globalappsspecifications filtered by spec height within the last 24h, which bumps
+  // on ANY spec change -- a resource resize or redeploy of an existing app gets the same
+  // fresh height as a genuinely new deployment, so this count is never purely "new".
   export let deployedToday = null;
   export let deployedComparison = null;
   export let expiringToday = null;
@@ -49,7 +54,7 @@
 
     <div class="activity-grid">
       <div class="activity-metric">
-        <div class="activity-label">Deployed Today</div>
+        <div class="activity-label">New/Updated Today</div>
         <div class="activity-value">{formatNumber(deployedToday)}</div>
         {#if deployedComparison && deployedComparison.change !== undefined}
           <div class="metric-change" class:up={deployedComparison.trend === 'up'} class:down={deployedComparison.trend === 'down'} class:neutral={deployedComparison.trend === 'neutral'}>

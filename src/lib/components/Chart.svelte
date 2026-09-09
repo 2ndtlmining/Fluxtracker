@@ -76,7 +76,7 @@
       color: 'rgb(255, 100, 255)',
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
-        { id: 'apps_deployed_today', label: 'Deployed Today', field: 'apps_deployed_today', format: 'number' },
+        { id: 'apps_deployed_today', label: 'New/Updated Today', field: 'apps_deployed_today', format: 'number' },
         { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number' }
       ]
     },
