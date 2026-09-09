@@ -1,0 +1,902 @@
+<script>
+  import { onMount } from 'svelte';
+  import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
+
+  // Bound to the parent so the shared header (page info, mode badge, export button
+  // enablement) can reflect this view's state.
+  export let currentPage = 1;
+  export let totalPages = 1;
+  export let totalTransactions = 0;
+  export let loading = true;
+  export let error = null;
+  export let mode = 'LIVE'; // for UI indicator
+
+  // IMPORTANT: API_URL must be set in onMount(), not here!
+  let API_URL = '';
+
+  // State
+  let transactions = [];
+
+  // Pagination
+  let perPage = 50;
+
+  // Search
+  let searchQuery = '';
+  let searchTimeout;
+
+  // Computed values
+  $: offset = (currentPage - 1) * perPage;
+  $: pageRange = getPageRange(currentPage, totalPages);
+
+  onMount(() => {
+    // Get API URL in browser context
+    API_URL = getApiUrl();
+
+    fetchTransactions();
+  });
+
+  async function fetchTransactions() {
+    loading = true;
+    error = null;
+
+    try {
+      const params = new URLSearchParams({
+        page: currentPage,
+        limit: perPage,
+        search: searchQuery
+      });
+
+      const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      transactions = result.transactions || [];
+      totalTransactions = result.total || 0;
+      totalPages = Math.ceil(totalTransactions / perPage);
+
+      loading = false;
+    } catch (err) {
+      console.error('Error fetching transactions:', err);
+      error = err.message;
+      loading = false;
+    }
+  }
+
+  function handleSearch(event) {
+    searchQuery = event.target.value;
+
+    // Debounce search
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentPage = 1; // Reset to first page on new search
+      fetchTransactions();
+    }, 300);
+  }
+
+  function goToPage(page) {
+    if (page < 1 || page > totalPages || page === currentPage) return;
+    currentPage = page;
+    fetchTransactions();
+  }
+
+  function previousPage() {
+    if (currentPage > 1) {
+      currentPage--;
+      fetchTransactions();
+    }
+  }
+
+  function nextPage() {
+    if (currentPage < totalPages) {
+      currentPage++;
+      fetchTransactions();
+    }
+  }
+
+  function changePerPage(event) {
+    perPage = parseInt(event.target.value);
+    currentPage = 1;
+    fetchTransactions();
+  }
+
+  function getPageRange(current, total) {
+    const range = [];
+    const delta = 2;
+
+    for (let i = Math.max(2, current - delta); i <= Math.min(total - 1, current + delta); i++) {
+      range.push(i);
+    }
+
+    if (current - delta > 2) {
+      range.unshift('...');
+    }
+    if (current + delta < total - 1) {
+      range.push('...');
+    }
+
+    range.unshift(1);
+    if (total > 1) {
+      range.push(total);
+    }
+
+    return range;
+  }
+
+  function formatTxid(txid) {
+    return txid.substring(0, 18) + '...' + txid.substring(txid.length - 8);
+  }
+
+  function formatAddress(address) {
+    if (!address) return '';
+    if (address === 'Multiple' || address === 'Unknown') return address;
+    return address.substring(0, 15) + '...';
+  }
+
+  function formatAmount(amount) {
+    return amount.toFixed(8);
+  }
+
+  function appTypeLabel(appType) {
+    if (appType === 'git') return 'Git';
+    if (appType === 'docker') return 'Docker';
+    return 'Unknown';
+  }
+
+  function formatUSD(amountUSD) {
+    if (amountUSD === null || amountUSD === undefined) {
+      return '-';
+    }
+    return '$' + amountUSD.toFixed(2);
+  }
+
+  function formatDate(dateStr) {
+    return dateStr; // Already in YYYY-MM-DD format
+  }
+
+  function formatTime(timestamp) {
+    if (!timestamp) return '-';
+    return new Date(timestamp * 1000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'UTC' });
+  }
+
+  function getExplorerUrl(txid) {
+    return `https://explorer.runonflux.io/tx/${txid}`;
+  }
+
+  // CSV Export Function — called by the parent header's export button via bind:this
+  export async function exportToCSV() {
+    if (totalTransactions === 0) {
+      console.warn('⚠️ No transactions to export');
+      return;
+    }
+
+    try {
+      // Show exporting indicator
+      const originalText = mode;
+      mode = 'EXPORTING...';
+
+      // Page through every transaction. Asking for all of them in one request looked like
+      // it worked but the server caps the page size, so exports were silently truncated.
+      const PAGE_SIZE = 5000;
+      const allTransactions = [];
+      let page = 1;
+      let totalPages = 1;
+
+      do {
+        const response = await fetch(
+          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`Export failed on page ${page}: ${response.status}`);
+        }
+
+        const result = await response.json();
+        allTransactions.push(...(result.transactions || []));
+        totalPages = result.totalPages || 1;
+
+        mode = `EXPORTING ${Math.min(page, totalPages)}/${totalPages}...`;
+        page++;
+      } while (page <= totalPages);
+
+      if (allTransactions.length < totalTransactions) {
+        console.warn(`⚠️ Exported ${allTransactions.length} of ${totalTransactions} transactions`);
+      }
+
+      // Build CSV content
+      const headers = ['Type', 'Transaction ID', 'From Address', 'Source', 'App Name', 'Amount (FLUX)', 'Amount (USD)', 'Date', 'Time', 'Block Height'];
+      const rows = allTransactions.map(tx => [
+        appTypeLabel(tx.app_type),
+        tx.txid,
+        tx.from_address || 'Unknown',
+        isFluxTeamAddress(tx.from_address) ? 'Team' : isFluxFiatAddress(tx.from_address) ? 'Fiat' : '',
+        tx.app_name || '-',
+        tx.amount.toFixed(8),
+        tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
+        tx.date,
+        formatTime(tx.timestamp),
+        tx.block_height
+      ]);
+
+      // Convert to CSV string.
+      // App names are free text, so quotes and newlines need escaping too — not just commas.
+      const escapeField = (field) => {
+        const value = field == null ? '' : String(field);
+        if (/[",\n\r]/.test(value)) {
+          return `"${value.replace(/"/g, '""')}"`;
+        }
+        return value;
+      };
+
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(escapeField).join(','))
+      ].join('\n');
+
+      // Create blob and download
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+
+      // Generate filename with timestamp and search query
+      const timestamp = new Date().toISOString().split('T')[0];
+      const searchSuffix = searchQuery ? `_filtered_${searchQuery.substring(0, 10)}` : '';
+      const filename = `flux_revenue_transactions${searchSuffix}_${timestamp}.csv`;
+
+      // Create download link
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.display = 'none';
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the URL object
+      URL.revokeObjectURL(url);
+
+      console.log(`📥 Exported ${allTransactions.length} transactions to ${filename}`);
+
+      // Restore mode indicator
+      mode = originalText;
+
+    } catch (err) {
+      console.error('❌ Export failed:', err);
+      error = 'Export failed: ' + err.message;
+      mode = 'LIVE';
+    }
+  }
+</script>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <div class="status-item">
+    <span class="status-dot"></span>
+    Total TX: <span class="status-value">{totalTransactions.toLocaleString()}</span>
+  </div>
+</div>
+
+<!-- Search Bar -->
+<div class="search-section">
+  <div class="search-label">FILTER TRANSACTIONS:</div>
+  <input
+    type="text"
+    class="search-input"
+    placeholder="search$ txid, address, amount..."
+    bind:value={searchQuery}
+    on:input={handleSearch}
+  />
+</div>
+
+<!-- Table Section -->
+<div class="table-section">
+  <div class="table-header">
+    TRANSACTION <span class="log-count">LOG ({perPage} ENTRIES)</span>:
+  </div>
+
+  {#if loading}
+    <div class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <p>Loading transactions...</p>
+    </div>
+  {:else if error}
+    <div class="error-overlay">
+      <span class="error-icon">⚠️</span>
+      <p>{error}</p>
+      <button class="retry-button" on:click={fetchTransactions}>Retry</button>
+    </div>
+  {:else if transactions.length === 0}
+    <div class="empty-state">
+      <p>No transactions found</p>
+    </div>
+  {:else}
+    <!-- The badges qualify the payer, not the currency: every row settles in FLUX.
+         Spelling that out here rather than leaving it to a hover tooltip, because the
+         two badges side by side otherwise read as "paid in FLUX vs paid in fiat". -->
+    <div class="badge-legend">
+      <span class="flux-team-badge">TEAM</span>
+      <span class="legend-text">funded by the Flux team</span>
+      <span class="flux-fiat-badge">FIAT</span>
+      <span class="legend-text">bought through the Flux fiat on-ramp</span>
+      <span class="legend-note">All payments settle in FLUX.</span>
+    </div>
+    <div class="table-wrapper">
+      <table class="transaction-table">
+        <thead>
+          <tr>
+            <th>TYPE</th>
+            <th>TRANSACTION_ID</th>
+            <th>FROM_ADDRESS</th>
+            <th>APP_NAME</th>
+            <th>AMOUNT_FLUX</th>
+            <th>AMOUNT_USD</th>
+            <th>DATE</th>
+            <th>TIME (UTC)</th>
+            <th>BLOCK</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each transactions as tx}
+            <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)} class:flux-fiat-row={isFluxFiatAddress(tx.from_address)}>
+              <td class="type-col">
+                {#if tx.app_type === 'git'}
+                  <span title="Git" class="type-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" class="icon-git">
+                      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                  </span>
+                {:else if tx.app_type === 'docker'}
+                  <span title="Docker" class="type-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" class="icon-docker">
+                      <path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/>
+                    </svg>
+                  </span>
+                {:else}
+                  <span class="type-unknown" title="Unknown">?</span>
+                {/if}
+              </td>
+              <td class="txid-col">
+                <a
+                  href={getExplorerUrl(tx.txid)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="txid-link"
+                >
+                  {formatTxid(tx.txid)}
+                </a>
+              </td>
+              <td class="address-col">
+                {formatAddress(tx.from_address)}
+                {#if isFluxTeamAddress(tx.from_address)}
+                  <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
+                {:else if isFluxFiatAddress(tx.from_address)}
+                  <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
+                {/if}
+              </td>
+              <td class="app-name-col">{tx.app_name || '-'}</td>
+              <td class="amount-col">{formatAmount(tx.amount)}</td>
+              <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
+              <td class="date-col">{formatDate(tx.date)}</td>
+              <td class="time-col">{formatTime(tx.timestamp)}</td>
+              <td class="block-col">{tx.block_height.toLocaleString()}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
+</div>
+
+<!-- Navigation -->
+<div class="navigation-section">
+  <div class="nav-info">
+    [{offset + 1}-{Math.min(offset + perPage, totalTransactions)}] of {totalTransactions.toLocaleString()} entries
+  </div>
+
+  <div class="pagination">
+    <button
+      class="page-btn"
+      on:click={previousPage}
+      disabled={currentPage === 1 || loading}
+    >
+      ‹
+    </button>
+
+    {#each pageRange as page}
+      {#if page === '...'}
+        <span class="page-dots">...</span>
+      {:else}
+        <button
+          class="page-btn"
+          class:active={page === currentPage}
+          on:click={() => goToPage(page)}
+          disabled={loading}
+        >
+          {page}
+        </button>
+      {/if}
+    {/each}
+
+    <button
+      class="page-btn"
+      on:click={nextPage}
+      disabled={currentPage === totalPages || loading}
+    >
+      ›
+    </button>
+  </div>
+
+  <div class="per-page-selector">
+    <label for="per-page">per-page:</label>
+    <select id="per-page" bind:value={perPage} on:change={changePerPage} disabled={loading}>
+      <option value="25">25</option>
+      <option value="50">50</option>
+      <option value="100">100</option>
+      <option value="200">200</option>
+    </select>
+  </div>
+</div>
+
+<style>
+  /* Status Bar */
+  .status-bar {
+    display: flex;
+    gap: var(--spacing-lg);
+    padding: var(--spacing-sm) 0;
+    margin-bottom: var(--spacing-md);
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    color: var(--text-muted);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .status-value {
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+
+  /* Search Section */
+  .search-section {
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .search-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-xs);
+    font-family: 'Courier New', monospace;
+  }
+
+  .search-input {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s ease;
+  }
+
+  .search-input::placeholder {
+    color: var(--text-dim);
+  }
+
+  .search-input:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+  }
+
+  /* Table Section */
+  .table-section {
+    margin-bottom: var(--spacing-lg);
+    position: relative;
+    min-height: 400px;
+  }
+
+  .table-header {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-sm);
+    font-family: 'Courier New', monospace;
+  }
+
+  .log-count {
+    color: var(--accent-cyan);
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+  }
+
+  .transaction-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+  }
+
+  .transaction-table thead {
+    background: var(--bg-tertiary);
+  }
+
+  .transaction-table th {
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.7rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .transaction-table tbody tr {
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.2s ease;
+  }
+
+  .transaction-table tbody tr:hover {
+    background: rgba(0, 255, 255, 0.05);
+  }
+
+  .transaction-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    color: var(--text-white);
+  }
+
+  .type-col {
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .type-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .icon-git {
+    color: var(--text-primary);
+    filter: drop-shadow(0 0 6px rgba(0, 255, 255, 0.4));
+  }
+
+  .icon-docker {
+    color: var(--text-primary);
+    filter: drop-shadow(0 0 6px rgba(0, 255, 255, 0.4));
+  }
+
+  .type-unknown {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .txid-col {
+    font-family: 'Courier New', monospace;
+  }
+
+  .txid-link {
+    color: var(--accent-cyan);
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+
+  .txid-link:hover {
+    color: var(--text-primary);
+    text-shadow: 0 0 8px var(--accent-cyan);
+  }
+
+  .address-col {
+    color: var(--text-dim);
+    font-size: 0.75rem;
+  }
+
+  .app-name-col {
+    color: var(--accent-cyan);
+    font-size: 0.75rem;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .amount-col {
+    color: var(--accent-green);
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .amount-usd-col {
+    color: var(--accent-purple);
+    font-weight: 700;
+    text-align: right;
+    font-family: 'Courier New', monospace;
+  }
+
+  .date-col {
+    color: var(--text-white);
+  }
+
+  .time-col {
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .block-col {
+    color: var(--accent-cyan);
+    text-align: right;
+  }
+
+  /* Loading/Error States */
+  .loading-overlay,
+  .error-overlay,
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    color: var(--text-muted);
+    gap: var(--spacing-md);
+  }
+
+  .loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .error-icon {
+    font-size: 2rem;
+  }
+
+  .retry-button {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .retry-button:hover {
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+  }
+
+  /* Navigation */
+  .navigation-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-color);
+    font-family: 'Courier New', monospace;
+    font-size: 0.875rem;
+    flex-wrap: wrap;
+  }
+
+  .nav-info {
+    color: var(--text-muted);
+  }
+
+  .pagination {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: center;
+  }
+
+  .page-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-white);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 32px;
+    text-align: center;
+  }
+
+  .page-btn:hover:not(:disabled) {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 255, 255, 0.1);
+  }
+
+  .page-btn.active {
+    background: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+    color: var(--bg-primary);
+    font-weight: 700;
+  }
+
+  .page-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .page-dots {
+    color: var(--text-dim);
+    padding: 0 var(--spacing-xs);
+  }
+
+  .per-page-selector {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    color: var(--text-muted);
+  }
+
+  .per-page-selector select {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-white);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .per-page-selector select:hover {
+    border-color: var(--accent-cyan);
+  }
+
+  .per-page-selector select:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px rgba(0, 255, 255, 0.2);
+  }
+
+  /* Flux Team/Fiat Highlighting */
+  .flux-team-row {
+    background: rgba(189, 147, 249, 0.06) !important;
+    border-left: 2px solid rgba(189, 147, 249, 0.4);
+  }
+
+  .flux-team-row:hover {
+    background: rgba(189, 147, 249, 0.12) !important;
+  }
+
+  .flux-team-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--accent-purple);
+    background: rgba(189, 147, 249, 0.15);
+    border: 1px solid rgba(189, 147, 249, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.4rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .flux-fiat-row {
+    background: rgba(241, 196, 83, 0.06) !important;
+    border-left: 2px solid rgba(241, 196, 83, 0.4);
+  }
+
+  .flux-fiat-row:hover {
+    background: rgba(241, 196, 83, 0.12) !important;
+  }
+
+  .flux-fiat-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #f1c453;
+    background: rgba(241, 196, 83, 0.15);
+    border: 1px solid rgba(241, 196, 83, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.4rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  /* Key for the two payer badges. Understated on purpose — a footnote above the table,
+     matching the treatment of .self-funded on the revenue card. */
+  .badge-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    margin-bottom: var(--spacing-sm);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  /* The badges carry a left margin for their in-table use, which reads as a stray gap here. */
+  .badge-legend .flux-team-badge,
+  .badge-legend .flux-fiat-badge {
+    margin-left: 0;
+  }
+
+  .legend-text {
+    margin-right: 0.4rem;
+  }
+
+  .legend-note {
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .navigation-section {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .pagination {
+      justify-content: center;
+    }
+
+    .per-page-selector {
+      justify-content: flex-end;
+    }
+
+    .transaction-table {
+      font-size: 0.7rem;
+    }
+
+    .transaction-table th,
+    .transaction-table td {
+      padding: var(--spacing-xs) var(--spacing-sm);
+    }
+
+    .badge-legend {
+      font-size: 0.65rem;
+    }
+  }
+</style>
