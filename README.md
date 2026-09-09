@@ -926,11 +926,23 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 
 ```
 src/
-  server.js                    # Express API server + scheduler startup
+  server.js                    # Express bootstrap: middleware, CORS, router mounting, startup
   routes/
     +page.svelte               # Main dashboard page
+    api/                       # Express route modules (feature-based, issue #123)
+      core.js                  # /api/header, /api/stats, /api/health*
+      dashboard.js             # /api/carousel/*, /api/apps/activity, /api/busiest-node, /api/decentralization*
+      kpi.js                   # /api/kpi/*, /api/kpi-report
+      revenue.js               # /api/revenue/*, /api/transactions/*
+      history.js               # /api/history/*
+      analytics.js             # /api/analytics/*, /api/metrics/*, /api/categories/*
+      admin.js                 # /api/admin/* (sync triggers, status/diagnostic reads, manual snapshots)
+      admin/
+        backup.js               # /api/admin/* failover + Cloudflare R2 backup/restore
+        backfill.js             # /api/admin/* data backfills + transaction audit
   lib/
-    config.js                  # All configuration (addresses, intervals, categories, API URLs)
+    serverHelpers.js            # Shared route helpers: withDbFallback, createCache, calculateChange
+    config.js                   # All configuration (addresses, intervals, categories, API URLs)
     components/                # Svelte components (StatCard, Chart, RevenueTransactions, KpiModal, TerminalHeaderAnimation, etc.)
     kpi/
       periods.js               # KPI period arithmetic (pure, unit-tested)
