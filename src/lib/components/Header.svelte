@@ -18,6 +18,12 @@
   let lastSnapshotDate = 'N/A';
   let lastSyncBlock = null;
 
+  // Decentralization coverage counter (issue #120): unique node-IP classification
+  // progress, next to uptime in Row 2. A different denominator than totalNodes above
+  // (raw node-instance count) -- see DecentralizationCard.svelte's tooltip.
+  let ipsClassified = 0;
+  let ipsTotal = 0;
+
   // Host stats
   let platform = '...';
   let hostLocation = null;
@@ -117,6 +123,8 @@
       const newBlockHeight = data.network.blockHeight;
       totalNodes = data.network.totalNodes;
       totalApps = data.network.totalApps;
+      ipsClassified = data.network.decentralizationCoverage?.classified ?? 0;
+      ipsTotal = data.network.decentralizationCoverage?.total ?? 0;
 
       // Tracker
       const uptimeSeconds = Math.floor(data.tracker.uptime);
@@ -252,6 +260,10 @@
       <div class="stats-line">
         <span class="system-stat">
           up <span class="system-stat-value">{uptime}</span>
+        </span>
+        <span class="stat-separator">|</span>
+        <span class="system-stat">
+          IPs <span class="system-stat-value">{formatNumber(ipsClassified)}/{formatNumber(ipsTotal)}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">

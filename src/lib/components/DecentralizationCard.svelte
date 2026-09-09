@@ -1,5 +1,5 @@
 <script>
-  import { Globe } from 'lucide-svelte';
+  import { Globe, Info } from 'lucide-svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
@@ -21,6 +21,13 @@
     if (num === null || num === undefined) return '--';
     return `${num.toFixed(1)}%`;
   }
+
+  // Coverage moved off the card and into the header's live IPs counter (issue #120) --
+  // this tooltip is what's left to explain the number where a reader might expect it.
+  $: coverageTooltip = hasData
+    ? `${formatPercent(stats.coveragePercent)} coverage — ${formatNumber(stats.classifiedCount)} of ${formatNumber(stats.totalNodes)} unique node IPs classified so far. ` +
+      `Coverage tracks classification progress against unique node IPs, not the node-instance count shown elsewhere on the dashboard (which counts multiple app slots per host separately).`
+    : '';
 </script>
 
 <div class="decentralization-card terminal-border" class:loading>
@@ -43,7 +50,12 @@
   {:else}
     <div class="metric-row">
       <div class="metric-heading">
-        <span class="metric-label">In known datacenters</span>
+        <span class="metric-label-group">
+          <span class="metric-label">In known datacenters</span>
+          <span class="info-icon" title={coverageTooltip} tabindex="0" role="img" aria-label={coverageTooltip}>
+            <Info size={12} strokeWidth={2} />
+          </span>
+        </span>
         <span class="metric-value-group">
           <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
           {#if comparison}
@@ -56,15 +68,6 @@
       </div>
       <div class="ascii-bar">{formatAsciiBar(stats.datacenterPercent)}</div>
       <div class="metric-detail">{formatNumber(stats.datacenterCount)} of {formatNumber(stats.classifiedCount)} classified nodes</div>
-    </div>
-
-    <div class="coverage-row">
-      <div class="metric-heading">
-        <span class="metric-label">Coverage</span>
-        <span class="metric-value">{formatPercent(stats.coveragePercent)}</span>
-      </div>
-      <div class="ascii-bar">{formatAsciiBar(stats.coveragePercent)}</div>
-      <div class="metric-detail">{formatNumber(stats.classifiedCount)} of {formatNumber(stats.totalNodes)} nodes classified so far</div>
     </div>
 
     <div class="datacenters-section">
@@ -154,12 +157,6 @@
     margin-bottom: var(--spacing-md);
   }
 
-  .coverage-row {
-    margin-bottom: var(--spacing-md);
-    padding-bottom: var(--spacing-sm);
-    border-bottom: 1px solid var(--border-color);
-  }
-
   .metric-heading {
     display: flex;
     align-items: baseline;
@@ -172,6 +169,27 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  .metric-label-group {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  /* Coverage info icon (issue #120): the coverage number itself moved to the header's
+     IPs counter -- this is what's left on the card to explain what "% classified"
+     means and why it uses a different denominator than the node-instance count. */
+  .info-icon {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-muted);
+    cursor: help;
+  }
+
+  .info-icon:hover,
+  .info-icon:focus-visible {
+    color: var(--text-primary);
   }
 
   .metric-value {
@@ -244,6 +262,11 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+    /* Issue #120: fill the vertical space CSS Grid's default align-items: stretch already
+       gives this card in .stats-grid-wide (stretched to match Busiest Node's height) now
+       that the coverage-row above it is gone. CSS-only -- no ResizeObserver/JS measurement,
+       see TOP_DATACENTERS_LIMIT in decentralizationService.js for the paired row-count bump. */
+    flex: 1;
   }
 
   .section-label {

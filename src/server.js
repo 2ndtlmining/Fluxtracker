@@ -349,14 +349,17 @@ app.get('/api/health', async (req, res) => {
 // Consolidated header stats endpoint (replaces separate /api/health + /api/stats calls from header)
 app.get('/api/header', async (req, res) => {
     return withDbFallback(headerCache, 'header', res, async () => {
-        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus, dbReachable] = await Promise.all([
+        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus, dbReachable, decentralizationStats] = await Promise.all([
             getCurrentMetrics(),
             getDatabaseStats(),
             getLastNSnapshots(1),
             getSyncStatus('revenue'),
             getTxidCount(),
             getSnapshotSystemStatus(),
-            probeDb()
+            probeDb(),
+            // Issue #120: header's live IPs counter. Rides getDecentralizationStats()'s own
+            // in-memory cache (decentralizationService.js) -- no new fetch, no new endpoint.
+            getDecentralizationStats().catch(() => null)
         ]);
 
         // Fetch block height and ArcaneOS codename in parallel (external API calls)
@@ -386,7 +389,15 @@ app.get('/api/header', async (req, res) => {
                 blockHeight,
                 totalNodes: metrics?.node_total || 0,
                 totalApps: metrics?.total_apps || 0,
-                arcaneOsCodename
+                arcaneOsCodename,
+                // Issue #120: unique-IP classification progress, shown next to uptime in
+                // Header.svelte's Row 2. Deliberately a different denominator than totalNodes
+                // above (node-instance count) -- see decentralizationService.js's own comment
+                // on classifiedCount/totalNodes and the card's tooltip that explains the split.
+                decentralizationCoverage: {
+                    classified: decentralizationStats?.classifiedCount ?? 0,
+                    total: decentralizationStats?.totalNodes ?? 0
+                }
             },
             tracker: {
                 uptime: process.uptime(),

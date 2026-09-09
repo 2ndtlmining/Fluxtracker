@@ -287,19 +287,22 @@ describe('getDecentralizationStats', () => {
         expect(stats.otherProviderCount).toBe(0);
     });
 
-    it('caps topDatacenters at 3 and reports the rest via otherProviderCount', async () => {
-        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5']);
+    it('caps topDatacenters at 6 and reports the rest via otherProviderCount', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5', '6', '7', '8']);
         getAllNodeIpClassifications.mockResolvedValue([
             { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() },
             { ip: '2', org: 'Provider B', isDatacenter: true, classifiedAt: Date.now() },
             { ip: '3', org: 'Provider C', isDatacenter: true, classifiedAt: Date.now() },
             { ip: '4', org: 'Provider D', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '5', org: 'Provider E', isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '5', org: 'Provider E', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '6', org: 'Provider F', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '7', org: 'Provider G', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '8', org: 'Provider H', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         const stats = await getDecentralizationStats();
 
-        expect(stats.topDatacenters).toHaveLength(3);
+        expect(stats.topDatacenters).toHaveLength(6);
         expect(stats.otherProviderCount).toBe(2);
     });
 
@@ -381,7 +384,7 @@ describe('getFullDatacenterBreakdown', () => {
             { org: 'Provider D', count: 1 },
             { org: '(independent)', count: 2 }
         ]));
-        expect(breakdown).toHaveLength(5); // not capped at 3, unlike topDatacenters
+        expect(breakdown).toHaveLength(5); // not capped at 6, unlike topDatacenters
     });
 
     it('groups a missing/null org under "Unknown"', async () => {

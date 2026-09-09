@@ -87,7 +87,10 @@ export async function classifyIp(rawIp) {
     throw new Error(errors.join('; '));
 }
 
-const TOP_DATACENTERS_LIMIT = 3;
+// Issue #120: raised from 3 to fill the card's stretched height now that the coverage-row
+// (moved to the header's IPs counter) freed up vertical space -- see DecentralizationCard's
+// .datacenters-section flex:1.
+const TOP_DATACENTERS_LIMIT = 6;
 
 /**
  * Groups the classified-as-datacenter rows by org, sorted by count. `percent` on each
