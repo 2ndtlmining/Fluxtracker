@@ -19,7 +19,9 @@
     composeRevealKinds,
     formatSyncBlocksLine,
     formatTransactionsLine,
-    formatNetworkLine
+    formatNetworkLine,
+    formatDeploymentFrame,
+    formatDeploymentReducedMotionLines
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -33,6 +35,7 @@
   export let dbStatus = 'checking';
   export let dataReady = false;
   export let syncRequest = null;
+  export let deploymentRequest = null;
 
   const dispatch = createEventDispatcher();
 
@@ -63,7 +66,14 @@
   const SYNC_HOLD3_MS = 150 * SYNC_SLOWDOWN;  // beat after the counter lands before the logo repaints
   const SYNC_PHASE3_MS = REVEAL_MS;           // text -> logo, reveals top-down — same pace as boot
 
-  let state = 'booting'; // 'booting' | 'ready' | 'syncing'
+  // Deployment event (issues #98 / #104 Phase 1) -- one combined frame, wiped in and out
+  // at the shared REVEAL_MS pace, held long enough to read per issue #98's ~10s budget.
+  const DEPLOY_SLOWDOWN = 2;
+  const DEPLOY_TRANSITION_MS = REVEAL_MS;
+  const DEPLOY_HOLD_MS = 4000 * DEPLOY_SLOWDOWN;      // full detail frame, readable hold
+  const DEPLOY_OVERFLOW_HOLD_MS = 1000 * DEPLOY_SLOWDOWN; // "+N more deployed" tally, brief
+
+  let state = 'booting'; // 'booting' | 'ready' | 'syncing' | 'deploying'
   // The single fixed box: every phase of the header (boot text, logo, sync
   // frames) is rendered here, always exactly LOGO_LINES.length rows, so the
   // header keeps one constant size from first paint onwards.
@@ -75,6 +85,8 @@
 
   let lastHandledSyncId = null;
   let activeSyncEnd = null;
+  let lastHandledDeploymentId = null;
+  let deploymentAriaLabel = '';
 
   let timeouts = [];
   let rafId = null;
@@ -327,12 +339,77 @@
     });
   }
 
+  /**
+   * Deployment event (issues #98 / #104 Phase 1): one wipe from the logo into the
+   * combined detail frame (icon/NAME/REPO/INST/RES/icon), a readable hold, one wipe
+   * back to the logo. `deployment.overflowCount` (set by Header.svelte for a queued
+   * "+N more deployed" tally instead of a real deployment) renders through the same
+   * formatDeploymentFrame-shaped path but held only briefly -- it's a tally, not
+   * detail meant to be read closely.
+   */
+  function startDeployment(deployment) {
+    state = 'deploying';
+    const isOverflowTick = Number.isFinite(deployment.overflowCount);
+    const instances = Number.isFinite(deployment.instances) ? deployment.instances : 0;
+    deploymentAriaLabel = isOverflowTick
+      ? `${deployment.overflowCount} more apps deployed`
+      : `New deployment: ${deployment.name}, ${instances} ${instances === 1 ? 'instance' : 'instances'}`;
+
+    const finish = () => {
+      state = 'ready';
+      deploymentAriaLabel = '';
+      dispatch('deploymentComplete');
+    };
+
+    if (reducedMotion) {
+      frameLines = isOverflowTick
+        ? padLines([`  +${deployment.overflowCount} MORE DEPLOYED`], BOOT_LINE_COUNT)
+        : formatDeploymentReducedMotionLines(deployment);
+      frameKinds = textKinds();
+      schedule(() => {
+        frameLines = LOGO_LINES;
+        frameKinds = logoKinds();
+        finish();
+      }, 30);
+      return;
+    }
+
+    const detailFrame = isOverflowTick
+      ? padLines([`  +${deployment.overflowCount} MORE DEPLOYED`], BOOT_LINE_COUNT)
+      : formatDeploymentFrame(deployment);
+    const holdMs = isOverflowTick ? DEPLOY_OVERFLOW_HOLD_MS : DEPLOY_HOLD_MS;
+
+    runReveal(LOGO_LINES, logoKinds(), detailFrame, textKinds(), 'top-down', DEPLOY_TRANSITION_MS, () => {
+      frameLines = detailFrame;
+      frameKinds = textKinds();
+      schedule(() => {
+        runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', DEPLOY_TRANSITION_MS, () => {
+          frameLines = LOGO_LINES;
+          frameKinds = logoKinds();
+          finish();
+        });
+      }, holdMs);
+    });
+  }
+
   $: if (syncRequest && syncRequest.id !== lastHandledSyncId) {
     lastHandledSyncId = syncRequest.id;
     if (state === 'syncing') {
       activeSyncEnd = mergeSyncTarget(activeSyncEnd, syncRequest.to);
     } else if (state === 'ready') {
       startSync(syncRequest.from, syncRequest.to);
+    }
+  }
+
+  // Header.svelte owns the deployment queue and only sends a new deploymentRequest once
+  // this component isn't mid-event (see the design spec's "minimal event abstraction"
+  // section), so the only real decision here is "am I ready right now." A request that
+  // arrives while not ready is simply not started; Header.svelte redelivers it (or the
+  // next queued one) once deploymentComplete fires.
+  $: if (deploymentRequest && deploymentRequest.id !== lastHandledDeploymentId) {
+    lastHandledDeploymentId = deploymentRequest.id;
+    if (state === 'ready') {
+      startDeployment(deploymentRequest);
     }
   }
 
@@ -352,6 +429,7 @@
   class="terminal-box"
   class:settled={logoSettled}
   style="--box-rows: {BOOT_LINE_COUNT};"
+  aria-label={deploymentAriaLabel || 'Flux network status'}
 >{#each frameLines as line, i}<span class="row-{frameKinds[i]}">{line + '\n'}</span>{/each}</pre>
 
 <style>
