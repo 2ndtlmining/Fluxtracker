@@ -111,13 +111,14 @@ describe('buildKpiDataset', () => {
             storage_utilization_percent: 29.7,
             flux_price_usd: 0.4213,
             total_apps: 6400,
+            decentralization_datacenter_percent: 35.2,
             ...overrides
         }));
     }
 
     const revenue = { flux: 1000, usd: 42, days: 7 };
 
-    it('produces all four sections with every metric', () => {
+    it('produces all five sections with every metric', () => {
         const d = buildKpiDataset({
             current, comparison,
             currentSnapshots: makeSnapshots(),
@@ -126,9 +127,9 @@ describe('buildKpiDataset', () => {
             comparisonRevenue: revenue
         });
 
-        expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications']);
-        expect(d.totalMetrics).toBe(18);   // 7 revenue + 4 nodes + 6 resources + 1 apps
-        expect(d.availableMetrics).toBe(18);
+        expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications', 'decentralization']);
+        expect(d.totalMetrics).toBe(19);   // 7 revenue + 4 nodes + 6 resources + 1 apps + 1 decentralization
+        expect(d.availableMetrics).toBe(19);
         expect(d.empty).toBe(false);
     });
 
@@ -169,8 +170,8 @@ describe('buildKpiDataset', () => {
             expect(deployed.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
             expect(expiring.available).toBe(true);
             expect(expiring.current).toBe(12);
-            expect(d.totalMetrics).toBe(20);
-            expect(d.availableMetrics).toBe(20);
+            expect(d.totalMetrics).toBe(21);
+            expect(d.availableMetrics).toBe(21);
         });
 
         it('an absent reading is unavailable, not a fake zero', () => {
@@ -190,7 +191,7 @@ describe('buildKpiDataset', () => {
             expect(deployed.current).toBeNull();
             expect(expiring.available).toBe(true);
             // The rest of the report is still deliverable
-            expect(d.availableMetrics).toBe(19);
+            expect(d.availableMetrics).toBe(20);
             expect(d.empty).toBe(false);
         });
     });
@@ -311,7 +312,7 @@ describe('buildKpiDataset', () => {
         expect(byKey.ram.available).toBe(true);
         expect(resources.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(16);   // 18 total, less ssd and ssdPercent
+        expect(d.availableMetrics).toBe(17);   // 19 total, less ssd and ssdPercent
     });
 
     it('never reports a metric when only one of the two periods has data', () => {
@@ -403,6 +404,53 @@ describe('sumDaily', () => {
     it('sums a daily series and tolerates gaps', () => {
         expect(sumDaily([{ v: 1 }, { v: 2 }, {}, { v: null }], 'v')).toBe(3);
         expect(sumDaily([], 'v')).toBe(0);
+    });
+});
+
+describe('decentralization section', () => {
+    it('averages decentralization_datacenter_percent like every other resources-style metric', () => {
+        const currentSnapshots = [
+            { decentralization_datacenter_percent: 40 },
+            { decentralization_datacenter_percent: 44 }
+        ];
+        const comparisonSnapshots = [
+            { decentralization_datacenter_percent: 30 },
+            { decentralization_datacenter_percent: 30 }
+        ];
+
+        const dataset = buildKpiDataset({
+            current: { start: '2026-09-01', end: '2026-09-02' },
+            comparison: { start: '2026-08-30', end: '2026-08-31' },
+            currentSnapshots,
+            comparisonSnapshots,
+            currentRevenue: { flux: 0, usd: 0, selfFunded: 0, selfFundedShare: 0, fiat: 0, fiatShare: 0 },
+            comparisonRevenue: { flux: 0, usd: 0, selfFunded: 0, selfFundedShare: 0, fiat: 0, fiatShare: 0 }
+        });
+
+        const section = dataset.sections.find(s => s.key === 'decentralization');
+        expect(section).toBeDefined();
+        expect(section.title).toBe('Decentralization');
+        expect(section.aggregation).toBe('average');
+
+        const metric = section.metrics.find(m => m.key === 'datacenterPercent');
+        expect(metric.current).toBe(42); // avg(40, 44)
+        expect(metric.comparison).toBe(30);
+        expect(metric.available).toBe(true);
+    });
+
+    it('is unavailable (Insufficient data) when a day in the period has no reading', () => {
+        const dataset = buildKpiDataset({
+            current: { start: '2026-09-01', end: '2026-09-02' },
+            comparison: { start: '2026-08-30', end: '2026-08-31' },
+            currentSnapshots: [{ decentralization_datacenter_percent: 40 }], // only 1 of 2 days
+            comparisonSnapshots: [{ decentralization_datacenter_percent: 30 }, { decentralization_datacenter_percent: 30 }],
+            currentRevenue: { flux: 0, usd: 0, selfFunded: 0, selfFundedShare: 0, fiat: 0, fiatShare: 0 },
+            comparisonRevenue: { flux: 0, usd: 0, selfFunded: 0, selfFundedShare: 0, fiat: 0, fiatShare: 0 }
+        });
+
+        const section = dataset.sections.find(s => s.key === 'decentralization');
+        const metric = section.metrics.find(m => m.key === 'datacenterPercent');
+        expect(metric.available).toBe(false);
     });
 });
 

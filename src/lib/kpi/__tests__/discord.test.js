@@ -50,6 +50,7 @@ describe('buildDiscordPayload', () => {
         cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
         flux_price_usd: 0.4213,
         total_apps: 6400,
+        decentralization_datacenter_percent: 35.2,
         ...overrides
     }));
 
@@ -82,6 +83,7 @@ describe('buildDiscordPayload', () => {
             'Nodes - AVERAGE',
             'Resource Utilization - AVERAGE',
             'Applications - AVERAGE',
+            'Decentralization - AVERAGE',
             'Data coverage'
         ]);
         expect(embed.footer.text).toBe('via FluxTracker');
@@ -144,7 +146,7 @@ describe('buildDiscordPayload', () => {
         })).embeds[0];
 
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
-        expect(coverage.value).toContain('2 of 18 metrics are not reported');
+        expect(coverage.value).toContain('2 of 19 metrics are not reported');
         expect(embed.fields[2].value).toContain('Insufficient data (7 days missing)');
     });
 
@@ -220,7 +222,7 @@ describe('buildDiscordPayload', () => {
         it('drops the aggregation suffix and note — daily snapshots are not averaged', () => {
             const embed = buildDiscordPayload(dailyReport()).embeds[0];
             const names = embed.fields.map(f => f.name);
-            expect(names).toEqual(['Revenue', 'Nodes', 'Resource Utilization', 'Applications', 'Data coverage']);
+            expect(names).toEqual(['Revenue', 'Nodes', 'Resource Utilization', 'Applications', 'Decentralization', 'Data coverage']);
             for (const field of embed.fields) {
                 expect(field.value).not.toContain('AVERAGE');
                 expect(field.value).not.toContain('SUM of all days');

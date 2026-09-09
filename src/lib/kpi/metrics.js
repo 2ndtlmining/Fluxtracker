@@ -105,6 +105,15 @@ export const SECTIONS = [
         metrics: [
             { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' }
         ]
+    },
+    {
+        key: 'decentralization',
+        title: 'Decentralization',
+        source: 'daily_snapshots',
+        aggregation: 'average',
+        metrics: [
+            { key: 'datacenterPercent', label: '% Datacenter', column: 'decentralization_datacenter_percent', format: 'percent' }
+        ]
     }
 ];
 
