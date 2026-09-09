@@ -12,11 +12,15 @@ vi.mock('../database.js', () => ({
     getSnapshotByDate: vi.fn(),
     getRevenueForDateRange: vi.fn(() => 123.45),
     createDecentralizationSnapshots: vi.fn(),
+    createDecentralizationCountrySnapshots: vi.fn(),
+    createDecentralizationContinentSnapshots: vi.fn(),
 }));
 
 vi.mock('../../services/decentralizationService.js', () => ({
     getDecentralizationStats: vi.fn(),
     getFullDatacenterBreakdown: vi.fn(() => Promise.resolve([])),
+    getFullCountryBreakdown: vi.fn(() => Promise.resolve([])),
+    getFullContinentBreakdown: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('../../services/cloudService.js', () => ({
@@ -56,10 +60,17 @@ import {
     getSnapshotByDate,
     getRevenueForDateRange,
     createDecentralizationSnapshots,
+    createDecentralizationCountrySnapshots,
+    createDecentralizationContinentSnapshots,
 } from '../database.js';
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
-import { getDecentralizationStats, getFullDatacenterBreakdown } from '../../services/decentralizationService.js';
+import {
+    getDecentralizationStats,
+    getFullDatacenterBreakdown,
+    getFullCountryBreakdown,
+    getFullContinentBreakdown,
+} from '../../services/decentralizationService.js';
 import { getFluxCloudActivity } from '../../services/carouselService.js';
 
 // ============================================
@@ -137,6 +148,8 @@ describe('snapshotManager', () => {
         getLatestRepoCounts.mockReturnValue(null);
         getDecentralizationStats.mockResolvedValue({ datacenterCount: 40, classifiedCount: 100, datacenterPercent: 40 });
         getFullDatacenterBreakdown.mockResolvedValue([]);
+        getFullCountryBreakdown.mockResolvedValue([]);
+        getFullContinentBreakdown.mockResolvedValue([]);
         getFluxCloudActivity.mockResolvedValue({
             deployedToday: { cached: true, apps: [{ name: 'app-a' }, { name: 'app-b' }] },
             expiring24h: { cached: true, apps: [{ name: 'app-c' }] },
@@ -361,6 +374,51 @@ describe('snapshotManager', () => {
 
             expect(result.success).toBe(true);
             expect(createDecentralizationSnapshots).not.toHaveBeenCalled();
+        });
+
+        it('calls createDecentralizationCountrySnapshots and createDecentralizationContinentSnapshots with their breakdowns (issue #138)', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            const countryBreakdown = [{ country: 'Germany', countryCode: 'DE', count: 45 }];
+            const continentBreakdown = [{ continent: 'Europe', continentCode: 'EU', count: 45 }];
+            getFullCountryBreakdown.mockResolvedValue(countryBreakdown);
+            getFullContinentBreakdown.mockResolvedValue(continentBreakdown);
+
+            const result = await takeManualSnapshot();
+
+            expect(createDecentralizationCountrySnapshots).toHaveBeenCalledWith(result.snapshotDate, countryBreakdown);
+            expect(createDecentralizationContinentSnapshots).toHaveBeenCalledWith(result.snapshotDate, continentBreakdown);
+        });
+
+        it('skips the country/continent snapshot writes when their breakdowns are empty, without failing the snapshot', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getFullCountryBreakdown.mockResolvedValue([]);
+            getFullContinentBreakdown.mockResolvedValue([]);
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            expect(createDecentralizationCountrySnapshots).not.toHaveBeenCalled();
+            expect(createDecentralizationContinentSnapshots).not.toHaveBeenCalled();
+        });
+
+        it('a country breakdown failure does not block the org breakdown, the continent breakdown, or the daily_snapshots row', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            const orgBreakdown = [{ org: 'Hetzner', count: 45 }];
+            const continentBreakdown = [{ continent: 'Europe', continentCode: 'EU', count: 45 }];
+            getFullDatacenterBreakdown.mockResolvedValue(orgBreakdown);
+            getFullCountryBreakdown.mockRejectedValue(new Error('classification cache unavailable'));
+            getFullContinentBreakdown.mockResolvedValue(continentBreakdown);
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            expect(createDailySnapshot).toHaveBeenCalledTimes(1);
+            // Country/continent are each in their own try/catch (unlike the pre-existing
+            // shared stats+org fetch) -- country failing doesn't stop continent from being
+            // attempted and written.
+            expect(createDecentralizationSnapshots).toHaveBeenCalledWith(result.snapshotDate, orgBreakdown);
+            expect(createDecentralizationCountrySnapshots).not.toHaveBeenCalled();
+            expect(createDecentralizationContinentSnapshots).toHaveBeenCalledWith(result.snapshotDate, continentBreakdown);
         });
 
         it('a decentralizationService failure does not block the daily_snapshots row from being written', async () => {

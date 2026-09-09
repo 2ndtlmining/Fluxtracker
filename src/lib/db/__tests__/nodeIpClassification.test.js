@@ -41,8 +41,18 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
         ]);
 
         expect(await readBack(['10.10.10.1'])).toEqual([
-            { ip: '10.10.10.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt }
+            { ip: '10.10.10.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt, country: null, countryCode: null, continent: null, continentCode: null }
         ]);
+    });
+
+    it('round-trips country/continent through upsert and read (issue #138)', async () => {
+        await adapter.upsertNodeIpClassifications([
+            { ip: '10.10.10.8', asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now(), country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' }
+        ]);
+
+        const [row] = await readBack(['10.10.10.8']);
+
+        expect(row).toMatchObject({ country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' });
     });
 
     it('stores isDatacenter=false as a real false, not just falsy', async () => {
@@ -77,7 +87,7 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
         ]);
 
         expect(await readBack(['10.10.10.6'])).toEqual([
-            { ip: '10.10.10.6', org: 'New Org', isDatacenter: true, classifiedAt: 2000 }
+            { ip: '10.10.10.6', org: 'New Org', isDatacenter: true, classifiedAt: 2000, country: null, countryCode: null, continent: null, continentCode: null }
         ]);
     });
 

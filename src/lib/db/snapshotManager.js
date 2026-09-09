@@ -11,10 +11,17 @@ import {
     getCurrentMetrics,
     getSnapshotByDate,
     getRevenueForDateRange,
-    createDecentralizationSnapshots
+    createDecentralizationSnapshots,
+    createDecentralizationCountrySnapshots,
+    createDecentralizationContinentSnapshots
 } from './database.js';
 import { getLatestRepoCounts } from '../services/cloudService.js';
-import { getDecentralizationStats, getFullDatacenterBreakdown } from '../services/decentralizationService.js';
+import {
+    getDecentralizationStats,
+    getFullDatacenterBreakdown,
+    getFullCountryBreakdown,
+    getFullContinentBreakdown
+} from '../services/decentralizationService.js';
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
@@ -180,6 +187,22 @@ async function takeSnapshot() {
         } catch (error) {
             log.warn(`Decentralization data unavailable for this snapshot: ${error.message}`);
         }
+
+        // Issue #138: country/continent breakdown, each in its own try/catch so one failing
+        // doesn't stop the other from being attempted (unlike the shared stats+org fetch
+        // above, which is pre-existing and left as-is) -- and never blocks the headline row.
+        let decentralizationCountryBreakdown = [];
+        try {
+            decentralizationCountryBreakdown = await getFullCountryBreakdown();
+        } catch (error) {
+            log.warn(`Decentralization country breakdown unavailable for this snapshot: ${error.message}`);
+        }
+        let decentralizationContinentBreakdown = [];
+        try {
+            decentralizationContinentBreakdown = await getFullContinentBreakdown();
+        } catch (error) {
+            log.warn(`Decentralization continent breakdown unavailable for this snapshot: ${error.message}`);
+        }
         const hasDecentralizationClassifications = (decentralization?.classifiedCount ?? 0) > 0;
 
         // Flux Cloud activity -- best-effort, same posture as decentralization above: a
@@ -282,6 +305,23 @@ async function takeSnapshot() {
                 await createDecentralizationSnapshots(snapshotDate, decentralizationBreakdown);
             } catch (error) {
                 log.warn(`Decentralization snapshot write failed: ${error.message}`);
+            }
+        }
+
+        // Per-country/continent breakdown (issue #138) -- same best-effort posture, each
+        // independent so one failing doesn't block the other or the org breakdown above.
+        if (decentralizationCountryBreakdown.length > 0) {
+            try {
+                await createDecentralizationCountrySnapshots(snapshotDate, decentralizationCountryBreakdown);
+            } catch (error) {
+                log.warn(`Decentralization country snapshot write failed: ${error.message}`);
+            }
+        }
+        if (decentralizationContinentBreakdown.length > 0) {
+            try {
+                await createDecentralizationContinentSnapshots(snapshotDate, decentralizationContinentBreakdown);
+            } catch (error) {
+                log.warn(`Decentralization continent snapshot write failed: ${error.message}`);
             }
         }
 
