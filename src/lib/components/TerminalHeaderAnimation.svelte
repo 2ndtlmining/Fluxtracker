@@ -86,6 +86,7 @@
   let lastHandledSyncId = null;
   let activeSyncEnd = null;
   let lastHandledDeploymentId = null;
+  let deferredSyncRequest = null; // a sync that arrived mid-deployment, played once it ends
   let deploymentAriaLabel = '';
 
   let timeouts = [];
@@ -359,6 +360,11 @@
       state = 'ready';
       deploymentAriaLabel = '';
       dispatch('deploymentComplete');
+      if (deferredSyncRequest) {
+        const pending = deferredSyncRequest;
+        deferredSyncRequest = null;
+        startSync(pending.from, pending.to);
+      }
     };
 
     if (reducedMotion) {
@@ -398,6 +404,13 @@
       activeSyncEnd = mergeSyncTarget(activeSyncEnd, syncRequest.to);
     } else if (state === 'ready') {
       startSync(syncRequest.from, syncRequest.to);
+    } else if (state === 'deploying') {
+      // Never silently dropped: played immediately once the deployment frame ends
+      // (see startDeployment's finish()), merging targets the same way two syncs
+      // arriving close together already do via activeSyncEnd.
+      deferredSyncRequest = deferredSyncRequest
+        ? { from: deferredSyncRequest.from, to: mergeSyncTarget(deferredSyncRequest.to, syncRequest.to) }
+        : { from: syncRequest.from, to: syncRequest.to };
     }
   }
 
