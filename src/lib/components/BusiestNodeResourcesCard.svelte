@@ -1,15 +1,10 @@
 <script>
   import { Server } from 'lucide-svelte';
+  import { formatUtilizationBar } from '$lib/utils/resourceBar.js';
 
-  export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
+  export let node = null;           // { ip, tier, country, countryCode, appCount, resources } | null
   export let loading = false;
   export let error = false;
-
-  const MAX_VISIBLE_NAMES = 6;
-
-  $: visibleNames = node?.appNames?.slice(0, MAX_VISIBLE_NAMES) || [];
-  $: hiddenNameCount = Math.max(0, (node?.appNames?.length || 0) - MAX_VISIBLE_NAMES);
-  $: unresolvedCount = node ? node.appCount - (node.appNames?.length || 0) : 0;
 
   function formatNumber(num) {
     if (!num) return '0';
@@ -51,35 +46,22 @@
     </div>
 
     <div class="node-resources">
-      <div class="resource-row">
-        <span class="resource-label">CPU</span>
-        <span class="resource-detail">{formatDecimal(node.resources.cpu.used)} / {formatDecimal(node.resources.cpu.total)} cores</span>
-      </div>
-      <div class="resource-row">
-        <span class="resource-label">RAM</span>
-        <span class="resource-detail">{formatDecimal(node.resources.ram.used)} / {formatDecimal(node.resources.ram.total)} GB</span>
-      </div>
-      <div class="resource-row">
-        <span class="resource-label">SSD</span>
-        <span class="resource-detail">{formatDecimal(node.resources.ssd.used, 0)} / {formatDecimal(node.resources.ssd.total, 0)} GB</span>
-      </div>
+      {#each [
+        { label: 'CPU', used: node.resources.cpu.used, total: node.resources.cpu.total, unit: 'cores' },
+        { label: 'RAM', used: node.resources.ram.used, total: node.resources.ram.total, unit: 'GB' },
+        { label: 'SSD', used: node.resources.ssd.used, total: node.resources.ssd.total, unit: 'GB' }
+      ] as resource}
+        {@const util = formatUtilizationBar(resource.used, resource.total)}
+        <div class="resource-row">
+          <div class="resource-heading">
+            <span class="resource-label">{resource.label}</span>
+            <span class="resource-percent">{util.percent}%</span>
+          </div>
+          <div class="resource-bar" aria-hidden="true">{util.bar}</div>
+          <div class="resource-detail">{formatDecimal(resource.used)} / {formatDecimal(resource.total)} {resource.unit}</div>
+        </div>
+      {/each}
     </div>
-
-    {#if visibleNames.length > 0}
-      <div class="node-app-names">
-        {#each visibleNames as name}
-          <span class="app-name-pill">{name}</span>
-        {/each}
-        {#if hiddenNameCount > 0}
-          <span class="app-name-more">+{hiddenNameCount} more</span>
-        {/if}
-      </div>
-    {/if}
-    {#if unresolvedCount > 0}
-      <div class="node-unresolved-note">
-        {unresolvedCount} {unresolvedCount === 1 ? 'app' : 'apps'} not yet identifiable
-      </div>
-    {/if}
   {/if}
 </div>
 
@@ -189,58 +171,49 @@
   .node-resources {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: var(--spacing-sm);
     padding-top: var(--spacing-sm);
     border-top: 1px solid var(--border-color);
-    margin-bottom: var(--spacing-md);
   }
 
   .resource-row {
     display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .resource-heading {
+    display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 0.8rem;
   }
 
   .resource-label {
+    font-size: 0.7rem;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    font-size: 0.7rem;
   }
 
-  .resource-detail {
-    color: var(--text-white);
+  .resource-percent {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
     font-variant-numeric: tabular-nums;
   }
 
-  .node-app-names {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.375rem;
-    padding-top: var(--spacing-sm);
-    border-top: 1px solid var(--border-color);
-  }
-
-  .app-name-pill {
-    font-size: 0.7rem;
+  .resource-bar {
+    font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+    font-size: 0.75rem;
+    letter-spacing: -1px;
     color: var(--text-primary);
-    background: rgba(0, 255, 255, 0.08);
-    border: 1px solid rgba(0, 255, 255, 0.2);
-    border-radius: var(--radius-sm);
-    padding: 0.15rem 0.5rem;
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.35);
+    line-height: 1;
   }
 
-  .app-name-more {
+  .resource-detail {
     font-size: 0.7rem;
     color: var(--text-muted);
-    padding: 0.15rem 0.25rem;
-  }
-
-  .node-unresolved-note {
-    margin-top: var(--spacing-xs);
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    font-style: italic;
+    font-variant-numeric: tabular-nums;
   }
 </style>
