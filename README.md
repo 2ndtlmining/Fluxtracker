@@ -7,8 +7,8 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 - **Real-time Flux network monitoring** -- Node counts by tier (Cumulus, Nimbus, Stratus), cloud resource utilization (CPU, RAM, Storage), and deployed app totals
 - **Revenue transaction tracking** -- Syncs with the Flux blockchain daemon, attributes payments to deployed apps, and classifies app type (git/docker)
 - **Price history** -- FLUX/USD daily closes via Binance, CoinGecko and CryptoCompare, stored for historical charts and USD revenue calculations
-- **Docker repository snapshots** -- Daily tracking of running instances for every Docker image on the network, with automatic category breakdowns (Gaming, Crypto Nodes, WordPress)
-- **Historical data visualization** -- Interactive Chart.js charts with configurable time ranges and category filters
+- **Docker repository snapshots** -- Daily tracking of running instances for every Docker image the network still exposes an image for; still collected and queryable via the API, but no longer surfaced on the dashboard (see "App Categorisation" below)
+- **Historical data visualization** -- Interactive Chart.js charts with configurable time ranges
 - **Period-over-period comparisons** -- Toggle between daily, weekly, monthly, quarterly, and yearly comparisons across all metrics
 - **KPI Discord reports** -- Manual (footer button, any webhook) and scheduled (env-configured) reports of Revenue, Nodes, Resource Utilization, Applications and Flux Cloud, comparing two completed periods
 - **Terminal header** -- Animated boot sequence that resolves into a permanent FLUX ASCII logo, with a short sync animation whenever a new block is detected
@@ -350,10 +350,22 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 
 ## App Categorisation
 
-Every card that counts apps — the Gaming/Crypto/WordPress metric cards and the category cards —
-resolves its numbers through one function, `categorizeImage()` in `src/lib/config.js`. It matches
-keywords against the **whole Docker image string, tag included**. The metric totals and the
-category cards must always agree; that equality is the acceptance test for any change here.
+**Not currently shown on the dashboard.** FluxOS v8.18 (Sept 2026) removed the per-instance image
+field the running-apps census used to return (issue #106); apps are now resolved by name via
+`appSpecsCache.js`, which only covers the ~76-78% of running instances whose spec is still public.
+An undercounted or (for the old Git/Docker split) actively wrong category total is worse than none,
+so the Gaming/Crypto/WordPress metric cards, the category cards, the Docker Repos history graph and
+the Git/Docker split were all removed (issue #109) rather than shown with a caveat. `total_apps` is
+unaffected — it comes from the running-instance census, not per-app resolution — and is the one
+app-count figure still displayed.
+
+The logic below is unchanged and still runs: `repo_snapshots`, the `/api/categories/*` endpoints and
+`gamingService`/`cryptoService`/`wordpressService` keep collecting this data (issue #108 explores
+what to build with it next), so this section remains accurate as a reference for that code — just
+read "card" below as "category row in the API/database," not "something on the dashboard."
+
+Every category total resolves its numbers through one function, `categorizeImage()` in
+`src/lib/config.js`. It matches keywords against the **whole Docker image string, tag included**.
 
 Two things decide what you see on a card:
 
@@ -599,7 +611,7 @@ Two aggregation rules, chosen to match the live dashboard:
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used (cores), RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
-| Applications | Total Apps, Docker Apps, Git, Gaming | **Average of daily snapshots** | `daily_snapshots` |
+| Applications | Total Apps | **Average of daily snapshots** | `daily_snapshots` |
 | Flux Cloud | Deployed (24h), Expiring (24h) — **Daily reports only** | **Point-in-time at report generation** | live app data (same registry the carousel reads) |
 
 The **Flux Cloud** rows are the one part of the report with no comparison column. Both are 24h
@@ -725,8 +737,7 @@ columns were added to `daily_snapshots` at different times:
 |---|---|
 | Revenue | 2024-05-13 |
 | Nodes, CPU/RAM/SSD, CPU/RAM/SSD %, FLUX price | 2024-06-07 |
-| Total Apps, Gaming | 2025-11-10 |
-| Docker Apps, Git | 2026-01-08 |
+| Total Apps | 2025-11-10 |
 
 Metrics that fall short are marked `Insufficient data` **with the number of missing days**
 (for example `Insufficient data (7 days missing)`), and the rest of the report still sends with a
@@ -940,6 +951,7 @@ src/
       resilientFetch.js        # Shared HTTP GET (retry, timeout, shape validation)
       fetchBreaker.js          # Per-endpoint circuit breaker for outbound fetches
       runningAppsProvider.js   # Shared running-apps payload (one fetch per cycle)
+      appSpecsCache.js         # globalappsspecifications cache: name/hash lookup, app-name resolution
       backupService.js         # Cloudflare R2 backup/restore service
       bootstrapService.js      # R2 bootstrap for SQLite mode (first-start data import)
       cloudService.js          # Cloud utilization metrics (CPU, RAM, Storage)

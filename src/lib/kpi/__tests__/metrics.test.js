@@ -111,9 +111,6 @@ describe('buildKpiDataset', () => {
             storage_utilization_percent: 29.7,
             flux_price_usd: 0.4213,
             total_apps: 6400,
-            dockerapps_count: 6200,
-            gitapps_count: 170,
-            gaming_apps_total: 320,
             ...overrides
         }));
     }
@@ -130,8 +127,8 @@ describe('buildKpiDataset', () => {
         });
 
         expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications']);
-        expect(d.totalMetrics).toBe(21);   // 7 revenue + 4 nodes + 6 resources + 4 apps
-        expect(d.availableMetrics).toBe(21);
+        expect(d.totalMetrics).toBe(18);   // 7 revenue + 4 nodes + 6 resources + 1 apps
+        expect(d.availableMetrics).toBe(18);
         expect(d.empty).toBe(false);
     });
 
@@ -172,8 +169,8 @@ describe('buildKpiDataset', () => {
             expect(deployed.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
             expect(expiring.available).toBe(true);
             expect(expiring.current).toBe(12);
-            expect(d.totalMetrics).toBe(23);
-            expect(d.availableMetrics).toBe(23);
+            expect(d.totalMetrics).toBe(20);
+            expect(d.availableMetrics).toBe(20);
         });
 
         it('an absent reading is unavailable, not a fake zero', () => {
@@ -193,7 +190,7 @@ describe('buildKpiDataset', () => {
             expect(deployed.current).toBeNull();
             expect(expiring.available).toBe(true);
             // The rest of the report is still deliverable
-            expect(d.availableMetrics).toBe(22);
+            expect(d.availableMetrics).toBe(19);
             expect(d.empty).toBe(false);
         });
     });
@@ -295,25 +292,26 @@ describe('buildKpiDataset', () => {
     });
 
     it('marks only the uncovered metrics, leaving the rest of the section intact', () => {
-        // The real Quarterly case: git/docker have no history, total/gaming do
+        // A column added to the schema after the others in its section has no history yet —
+        // e.g. a new resource metric backfilled later than CPU/RAM.
         const d = buildKpiDataset({
             current, comparison,
             currentSnapshots: makeSnapshots(),
-            comparisonSnapshots: makeSnapshots({ gitapps_count: 0, dockerapps_count: 0 }),
+            comparisonSnapshots: makeSnapshots({ used_storage_gb: 0, storage_utilization_percent: 0 }),
             currentRevenue: revenue,
             comparisonRevenue: revenue
         });
 
-        const apps = d.sections.find(s => s.key === 'applications');
-        const byKey = Object.fromEntries(apps.metrics.map(m => [m.key, m]));
+        const resources = d.sections.find(s => s.key === 'resources');
+        const byKey = Object.fromEntries(resources.metrics.map(m => [m.key, m]));
 
-        expect(byKey.git.available).toBe(false);
-        expect(byKey.docker.available).toBe(false);
-        expect(byKey.total.available).toBe(true);
-        expect(byKey.gaming.available).toBe(true);
-        expect(apps.available).toBe(true);          // section still worth showing
+        expect(byKey.ssd.available).toBe(false);
+        expect(byKey.ssdPercent.available).toBe(false);
+        expect(byKey.cpu.available).toBe(true);
+        expect(byKey.ram.available).toBe(true);
+        expect(resources.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(19);   // 21 total, less git and docker
+        expect(d.availableMetrics).toBe(16);   // 18 total, less ssd and ssdPercent
     });
 
     it('never reports a metric when only one of the two periods has data', () => {

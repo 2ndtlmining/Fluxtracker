@@ -49,7 +49,7 @@ describe('buildDiscordPayload', () => {
         used_cpu_cores: 8800, used_ram_gb: 17, used_storage_gb: 250,
         cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
         flux_price_usd: 0.4213,
-        total_apps: 6400, dockerapps_count: 6200, gitapps_count: 170, gaming_apps_total: 320,
+        total_apps: 6400,
         ...overrides
     }));
 
@@ -132,12 +132,12 @@ describe('buildDiscordPayload', () => {
 
     it('says how many days are missing rather than only "no data"', () => {
         const embed = buildDiscordPayload(report({
-            comparisonSnapshots: snapshots({ gitapps_count: 0, dockerapps_count: 0 })
+            comparisonSnapshots: snapshots({ used_storage_gb: 0, storage_utilization_percent: 0 })
         })).embeds[0];
 
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
-        expect(coverage.value).toContain('2 of 21 metrics are not reported');
-        expect(embed.fields[3].value).toContain('Insufficient data (7 days missing)');
+        expect(coverage.value).toContain('2 of 18 metrics are not reported');
+        expect(embed.fields[2].value).toContain('Insufficient data (7 days missing)');
     });
 
     it('confirms complete coverage when nothing is missing', () => {
