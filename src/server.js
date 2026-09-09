@@ -189,19 +189,28 @@ const LOGGING_CONFIG = {
 // ============================================
 // CORS CONFIGURATION - CRITICAL FOR DOMAIN ACCESS
 // ============================================
-// IMPORTANT: This allows access from both IP address and domain name
+// Dev origins ship as an in-code default so local development works with zero setup.
+// Production IPs/domains are never committed to source (this is a public repo) -- they
+// come from CORS_ALLOWED_ORIGINS, a comma-separated env var, so each deployment supplies
+// its own without touching code. See issue #121.
+const DEV_ORIGINS = [
+    'http://localhost:5173',   // Development
+    'http://localhost:37000',  // Development (if using port 37000 locally)
+    'http://127.0.0.1:5173'    // Development
+];
+
+function parseAllowedOrigins(envValue) {
+    if (!envValue) return [];
+    return envValue.split(',').map(origin => origin.trim()).filter(Boolean);
+}
+
+const productionOrigins = parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS);
+if (productionOrigins.length === 0) {
+    console.warn('[CORS] CORS_ALLOWED_ORIGINS is not set — only local dev origins are allowed. Set it in production (see .env.example).');
+}
+
 const corsOptions = {
-    origin: [
-        'http://localhost:5173',                           // Development
-        'http://localhost:37000',                          // Development (if using port 37000 locally)
-        'http://127.0.0.1:5173',                          // Development
-        'http://149.154.176.249:37000',                   // Production IP (update with your actual IP)
-        'http://149.154.176.158:37000',                   // Alternative IP (if you have multiple IPs)
-        'http://fluxtracker.app.runonflux.io:37000',      // Production Domain (update with your actual domain)
-        'https://fluxtracker.app.runonflux.io:37000',     // Production Domain HTTPS (if using HTTPS)
-        'http://fluxtracker.app.runonflux.io',            // Domain without port
-        'https://fluxtracker.app.runonflux.io',           // Domain HTTPS without port
-    ],
+    origin: [...DEV_ORIGINS, ...productionOrigins],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],

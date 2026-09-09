@@ -552,7 +552,7 @@ export function isFluxTeamAddress(address) {
  * to the Express backend on port 3000 internally.
  * 
  * How it works:
- * 1. Browser makes request to: http://fluxtracker.app.runonflux.io:37000/api/health
+ * 1. Browser makes request to: http://<your-domain>:37000/api/health
  * 2. SvelteKit server (running on port 5173, exposed as 37000) receives the request
  * 3. hooks.server.js sees "/api/" prefix and proxies to http://localhost:3000/api/health
  * 4. Express backend responds
@@ -562,8 +562,8 @@ export function isFluxTeamAddress(address) {
  * 
  * Access patterns:
  * - Development: http://localhost:5173/api/... → proxied to http://localhost:3000/api/...
- * - Production IP: http://149.154.176.249:37000/api/... → proxied to http://localhost:3000/api/...
- * - Production Domain: http://fluxtracker.app.runonflux.io:37000/api/... → proxied to http://localhost:3000/api/...
+ * - Production IP: http://<server-ip>:37000/api/... → proxied to http://localhost:3000/api/...
+ * - Production Domain: http://<your-domain>:37000/api/... → proxied to http://localhost:3000/api/...
  */
 export function getApiUrl() {
     // CRITICAL: Only run this in the browser, never during SSR
