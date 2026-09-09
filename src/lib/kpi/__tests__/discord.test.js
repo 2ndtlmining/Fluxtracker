@@ -94,6 +94,14 @@ describe('buildDiscordPayload', () => {
         expect(embed.description).toContain('Aug 3-9, 2026');
     });
 
+    it('does not repeat the period as a raw ISO date range — the label above already spells it out (issue #105)', () => {
+        const embed = buildDiscordPayload(report()).embeds[0];
+        expect(embed.description).not.toContain(current.start);
+        expect(embed.description).not.toContain(current.end);
+        expect(embed.description).not.toContain(' to ');
+        expect(embed.description).toBe('Aug 10-16, 2026 vs Aug 3-9, 2026');
+    });
+
     it('wraps each section in a code block so columns stay aligned on mobile', () => {
         const embed = buildDiscordPayload(report()).embeds[0];
         for (const field of embed.fields.slice(0, 4)) {

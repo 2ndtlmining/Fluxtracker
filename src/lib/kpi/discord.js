@@ -127,11 +127,13 @@ export function buildDiscordPayload(report) {
     const comparisonLabel = formatPeriod(timeframe, comparison);
     const timeframeTitle = timeframe.charAt(0).toUpperCase() + timeframe.slice(1);
 
-    // A daily report covers single days, so the raw date line reads as plain dates
-    // rather than "X to X" ranges.
-    const dateLine = isDaily
-        ? `${current.start} | ${comparison.start}`
-        : `${current.start} to ${current.end}  |  ${comparison.start} to ${comparison.end}`;
+    // Daily only: currentLabel/comparisonLabel already spell out a single date each
+    // ("Sep 4, 2026"), so a raw "2026-09-04 | 2026-09-03" line still adds the exact
+    // ISO date at a glance. For every other timeframe currentLabel/comparisonLabel are
+    // themselves a full period ("Aug 10-16, 2026") -- appending the same range again as
+    // "2026-08-10 to 2026-08-16 | 2026-08-03 to 2026-08-09" is pure repetition with no
+    // new information, so that line is dropped there (issue #105).
+    const dateLine = isDaily ? `${current.start} | ${comparison.start}` : null;
 
     const fields = dataset.sections.map(section => {
         // Daily snapshots are not aggregated (a one-day "average" is the day itself),
@@ -192,9 +194,9 @@ export function buildDiscordPayload(report) {
         embeds: [
             {
                 title: `FluxTracker KPI Report - ${timeframeTitle}`,
-                description:
-                    `${currentLabel} vs ${comparisonLabel}\n` +
-                    dateLine,
+                description: dateLine
+                    ? `${currentLabel} vs ${comparisonLabel}\n${dateLine}`
+                    : `${currentLabel} vs ${comparisonLabel}`,
                 color: EMBED_COLOR,
                 fields,
                 footer: { text: 'via FluxTracker' },
