@@ -273,8 +273,8 @@ function centerInBox(text, width = LOGO_WIDTH) {
   return ' '.repeat(left) + text + ' '.repeat(right);
 }
 
-export const DOCKER_ICON_LINE = centerInBox('~=~ DOCKER ~=~');
-export const GIT_ICON_LINE = centerInBox('<> GITHUB <>');
+export const DOCKER_ICON_LINE = centerInBox('🐳 DOCKER 🐳'); // 🐳 whale, matches Docker's own mascot
+export const GIT_ICON_LINE = centerInBox('🐙 GITHUB 🐙'); // 🐙 octopus, closest common emoji to the octocat
 
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 

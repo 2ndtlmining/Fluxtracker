@@ -53,6 +53,20 @@
   let deploymentCounter = 0;
   let deploymentAnimationBusy = false;
 
+  // Guards against overlapping poll cycles and hung requests. Without both, a slow or
+  // stalled fetch stacks up: setInterval fires every 30s regardless of whether the
+  // previous cycle finished, and an unbounded fetch can sit pending indefinitely --
+  // over a long-lived session this exhausts the browser's connection buffer
+  // (observed as "net::ERR_NO_BUFFER_SPACE" on /api/header).
+  const FETCH_TIMEOUT_MS = 15000;
+  let isPolling = false;
+
+  function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    return fetch(url, { signal: controller.signal }).finally(() => clearTimeout(timeoutId));
+  }
+
   let interval;
 
   onMount(async () => {
@@ -65,9 +79,26 @@
     if (interval) clearInterval(interval);
   });
 
+  /**
+   * Orchestrator: guards against overlapping cycles (a previous fetchHeaderStats/
+   * pollDeployments pair still in flight skips this tick entirely rather than starting
+   * a second one on top of it), then runs both fetches concurrently rather than
+   * sequentially -- halves the typical cycle duration, which shrinks the window in
+   * which a slow cycle could still overlap the next one.
+   */
   async function fetchHeaderData() {
+    if (isPolling) return;
+    isPolling = true;
     try {
-      const response = await fetch(`${API_URL}/api/header`);
+      await Promise.all([fetchHeaderStats(), pollDeployments()]);
+    } finally {
+      isPolling = false;
+    }
+  }
+
+  async function fetchHeaderStats() {
+    try {
+      const response = await fetchWithTimeout(`${API_URL}/api/header`);
       const data = await response.json();
 
       if (data.error) {
@@ -122,11 +153,6 @@
       apiStatus = 'offline';
       dbStatus = 'offline';
     }
-
-    // Independent of the try/catch above: a failed /api/header fetch shouldn't also
-    // skip checking for new deployments, and a failed deployment poll shouldn't be
-    // reported as the header itself being offline.
-    await pollDeployments();
   }
 
   /**
@@ -138,7 +164,7 @@
    */
   async function pollDeployments() {
     try {
-      const response = await fetch(`${API_URL}/api/carousel/deployed`);
+      const response = await fetchWithTimeout(`${API_URL}/api/carousel/deployed`);
       const data = await response.json();
       const deployedApps = data?.stats || [];
 
