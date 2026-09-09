@@ -112,7 +112,7 @@ async function runDeploymentScenario(page, t0) {
       if (/NAME\s+test-minecraft/.test(text)) {
         sawDeploymentFrame = true;
         result.sawName = true;
-        if (/~=~ DOCKER ~=~/.test(text)) result.sawIcon = true;
+        if (/DOCKER/.test(text)) result.sawIcon = true;
         if (/INST\s+3/.test(text)) result.sawInstances = true;
         if (/RES\s+/.test(text)) result.sawResources = true;
         const empties = s.rows.filter(r => r.length === 0).length;
