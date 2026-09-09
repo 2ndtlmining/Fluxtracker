@@ -33,7 +33,7 @@ function snapshotsFor(start, days, overrides = {}) {
         used_cpu_cores: 8800, used_ram_gb: 17, used_storage_gb: 250,
         cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
         flux_price_usd: 0.4213,
-        total_apps: 6400, dockerapps_count: 6200, gitapps_count: 170, gaming_apps_total: 320,
+        total_apps: 6400,
         ...overrides
     }));
 }

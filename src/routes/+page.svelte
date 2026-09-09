@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { getApiUrl, DASHBOARD_REFRESH_MS } from '$lib/config.js';
+  import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
@@ -13,6 +13,7 @@
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
   import { Package } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
+  import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -26,6 +27,13 @@
   let interval;
   // Revenue data for current period
   let revenueData = null;
+
+  // Busiest Node card — its own slower refresh (see BUSIEST_NODE_CONFIG), independent of
+  // the shared dashboard refresh interval since its payload is much larger.
+  let busiestNode = null;
+  let busiestNodeLoading = true;
+  let busiestNodeError = false;
+  let busiestNodeInterval;
   
   // Comparison period toggle
   let comparisonPeriod = 'D'; // D, W, M, Q, Y
@@ -115,18 +123,21 @@
   
  onMount(async () => {
   API_URL = getApiUrl();
-  
+
   // Load all data in parallel
   await Promise.all([
     fetchMetrics(),
     fetchRevenue(comparisonPeriod),     // NEW - fetch revenue for current period
-    fetchComparison(comparisonPeriod)
+    fetchComparison(comparisonPeriod),
+    fetchBusiestNode()
   ]);
-  
+
   prefetchComparisons();
-  
+
   // Auto-refresh on the shared dashboard interval so every card moves together
   interval = setInterval(refreshAll, DASHBOARD_REFRESH_MS);
+  // Busiest Node refreshes on its own, much slower interval (see BUSIEST_NODE_CONFIG)
+  busiestNodeInterval = setInterval(fetchBusiestNode, BUSIEST_NODE_CONFIG.updateInterval);
 });
 
 async function refreshAll() {
@@ -134,6 +145,25 @@ async function refreshAll() {
   await fetchRevenue(comparisonPeriod);
   comparisonCache = {};                      // period comparisons are cached by period
   await fetchComparison(comparisonPeriod);
+}
+
+async function fetchBusiestNode() {
+  try {
+    const response = await fetch(`${API_URL}/api/busiest-node`);
+    const data = await response.json();
+
+    if (data?.node) {
+      busiestNode = data.node;
+      busiestNodeError = false;
+    } else {
+      busiestNodeError = true;
+    }
+  } catch (error) {
+    console.error('Error fetching busiest node:', error);
+    busiestNodeError = true;
+  } finally {
+    busiestNodeLoading = false;
+  }
 }
 
 // Re-fetch when the footer's Refresh button fires (skip the initial store value)
@@ -168,6 +198,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
   
   onDestroy(() => {
     if (interval) clearInterval(interval);
+    if (busiestNodeInterval) clearInterval(busiestNodeInterval);
   });
   
   async function fetchMetrics() {
@@ -388,6 +419,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         valueColor="cyan"
         {loading}
       />
+
+      <!-- Busiest Node (issue #108) -->
+      <BusiestNodeCard node={busiestNode} loading={busiestNodeLoading} error={busiestNodeError} />
     </div>
 
     <!-- Historical Performance Chart -->
