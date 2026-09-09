@@ -59,6 +59,9 @@ export const {
     getDailyRevenueInRange,
     getDailyRevenueUSDFromTransactions,
     getDailyRevenueUSDInRange,
+    // Team Funded historical trend (issue #146)
+    getDailyRevenueFromAddressesInRange,
+    getDailyRevenueUSDFromAddressesInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,
