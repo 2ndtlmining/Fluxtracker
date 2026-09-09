@@ -77,6 +77,17 @@
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' }
       ]
+    },
+    decentralization: {
+      label: 'Decentralization',
+      color: 'rgb(255, 180, 0)',
+      metrics: [
+        { id: 'dc_count', label: 'Quantity Datacenters', field: 'decentralization_datacenter_count', format: 'number' },
+        { id: 'indep_count', label: 'Quantity Independent', field: 'decentralization_independent_count', format: 'number' },
+        { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent' },
+        { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true },
+        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true }
+      ]
     }
   };
 
@@ -313,8 +324,9 @@
           }
         } else {
           value = snapshot[metric.field] || 0;
+          if (metric.invert) value = 100 - value;
         }
-        
+
         data.push(value);
       }
     } else if (selectedAggregation === 'weekly') {
@@ -369,6 +381,7 @@
         }
       } else {
         value = snapshot[metric.field] || 0;
+        if (metric.invert) value = 100 - value;
       }
 
       if (!weeklyMap.has(weekKey)) {
@@ -433,6 +446,7 @@
         }
       } else {
         value = snapshot[metric.field] || 0;
+        if (metric.invert) value = 100 - value;
       }
 
       if (!monthlyMap.has(monthKey)) {
