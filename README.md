@@ -143,6 +143,12 @@ Optional -- Scheduled KPI reports (all unset = feature off):
 
 When configured, the scheduler checks every 10 minutes and sends the report once per period (a restart never double-sends; a server that was down at the scheduled hour catches up on boot). The footer KPI button keeps working independently with any webhook you enter in the dialog.
 
+Optional -- CORS allowed origins (production only):
+
+| Variable                | Description                                          |
+|--------------------------|------------------------------------------------------|
+| `CORS_ALLOWED_ORIGINS`  | Comma-separated list of `scheme://host[:port]` entries allowed to make cross-origin requests to the API, e.g. `https://your-domain.example,http://203.0.113.10:37000`. Local dev origins (`localhost`/`127.0.0.1`) are always allowed and don't need to be listed. Unset = only local dev origins work — a deployed instance logs a startup warning and rejects everything else. |
+
 ### Database Setup
 
 Run the SQL migration files in your Supabase SQL Editor, in order:
