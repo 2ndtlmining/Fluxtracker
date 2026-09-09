@@ -3,6 +3,8 @@ dotenv.config({ path: '.env.local' });
 dotenv.config(); // fallback to .env
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import { CSP_DIRECTIVES } from './lib/security/contentSecurityPolicy.js';
 import {
     getCurrentMetrics,
     getLastNSnapshots,
@@ -217,6 +219,18 @@ const corsOptions = {
     exposedHeaders: ['Content-Range', 'X-Content-Range'],
     maxAge: 600 // Cache preflight requests for 10 minutes
 };
+
+// ============================================
+// SECURITY HEADERS (helmet) - issue #125
+// ============================================
+// This secures the Express API's own JSON responses. It does NOT reach the actual dashboard
+// pages the browser renders -- those are served by the separate SvelteKit/adapter-node
+// process (see README's "Two processes are required" note), which sets the same policy by
+// hand in hooks.server.js since that process has no Express/helmet to hook into. Both pull
+// CSP_DIRECTIVES from the same shared module so the two can't drift apart.
+app.use(helmet({
+    contentSecurityPolicy: { directives: CSP_DIRECTIVES }
+}));
 
 // Apply CORS middleware
 app.use(cors(corsOptions));

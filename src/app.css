@@ -2,6 +2,12 @@
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
+/* app.html's hydration boundary div -- a class instead of an inline style attribute so
+   it doesn't need 'unsafe-inline' in helmet's style-src CSP directive (see server.js). */
+.contents-root {
+  display: contents;
+}
+
 :root {
   /* Background Colors */
   --bg-primary: #0a0e1a;
