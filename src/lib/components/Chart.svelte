@@ -298,15 +298,23 @@
       return dateA - dateB;
     });
 
+    // For the decentralization category, pre-feature snapshots have NULL for
+    // all 5 metric fields (no DEFAULT was set). Drop those days entirely for
+    // this category so the chart doesn't fabricate a 0 (or, for invert
+    // metrics, a misleading 100%) before real data collection started.
+    const rows = selectedCategory === 'decentralization'
+      ? sortedSnapshots.filter(s => s[metric.field] != null)
+      : sortedSnapshots;
+
     let labels = [];
     let data = [];
     let rawDates = [];
 
     if (selectedAggregation === 'daily') {
       // DAILY - Your existing logic
-      const allDateStrs = sortedSnapshots.map(s => s.date || s.snapshot_date);
-      for (let i = 0; i < sortedSnapshots.length; i++) {
-        const snapshot = sortedSnapshots[i];
+      const allDateStrs = rows.map(s => s.date || s.snapshot_date);
+      for (let i = 0; i < rows.length; i++) {
+        const snapshot = rows[i];
         const dateStr = snapshot.date || snapshot.snapshot_date;
         if (!dateStr) continue;
 
@@ -331,13 +339,13 @@
       }
     } else if (selectedAggregation === 'weekly') {
       // WEEKLY AGGREGATION
-      const weeklyData = aggregateByWeek(sortedSnapshots, metric);
+      const weeklyData = aggregateByWeek(rows, metric);
       labels = weeklyData.labels;
       data = weeklyData.data;
       rawDates = weeklyData.rawDates;
     } else if (selectedAggregation === 'monthly') {
       // MONTHLY AGGREGATION
-      const monthlyData = aggregateByMonth(sortedSnapshots, metric);
+      const monthlyData = aggregateByMonth(rows, metric);
       labels = monthlyData.labels;
       data = monthlyData.data;
       rawDates = monthlyData.rawDates;

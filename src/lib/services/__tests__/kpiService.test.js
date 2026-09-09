@@ -215,6 +215,19 @@ describe('buildKpiReport — topDatacenters', () => {
 
         expect(report.topDatacenters).toEqual([]);
     });
+
+    it('degrades to an empty topDatacenters instead of failing the whole report when the decentralization history query rejects', async () => {
+        // Unlike the other Promise.all members above (which must propagate failures — see
+        // "a failed query is refused, not reported as zero" below), decentralization history
+        // feeds only this small supplement. A missing decentralization_snapshots table (e.g.
+        // its migration hasn't been applied yet) must not take down the entire KPI report.
+        getDecentralizationSnapshotHistory.mockRejectedValue(new Error('relation "decentralization_snapshots" does not exist'));
+
+        const report = await buildKpiReport('weekly', NOW);
+
+        expect(report.topDatacenters).toEqual([]);
+        expect(report.dataset.empty).toBe(false);
+    });
 });
 
 describe('sendToDiscord — Flux Cloud Activity (daily second message)', () => {

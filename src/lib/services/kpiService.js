@@ -124,7 +124,7 @@ export async function buildKpiReport(timeframe, now = new Date()) {
             getPeriodRevenue(current),
             getPeriodRevenue(comparison),
             getOldestTransactionDate(),
-            getDecentralizationSnapshotHistory(current.start, current.end)
+            getDecentralizationSnapshotHistory(current.start, current.end).catch(() => [])
         ]);
 
     // The Flux Cloud reading only exists "now", so it rides on the daily report,
