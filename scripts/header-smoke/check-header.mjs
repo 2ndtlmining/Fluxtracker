@@ -12,6 +12,11 @@
  *   - the sync pattern is a random 2-char texture, different on every sync
  *   - build version is accent-green, codename accent-purple
  *   - mobile (375px): exactly 6 mobile rows, no wrapping
+ *   - deployment event (issues #98 / #104): injected via the stub's
+ *     POST /inject-deployment after the sync scenario finishes, so the two never
+ *     compete for one poll -- box height never changes, the correct icon shows for
+ *     the fixture's repotag, NAME/INST/RES rows appear, no row is ever empty
+ *     mid-frame, and the box returns to the logo afterward
  *
  * Usage:
  *   1. npm install --no-save puppeteer-core   (uses the installed Edge/Chrome)
@@ -28,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5199';
 const STUB_URL = process.env.STUB_URL || 'http://127.0.0.1:3100/api/header';
+const STUB_BASE = STUB_URL.replace(/\/api\/header$/, '');
 const SAMPLE_MS = Number(process.env.SAMPLE_MS || 60);
 
 const BROWSER_CANDIDATES = [
@@ -55,6 +61,74 @@ async function stubReachable() {
 const bootTextStyle = { color: 'rgb(136, 146, 176)', fontSize: '11.2px' };
 const GREEN = 'rgb(0, 255, 65)';    // --accent-green
 const PURPLE = 'rgb(189, 147, 249)'; // --accent-purple
+
+/**
+ * Injects a new deployment via the stub's POST /inject-deployment, then samples the
+ * header box until the deployment frame appears and the box returns to the logo (or a
+ * bounded timeout elapses). Returns the evidence `run()`'s checks need: whether the box
+ * height ever changed, whether the expected icon/NAME/detail rows were seen, and
+ * whether the box returned to a pure logo frame afterward.
+ */
+async function runDeploymentScenario(page, t0) {
+  const result = {
+    injected: false,
+    boxHeightChanged: false,
+    sawIcon: false,
+    sawName: false,
+    sawInstances: false,
+    sawResources: false,
+    emptyRowViolations: 0,
+    returnedToLogo: false,
+    durationMs: null
+  };
+
+  try {
+    const res = await fetch(`${STUB_BASE}/inject-deployment`, { method: 'POST', body: '{}' });
+    result.injected = res.ok;
+  } catch (e) {
+    console.error('Failed to inject deployment:', e);
+    return result;
+  }
+
+  const baselineHeight = await page.evaluate(() => document.querySelector('.terminal-box')?.getBoundingClientRect().height ?? null);
+  const start = Date.now();
+  let sawDeploymentFrame = false;
+
+  // Up to two 30s header polls plus the ~10s animation itself, with margin.
+  while (Date.now() - start < 75000) {
+    const s = await page.evaluate(() => {
+      const box = document.querySelector('.terminal-box');
+      if (!box) return null;
+      const spans = [...box.querySelectorAll('span')];
+      return {
+        boxH: box.getBoundingClientRect().height,
+        logoFrame: spans.every(sp => sp.className.includes('row-logo')),
+        rows: spans.map(sp => sp.textContent.replace(/\n/g, ''))
+      };
+    });
+    if (s) {
+      if (baselineHeight !== null && Math.abs(s.boxH - baselineHeight) > 0.5) result.boxHeightChanged = true;
+      const text = s.rows.join('\n');
+      if (/NAME\s+test-minecraft/.test(text)) {
+        sawDeploymentFrame = true;
+        result.sawName = true;
+        if (/~=~ DOCKER ~=~/.test(text)) result.sawIcon = true;
+        if (/INST\s+3/.test(text)) result.sawInstances = true;
+        if (/RES\s+/.test(text)) result.sawResources = true;
+        const empties = s.rows.filter(r => r.length === 0).length;
+        if (empties > 0) result.emptyRowViolations++;
+      }
+      if (sawDeploymentFrame && s.logoFrame) {
+        result.returnedToLogo = true;
+        result.durationMs = Date.now() - start;
+        break;
+      }
+    }
+    await new Promise(r => setTimeout(r, SAMPLE_MS));
+  }
+
+  return result;
+}
 
 const run = async () => {
   if (!(await stubReachable())) {
@@ -168,6 +242,11 @@ const run = async () => {
   }
   await page.screenshot({ path: fileURLToPath(new URL('./steady.png', import.meta.url)), clip: { x: 0, y: 0, width: 700, height: 160 } }).catch(() => {});
 
+  // ---------- deployment scenario (issues #98 / #104) ----------
+  // Injected only after the sync scenario above has run its course, so the two
+  // animations never compete for the same poll -- see stub-api.mjs's comment.
+  const deploy = await runDeploymentScenario(page, t0);
+
   const build = await page.evaluate(() => {
     const pick = sel => {
       const el = document.querySelector(sel);
@@ -236,9 +315,18 @@ const run = async () => {
     ['pattern is a random 2-char texture, different per sync', patternContents.size >= 2],
     ['build version is accent-green', build.version && build.version.color === GREEN],
     ['build codename is accent-purple', build.codename && build.codename.color === PURPLE],
-    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow]
+    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow],
+    ['deployment: injected successfully', deploy.injected],
+    ['deployment: box height never changes during the animation', deploy.injected && !deploy.boxHeightChanged],
+    ['deployment: docker icon shown for a non-orbit repo', deploy.sawIcon],
+    ['deployment: NAME row shown', deploy.sawName],
+    ['deployment: INST row shown', deploy.sawInstances],
+    ['deployment: RES row shown', deploy.sawResources],
+    ['deployment: frame never shows an empty row', deploy.sawName && deploy.emptyRowViolations === 0],
+    ['deployment: returns to the logo afterward', deploy.returnedToLogo]
   ];
 
+  console.log('deployment scenario:', JSON.stringify(deploy, null, 0));
   console.log('phases:', JSON.stringify({ ...phases, syncStartT: undefined }, null, 0));
   console.log('counter:', counterValues.join(' -> '), '| sync durations(ms):', syncDurations.join(', '));
   console.log('distinct box heights:', distinctBox, '| distinct header heights:', distinctHeader);

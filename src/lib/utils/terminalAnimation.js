@@ -215,3 +215,118 @@ export function composeRevealKinds(baseKinds, incomingKinds, revealedCount, dire
   }
   return kinds;
 }
+
+// ============================================
+// DEPLOYMENT EVENT (issues #98 / #104 Phase 1)
+// ============================================
+//
+// One combined frame per issue #98's layout: an icon row (whale for docker, octocat for
+// git) bookends NAME/REPO/INST/RES, wiped in and out like every other frame in this file.
+// See docs/superpowers/specs/2026-09-09-terminal-header-deployment-event-design.md.
+
+/**
+ * Deployment identity: name + block height. Height alone isn't safe (two different apps
+ * can land in the same block); name alone isn't stable (a redeploy reuses the name at a
+ * new height, and *should* replay).
+ */
+export function deploymentId(deployment) {
+  return `${deployment.name}:${deployment.height}`;
+}
+
+/**
+ * Up to `limit` entries from `deployedApps` not already in `seenIds`, plus a count of how
+ * many more were skipped past the limit. Pure -- callers own updating their own seenIds.
+ */
+export function pickNewDeployments(seenIds, deployedApps, limit) {
+  if (!Array.isArray(deployedApps)) return { picked: [], overflow: 0 };
+  const picked = [];
+  let overflow = 0;
+  for (const deployment of deployedApps) {
+    if (seenIds.has(deploymentId(deployment))) continue;
+    if (picked.length < limit) {
+      picked.push(deployment);
+    } else {
+      overflow++;
+    }
+  }
+  return { picked, overflow };
+}
+
+/** The exact rule determineAppType() already uses elsewhere in this codebase. */
+export function isGitDeployment(repo) {
+  return typeof repo === 'string' && repo.toLowerCase().includes('runonflux/orbit');
+}
+
+/** Deterministic truncation so a name/repo can't overflow the fixed box. */
+export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
+  if (typeof text !== 'string') return '';
+  if (text.length <= maxWidth) return text;
+  return text.slice(0, Math.max(0, maxWidth - 3)) + '...';
+}
+
+/** Single-line ASCII glyphs -- whale for docker, octocat for git -- centered to LOGO_WIDTH. */
+function centerInBox(text, width = LOGO_WIDTH) {
+  if (text.length >= width) return text.slice(0, width);
+  const totalPad = width - text.length;
+  const left = Math.floor(totalPad / 2);
+  const right = totalPad - left;
+  return ' '.repeat(left) + text + ' '.repeat(right);
+}
+
+export const DOCKER_ICON_LINE = centerInBox('~=~ DOCKER ~=~');
+export const GIT_ICON_LINE = centerInBox('<> GITHUB <>');
+
+const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
+
+function formatDetailLine(label, value) {
+  const prefix = `  ${label.padEnd(6)} `;
+  const available = Math.max(1, LOGO_WIDTH - FIELD_LABEL_WIDTH);
+  return prefix + truncateForBox(String(value), available);
+}
+
+// Space-separated, not " | "-joined: the RES row is the tightest fit in the box (three
+// values in ~25 available chars after the label prefix), and every separator character
+// is one a real resource value doesn't get to keep.
+function formatResourceSummary(cpu, ram, hdd) {
+  const parts = [];
+  if (cpu) parts.push(`${cpu} CPU`);
+  if (ram) parts.push(ram >= 1000 ? `${(ram / 1000).toFixed(1)}G RAM` : `${ram}M RAM`);
+  if (hdd) parts.push(hdd >= 1000 ? `${(hdd / 1000).toFixed(1)}T SSD` : `${hdd}G SSD`);
+  return parts.join(' ');
+}
+
+/**
+ * The single combined deployment-detail frame (issue #98's layout): icon row, then
+ * NAME/REPO/INST/RES -- each omitted (not left blank) when its data isn't real -- then
+ * the same icon row again. Missing rows are dropped and the remainder padded at the END
+ * of the middle section, so real content is never followed by a gap.
+ */
+export function formatDeploymentFrame(deployment) {
+  const icon = isGitDeployment(deployment.repo) ? GIT_ICON_LINE : DOCKER_ICON_LINE;
+  const instances = Number.isFinite(deployment.instances) ? deployment.instances : null;
+  const resources = formatResourceSummary(deployment.cpu, deployment.ram, deployment.hdd);
+
+  const detailLines = [formatDetailLine('NAME', deployment.name || 'unknown')];
+  if (deployment.repo) detailLines.push(formatDetailLine('REPO', deployment.repo));
+  if (instances !== null) detailLines.push(formatDetailLine('INST', instances));
+  if (resources) detailLines.push(formatDetailLine('RES', resources));
+
+  const middleRowCount = BOOT_LINE_COUNT - 2;
+  const middle = padLines(detailLines, middleRowCount);
+  return [icon, ...middle, icon];
+}
+
+/**
+ * Reduced-motion equivalent: name + instance count, no icon/repo/resources -- those exist
+ * to fill an animated sequence, not to carry information a static reader needs.
+ */
+export function formatDeploymentReducedMotionLines(deployment) {
+  const name = truncateForBox(deployment?.name || 'unknown');
+  const instances = Number.isFinite(deployment?.instances) ? deployment.instances : null;
+  return padLines([
+    '  NEW DEPLOYMENT',
+    '',
+    `  ${name}`,
+    instances !== null ? `  ${instances} ${instances === 1 ? 'INSTANCE' : 'INSTANCES'}` : ''
+  ], BOOT_LINE_COUNT);
+}

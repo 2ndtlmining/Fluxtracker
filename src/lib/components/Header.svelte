@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
   import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
-  import { shouldTriggerSync } from '$lib/utils/terminalAnimation.js';
+  import { shouldTriggerSync, deploymentId, pickNewDeployments } from '$lib/utils/terminalAnimation.js';
 
   let API_URL = '';
 
@@ -41,6 +41,17 @@
   let previousBlockHeight = null;
   let syncRequest = null;
   let syncCounter = 0;
+
+  // Deployment event tracking (issues #98 / #104 Phase 1) -- capped queue plus a
+  // "currently playing" gate, checked on the same 30s /api/header poll (issue #98
+  // §Detection: "each cycle also reads /api/carousel/deployed").
+  const DEPLOYMENTS_PER_CYCLE = 3; // issue #98's "e.g. 3 per cycle"
+  let seenDeploymentIds = new Set();
+  let deploymentsSeeded = false;   // first poll only seeds seenIds, never queues
+  let deploymentQueue = [];
+  let deploymentRequest = null;
+  let deploymentCounter = 0;
+  let deploymentAnimationBusy = false;
 
   let interval;
 
@@ -111,6 +122,60 @@
       apiStatus = 'offline';
       dbStatus = 'offline';
     }
+
+    // Independent of the try/catch above: a failed /api/header fetch shouldn't also
+    // skip checking for new deployments, and a failed deployment poll shouldn't be
+    // reported as the header itself being offline.
+    await pollDeployments();
+  }
+
+  /**
+   * Reads the already-cached deployed-apps endpoint (carouselService caches it
+   * server-side on CAROUSEL_CONFIG's own 10 min TTL, so this 30s client poll never
+   * causes an extra upstream Flux API call). The first poll after page load only
+   * seeds seenDeploymentIds -- everything already deployed today is "new to this
+   * session" but not a genuinely new event (issue #98 §Detection).
+   */
+  async function pollDeployments() {
+    try {
+      const response = await fetch(`${API_URL}/api/carousel/deployed`);
+      const data = await response.json();
+      const deployedApps = data?.stats || [];
+
+      if (!deploymentsSeeded) {
+        for (const app of deployedApps) seenDeploymentIds.add(deploymentId(app));
+        deploymentsSeeded = true;
+        return;
+      }
+
+      const { picked, overflow } = pickNewDeployments(seenDeploymentIds, deployedApps, DEPLOYMENTS_PER_CYCLE);
+      for (const deployment of picked) {
+        seenDeploymentIds.add(deploymentId(deployment));
+        deploymentQueue = [...deploymentQueue, deployment];
+      }
+      if (overflow > 0) {
+        deploymentQueue = [...deploymentQueue, { overflowCount: overflow }];
+      }
+
+      advanceDeploymentQueue();
+    } catch (error) {
+      console.error('Error polling deployed apps for header animation:', error);
+    }
+  }
+
+  /** Issues the next queued deployment as a request, only when nothing is currently playing. */
+  function advanceDeploymentQueue() {
+    if (deploymentAnimationBusy || deploymentQueue.length === 0) return;
+    const [next, ...rest] = deploymentQueue;
+    deploymentQueue = rest;
+    deploymentCounter += 1;
+    deploymentRequest = { id: deploymentCounter, ...next };
+    deploymentAnimationBusy = true;
+  }
+
+  function handleDeploymentComplete() {
+    deploymentAnimationBusy = false;
+    advanceDeploymentQueue();
   }
 
   function handleBootComplete() {
@@ -162,7 +227,9 @@
         {dbStatus}
         {dataReady}
         {syncRequest}
+        {deploymentRequest}
         on:bootComplete={handleBootComplete}
+        on:deploymentComplete={handleDeploymentComplete}
       />
       <div class="build-info">
         Build: <span class="build-version">{appVersion}</span>{#if arcaneOsCodename}{' '}<span class="build-codename">{arcaneOsCodename}</span>{/if}

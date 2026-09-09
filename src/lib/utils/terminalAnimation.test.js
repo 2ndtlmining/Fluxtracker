@@ -21,7 +21,15 @@ import {
   LOGO_WIDTH,
   BOOT_LINE_COUNT,
   ROW_KIND_TEXT,
-  ROW_KIND_LOGO
+  ROW_KIND_LOGO,
+  deploymentId,
+  pickNewDeployments,
+  isGitDeployment,
+  truncateForBox,
+  formatDeploymentFrame,
+  formatDeploymentReducedMotionLines,
+  DOCKER_ICON_LINE,
+  GIT_ICON_LINE
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -351,5 +359,198 @@ describe('formatNetworkLine', () => {
 
   it('falls back to "..." for missing values', () => {
     expect(formatNetworkLine(null, undefined)).toBe('network ... nodes | apps ...');
+  });
+});
+
+// ============================================
+// DEPLOYMENT EVENT (issues #98 / #104 Phase 1)
+// ============================================
+
+describe('deploymentId', () => {
+  it('combines name and height so a redeploy at a new height counts as new', () => {
+    expect(deploymentId({ name: 'Minecraft', height: 1500000 })).toBe('Minecraft:1500000');
+  });
+
+  it('two different apps in the same block get different ids', () => {
+    const a = deploymentId({ name: 'AppA', height: 1500000 });
+    const b = deploymentId({ name: 'AppB', height: 1500000 });
+    expect(a).not.toBe(b);
+  });
+});
+
+describe('pickNewDeployments', () => {
+  const apps = [
+    { name: 'Alpha', height: 100 },
+    { name: 'Beta', height: 200 },
+    { name: 'Gamma', height: 300 },
+    { name: 'Delta', height: 400 }
+  ];
+
+  it('returns entries not already in seenIds, up to limit', () => {
+    const seen = new Set([deploymentId(apps[0])]);
+    const { picked, overflow } = pickNewDeployments(seen, apps, 10);
+    expect(picked).toEqual([apps[1], apps[2], apps[3]]);
+    expect(overflow).toBe(0);
+  });
+
+  it('caps at limit and reports the rest as overflow', () => {
+    const { picked, overflow } = pickNewDeployments(new Set(), apps, 2);
+    expect(picked).toEqual([apps[0], apps[1]]);
+    expect(overflow).toBe(2);
+  });
+
+  it('returns an empty pick and zero overflow when everything is seen', () => {
+    const seen = new Set(apps.map(deploymentId));
+    const { picked, overflow } = pickNewDeployments(seen, apps, 3);
+    expect(picked).toEqual([]);
+    expect(overflow).toBe(0);
+  });
+
+  it('handles a non-array input without throwing', () => {
+    expect(pickNewDeployments(new Set(), null, 3)).toEqual({ picked: [], overflow: 0 });
+    expect(pickNewDeployments(new Set(), undefined, 3)).toEqual({ picked: [], overflow: 0 });
+  });
+});
+
+describe('isGitDeployment', () => {
+  it('is true for a runonflux/orbit repotag, case-insensitively', () => {
+    expect(isGitDeployment('runonflux/orbit:latest')).toBe(true);
+    expect(isGitDeployment('RunOnFlux/Orbit:v2')).toBe(true);
+  });
+
+  it('is false for a regular docker repotag', () => {
+    expect(isGitDeployment('itzg/minecraft-server:latest')).toBe(false);
+  });
+
+  it('is false for empty/missing repo rather than throwing', () => {
+    expect(isGitDeployment('')).toBe(false);
+    expect(isGitDeployment(undefined)).toBe(false);
+    expect(isGitDeployment(null)).toBe(false);
+  });
+});
+
+describe('truncateForBox', () => {
+  it('returns short text unchanged', () => {
+    expect(truncateForBox('Minecraft')).toBe('Minecraft');
+  });
+
+  it('truncates long text with an ellipsis at exactly maxWidth', () => {
+    const result = truncateForBox('a-very-long-application-name-that-overflows', 20);
+    expect(result.length).toBe(20);
+    expect(result.endsWith('...')).toBe(true);
+  });
+
+  it('handles non-string input without throwing', () => {
+    expect(truncateForBox(undefined)).toBe('');
+    expect(truncateForBox(null)).toBe('');
+  });
+});
+
+describe('DOCKER_ICON_LINE / GIT_ICON_LINE', () => {
+  it('are both non-empty and no wider than the box', () => {
+    expect(DOCKER_ICON_LINE.length).toBeGreaterThan(0);
+    expect(GIT_ICON_LINE.length).toBeGreaterThan(0);
+    expect(DOCKER_ICON_LINE.length).toBeLessThanOrEqual(LOGO_WIDTH);
+    expect(GIT_ICON_LINE.length).toBeLessThanOrEqual(LOGO_WIDTH);
+  });
+
+  it('are distinct from each other', () => {
+    expect(DOCKER_ICON_LINE).not.toBe(GIT_ICON_LINE);
+  });
+});
+
+describe('formatDeploymentFrame', () => {
+  const full = { name: 'Minecraft', repo: '2ndtl/mc:latest', instances: 3, cpu: 2, ram: 4096, hdd: 25, height: 1500000 };
+
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(formatDeploymentFrame(full).length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('bookends the frame with the same icon row top and bottom, matching the box width', () => {
+    const frame = formatDeploymentFrame(full);
+    expect(frame[0]).toBe(frame[frame.length - 1]);
+    expect(frame[0].length).toBe(LOGO_WIDTH);
+    expect(frame[0].trim()).toBe(DOCKER_ICON_LINE.trim());
+  });
+
+  it('shows the octocat icon for a runonflux/orbit repo', () => {
+    const frame = formatDeploymentFrame({ ...full, repo: 'runonflux/orbit:latest' });
+    expect(frame[0].trim()).toBe(GIT_ICON_LINE.trim());
+  });
+
+  it('includes name, repo, instance count and resources when all present', () => {
+    const text = formatDeploymentFrame(full).join('\n');
+    expect(text).toContain('Minecraft');
+    expect(text).toContain('2ndtl/mc:latest');
+    expect(text).toContain('3');
+    expect(text).toContain('CPU');
+    expect(text).toContain('RAM');
+    expect(text).toContain('SSD');
+  });
+
+  it('omits the repo row (not a blank row) when repo is empty, without leaving a gap between real rows', () => {
+    const frame = formatDeploymentFrame({ ...full, repo: '' });
+    const middle = frame.slice(1, -1); // strip the two icon rows
+    expect(middle.join('\n')).not.toContain('REPO');
+
+    // Any blank filler rows are trailing only -- once a blank row appears, every
+    // row after it is blank too, so real content is never followed by a gap.
+    const blankStartsAt = middle.findIndex(line => line.trim() === '');
+    if (blankStartsAt !== -1) {
+      for (const line of middle.slice(blankStartsAt)) {
+        expect(line.trim()).toBe('');
+      }
+    }
+  });
+
+  it('omits the instances row when instances is not a real number', () => {
+    const text = formatDeploymentFrame({ ...full, instances: undefined }).join('\n');
+    expect(text).not.toMatch(/INST\s+undefined/);
+    expect(text).not.toContain('NaN');
+  });
+
+  it('omits the resources row entirely when no resource field is present', () => {
+    const text = formatDeploymentFrame({ ...full, cpu: 0, ram: 0, hdd: 0 }).join('\n');
+    expect(text).not.toContain('RES');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('NaN');
+  });
+
+  it('truncates a long name or repo instead of overflowing the box', () => {
+    const longName = 'a'.repeat(200);
+    const frame = formatDeploymentFrame({ ...full, name: longName, repo: longName });
+    for (const line of frame) {
+      expect(line.length).toBeLessThanOrEqual(LOGO_WIDTH);
+    }
+  });
+
+  it('formats RAM in GB once it crosses 1000MB, and SSD in TB once it crosses 1000GB', () => {
+    const text = formatDeploymentFrame({ ...full, ram: 4096, hdd: 1500 }).join('\n');
+    expect(text).toContain('4.1G');
+    expect(text).toContain('1.5T');
+  });
+
+  it('defaults to the docker icon when repo is empty (docker is the fallback type)', () => {
+    const frame = formatDeploymentFrame({ ...full, repo: '' });
+    expect(frame[0].trim()).toBe(DOCKER_ICON_LINE.trim());
+  });
+});
+
+describe('formatDeploymentReducedMotionLines', () => {
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('carries the name and instance count', () => {
+    const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).join('\n');
+    expect(text).toContain('Minecraft');
+    expect(text).toContain('3');
+    expect(text).toContain('NEW DEPLOYMENT');
+  });
+
+  it('has no icon or repo/resource content -- reduced motion carries only the essentials', () => {
+    const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).join('\n');
+    expect(text).not.toContain('REPO');
+    expect(text).not.toContain('RES');
   });
 });

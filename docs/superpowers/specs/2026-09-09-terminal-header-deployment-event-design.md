@@ -1,11 +1,28 @@
-# Design: Terminal header deployment event (issue #104, Phase 1)
+# Design: Terminal header deployment event (issues #98 + #104 Phase 1)
+
+## Revision 2 — reconciled with issue #98
+
+The first version of this document designed a 5-stage reveal sequence
+(identity → app → repo → resources, each its own wipe). Issue #98 — the
+original request #104 elaborates on — specifies something more concrete and
+simpler: **one combined frame**, icon rows bookending four detail rows, a
+single wipe in and a single wipe back to the logo. This revision replaces the
+visual-sequence section below with #98's design, confirmed still buildable:
+`carouselService`'s `repo` field comes from `globalappsspecifications`, which
+was never affected by the v8.18 API change (confirmed repeatedly this
+session — closing #38, revenue `app_type`), so `runonflux/orbit` detection
+for the whale-vs-octocat distinction #98 asks for is reliable here even
+though the general per-instance categorization problem (#106) is not.
 
 ## Source spec
 
-GitHub issue #104 ("ASCI enhnacements") is the full spec — a 24-section Phase 1
-(deployment animation) + Phase 2 (6-event-type engine) design. This document
-scopes that spec to what ships now, and grounds it in the actual code the
-issue's own author never saw.
+GitHub issue #98 ("header deployment animation - ASCII Docker whale / GitHub
+octocat showcase") is the primary, concrete spec this design implements —
+exact layout, timing budget, detection rules and acceptance criteria. Issue
+#104 ("ASCI enhnacements") is the broader Phase 1 + Phase 2 (6-event-type
+engine) spec that names #98 as its Phase 1. This document scopes both to
+what ships now, and grounds them in the actual code neither issue's author
+saw.
 
 **Scope for this pass: Phase 1 only** — the deployment animation, with a
 minimal event abstraction underneath it (a "next pending event" slot, not the
@@ -59,99 +76,103 @@ if the header polls this endpoint independently of `CarouselCard.svelte`.
 
 ### 1. `terminalAnimation.js` — pure formatters + selection logic (new exports)
 
-- `pickNewDeployment(seenIds, deployedApps)` — pure function. Given the
-  client's set of already-shown deployment IDs and the current
-  `deployedToday` list (already sorted alphabetically by `carouselService`),
-  returns the first entry whose ID isn't in `seenIds`, or `null`. Callers add
-  the returned ID to their own `seenIds` set — this function doesn't mutate
-  anything, matching the file's existing pure-function character.
 - `deploymentId(deployment)` — `` `${deployment.name}:${deployment.height}` ``.
   Block height alone isn't safe (two different apps can deploy in the same
   block); name alone isn't stable (redeployment reuses the name at a new
-  height, and *should* replay per the spec's "genuinely new" framing).
-- `formatDeploymentIdentityLines()` — static State C frame (`DOCKER` box +
-  `NEW DEPLOYMENT`), no dynamic data, so no missing-field handling needed.
-- `formatDeploymentAppLines(name, instances)` — State D. Truncates `name` with
-  `truncateForBox()`.
-- `formatDeploymentRepoLines(repo)` — State E. Returns `null` (caller skips
-  this frame entirely) when `repo` is `''` — the spec says show what's real,
-  never a placeholder, and skipping a frame is cleaner than a fake "Unknown"
-  line for something this codebase already knows is sometimes unresolvable.
-- `formatDeploymentResourceLines(cpu, ram, hdd)` — State F. Reuses
-  `carouselService`'s existing `formatCpu`/`formatRam`/`formatStorage` unit
-  logic (duplicated as pure exports here, or imported — see Task-level
-  decision in the plan) so the numbers read identically to the carousel's own
-  cards. Omits a row entirely (not "—") when a value is `0`/missing, matching
-  section 7's "only show values that actually exist."
-- `truncateForBox(text, maxWidth = LOGO_WIDTH - 2)` — deterministic
-  truncation (`…` suffix) so a long app/repo name can't overflow the fixed
-  box (sections 4 State D/E, 6).
+  height, and *should* replay per #98's "genuinely new" framing).
+- `pickNewDeployments(seenIds, deployedApps, limit)` — pure. Returns up to
+  `limit` entries from `deployedApps` not already in `seenIds`, plus a count
+  of how many more were skipped past the limit (`{ picked: [...], overflow: n }`).
+  #98 §Detection: "capped (e.g. 3 per cycle) with a final '+N more deployed'
+  tick" — this is where that cap and count come from. Callers own updating
+  their own `seenIds`.
+- `isGitDeployment(repo)` — `repo.toLowerCase().includes('runonflux/orbit')`,
+  the exact rule `revenueService.determineAppType()` already uses elsewhere
+  in this codebase, applied here to decide whale vs. octocat.
+- `truncateForBox(text, maxWidth)` — deterministic `…` truncation so a long
+  name/repo can't overflow the fixed box.
+- `formatDeploymentFrame(deployment)` — **the single combined frame** #98's
+  layout specifies: icon row (whale or octocat, `ROW_KIND_LOGO`) — NAME —
+  REPO (omitted, not blank, when `repo` is falsy) — INST (omitted when not a
+  real number) — RES (omitted when no resource fields are present) — icon
+  row again. Missing detail rows are dropped and the remainder padded at the
+  *end* of the middle 4 rows (never a gap between two real rows — matches the
+  "sync frames always fill all 6 rows... never an empty row" rule this
+  codebase already holds itself to, applied here as "no gaps between rows
+  that do have content" for the case where not everything is available).
+- `formatDeploymentReducedMotionLines(deployment)` — name + instance count,
+  no icon/repo/resources — the reduced-motion equivalent, same pattern
+  `formatSyncBlocksLine`-style content already uses elsewhere.
 
-### 2. `Header.svelte` — deployment detection (extends existing polling)
+The whale/octocat art itself: single-line (not multi-row — #98 leaves this as
+an open question; single-line is what fits its own 6-row layout example
+without inventing a taller box) ASCII glyphs built from this codebase's
+existing symbol vocabulary (block/line-drawing characters, the same register
+`buildSyncPatternLines`'s `PATTERN_CHARS` already uses), each labeled so the
+type reads unambiguously even at the header's small font size — exact
+glyphs are a Task-level decision, tuned against the extended harness (below),
+not fixed in this document.
 
-- New state: `seenDeploymentIds` (in-memory `Set`, module-instance-scoped —
-  resets on a hard page reload, which is an acceptable Phase 1 trade-off; the
-  spec's "bounded size/TTL, not persisted to localStorage without a clear
-  reason" is satisfied trivially by not persisting at all), `deploymentQueue`
-  (array, capped at 10 — new entries beyond the cap are dropped, matching
-  section 8's "queue cannot grow without bound"; a running network doesn't
-  need every deployment shown, just that showing one is *real*),
-  `deploymentCounter` (mirrors `syncCounter`'s id-bump pattern).
-- New poll: reuses `CAROUSEL_CONFIG.updateInterval` (10 min) as its own
-  `setInterval`, calling `GET /api/carousel/deployed` — independent of the
-  30s `/api/header` poll (deployments don't need 30s freshness, and this
-  keeps the two concerns' cadences honest rather than forcing a shared
-  interval to serve both).
-- On each poll: for every entry in the response not in `seenDeploymentIds`,
-  mark it seen and push onto `deploymentQueue` (bounded). If
-  `deploymentQueue` has an entry and the animation component isn't currently
-  mid-event, shift one off and set `deploymentRequest = {id, ...deployment}`.
-- First poll after page load: every currently-deployed-today app would
-  otherwise look "new" and queue-storm the animation. Seed
-  `seenDeploymentIds` from the *first* response without queuing anything —
-  only deployments observed after that count as events, matching section
-  4.1's "identify genuinely new records" (new means new-to-this-session, not
-  new-to-the-network).
+### 2. `Header.svelte` — deployment detection (on the existing 30s poll)
+
+- New state: `seenDeploymentIds` (in-memory `Set`, resets on a hard reload —
+  #98 doesn't ask for persistence), `deploymentQueue` (array), `deploymentCounter`.
+- **No new poll** — #98 §Detection says the existing 30s `/api/header` cycle
+  also reads `/api/carousel/deployed` each time. That endpoint is already
+  cheap (server-side cached by `carouselService`, `CAROUSEL_CONFIG`'s own
+  10 min TTL), so polling it every 30s client-side costs nothing upstream —
+  it just reads whatever `carouselService` already has cached most of the time.
+- Each poll: `pickNewDeployments(seenDeploymentIds, deployedApps, 3)` (cap of
+  3, per #98's "e.g. 3 per cycle"). Every picked entry is marked seen and
+  queued; if `overflow > 0`, one synthetic `{ overflowCount }` entry is queued
+  at the end so the "+N more deployed" tick (#98 §Detection) plays once
+  rather than silently dropping the rest.
+- First poll after page load seeds `seenDeploymentIds` without queuing
+  anything — matches #98 §Detection's "baseline set captured on page load"
+  and the acceptance criterion "No animation on page load for pre-existing
+  deployments."
+- Advance-the-queue logic is unchanged from Revision 1: shift one off only
+  when the animation isn't already mid-event, redeliver on `deploymentComplete`.
 
 ### 3. `TerminalHeaderAnimation.svelte` — the `deploying` state
 
-- New prop `deploymentRequest = null`, watched the same way `syncRequest` is:
-  a reactive block on `deploymentRequest.id` changing.
+- New prop `deploymentRequest = null`, watched the same way `syncRequest` is.
 - New state value: `state = 'booting' | 'ready' | 'syncing' | 'deploying'`.
-- **The minimal event abstraction**: a `deploymentRequest` that arrives while
-  `state !== 'ready'` is not dropped — it's left for `Header.svelte`'s own
-  queue (above) to redeliver once the component returns to `'ready'`
-  (`Header.svelte` only shifts its queue when the component isn't mid-event,
-  so this component never needs to know about queuing itself). A `syncRequest`
-  arriving while `state === 'deploying'` behaves like today's "arrives while
-  syncing" case for a *second* sync: for Phase 1, sync wins immediately after
-  the deployment frame finishes (Header.svelte's own `previousBlockHeight`
-  tracking already ensures at most one pending sync target, same as today).
-  This priority-free, two-queues-that-don't-collide approach is what "minimal"
-  means here — Phase 2's real priority table (`health_change 100 > deployment
-  80 > block 60 > ...`) replaces this once more event types exist and can
-  genuinely collide.
-- `startDeployment(deployment)` — chains `runReveal()` through the states,
-  each a full-box frame (`padLines(..., BOOT_LINE_COUNT)`), using the same
-  `REVEAL_MS` wipe pace as every other transition in this file:
-  1. **B — Transition**: logo → arrow frame (`composeRevealFrame`, top-down)
-  2. **C — Identity**: arrow → `formatDeploymentIdentityLines()` (hold)
-  3. **D — Application**: → `formatDeploymentAppLines()` (hold)
-  4. **E — Repository**: → `formatDeploymentRepoLines()` if non-null, else
-     skipped (straight to F)
-  5. **F — Resources**: → `formatDeploymentResourceLines()` (hold)
-  6. **G — Return**: → `LOGO_LINES` (top-down, same as boot/sync's return)
-  Total duration lands in the spec's 5-8s range using hold constants
-  analogous to `SYNC_HOLD1_MS`/`SYNC_HOLD2_MS` (new `DEPLOY_HOLD_MS` family,
-  same `SYNC_SLOWDOWN`-style tunable-in-one-place convention).
-- `reducedMotion`: jumps straight from logo to the State D+F content merged
-  into one frame (name, instances, resources — matching section 5's own
-  reduced-motion example), holds briefly, returns to logo — no wipes, same
-  pattern `startSync()` already uses for its reduced-motion branch.
-- Accessibility: the `<pre>` element gains a computed `aria-label` — normally
-  absent/generic, and during a deployment event set to something like
-  `"New deployment: {name}, {instances} instances"` so screen readers get the
-  content without parsing ASCII art (section 15).
+- **The minimal event abstraction** (unchanged from Revision 1): a
+  `deploymentRequest` that arrives while not `'ready'` is left for
+  `Header.svelte`'s queue to redeliver once `deploymentComplete` fires — this
+  component only ever decides "am I ready right now."
+- `startDeployment(deployment)` — one wipe in (`runReveal(LOGO_LINES, ...,
+  formatDeploymentFrame(deployment), ..., REVEAL_MS)`), a hold, one wipe back
+  to `LOGO_LINES`. Total duration lands in #98's ~10s budget (§Timing
+  budget: ~0.6s in, ~7-8s hold for readability including the "+N more" tick
+  when queued, ~0.6s out, remainder as settle buffer) — a single
+  `DEPLOY_HOLD_MS` constant (~8s, `DEPLOY_SLOWDOWN`-tunable like every other
+  pacing constant in this file) replaces Revision 1's four separate per-state
+  holds, since there's only one frame to hold on now.
+- The `overflowCount`-only synthetic entry renders through the same
+  `formatDeploymentFrame`-shaped path but with a short, fixed "+N more
+  deployed" content instead of NAME/REPO/INST/RES, held briefly (~2s, it's
+  a tally, not detail to read) rather than the full hold.
+- `reducedMotion`: `formatDeploymentReducedMotionLines()`, no wipes, same
+  pattern `startSync()`'s reduced-motion branch already uses.
+- Accessibility: `aria-label` on the `<pre>` set to `"New deployment: {name},
+  {instances} instances"` during the event, absent otherwise.
+- A `syncRequest` arriving while `state === 'deploying'` is handled exactly
+  as Revision 1 described: it plays immediately after the deployment frame
+  finishes, via the same `activeSyncEnd`/queued-target mechanism `syncRequest`
+  already has for two syncs arriving close together.
+
+### Harness extension (issue #98 explicit acceptance criterion)
+
+`scripts/header-smoke/stub-api.mjs` gains a way to inject a "new deployment"
+scenario into its `/api/carousel/deployed` response after the harness's
+initial baseline load, and `check-header.mjs` gains assertions mirroring the
+sync checks it already has: box height never changes, the deployment frame
+appears, the correct icon (whale for a docker-repo fixture, octocat for a
+`runonflux/orbit` fixture) shows, and the header returns to the logo
+afterward. This was deferred as "valuable follow-up, not required" in
+Revision 1; #98 lists it as a hard acceptance criterion, so it's in scope now.
 
 ## What Phase 2 changes later
 
