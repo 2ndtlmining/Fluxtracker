@@ -1608,14 +1608,16 @@ export async function upsertRepoSnapshots(rows) {
 // ============================================
 
 /**
- * Every classified node IP -- lightweight projection (no asn/org) since callers only need
- * ip/isDatacenter/classifiedAt to decide what's stale and to aggregate the stats. SQLite has
- * no row-count cap the way PostgREST does, so this is a plain unpaginated SELECT.
+ * Every classified node IP -- lightweight projection (no asn) since callers only need
+ * ip/org/isDatacenter/classifiedAt to decide what's stale, aggregate the stats and group
+ * the top datacenters by provider. SQLite has no row-count cap the way PostgREST does, so
+ * this is a plain unpaginated SELECT.
  */
 export async function getAllNodeIpClassifications() {
-    const rows = getDb().prepare('SELECT ip, is_datacenter, classified_at FROM node_ip_classification').all();
+    const rows = getDb().prepare('SELECT ip, org, is_datacenter, classified_at FROM node_ip_classification').all();
     return rows.map(row => ({
         ip: row.ip,
+        org: row.org,
         isDatacenter: !!row.is_datacenter,
         classifiedAt: row.classified_at
     }));

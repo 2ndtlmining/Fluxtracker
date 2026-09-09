@@ -263,6 +263,68 @@ describe('getDecentralizationStats', () => {
         expect(stats.coveragePercent).toBe(0);
     });
 
+    it('groups the top datacenters by org, sorted by count, with percent of all classified nodes', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5', '6', '7', '8']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '4', org: 'OVH SAS', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '5', org: 'OVH SAS', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '6', org: 'Contabo GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '7', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() },
+            { ip: '8', org: 'KPN B.V.', isDatacenter: false, classifiedAt: Date.now() }
+        ]);
+
+        const stats = await getDecentralizationStats();
+
+        expect(stats.topDatacenters).toEqual([
+            { org: 'Hetzner Online GmbH', count: 3, percent: 37.5 },
+            { org: 'OVH SAS', count: 2, percent: 25 },
+            { org: 'Contabo GmbH', count: 1, percent: 12.5 }
+        ]);
+        expect(stats.otherProviderCount).toBe(0);
+    });
+
+    it('caps topDatacenters at 3 and reports the rest via otherProviderCount', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', org: 'Provider B', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', org: 'Provider C', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '4', org: 'Provider D', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '5', org: 'Provider E', isDatacenter: true, classifiedAt: Date.now() }
+        ]);
+
+        const stats = await getDecentralizationStats();
+
+        expect(stats.topDatacenters).toHaveLength(3);
+        expect(stats.otherProviderCount).toBe(2);
+    });
+
+    it('groups a missing/null org under "Unknown" rather than dropping it', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', org: null, isDatacenter: true, classifiedAt: Date.now() }
+        ]);
+
+        const stats = await getDecentralizationStats();
+
+        expect(stats.topDatacenters).toEqual([{ org: 'Unknown', count: 1, percent: 100 }]);
+    });
+
+    it('is empty (not an error) when nothing is classified as a datacenter yet', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() }
+        ]);
+
+        const stats = await getDecentralizationStats();
+
+        expect(stats.topDatacenters).toEqual([]);
+        expect(stats.otherProviderCount).toBe(0);
+    });
+
     it('caches the snapshot rather than recomputing on every call', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1']);
         getAllNodeIpClassifications.mockResolvedValue([]);
@@ -283,5 +345,16 @@ describe('getDecentralizationStats', () => {
 
         expect(stats.classifiedCount).toBe(1);
         expect(getAllNodeIpClassifications).toHaveBeenCalledTimes(1); // only the cycle's own read
+    });
+
+    it('a cycle\'s freshly-classified org is reflected in topDatacenters immediately, not just on the next read', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1']);
+        getAllNodeIpClassifications.mockResolvedValue([]);
+        axios.get.mockResolvedValue(ipwhoisResponse()); // Hetzner Online GmbH, isDatacenter: true
+
+        await runDecentralizationCycle();
+        const stats = await getDecentralizationStats();
+
+        expect(stats.topDatacenters).toEqual([{ org: 'Hetzner Online GmbH', count: 1, percent: 100 }]);
     });
 });

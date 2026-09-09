@@ -146,20 +146,35 @@
    * causes an extra upstream Flux API call) and keeps only the single most-current
    * entry from each for the header's idle rotation. Run every cycle -- never seeded
    * once and left stale -- so the rotation always reflects the latest cached data.
+   *
+   * The two fetches are independent (allSettled, not all): one endpoint being slow or
+   * erroring shouldn't blank out the other, and each failure logs which endpoint and
+   * why rather than one opaque combined error.
    */
   async function pollLatestApps() {
-    try {
-      const [deployedRes, expiringRes] = await Promise.all([
-        fetchWithTimeout(`${API_URL}/api/carousel/deployed`),
-        fetchWithTimeout(`${API_URL}/api/carousel/expiring`)
-      ]);
-      const [deployedData, expiringData] = await Promise.all([deployedRes.json(), expiringRes.json()]);
+    const [deployedResult, expiringResult] = await Promise.allSettled([
+      fetchLatestApp(`${API_URL}/api/carousel/deployed`, pickLatestDeployed),
+      fetchLatestApp(`${API_URL}/api/carousel/expiring`, pickLatestExpiring)
+    ]);
 
-      latestDeployedApp = pickLatestDeployed(deployedData?.stats || []);
-      latestExpiringApp = pickLatestExpiring(expiringData?.stats || []);
-    } catch (error) {
-      console.error('Error polling latest deployed/expiring apps for header animation:', error);
+    if (deployedResult.status === 'fulfilled') {
+      latestDeployedApp = deployedResult.value;
+    } else {
+      console.error('Error polling latest deployed apps for header animation:', deployedResult.reason);
     }
+
+    if (expiringResult.status === 'fulfilled') {
+      latestExpiringApp = expiringResult.value;
+    } else {
+      console.error('Error polling latest expiring apps for header animation:', expiringResult.reason);
+    }
+  }
+
+  async function fetchLatestApp(url, pick) {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) throw new Error(`${url} responded ${response.status}`);
+    const data = await response.json();
+    return pick(data?.stats || []);
   }
 
   function formatPrice(price) {

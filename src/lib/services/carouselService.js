@@ -19,6 +19,7 @@ const CACHE_DURATION = CAROUSEL_CONFIG.freshnessThreshold;
 // Shared cache for expensive Flux API calls (block height + app specs)
 let cachedFluxApiData = null;
 let lastFluxApiCacheTime = 0;
+let fluxApiInFlight = null; // dedup concurrent cold-cache callers, same pattern as busiestNodeService/hostLocationService
 const FLUX_API_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -59,23 +60,39 @@ export async function fetchCarouselData() {
 
 /**
  * Shared fetch for block height + app specs with short-lived cache.
- * Prevents duplicate API calls when multiple carousel tabs load in quick succession.
+ * Prevents duplicate API calls when multiple carousel tabs load in quick succession --
+ * and, since fetchLatestDeployedApps()/fetchExpiringApps() are now called concurrently
+ * every header poll (issue #104 Phase 2's idle rotation), the in-flight dedup below is
+ * what stops a cold cache from firing this ~450KB globalappsspecifications fetch twice
+ * at once. Without it, two callers landing in the same tick each pay the full fetch cost
+ * independently -- doubling upstream load and, under real latency, pushing the caller's
+ * own timeout past its limit (observed as "Error polling latest deployed/expiring apps").
  */
 async function getSharedFluxApiData() {
     const age = Date.now() - lastFluxApiCacheTime;
     if (cachedFluxApiData && age < FLUX_API_CACHE_DURATION) {
         return cachedFluxApiData;
     }
-    const [blockHeightBody, appsBody] = await Promise.all([
-        resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000, breakerKey: 'flux-blockheight' }),
-        resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000, breakerKey: 'global-apps-specs' })
-    ]);
-    cachedFluxApiData = {
-        currentBlockHeight: blockHeightBody?.data || 0,
-        appsData: appsBody?.data || []
-    };
-    lastFluxApiCacheTime = Date.now();
-    return cachedFluxApiData;
+    if (fluxApiInFlight) return fluxApiInFlight;
+
+    fluxApiInFlight = (async () => {
+        const [blockHeightBody, appsBody] = await Promise.all([
+            resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000, breakerKey: 'flux-blockheight' }),
+            resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000, breakerKey: 'global-apps-specs' })
+        ]);
+        cachedFluxApiData = {
+            currentBlockHeight: blockHeightBody?.data || 0,
+            appsData: appsBody?.data || []
+        };
+        lastFluxApiCacheTime = Date.now();
+        return cachedFluxApiData;
+    })();
+
+    try {
+        return await fluxApiInFlight;
+    } finally {
+        fluxApiInFlight = null;
+    }
 }
 
 /**

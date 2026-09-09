@@ -1,12 +1,15 @@
 <script>
   import { Globe } from 'lucide-svelte';
+  import { formatAsciiBar } from '$lib/utils/resourceBar.js';
 
-  // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent, updatedAt } | null
+  // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
+  //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
   export let stats = null;
   export let loading = false;
   export let error = false;
 
   $: hasData = stats && stats.classifiedCount > 0;
+  $: hasDatacenters = hasData && stats.topDatacenters && stats.topDatacenters.length > 0;
 
   function formatNumber(num) {
     if (!num && num !== 0) return '0';
@@ -38,25 +41,41 @@
     </div>
   {:else}
     <div class="metric-row">
-      <div class="metric-value cyan">{formatPercent(stats.datacenterPercent)}</div>
-      <div class="metric-label">in known datacenters</div>
-    </div>
-
-    <div class="metric-detail">
-      {formatNumber(stats.datacenterCount)} of {formatNumber(stats.classifiedCount)} classified nodes
+      <div class="metric-heading">
+        <span class="metric-label">In known datacenters</span>
+        <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
+      </div>
+      <div class="ascii-bar">{formatAsciiBar(stats.datacenterPercent)}</div>
+      <div class="metric-detail">{formatNumber(stats.datacenterCount)} of {formatNumber(stats.classifiedCount)} classified nodes</div>
     </div>
 
     <div class="coverage-row">
-      <div class="coverage-heading">
-        <span class="coverage-label">Coverage</span>
-        <span class="coverage-percent">{formatPercent(stats.coveragePercent)}</span>
+      <div class="metric-heading">
+        <span class="metric-label">Coverage</span>
+        <span class="metric-value">{formatPercent(stats.coveragePercent)}</span>
       </div>
-      <div class="coverage-track">
-        <div class="coverage-fill" style="width: {stats.coveragePercent}%"></div>
-      </div>
-      <div class="coverage-detail">
-        {formatNumber(stats.classifiedCount)} of {formatNumber(stats.totalNodes)} nodes classified so far
-      </div>
+      <div class="ascii-bar">{formatAsciiBar(stats.coveragePercent)}</div>
+      <div class="metric-detail">{formatNumber(stats.classifiedCount)} of {formatNumber(stats.totalNodes)} nodes classified so far</div>
+    </div>
+
+    <div class="datacenters-section">
+      <div class="section-label">Top datacenters</div>
+      {#if hasDatacenters}
+        <div class="datacenters-list">
+          {#each stats.topDatacenters as dc}
+            <div class="datacenter-row">
+              <span class="datacenter-org" title={dc.org}>{dc.org}</span>
+              <span class="datacenter-count">{formatNumber(dc.count)}</span>
+              <span class="datacenter-percent">{formatPercent(dc.percent)}</span>
+            </div>
+          {/each}
+        </div>
+        {#if stats.otherProviderCount > 0}
+          <div class="other-providers-note">+{stats.otherProviderCount} more {stats.otherProviderCount === 1 ? 'provider' : 'providers'}</div>
+        {/if}
+      {:else}
+        <div class="datacenters-empty">None classified yet</div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -123,78 +142,111 @@
   }
 
   .metric-row {
-    margin-bottom: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
   }
 
-  .metric-value {
-    font-size: 2rem;
-    font-weight: 700;
-    color: var(--text-white);
-    line-height: 1.1;
-  }
-
-  .metric-value.cyan {
-    color: var(--text-primary);
-    text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
-  }
-
-  .metric-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-  }
-
-  .metric-detail {
-    font-size: 0.7rem;
-    color: var(--text-muted);
+  .coverage-row {
     margin-bottom: var(--spacing-md);
     padding-bottom: var(--spacing-sm);
     border-bottom: 1px solid var(--border-color);
   }
 
-  .coverage-row {
+  .metric-heading {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-  }
-
-  .coverage-heading {
-    display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
+    margin-bottom: 0.25rem;
   }
 
-  .coverage-label {
+  .metric-label {
     font-size: 0.7rem;
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
-  .coverage-percent {
-    font-size: 0.8rem;
-    font-weight: 600;
+  .metric-value {
+    font-size: 0.9rem;
+    font-weight: 700;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
   }
 
-  .coverage-track {
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(139, 146, 176, 0.15);
-    overflow: hidden;
+  /* ASCII bar -- a real text character (not a CSS div fill), so it inherits the
+     terminal theme's glow like every other row in the header/cards. */
+  .ascii-bar {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.4);
+    white-space: pre;
+    margin-bottom: 0.25rem;
   }
 
-  .coverage-fill {
-    height: 100%;
-    border-radius: 3px;
-    background: var(--text-primary);
-    box-shadow: 0 0 6px rgba(0, 255, 255, 0.5);
-    transition: width 0.4s ease;
-  }
-
-  .coverage-detail {
+  .metric-detail {
     font-size: 0.7rem;
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+  }
+
+  .datacenters-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .section-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .datacenters-empty {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+
+  .datacenters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+
+  .datacenter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .datacenter-org {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-white);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .datacenter-count {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .datacenter-percent {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.2em;
+    text-align: right;
+  }
+
+  .other-providers-note {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    font-style: italic;
   }
 </style>
