@@ -104,9 +104,10 @@ const run = async () => {
   let sawUpdatedDeployedName = false;
   let sawUpdatedExpiringName = false;
   let sawExpireRow = false;
+  let sawAgoRow = false;
   let sawInstRow = false;
   let sawResRow = false;
-  let sawDockerOrGithubIcon = false;
+  let sawDeployedIconBanner = false;
   let returnedToLogoAfterInfo = false;
   let infoTextStyleMatchesBoot = null;
   let deployedIconIsGreen = null;
@@ -139,12 +140,12 @@ const run = async () => {
       const textRows = s.rows.filter(r => r.cls.includes('row-text'));
       const textContent = textRows.map(r => r.text);
       const withContent = textContent.filter(x => x.length > 0);
-      // Content detection (NAME/EXPIRE/DOCKER/GITHUB) reads every row's text, not just
-      // row-text ones: the deployed/expiring frames' icon bookend rows now carry their
-      // own row-deployed/row-expiring class (item 4 of the decentralization follow-ups),
-      // so a row-text-only join would silently drop the "<< GITHUB >>"/"!! EXPIRING !!"
-      // glyph text and undercount these checks. The text-style check below still reads
-      // s.textStyle, which is computed from a row-text row specifically.
+      // Content detection (NAME/EXPIRE/AGO/DEPLOYED/EXPIRING) reads every row's text, not
+      // just row-text ones: the deployed/expiring frames' icon bookend rows now carry
+      // their own row-deployed/row-expiring class (item 4 of the decentralization
+      // follow-ups), so a row-text-only join would silently drop the directional-arrow
+      // banner text (issue #127) and undercount these checks. The text-style check below
+      // still reads s.textStyle, which is computed from a row-text row specifically.
       const joined = s.rows.map(r => r.text).join('\n');
 
       samples.push({ t, boxH: s.boxH, headerH: s.headerH, settled: s.settled, rows: s.rows, textStyle: s.textStyle });
@@ -158,7 +159,7 @@ const run = async () => {
       // An idle-rotation info frame (expiring or deployed), identified by its NAME row.
       if (s.settled && /NAME\s+\S/.test(joined)) {
         const isExpiring = /EXPIRE\s+\S/.test(joined) || joined.includes('EXPIRING');
-        const isDeployed = joined.includes('DOCKER') || joined.includes('GITHUB');
+        const isDeployed = joined.includes('DEPLOYED');
 
         if (isExpiring) {
           sawExpiringFrame = true;
@@ -166,10 +167,11 @@ const run = async () => {
         }
         if (isDeployed) {
           sawDeployedFrame = true;
-          sawDockerOrGithubIcon = true;
+          sawDeployedIconBanner = true;
           if (joined.includes('updated-minecraft')) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
+        if (/AGO\s+\S/.test(joined)) sawAgoRow = true;
         if (/INST\s+\d/.test(joined)) sawInstRow = true;
         if (/RES\s+/.test(joined)) sawResRow = true;
 
@@ -251,8 +253,9 @@ const run = async () => {
     ['no console errors', consoleErrors.length === 0],
     ['idle rotation: expiring frame observed', sawExpiringFrame],
     ['idle rotation: deployed frame observed', sawDeployedFrame],
-    ['idle rotation: docker/github icon shown on the deployed frame', sawDockerOrGithubIcon],
+    ['idle rotation: DEPLOYED banner shown on the deployed frame', sawDeployedIconBanner],
     ['idle rotation: EXPIRE row shown', sawExpireRow],
+    ['idle rotation: AGO row shown', sawAgoRow],
     ['idle rotation: INST row shown', sawInstRow],
     ['idle rotation: RES row shown', sawResRow],
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],

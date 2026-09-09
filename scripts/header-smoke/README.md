@@ -12,7 +12,7 @@ timing changes) are caught mechanically.
 - Boot text and the idle-rotation info frames share one voice (font/colour)
 - **Idle rotation** (issue #104 Phase 2): once boot finishes, the box cycles
   Logo -> Latest Expiring -> Latest Deployed -> Logo -> ... — both info frames appear
-  (icon + NAME + EXPIRE-or-REPO + INST + RES rows), no frame ever shows an empty row,
+  (icon + NAME + EXPIRE-or-AGO + INST + RES rows), no frame ever shows an empty row,
   and the box returns to a pure logo frame between them
 - **Freshness**: the stub switches both `/api/carousel/deployed` and
   `/api/carousel/expiring` to a different fixture app after their first call: the harness

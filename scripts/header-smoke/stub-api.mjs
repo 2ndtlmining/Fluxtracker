@@ -25,7 +25,9 @@ const INITIAL_DEPLOYED = {
 };
 const UPDATED_DEPLOYED = {
   name: 'updated-minecraft',
-  repo: 'runonflux/orbit:latest', // exercises the octocat icon
+  // repo no longer drives the icon row (issue #127 dropped the docker/git distinction
+  // from it) -- kept as a realistic field on the stub payload, unused by this harness.
+  repo: 'runonflux/orbit:latest',
   instances: 2,
   cpu: 1,
   ram: 2048,

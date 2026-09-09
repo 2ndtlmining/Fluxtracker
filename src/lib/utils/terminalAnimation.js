@@ -147,11 +147,6 @@ export function composeRevealKinds(baseKinds, incomingKinds, revealedCount, dire
 // and the one-off "new deployment detected" flash (event-driven, so it could sit idle
 // for a long time with nothing to show). See docs/superpowers/specs -- issue #104.
 
-/** The exact rule determineAppType() already uses elsewhere in this codebase. */
-export function isGitDeployment(repo) {
-  return typeof repo === 'string' && repo.toLowerCase().includes('runonflux/orbit');
-}
-
 /** Deterministic truncation so a name/repo can't overflow the fixed box. */
 export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
   if (typeof text !== 'string') return '';
@@ -159,24 +154,23 @@ export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
   return text.slice(0, Math.max(0, maxWidth - 3)) + '...';
 }
 
-/** Single-line ASCII glyphs -- a distinct bracket motif per type -- centered to LOGO_WIDTH. */
-function centerInBox(text, width = LOGO_WIDTH) {
-  if (text.length >= width) return text.slice(0, width);
-  const totalPad = width - text.length;
-  const left = Math.floor(totalPad / 2);
-  const right = totalPad - left;
-  return ' '.repeat(left) + text + ' '.repeat(right);
-}
-
 // Plain ASCII, not emoji: an emoji glyph renders in its own fixed color and ignores the
 // box's `color`/`text-shadow` styling, so it shows up as a flat, un-glowing sticker against
 // the monochrome cyan terminal text everywhere else -- it reads as visually broken, not
-// distinctive. A bracket motif is a real text character, so it inherits the glow like
-// every other row, and a different bracket shape per type is still easy to tell apart at
-// a glance without relying on color.
-export const DOCKER_ICON_LINE = centerInBox('[[ DOCKER ]]'); // double brackets -- heaviest weight, docker is the common case
-export const GIT_ICON_LINE = centerInBox('<< GITHUB >>'); // angle brackets -- distinct shape from docker's
-export const EXPIRING_ICON_LINE = centerInBox('!! EXPIRING !!'); // exclamation marks read as "urgent" on sight
+// distinctive.
+//
+// Issue #127: #119 shipped these as a single bracketed word ("[[ DOCKER ]]"/"<< GITHUB >>"
+// for a deployment, "!! EXPIRING !!" for an expiry) with only color distinguishing them --
+// judged "looks bad" once seen live. Reworked as full-width directional-arrow banners:
+// arrows converge inward for a deployment (something arriving) and diverge outward for an
+// expiry (something departing/urgent) -- a motif distinct per event type, not just a color
+// swap. The docker-vs-git distinction is dropped from this row entirely: the REPO row
+// already shows the real image/repo string, so the icon row's job shifts from "app type"
+// to "event type" only. Each is exactly LOGO_WIDTH (34) chars -- verified in
+// terminalAnimation.test.js, not built via padding/centering since the arrow run length on
+// each side already sums to the exact width.
+export const DEPLOYED_ICON_LINE = '>>>>>>>> NEW APP DEPLOYED <<<<<<<<';
+export const EXPIRING_ICON_LINE = '<<<<<<<<<<<< EXPIRING >>>>>>>>>>>>';
 
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
@@ -231,29 +225,36 @@ export function pickLatestExpiring(expiringApps) {
 }
 
 /**
- * The combined deployment-detail frame (issue #98's layout): icon row, then
- * NAME/REPO/INST/RES -- each omitted (not left blank) when its data isn't real -- then
+ * The combined deployment-detail frame (issue #98's layout, reworked by #127): icon row,
+ * then NAME/AGO/INST/RES -- each omitted (not left blank) when its data isn't real -- then
  * the same icon row again. Missing rows are dropped and the remainder padded at the END
  * of the middle section, so real content is never followed by a gap.
+ *
+ * REPO is deliberately not one of these four: there are only BOOT_LINE_COUNT - 2 = 4 middle
+ * slots, and AGO (time since deployment) is #127's new required content -- the repo/image
+ * string this replaced is still visible on the carousel, and the icon row's job is "event
+ * type" now, not "app type" (see DEPLOYED_ICON_LINE).
  */
 export function formatDeploymentFrame(deployment) {
-  const icon = isGitDeployment(deployment.repo) ? GIT_ICON_LINE : DOCKER_ICON_LINE;
   const instances = Number.isFinite(deployment.instances) ? deployment.instances : null;
   const resources = formatResourceSummary(deployment.cpu, deployment.ram, deployment.hdd);
+  const deployedAgo = Number.isFinite(deployment.blockAge)
+    ? `${formatBlocksAsTime(deployment.blockAge)} ago`
+    : null;
 
   const detailLines = [formatDetailLine('NAME', deployment.name || 'unknown')];
-  if (deployment.repo) detailLines.push(formatDetailLine('REPO', deployment.repo));
+  if (deployedAgo) detailLines.push(formatDetailLine('AGO', deployedAgo));
   if (instances !== null) detailLines.push(formatDetailLine('INST', instances));
   if (resources) detailLines.push(formatDetailLine('RES', resources));
 
   const middleRowCount = BOOT_LINE_COUNT - 2;
   const middle = padLines(detailLines, middleRowCount);
-  return [icon, ...middle, icon];
+  return [DEPLOYED_ICON_LINE, ...middle, DEPLOYED_ICON_LINE];
 }
 
 /**
  * Row kinds for formatDeploymentFrame's output: only the first/last (icon bookend)
- * rows carry the green ROW_KIND_DEPLOYED accent -- the middle NAME/REPO/INST/RES rows
+ * rows carry the green ROW_KIND_DEPLOYED accent -- the middle NAME/AGO/INST/RES rows
  * stay ROW_KIND_TEXT, same plain terminal text as everywhere else.
  */
 export function deploymentFrameKinds() {
@@ -264,9 +265,9 @@ export function deploymentFrameKinds() {
 }
 
 /**
- * The symmetric "latest expiring" frame -- same shape as formatDeploymentFrame, but an
- * hourglass icon and an EXPIRE row (time until expiry) in place of REPO, since a repo
- * distinction isn't meaningful here.
+ * The symmetric "latest expiring" frame -- same shape as formatDeploymentFrame, but the
+ * orange diverging-arrows EXPIRING_ICON_LINE and an EXPIRE row (time until expiry) in
+ * place of AGO, since expiry (not deployment recency) is the relevant time here.
  */
 export function formatExpiringFrame(app) {
   const instances = Number.isFinite(app.instances) ? app.instances : null;
@@ -296,16 +297,21 @@ export function expiringFrameKinds() {
 }
 
 /**
- * Reduced-motion equivalent of formatDeploymentFrame: name + instance count, no
- * icon/repo/resources -- those exist to fill an animated sequence, not to carry
- * information a static reader needs.
+ * Reduced-motion equivalent of formatDeploymentFrame: name + time-since-deployment +
+ * instance count, no icon/resources -- those exist to fill an animated sequence, not to
+ * carry information a static reader needs. Issue #127 explicitly decided this DOES gain
+ * the new time-since content (the second line was blank before), for consistency with
+ * formatExpiringReducedMotionLines already showing its own time-until-expiry below.
  */
 export function formatDeploymentReducedMotionLines(deployment) {
   const name = truncateForBox(deployment?.name || 'unknown');
   const instances = Number.isFinite(deployment?.instances) ? deployment.instances : null;
+  const deployedAgo = Number.isFinite(deployment?.blockAge)
+    ? `${formatBlocksAsTime(deployment.blockAge)} ago`
+    : null;
   return padLines([
     '  LATEST DEPLOYMENT',
-    '',
+    deployedAgo !== null ? `  ${deployedAgo}` : '',
     `  ${name}`,
     instances !== null ? `  ${instances} ${instances === 1 ? 'INSTANCE' : 'INSTANCES'}` : ''
   ], BOOT_LINE_COUNT);
