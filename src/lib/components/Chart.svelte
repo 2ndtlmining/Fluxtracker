@@ -30,6 +30,33 @@
   let chartData = { labels: [], data: [], rawDates: [] };
   let availableMetrics = [];
 
+  // Decentralization entity search (issue #138 follow-up): search-and-select a single
+  // country/continent/datacenter to trend over time, similar to the removed docker_repos
+  // search feature (see git history pre-#109's Chart.svelte). Unlike that feature, this
+  // needs only ONE fetch per timeframe: /api/decentralization/history already returns
+  // every entity's daily counts for every dimension in one response, so switching the
+  // selected entity (or Qty/% toggle) just re-derives allSnapshots client-side -- no
+  // per-entity network round trip.
+  let decentralizationView = 'overview'; // 'overview' | 'country' | 'continent' | 'datacenter'
+  let decentralizationHistory = null; // raw /api/decentralization/history response, cached per timeframe
+  let entityList = [];
+  let entitySearchQuery = '';
+  let selectedEntity = null;
+  let showEntityDropdown = false;
+  let filteredEntityList = [];
+  let entityValueType = 'qty'; // 'qty' | 'percent'
+
+  const ENTITY_DIMENSIONS = {
+    country: { label: 'Country', pluralLabel: 'Countries', historyKey: 'countryHistory', nameField: 'country' },
+    continent: { label: 'Continent', pluralLabel: 'Continents', historyKey: 'continentHistory', nameField: 'continent' },
+    datacenter: { label: 'Datacenter', pluralLabel: 'Datacenters', historyKey: 'history', nameField: 'org' }
+  };
+  // 'Overview' (the existing headline metrics) plus one toggle per ENTITY_DIMENSIONS entry.
+  const DECENTRALIZATION_VIEWS = [
+    { id: 'overview', label: 'Overview' },
+    ...Object.entries(ENTITY_DIMENSIONS).map(([id, dim]) => ({ id, label: dim.pluralLabel }))
+  ];
+
   // Category definitions
   let categories = {
     revenue: {
@@ -111,14 +138,28 @@
     { id: 'monthly', label: 'Monthly' }
   ];
 
-  // Update available metrics when category changes
+  // Update available metrics when category changes. Entity-search mode (decentralization
+  // country/continent/datacenter) builds its own synthetic Qty/% metrics below instead --
+  // skip the normal fixed-column list so it doesn't fight that block for selectedMetric.
   $: {
-    if (selectedCategory && categories[selectedCategory]) {
+    if (selectedCategory && categories[selectedCategory] && !(selectedCategory === 'decentralization' && decentralizationView !== 'overview')) {
       availableMetrics = categories[selectedCategory].metrics;
       if (!selectedMetric || !availableMetrics.find(m => m.id === selectedMetric)) {
         selectedMetric = availableMetrics[0]?.id;
       }
     }
+  }
+
+  // Entity-search mode's own metric pair -- reruns whenever the selected entity or
+  // dimension changes so the label (and the subtitle it drives) stays current.
+  $: if (selectedCategory === 'decentralization' && decentralizationView !== 'overview') {
+    const dim = ENTITY_DIMENSIONS[decentralizationView];
+    const entityLabel = selectedEntity || `Select a ${dim.label.toLowerCase()}`;
+    availableMetrics = [
+      { id: 'entity_qty', label: `${entityLabel} — Quantity`, field: 'instance_count', format: 'number' },
+      { id: 'entity_percent', label: `${entityLabel} — % of classified`, field: 'instance_percent', format: 'percent' }
+    ];
+    selectedMetric = entityValueType === 'qty' ? 'entity_qty' : 'entity_percent';
   }
 
   // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
@@ -220,6 +261,29 @@
         } else {
           allSnapshots = [];
         }
+      } else if (selectedCategory === 'decentralization' && decentralizationView !== 'overview') {
+        // Entity-search mode: one fetch covers every country/continent/datacenter for the
+        // whole timeframe, so switching the selected entity never needs a re-fetch --
+        // only a timeframe change lands back here.
+        console.log(`🌍 Fetching decentralization ${decentralizationView} history`);
+        const response = await fetch(`${API_URL}/api/decentralization/history?days=${limitParam}`);
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        decentralizationHistory = await response.json();
+        buildEntityList();
+
+        if (!selectedEntity) {
+          // Nothing picked yet -- this is the normal "search and select" placeholder
+          // state, not an error, so return before the empty-data check below.
+          allSnapshots = [];
+          loading = false;
+          return;
+        }
+
+        allSnapshots = buildEntitySnapshots(selectedEntity);
       } else {
         // For other categories, use snapshot data
         console.log('📊 Fetching from snapshots');
@@ -639,8 +703,110 @@
     console.log(`User clicked category: ${categoryId}`);
     selectedCategory = categoryId;
 
+    // Reset entity-search state when leaving decentralization -- switching back into it
+    // later starts fresh at Overview rather than reopening on a stale search.
+    if (categoryId !== 'decentralization') {
+      decentralizationView = 'overview';
+      selectedEntity = null;
+      entitySearchQuery = '';
+      showEntityDropdown = false;
+    }
+
     // Fetch new data when category changes (revenue vs snapshots)
     fetchAllData();
+  }
+
+  function handleDecentralizationViewChange(view) {
+    decentralizationView = view;
+    selectedEntity = null;
+    entitySearchQuery = '';
+    showEntityDropdown = false;
+
+    if (view !== 'overview' && decentralizationHistory) {
+      // Already have this timeframe's raw history cached (from a prior entity-mode visit
+      // in this same session) -- just rebuild the picker list, no need to refetch.
+      buildEntityList();
+      allSnapshots = [];
+      loading = false;
+    } else {
+      fetchAllData();
+    }
+  }
+
+  /** Distinct, sorted entity names for the search dropdown -- issue #138. */
+  function buildEntityList() {
+    if (!decentralizationHistory || decentralizationView === 'overview') {
+      entityList = [];
+      filteredEntityList = [];
+      return;
+    }
+    const dim = ENTITY_DIMENSIONS[decentralizationView];
+    const rows = decentralizationHistory[dim.historyKey] || [];
+    entityList = [...new Set(rows.map(r => r[dim.nameField]))].filter(Boolean).sort();
+    filteredEntityList = entityList;
+  }
+
+  /**
+   * One row per day for the selected entity, with both its raw count and its % of that
+   * day's total classified for this dimension (every classified node has exactly one
+   * country/continent/org, so summing every entity's count for a day IS that day's
+   * total classified -- no extra fetch needed for the percent view).
+   */
+  function buildEntitySnapshots(entity) {
+    const dim = ENTITY_DIMENSIONS[decentralizationView];
+    const rows = decentralizationHistory?.[dim.historyKey] || [];
+
+    const dailyTotals = new Map();
+    for (const row of rows) {
+      dailyTotals.set(row.date, (dailyTotals.get(row.date) || 0) + row.count);
+    }
+
+    const byDate = new Map(rows.filter(r => r[dim.nameField] === entity).map(r => [r.date, r.count]));
+    const allDates = [...dailyTotals.keys()].sort();
+
+    return allDates.map(date => {
+      const count = byDate.get(date) || 0;
+      const total = dailyTotals.get(date) || 0;
+      return {
+        snapshot_date: date,
+        instance_count: count,
+        instance_percent: total > 0 ? (count / total) * 100 : 0
+      };
+    });
+  }
+
+  function handleEntitySelect(entity) {
+    selectedEntity = entity;
+    entitySearchQuery = entity;
+    showEntityDropdown = false;
+    allSnapshots = buildEntitySnapshots(entity);
+    loading = false;
+    processChartData();
+  }
+
+  function handleEntitySearchInput(event) {
+    entitySearchQuery = event.target.value;
+    showEntityDropdown = true;
+    filteredEntityList = entityList.filter(e =>
+      e.toLowerCase().includes(entitySearchQuery.toLowerCase())
+    );
+  }
+
+  function handleEntitySearchFocus() {
+    showEntityDropdown = true;
+    filteredEntityList = entityList.filter(e =>
+      e.toLowerCase().includes(entitySearchQuery.toLowerCase())
+    );
+  }
+
+  function handleEntitySearchBlur() {
+    // Delay to allow click on dropdown items
+    setTimeout(() => { showEntityDropdown = false; }, 200);
+  }
+
+  function handleEntityValueTypeChange(type) {
+    entityValueType = type;
+    selectedMetric = type === 'qty' ? 'entity_qty' : 'entity_percent';
   }
 
   function handleMetricChange(event) {
@@ -688,7 +854,8 @@
     
     // Generate filename with timestamp
     const timestamp = new Date().toISOString().split('T')[0];
-    const filename = `flux_${selectedCategory}_${selectedMetric}_${selectedAggregation}_${selectedTimeframe}_${timestamp}.csv`;
+    const entitySuffix = selectedEntity ? `_${selectedEntity.replace(/[^a-z0-9]+/gi, '-')}` : '';
+    const filename = `flux_${selectedCategory}_${selectedMetric}${entitySuffix}_${selectedAggregation}_${selectedTimeframe}_${timestamp}.csv`;
     
     // Create download link
     const url = URL.createObjectURL(blob);
@@ -749,20 +916,71 @@
         </select>
       </div>
 
-      <!-- Metric Selector -->
-      <div class="control-group">
-        <label for="metric-{title}">Metric:</label>
-        <select
-          id="metric-{title}"
-          bind:value={selectedMetric}
-          on:change={handleMetricChange}
-          class="chart-select"
-        >
-          {#each availableMetrics as metric}
-            <option value={metric.id}>{metric.label}</option>
-          {/each}
-        </select>
-      </div>
+      <!-- Metric Selector (or entity search for decentralization country/continent/datacenter) -->
+      {#if selectedCategory === 'decentralization' && decentralizationView !== 'overview'}
+        <div class="control-group entity-search-container">
+          <label for="entity-search-{title}">{ENTITY_DIMENSIONS[decentralizationView].label}:</label>
+          <div class="entity-search-wrapper">
+            <input
+              id="entity-search-{title}"
+              type="text"
+              class="chart-select entity-search-input"
+              placeholder="Search {ENTITY_DIMENSIONS[decentralizationView].pluralLabel.toLowerCase()}..."
+              value={entitySearchQuery}
+              on:input={handleEntitySearchInput}
+              on:focus={handleEntitySearchFocus}
+              on:blur={handleEntitySearchBlur}
+            />
+            {#if showEntityDropdown && filteredEntityList.length > 0}
+              <div class="entity-dropdown">
+                {#each filteredEntityList.slice(0, 50) as entity}
+                  <button
+                    class="entity-dropdown-item"
+                    class:selected={entity === selectedEntity}
+                    on:mousedown|preventDefault={() => handleEntitySelect(entity)}
+                  >
+                    {entity}
+                  </button>
+                {/each}
+                {#if filteredEntityList.length > 50}
+                  <div class="entity-dropdown-more">
+                    ...{filteredEntityList.length - 50} more results
+                  </div>
+                {/if}
+              </div>
+            {/if}
+          </div>
+        </div>
+
+        {#if selectedEntity}
+          <div class="control-group value-type-toggle">
+            <button
+              class="value-type-btn"
+              class:active={entityValueType === 'qty'}
+              on:click={() => handleEntityValueTypeChange('qty')}
+            >Qty</button>
+            <button
+              class="value-type-btn"
+              class:active={entityValueType === 'percent'}
+              on:click={() => handleEntityValueTypeChange('percent')}
+            >%</button>
+          </div>
+        {/if}
+      {:else}
+        <div class="control-group">
+          <label for="metric-{title}">Metric:</label>
+          <select
+            id="metric-{title}"
+            bind:value={selectedMetric}
+            on:change={handleMetricChange}
+            class="chart-select"
+          >
+            {#each availableMetrics as metric}
+              <option value={metric.id}>{metric.label}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
 
       <!-- CSV Export Button -->
       {#if !loading && !error && chartData.labels.length > 0}
@@ -805,6 +1023,20 @@
     {/each}
   </div>
 
+  <!-- Decentralization view toggle (issue #138): Overview is the existing headline
+       %/count metrics; the other three switch to the entity-search trend above. -->
+  {#if selectedCategory === 'decentralization'}
+    <div class="decentralization-view-toggle">
+      {#each DECENTRALIZATION_VIEWS as view}
+        <button
+          class="view-toggle-btn"
+          class:active={decentralizationView === view.id}
+          on:click={() => handleDecentralizationViewChange(view.id)}
+        >{view.label}</button>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Chart Area -->
   <div class="chart-wrapper" style="height: {height}px">
     {#if loading}
@@ -816,6 +1048,14 @@
       <div class="chart-error">
         <span class="error-icon">!</span>
         <p>{error}</p>
+      </div>
+    {:else if selectedCategory === 'decentralization' && decentralizationView !== 'overview' && !selectedEntity}
+      <div class="chart-loading">
+        <Globe size={40} strokeWidth={1.5} />
+        <p>Search and select a {ENTITY_DIMENSIONS[decentralizationView].label.toLowerCase()} above to view its trend</p>
+        {#if entityList.length > 0}
+          <p class="repo-count-hint">{entityList.length} {ENTITY_DIMENSIONS[decentralizationView].pluralLabel.toLowerCase()} tracked</p>
+        {/if}
       </div>
     {:else}
       <canvas bind:this={chartCanvas}></canvas>
@@ -1004,6 +1244,135 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  /* Decentralization view toggle (issue #138): Overview vs Countries/Continents/Datacenters */
+  .decentralization-view-toggle {
+    display: flex;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-md);
+    flex-wrap: wrap;
+  }
+
+  .view-toggle-btn {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-family: 'Courier New', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .view-toggle-btn:hover {
+    border-color: var(--accent-cyan);
+    color: var(--text-white);
+  }
+
+  .view-toggle-btn.active {
+    background: rgba(255, 180, 0, 0.15);
+    border-color: rgb(255, 180, 0);
+    color: rgb(255, 180, 0);
+  }
+
+  /* Entity search (country/continent/datacenter) -- same pattern the removed docker_repos
+     search used (see git history pre-#109's Chart.svelte). */
+  .entity-search-container {
+    position: relative;
+  }
+
+  .entity-search-wrapper {
+    position: relative;
+  }
+
+  .entity-search-input {
+    min-width: 220px;
+  }
+
+  .entity-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    z-index: 100;
+  }
+
+  .entity-dropdown-item {
+    display: block;
+    width: 100%;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: none;
+    border: none;
+    color: var(--text-white);
+    font-family: 'Courier New', monospace;
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .entity-dropdown-item:hover {
+    background: rgba(255, 180, 0, 0.15);
+  }
+
+  .entity-dropdown-item.selected {
+    background: rgba(255, 180, 0, 0.25);
+    color: rgb(255, 180, 0);
+  }
+
+  .entity-dropdown-more {
+    padding: var(--spacing-xs) var(--spacing-sm);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-style: italic;
+    text-align: center;
+  }
+
+  .repo-count-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+
+  /* Qty / % toggle once an entity is selected */
+  .value-type-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+  }
+
+  .value-type-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: calc(var(--radius-sm) - 2px);
+    font-size: 0.75rem;
+    font-family: 'Courier New', monospace;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .value-type-btn:hover {
+    color: var(--text-white);
+  }
+
+  .value-type-btn.active {
+    background: rgba(255, 180, 0, 0.2);
+    color: rgb(255, 180, 0);
   }
 
   /* Chart Wrapper */
