@@ -8,19 +8,19 @@ timing changes) are caught mechanically.
 ## What it asserts
 
 - Boot reads slowly (~2x the original) and the header/box height is **one constant value**
-  from first paint through boot, steady state and sync
-- Boot text, sync text and the build-info line share one voice (font/colour)
-- Sync frames **always fill all 6 rows** — no empty row at any point of any wipe
-- The sync blocks counter counts up and lands `... OK`; full sync ~2.7s (400ms wipes)
-- The sync pattern is a random 2-char texture, different on every sync
+  from first paint through boot and the idle rotation
+- Boot text and the idle-rotation info frames share one voice (font/colour)
+- **Idle rotation** (issue #104 Phase 2): once boot finishes, the box cycles
+  Logo -> Latest Expiring -> Latest Deployed -> Logo -> ... — both info frames appear
+  (icon + NAME + EXPIRE-or-REPO + INST + RES rows), no frame ever shows an empty row,
+  and the box returns to a pure logo frame between them
+- **Freshness**: the stub switches both `/api/carousel/deployed` and
+  `/api/carousel/expiring` to a different fixture app after their first call: the harness
+  waits to see that new name appear in the rotation, proving it re-polls rather than
+  holding onto whatever it first loaded
 - Build version renders `--accent-green`, codename `--accent-purple`
 - Mobile (375px): exactly 6 mobile rows, no wrapping
 - No console errors
-- **Deployment event** (issues #98 / #104): injected via the stub's
-  `POST /inject-deployment` once the sync scenario above finishes (so the two never
-  compete for the same poll) — box height never changes, the correct icon (whale for
-  docker, octocat for a `runonflux/orbit` repo) shows, NAME/INST/RES rows appear, no row
-  is ever empty mid-frame, and the box returns to the logo afterward
 
 ## Run it
 
@@ -32,5 +32,6 @@ node scripts/header-smoke/check-header.mjs    # terminal 3 — exits 0 when all 
 ```
 
 Env overrides: `BASE_URL`, `STUB_URL`, `BROWSER_PATH` (defaults to the first of
-Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~2-3 minutes (waits for the 30s
-header poll to trigger a real sync, then injects and waits out a full deployment event).
+Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~2 minutes (waits for the second
+30s header poll to serve the stub's updated fixtures, then for the rotation to reach
+that slot).

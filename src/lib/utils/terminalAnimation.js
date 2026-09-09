@@ -12,8 +12,8 @@ export const LOGO_LINES = FLUX_LOGO.split('\n');
 export const LOGO_WIDTH = Math.max(...LOGO_LINES.map(line => line.length));
 
 /**
- * The box is exactly the logo's row count — boot text, logo and sync frames all
- * live in the same fixed-height box, so the header never changes size.
+ * The box is exactly the logo's row count — boot text, logo and idle-rotation frames
+ * all live in the same fixed-height box, so the header never changes size.
  */
 export const BOOT_LINE_COUNT = LOGO_LINES.length;
 
@@ -49,24 +49,6 @@ export function computeAnimatedBlock(startBlock, targetBlock, progress) {
 }
 
 /**
- * Decide whether a freshly-polled block height should trigger the short sync
- * animation. False during boot (so the first fetch never fires a sync) and
- * false when there's no prior reading to compare against yet.
- */
-export function shouldTriggerSync({ previousBlockHeight, newBlockHeight, bootComplete }) {
-  if (!bootComplete) return false;
-  if (typeof previousBlockHeight !== 'number' || typeof newBlockHeight !== 'number') return false;
-  return newBlockHeight > previousBlockHeight;
-}
-
-/** If a new sync arrives while one is already animating, extend the target rather than overlap. */
-export function mergeSyncTarget(currentTarget, newBlockHeight) {
-  if (typeof currentTarget !== 'number') return newBlockHeight;
-  if (typeof newBlockHeight !== 'number') return currentTarget;
-  return Math.max(currentTarget, newBlockHeight);
-}
-
-/**
  * One condensed boot row holding api/database health, replacing the old two
  * dotted status lines so the boot output fits the six-row logo box.
  */
@@ -97,78 +79,9 @@ export function formatSummaryLine(appVersion, codename, totalNodes, totalApps) {
 }
 
 /**
- * Sync counter row: X counts up from the previous block height to the freshly
- * polled one (boot-style), Y is the target. `... OK` is appended once X lands.
- */
-export function formatSyncBlocksLine(current, target) {
-  return `synched blocks ${current ?? '...'} / ${target ?? '...'}`;
-}
-
-/**
- * Sync row showing the tracker's real transaction total — read live from the
- * header data, never a placeholder.
- */
-export function formatTransactionsLine(count) {
-  const n = Number.isFinite(count) ? count.toLocaleString('en-US') : '...';
-  return `${n} transactions loaded successfully`;
-}
-
-/**
- * Sync row with the network snapshot — the same nodes/apps totals the boot
- * summary shows, kept as its own line so the sync text frame fills all six
- * rows with real data (no empty rows mid-transition).
- */
-export function formatNetworkLine(totalNodes, totalApps) {
-  const nodes = Number.isFinite(totalNodes) ? totalNodes.toLocaleString('en-US') : '...';
-  const apps = Number.isFinite(totalApps) ? totalApps.toLocaleString('en-US') : '...';
-  return `network ${nodes} nodes | apps ${apps}`;
-}
-
-/**
- * Pool of single-width ASCII texture characters for the sync pattern. Symbols
- * only — no letters or digits, so the pattern never reads as real text.
- */
-export const PATTERN_CHARS = ['+', '=', '-', '_', '~', '^', ':', ';', '.', ',', '*', '#', '%', '/', '\\', '|', '(', ')', '[', ']', '{', '}', '<', '>', '!', '?'];
-
-/**
- * Pick the two characters a sync pattern is woven from — random on every call,
- * so each sync looks slightly different. The pair is always two distinct chars.
- * `random` is injectable for deterministic tests.
- */
-export function pickPatternChars(random = Math.random) {
-  const pick = () => PATTERN_CHARS[Math.floor(random() * PATTERN_CHARS.length)];
-  const a = pick();
-  let b = pick();
-  while (b === a) b = pick();
-  return [a, b];
-}
-
-/**
- * A checkerboard texture woven from two characters, one row per line,
- * alternating which character starts each row so adjacent rows read as a
- * distinct static/noise pattern rather than a solid stripe. Fills the exact
- * box the logo occupies during a sync. The character pair is random per call
- * unless one is passed in (tests pass a fixed pair).
- */
-export function buildSyncPatternLines(count, width, chars = pickPatternChars()) {
-  const [charA, charB] = chars;
-  const lines = [];
-  for (let row = 0; row < count; row++) {
-    const rowStartsWithCharA = row % 2 === 0;
-    let line = '';
-    for (let col = 0; col < width; col++) {
-      const colIsEven = col % 2 === 0;
-      line += colIsEven === rowStartsWithCharA ? charA : charB;
-    }
-    lines.push(line);
-  }
-  return lines;
-}
-
-/**
  * Force `lines` to exactly `count` entries: truncate if there are too many,
  * otherwise cycle through `filler` (blank lines if none given) to pad it out.
- * Used so every phase of the sync animation fills the same fixed-height box.
+ * Used so every phase of the animation fills the same fixed-height box.
  */
 export function padLines(lines, count, filler = []) {
   if (lines.length >= count) return lines.slice(0, count);
@@ -185,8 +98,8 @@ export function padLines(lines, count, filler = []) {
  * Merge two equal-length line arrays into one animation frame: `revealedCount`
  * rows show `incomingLines`, the rest still show `baseLines`. Direction controls
  * which end of the box reveals first — 'top-down' or 'bottom-up'. This is the
- * single primitive behind every phase of the sync transition (logo -> pattern,
- * pattern -> text, text -> logo): only the two line-arrays and direction change.
+ * single primitive behind every wipe (boot text -> logo, and every idle-rotation
+ * transition): only the two line-arrays and direction change.
  */
 export function composeRevealFrame(baseLines, incomingLines, revealedCount, direction) {
   const count = baseLines.length;
@@ -217,40 +130,15 @@ export function composeRevealKinds(baseKinds, incomingKinds, revealedCount, dire
 }
 
 // ============================================
-// DEPLOYMENT EVENT (issues #98 / #104 Phase 1)
+// IDLE ROTATION: LATEST EXPIRING / LATEST DEPLOYED
 // ============================================
 //
-// One combined frame per issue #98's layout: an icon row (whale for docker, octocat for
-// git) bookends NAME/REPO/INST/RES, wiped in and out like every other frame in this file.
-// See docs/superpowers/specs/2026-09-09-terminal-header-deployment-event-design.md.
-
-/**
- * Deployment identity: name + block height. Height alone isn't safe (two different apps
- * can land in the same block); name alone isn't stable (a redeploy reuses the name at a
- * new height, and *should* replay).
- */
-export function deploymentId(deployment) {
-  return `${deployment.name}:${deployment.height}`;
-}
-
-/**
- * Up to `limit` entries from `deployedApps` not already in `seenIds`, plus a count of how
- * many more were skipped past the limit. Pure -- callers own updating their own seenIds.
- */
-export function pickNewDeployments(seenIds, deployedApps, limit) {
-  if (!Array.isArray(deployedApps)) return { picked: [], overflow: 0 };
-  const picked = [];
-  let overflow = 0;
-  for (const deployment of deployedApps) {
-    if (seenIds.has(deploymentId(deployment))) continue;
-    if (picked.length < limit) {
-      picked.push(deployment);
-    } else {
-      overflow++;
-    }
-  }
-  return { picked, overflow };
-}
+// Once boot finishes, the box cycles Logo -> Latest Expiring -> Latest Deployed -> Logo
+// -> ... (skipping any slot with no data) instead of parking on the logo indefinitely.
+// This replaced two earlier things: the block-sync animation (a random two-character
+// texture plus numbers already shown in the header's stats bar -- no new information)
+// and the one-off "new deployment detected" flash (event-driven, so it could sit idle
+// for a long time with nothing to show). See docs/superpowers/specs -- issue #104.
 
 /** The exact rule determineAppType() already uses elsewhere in this codebase. */
 export function isGitDeployment(repo) {
@@ -275,6 +163,7 @@ function centerInBox(text, width = LOGO_WIDTH) {
 
 export const DOCKER_ICON_LINE = centerInBox('🐳 DOCKER 🐳'); // 🐳 whale, matches Docker's own mascot
 export const GIT_ICON_LINE = centerInBox('🐙 GITHUB 🐙'); // 🐙 octopus, closest common emoji to the octocat
+export const EXPIRING_ICON_LINE = centerInBox('⏳ EXPIRING ⏳'); // hourglass -- distinct from either deploy icon
 
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
@@ -295,8 +184,41 @@ function formatResourceSummary(cpu, ram, hdd) {
   return parts.join(' ');
 }
 
+// Mirrors CarouselCard.svelte's formatBlocksAsTime (30s/block, same as config.js's
+// BLOCKS_PER_DAY = 2880) -- kept local rather than shared since this box's rendering
+// has its own width/label constraints the carousel doesn't.
+function formatBlocksAsTime(blocks) {
+  const totalMinutes = Math.round(blocks * 30 / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 /**
- * The single combined deployment-detail frame (issue #98's layout): icon row, then
+ * The most recently deployed app (lowest blockAge) from the /api/carousel/deployed
+ * list -- that endpoint sorts alphabetically, not by recency, so the caller can't just
+ * take stats[0]. Null when the list is empty (nothing deployed in the last 24h).
+ */
+export function pickLatestDeployed(deployedApps) {
+  if (!Array.isArray(deployedApps) || deployedApps.length === 0) return null;
+  return deployedApps.reduce((latest, app) =>
+    (app.blockAge ?? Infinity) < (latest.blockAge ?? Infinity) ? app : latest
+  );
+}
+
+/**
+ * The soonest-to-expire app from the /api/carousel/expiring list -- that endpoint is
+ * already sorted most-urgent-first, so this is just stats[0]. Null when empty.
+ */
+export function pickLatestExpiring(expiringApps) {
+  if (!Array.isArray(expiringApps) || expiringApps.length === 0) return null;
+  return expiringApps[0];
+}
+
+/**
+ * The combined deployment-detail frame (issue #98's layout): icon row, then
  * NAME/REPO/INST/RES -- each omitted (not left blank) when its data isn't real -- then
  * the same icon row again. Missing rows are dropped and the remainder padded at the END
  * of the middle section, so real content is never followed by a gap.
@@ -317,16 +239,49 @@ export function formatDeploymentFrame(deployment) {
 }
 
 /**
- * Reduced-motion equivalent: name + instance count, no icon/repo/resources -- those exist
- * to fill an animated sequence, not to carry information a static reader needs.
+ * The symmetric "latest expiring" frame -- same shape as formatDeploymentFrame, but an
+ * hourglass icon and an EXPIRE row (time until expiry) in place of REPO, since a repo
+ * distinction isn't meaningful here.
+ */
+export function formatExpiringFrame(app) {
+  const instances = Number.isFinite(app.instances) ? app.instances : null;
+  const resources = formatResourceSummary(app.cpu, app.ram, app.hdd);
+  const expiresIn = Number.isFinite(app.blocksUntilExpiry) ? formatBlocksAsTime(app.blocksUntilExpiry) : null;
+
+  const detailLines = [formatDetailLine('NAME', app.name || 'unknown')];
+  if (expiresIn) detailLines.push(formatDetailLine('EXPIRE', expiresIn));
+  if (instances !== null) detailLines.push(formatDetailLine('INST', instances));
+  if (resources) detailLines.push(formatDetailLine('RES', resources));
+
+  const middleRowCount = BOOT_LINE_COUNT - 2;
+  const middle = padLines(detailLines, middleRowCount);
+  return [EXPIRING_ICON_LINE, ...middle, EXPIRING_ICON_LINE];
+}
+
+/**
+ * Reduced-motion equivalent of formatDeploymentFrame: name + instance count, no
+ * icon/repo/resources -- those exist to fill an animated sequence, not to carry
+ * information a static reader needs.
  */
 export function formatDeploymentReducedMotionLines(deployment) {
   const name = truncateForBox(deployment?.name || 'unknown');
   const instances = Number.isFinite(deployment?.instances) ? deployment.instances : null;
   return padLines([
-    '  NEW DEPLOYMENT',
+    '  LATEST DEPLOYMENT',
     '',
     `  ${name}`,
     instances !== null ? `  ${instances} ${instances === 1 ? 'INSTANCE' : 'INSTANCES'}` : ''
+  ], BOOT_LINE_COUNT);
+}
+
+/** Reduced-motion equivalent of formatExpiringFrame. */
+export function formatExpiringReducedMotionLines(app) {
+  const name = truncateForBox(app?.name || 'unknown');
+  const expiresIn = Number.isFinite(app?.blocksUntilExpiry) ? formatBlocksAsTime(app.blocksUntilExpiry) : null;
+  return padLines([
+    '  EXPIRING SOON',
+    '',
+    `  ${name}`,
+    expiresIn !== null ? `  in ${expiresIn}` : ''
   ], BOOT_LINE_COUNT);
 }

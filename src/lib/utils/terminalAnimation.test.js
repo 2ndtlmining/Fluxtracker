@@ -2,17 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   pickBootStartBlock,
   computeAnimatedBlock,
-  shouldTriggerSync,
-  mergeSyncTarget,
   formatStatusLine,
   formatSnapshotLine,
   formatSummaryLine,
-  formatSyncBlocksLine,
-  formatTransactionsLine,
-  formatNetworkLine,
-  buildSyncPatternLines,
-  pickPatternChars,
-  PATTERN_CHARS,
   padLines,
   composeRevealFrame,
   composeRevealKinds,
@@ -22,14 +14,17 @@ import {
   BOOT_LINE_COUNT,
   ROW_KIND_TEXT,
   ROW_KIND_LOGO,
-  deploymentId,
-  pickNewDeployments,
+  pickLatestDeployed,
+  pickLatestExpiring,
   isGitDeployment,
   truncateForBox,
   formatDeploymentFrame,
+  formatExpiringFrame,
   formatDeploymentReducedMotionLines,
+  formatExpiringReducedMotionLines,
   DOCKER_ICON_LINE,
-  GIT_ICON_LINE
+  GIT_ICON_LINE,
+  EXPIRING_ICON_LINE
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -87,32 +82,6 @@ describe('computeAnimatedBlock', () => {
   it('returns target immediately when target <= start', () => {
     expect(computeAnimatedBlock(500, 500, 0.5)).toBe(500);
     expect(computeAnimatedBlock(500, 400, 0.5)).toBe(400);
-  });
-});
-
-describe('shouldTriggerSync', () => {
-  it('is false while boot is not complete, even if the height increased', () => {
-    expect(shouldTriggerSync({ previousBlockHeight: 100, newBlockHeight: 105, bootComplete: false })).toBe(false);
-  });
-
-  it('is false on the very first data point (no previous height yet)', () => {
-    expect(shouldTriggerSync({ previousBlockHeight: null, newBlockHeight: 105, bootComplete: true })).toBe(false);
-  });
-
-  it('is true after boot when the height increased', () => {
-    expect(shouldTriggerSync({ previousBlockHeight: 100, newBlockHeight: 105, bootComplete: true })).toBe(true);
-  });
-
-  it('is false after boot when the height is unchanged or decreased', () => {
-    expect(shouldTriggerSync({ previousBlockHeight: 100, newBlockHeight: 100, bootComplete: true })).toBe(false);
-    expect(shouldTriggerSync({ previousBlockHeight: 100, newBlockHeight: 99, bootComplete: true })).toBe(false);
-  });
-});
-
-describe('mergeSyncTarget', () => {
-  it('keeps the higher of the two block heights', () => {
-    expect(mergeSyncTarget(294915, 294918)).toBe(294918);
-    expect(mergeSyncTarget(294920, 294918)).toBe(294920);
   });
 });
 
@@ -174,66 +143,6 @@ describe('LOGO_LINES / LOGO_WIDTH / BOOT_LINE_COUNT', () => {
 
   it('BOOT_LINE_COUNT is the logo row count — the fixed box every frame fills', () => {
     expect(BOOT_LINE_COUNT).toBe(LOGO_LINES.length);
-  });
-});
-
-describe('buildSyncPatternLines', () => {
-  it('returns the requested number of lines, each of the requested width', () => {
-    const lines = buildSyncPatternLines(6, 10, ['+', '=']);
-    expect(lines).toHaveLength(6);
-    lines.forEach(line => expect(line).toHaveLength(10));
-  });
-
-  it('weaves the two given characters, alternating the starting char between adjacent rows', () => {
-    const lines = buildSyncPatternLines(3, 4, ['x', 'o']);
-    expect(lines[0]).toBe('xoxo');
-    expect(lines[1]).toBe('oxox');
-    expect(lines[2]).toBe('xoxo');
-  });
-
-  it('uses only pool characters when the pair is picked at random', () => {
-    const lines = buildSyncPatternLines(4, 8);
-    lines.forEach(line => {
-      expect(line).toMatch(/^[+\-=_~^:;.,*#%/\\|()[\]{}<>!?]+$/);
-      [...line].forEach(char => expect(PATTERN_CHARS).toContain(char));
-    });
-  });
-
-  it('picks a fresh random pair on every default call', () => {
-    const a = buildSyncPatternLines(2, 8).join('');
-    const b = buildSyncPatternLines(2, 8).join('');
-    // 28-char pool -> a collision across two 16-char frames is possible but rare;
-    // several draws make an all-equal outcome practically impossible.
-    const frames = [a, b, buildSyncPatternLines(2, 8).join(''), buildSyncPatternLines(2, 8).join('')];
-    expect(new Set(frames).size).toBeGreaterThan(1);
-  });
-});
-
-describe('pickPatternChars', () => {
-  it('returns two distinct pool characters', () => {
-    for (let i = 0; i < 50; i++) {
-      const [a, b] = pickPatternChars();
-      expect(PATTERN_CHARS).toContain(a);
-      expect(PATTERN_CHARS).toContain(b);
-      expect(a).not.toBe(b);
-    }
-  });
-
-  it('is deterministic for an injected random function', () => {
-    let call = 0;
-    const rolls = [0, 0, 0, 5, 5, 5]; // indices into PATTERN_CHARS
-    const [a, b] = pickPatternChars(() => rolls[call++] / PATTERN_CHARS.length);
-    expect(a).toBe(PATTERN_CHARS[0]);
-    expect(b).toBe(PATTERN_CHARS[5]);
-  });
-
-  it('re-rolls the second char until it differs from the first', () => {
-    // always rolls the same index -> the while loop keeps drawing, but a stub
-    // that increments guarantees termination with a distinct pair
-    let call = 0;
-    const [a, b] = pickPatternChars(() => (call++ < 3 ? 0 : 1 / PATTERN_CHARS.length));
-    expect(a).toBe(PATTERN_CHARS[0]);
-    expect(b).toBe(PATTERN_CHARS[1]);
   });
 });
 
@@ -325,90 +234,43 @@ describe('composeRevealKinds', () => {
   });
 });
 
-describe('formatSyncBlocksLine', () => {
-  it('shows the counting X and the target Y', () => {
-    expect(formatSyncBlocksLine(294913, 294915)).toBe('synched blocks 294913 / 294915');
-    expect(formatSyncBlocksLine(294915, 294915)).toBe('synched blocks 294915 / 294915');
-  });
-
-  it('falls back to "..." for missing values', () => {
-    expect(formatSyncBlocksLine(null, 294915)).toBe('synched blocks ... / 294915');
-    expect(formatSyncBlocksLine(294913, null)).toBe('synched blocks 294913 / ...');
-  });
-});
-
-describe('formatTransactionsLine', () => {
-  it('shows the live transaction total with thousands separators', () => {
-    expect(formatTransactionsLine(8472)).toBe('8,472 transactions loaded successfully');
-  });
-
-  it('shows zero without falling back to "..."', () => {
-    expect(formatTransactionsLine(0)).toBe('0 transactions loaded successfully');
-  });
-
-  it('falls back to "..." for a missing count', () => {
-    expect(formatTransactionsLine(null)).toBe('... transactions loaded successfully');
-    expect(formatTransactionsLine(undefined)).toBe('... transactions loaded successfully');
-  });
-});
-
-describe('formatNetworkLine', () => {
-  it('formats nodes and apps with thousands separators', () => {
-    expect(formatNetworkLine(12481, 3842)).toBe('network 12,481 nodes | apps 3,842');
-  });
-
-  it('falls back to "..." for missing values', () => {
-    expect(formatNetworkLine(null, undefined)).toBe('network ... nodes | apps ...');
-  });
-});
-
 // ============================================
-// DEPLOYMENT EVENT (issues #98 / #104 Phase 1)
+// IDLE ROTATION: LATEST EXPIRING / LATEST DEPLOYED (issue #104 Phase 2)
 // ============================================
 
-describe('deploymentId', () => {
-  it('combines name and height so a redeploy at a new height counts as new', () => {
-    expect(deploymentId({ name: 'Minecraft', height: 1500000 })).toBe('Minecraft:1500000');
-  });
-
-  it('two different apps in the same block get different ids', () => {
-    const a = deploymentId({ name: 'AppA', height: 1500000 });
-    const b = deploymentId({ name: 'AppB', height: 1500000 });
-    expect(a).not.toBe(b);
-  });
-});
-
-describe('pickNewDeployments', () => {
+describe('pickLatestDeployed', () => {
   const apps = [
-    { name: 'Alpha', height: 100 },
-    { name: 'Beta', height: 200 },
-    { name: 'Gamma', height: 300 },
-    { name: 'Delta', height: 400 }
+    { name: 'Alpha', blockAge: 500 },
+    { name: 'Beta', blockAge: 50 },
+    { name: 'Gamma', blockAge: 1200 }
   ];
 
-  it('returns entries not already in seenIds, up to limit', () => {
-    const seen = new Set([deploymentId(apps[0])]);
-    const { picked, overflow } = pickNewDeployments(seen, apps, 10);
-    expect(picked).toEqual([apps[1], apps[2], apps[3]]);
-    expect(overflow).toBe(0);
+  it('picks the entry with the lowest blockAge (most recently deployed)', () => {
+    expect(pickLatestDeployed(apps)).toBe(apps[1]);
   });
 
-  it('caps at limit and reports the rest as overflow', () => {
-    const { picked, overflow } = pickNewDeployments(new Set(), apps, 2);
-    expect(picked).toEqual([apps[0], apps[1]]);
-    expect(overflow).toBe(2);
+  it('returns null for an empty or missing list', () => {
+    expect(pickLatestDeployed([])).toBeNull();
+    expect(pickLatestDeployed(null)).toBeNull();
+    expect(pickLatestDeployed(undefined)).toBeNull();
   });
 
-  it('returns an empty pick and zero overflow when everything is seen', () => {
-    const seen = new Set(apps.map(deploymentId));
-    const { picked, overflow } = pickNewDeployments(seen, apps, 3);
-    expect(picked).toEqual([]);
-    expect(overflow).toBe(0);
+  it('treats a missing blockAge as infinitely old, not a crash', () => {
+    const withMissing = [{ name: 'NoAge' }, { name: 'HasAge', blockAge: 10 }];
+    expect(pickLatestDeployed(withMissing)).toBe(withMissing[1]);
+  });
+});
+
+describe('pickLatestExpiring', () => {
+  it('picks the first entry (the endpoint already sorts most-urgent-first)', () => {
+    const apps = [{ name: 'Soonest', blocksUntilExpiry: 10 }, { name: 'Later', blocksUntilExpiry: 500 }];
+    expect(pickLatestExpiring(apps)).toBe(apps[0]);
   });
 
-  it('handles a non-array input without throwing', () => {
-    expect(pickNewDeployments(new Set(), null, 3)).toEqual({ picked: [], overflow: 0 });
-    expect(pickNewDeployments(new Set(), undefined, 3)).toEqual({ picked: [], overflow: 0 });
+  it('returns null for an empty or missing list', () => {
+    expect(pickLatestExpiring([])).toBeNull();
+    expect(pickLatestExpiring(null)).toBeNull();
+    expect(pickLatestExpiring(undefined)).toBeNull();
   });
 });
 
@@ -446,16 +308,17 @@ describe('truncateForBox', () => {
   });
 });
 
-describe('DOCKER_ICON_LINE / GIT_ICON_LINE', () => {
-  it('are both non-empty and no wider than the box', () => {
-    expect(DOCKER_ICON_LINE.length).toBeGreaterThan(0);
-    expect(GIT_ICON_LINE.length).toBeGreaterThan(0);
-    expect(DOCKER_ICON_LINE.length).toBeLessThanOrEqual(LOGO_WIDTH);
-    expect(GIT_ICON_LINE.length).toBeLessThanOrEqual(LOGO_WIDTH);
+describe('DOCKER_ICON_LINE / GIT_ICON_LINE / EXPIRING_ICON_LINE', () => {
+  it('are all non-empty and no wider than the box', () => {
+    for (const icon of [DOCKER_ICON_LINE, GIT_ICON_LINE, EXPIRING_ICON_LINE]) {
+      expect(icon.length).toBeGreaterThan(0);
+      expect(icon.length).toBeLessThanOrEqual(LOGO_WIDTH);
+    }
   });
 
-  it('are distinct from each other', () => {
-    expect(DOCKER_ICON_LINE).not.toBe(GIT_ICON_LINE);
+  it('are all distinct from each other', () => {
+    const icons = [DOCKER_ICON_LINE, GIT_ICON_LINE, EXPIRING_ICON_LINE];
+    expect(new Set(icons).size).toBe(icons.length);
   });
 });
 
@@ -536,6 +399,59 @@ describe('formatDeploymentFrame', () => {
   });
 });
 
+describe('formatExpiringFrame', () => {
+  const full = { name: 'Minecraft', instances: 3, cpu: 2, ram: 4096, hdd: 25, blocksUntilExpiry: 240 };
+
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(formatExpiringFrame(full).length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('bookends the frame with the hourglass icon top and bottom, matching the box width', () => {
+    const frame = formatExpiringFrame(full);
+    expect(frame[0]).toBe(frame[frame.length - 1]);
+    expect(frame[0].length).toBe(LOGO_WIDTH);
+    expect(frame[0].trim()).toBe(EXPIRING_ICON_LINE.trim());
+  });
+
+  it('includes name, time-to-expiry, instance count and resources when all present', () => {
+    const text = formatExpiringFrame(full).join('\n');
+    expect(text).toContain('Minecraft');
+    expect(text).toContain('EXPIRE');
+    expect(text).toContain('2h'); // 240 blocks * 30s = 7200s = 2h
+    expect(text).toContain('3');
+    expect(text).toContain('CPU');
+    expect(text).toContain('RAM');
+    expect(text).toContain('SSD');
+  });
+
+  it('omits the EXPIRE row (not a blank row) when blocksUntilExpiry is missing', () => {
+    const frame = formatExpiringFrame({ ...full, blocksUntilExpiry: undefined });
+    const middle = frame.slice(1, -1);
+    expect(middle.join('\n')).not.toContain('EXPIRE');
+  });
+
+  it('omits the instances row when instances is not a real number', () => {
+    const text = formatExpiringFrame({ ...full, instances: undefined }).join('\n');
+    expect(text).not.toMatch(/INST\s+undefined/);
+    expect(text).not.toContain('NaN');
+  });
+
+  it('omits the resources row entirely when no resource field is present', () => {
+    const text = formatExpiringFrame({ ...full, cpu: 0, ram: 0, hdd: 0 }).join('\n');
+    expect(text).not.toContain('RES');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('NaN');
+  });
+
+  it('truncates a long name instead of overflowing the box', () => {
+    const longName = 'a'.repeat(200);
+    const frame = formatExpiringFrame({ ...full, name: longName });
+    for (const line of frame) {
+      expect(line.length).toBeLessThanOrEqual(LOGO_WIDTH);
+    }
+  });
+});
+
 describe('formatDeploymentReducedMotionLines', () => {
   it('is always exactly BOOT_LINE_COUNT rows', () => {
     expect(formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).length).toBe(BOOT_LINE_COUNT);
@@ -545,12 +461,25 @@ describe('formatDeploymentReducedMotionLines', () => {
     const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).join('\n');
     expect(text).toContain('Minecraft');
     expect(text).toContain('3');
-    expect(text).toContain('NEW DEPLOYMENT');
+    expect(text).toContain('LATEST DEPLOYMENT');
   });
 
   it('has no icon or repo/resource content -- reduced motion carries only the essentials', () => {
     const text = formatDeploymentReducedMotionLines({ name: 'Minecraft', instances: 3 }).join('\n');
     expect(text).not.toContain('REPO');
     expect(text).not.toContain('RES');
+  });
+});
+
+describe('formatExpiringReducedMotionLines', () => {
+  it('is always exactly BOOT_LINE_COUNT rows', () => {
+    expect(formatExpiringReducedMotionLines({ name: 'Minecraft', blocksUntilExpiry: 240 }).length).toBe(BOOT_LINE_COUNT);
+  });
+
+  it('carries the name and a human time-to-expiry', () => {
+    const text = formatExpiringReducedMotionLines({ name: 'Minecraft', blocksUntilExpiry: 240 }).join('\n');
+    expect(text).toContain('Minecraft');
+    expect(text).toContain('2h');
+    expect(text).toContain('EXPIRING SOON');
   });
 });

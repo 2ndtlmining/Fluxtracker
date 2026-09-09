@@ -5,18 +5,17 @@
  * be checked the same way every one of these was accepted:
  *
  *   - boot is slow (~2x) and the header size never changes — one distinct box
- *     and header height from first paint through boot, steady state and sync
- *   - boot text, sync text and build-info all share one voice (font/colour)
- *   - sync frames always fill all 6 rows (no empty lines mid-wipe)
- *   - the sync blocks counter counts up and lands "... OK"; sync ~2.7s total
- *   - the sync pattern is a random 2-char texture, different on every sync
+ *     and header height from first paint through boot and the idle rotation
+ *   - boot text and the idle-rotation info frames share one voice (font/colour)
+ *   - the idle rotation (issue #104 Phase 2) cycles Logo -> Latest Expiring ->
+ *     Latest Deployed -> Logo -> ...: both info frames appear, each shows its
+ *     icon/NAME/EXPIRE-or-REPO/INST/RES rows, no frame ever shows an empty row,
+ *     and the box returns to a pure logo frame between them
+ *   - the rotation reflects a later poll's data, not what it first loaded: the
+ *     stub switches both carousel endpoints to a different fixture app after
+ *     their first call, and the harness waits to see that new name on screen
  *   - build version is accent-green, codename accent-purple
  *   - mobile (375px): exactly 6 mobile rows, no wrapping
- *   - deployment event (issues #98 / #104): injected via the stub's
- *     POST /inject-deployment after the sync scenario finishes, so the two never
- *     compete for one poll -- box height never changes, the correct icon shows for
- *     the fixture's repotag, NAME/INST/RES rows appear, no row is ever empty
- *     mid-frame, and the box returns to the logo afterward
  *
  * Usage:
  *   1. npm install --no-save puppeteer-core   (uses the installed Edge/Chrome)
@@ -28,13 +27,16 @@
  * BROWSER_PATH (default: first of Edge/Chrome found), SAMPLE_MS.
  */
 import puppeteer from 'puppeteer-core';
-import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5199';
 const STUB_URL = process.env.STUB_URL || 'http://127.0.0.1:3100/api/header';
-const STUB_BASE = STUB_URL.replace(/\/api\/header$/, '');
 const SAMPLE_MS = Number(process.env.SAMPLE_MS || 60);
+// Generous enough to cover boot (~5s) + the second header poll picking up the
+// stub's "updated-*" fixtures (~30s in) + that update reaching its slot in the
+// rotation (up to one full ~25s cycle away).
+const MAIN_LOOP_BUDGET_MS = 100000;
 
 const BROWSER_CANDIDATES = [
   process.env.BROWSER_PATH,
@@ -62,74 +64,6 @@ const bootTextStyle = { color: 'rgb(136, 146, 176)', fontSize: '11.2px' };
 const GREEN = 'rgb(0, 255, 65)';    // --accent-green
 const PURPLE = 'rgb(189, 147, 249)'; // --accent-purple
 
-/**
- * Injects a new deployment via the stub's POST /inject-deployment, then samples the
- * header box until the deployment frame appears and the box returns to the logo (or a
- * bounded timeout elapses). Returns the evidence `run()`'s checks need: whether the box
- * height ever changed, whether the expected icon/NAME/detail rows were seen, and
- * whether the box returned to a pure logo frame afterward.
- */
-async function runDeploymentScenario(page, t0) {
-  const result = {
-    injected: false,
-    boxHeightChanged: false,
-    sawIcon: false,
-    sawName: false,
-    sawInstances: false,
-    sawResources: false,
-    emptyRowViolations: 0,
-    returnedToLogo: false,
-    durationMs: null
-  };
-
-  try {
-    const res = await fetch(`${STUB_BASE}/inject-deployment`, { method: 'POST', body: '{}' });
-    result.injected = res.ok;
-  } catch (e) {
-    console.error('Failed to inject deployment:', e);
-    return result;
-  }
-
-  const baselineHeight = await page.evaluate(() => document.querySelector('.terminal-box')?.getBoundingClientRect().height ?? null);
-  const start = Date.now();
-  let sawDeploymentFrame = false;
-
-  // Up to two 30s header polls plus the ~10s animation itself, with margin.
-  while (Date.now() - start < 75000) {
-    const s = await page.evaluate(() => {
-      const box = document.querySelector('.terminal-box');
-      if (!box) return null;
-      const spans = [...box.querySelectorAll('span')];
-      return {
-        boxH: box.getBoundingClientRect().height,
-        logoFrame: spans.every(sp => sp.className.includes('row-logo')),
-        rows: spans.map(sp => sp.textContent.replace(/\n/g, ''))
-      };
-    });
-    if (s) {
-      if (baselineHeight !== null && Math.abs(s.boxH - baselineHeight) > 0.5) result.boxHeightChanged = true;
-      const text = s.rows.join('\n');
-      if (/NAME\s+test-minecraft/.test(text)) {
-        sawDeploymentFrame = true;
-        result.sawName = true;
-        if (/DOCKER/.test(text)) result.sawIcon = true;
-        if (/INST\s+3/.test(text)) result.sawInstances = true;
-        if (/RES\s+/.test(text)) result.sawResources = true;
-        const empties = s.rows.filter(r => r.length === 0).length;
-        if (empties > 0) result.emptyRowViolations++;
-      }
-      if (sawDeploymentFrame && s.logoFrame) {
-        result.returnedToLogo = true;
-        result.durationMs = Date.now() - start;
-        break;
-      }
-    }
-    await new Promise(r => setTimeout(r, SAMPLE_MS));
-  }
-
-  return result;
-}
-
 const run = async () => {
   if (!(await stubReachable())) {
     console.error(`Stub API not reachable at ${STUB_URL} — start scripts/header-smoke/stub-api.mjs first.`);
@@ -154,24 +88,24 @@ const run = async () => {
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await new Promise(r => setTimeout(r, 500));
 
-  // ---------- sample the whole boot + steady + first sync ----------
+  // ---------- sample boot + idle rotation ----------
   const samples = [];
-  const phases = { firstText: null, firstLogoRow: null, settled: null, syncTextSeen: null, backToLogo: null, syncStartT: null };
-  let emptyRowViolations = 0;
-  let syncSamples = 0;
-  const counterValues = [];
-  const patternContents = new Set();
-  let sawLoadingTransactions = false;
-  let sawTransactionsLoaded = false;
-  let sawSnapshotsRow = false;
-  let sawNetworkRow = false;
-  let sawSyncComplete = false;
-  let sawCounterOK = false;
-  let syncStartT = null;
-  const syncDurations = [];
+  const phases = { firstText: null, firstLogoRow: null, settled: null };
   const bootTextAt2s = { text: null };
 
-  while (Date.now() - t0 < 75000) {
+  let emptyRowViolations = 0;
+  let sawExpiringFrame = false;
+  let sawDeployedFrame = false;
+  let sawUpdatedDeployedName = false;
+  let sawUpdatedExpiringName = false;
+  let sawExpireRow = false;
+  let sawInstRow = false;
+  let sawResRow = false;
+  let sawDockerOrGithubIcon = false;
+  let returnedToLogoAfterInfo = false;
+  let infoTextStyleMatchesBoot = null;
+
+  while (Date.now() - t0 < MAIN_LOOP_BUDGET_MS) {
     const s = await page.evaluate(() => {
       const box = document.querySelector('.terminal-box');
       if (!box) return null;
@@ -194,6 +128,7 @@ const run = async () => {
       const textRows = s.rows.filter(r => r.cls.includes('row-text'));
       const textContent = textRows.map(r => r.text);
       const withContent = textContent.filter(x => x.length > 0);
+      const joined = textContent.join('\n');
 
       samples.push({ t, boxH: s.boxH, headerH: s.headerH, settled: s.settled, rows: s.rows, textStyle: s.textStyle });
       if (s.settled) phases.settled ??= t;
@@ -203,49 +138,40 @@ const run = async () => {
       }
       if (phases.firstLogoRow === null && s.rows.some(r => r.cls.includes('row-logo'))) phases.firstLogoRow = t;
 
-      if (s.settled && textContent.length > 0) {
-        // sync-ish: symbol-only texture or the sync text rows
-        const isTexture = withContent.length > 0 && textContent.every(x => x.length === 0 || !/[a-z0-9]/i.test(x));
-        const isSyncText = textContent.some(x => /synched blocks|loading transactions|sync complete/.test(x));
-        if (isTexture || isSyncText) {
-          if (phases.syncStartT === null) phases.syncStartT = t;
-          syncSamples++;
-          const empties = s.rows.filter(r => r.text.length === 0).length;
-          if (empties > 0) emptyRowViolations++;
-          if (isTexture) patternContents.add(textContent.join('|'));
-          const row0 = s.rows[0]?.text || '';
-          const m = row0.match(/synched blocks (\d+) \/ (\d+)/);
-          if (m) {
-            const x = parseInt(m[1], 10);
-            if (counterValues.length === 0 || counterValues[counterValues.length - 1] !== x) counterValues.push(x);
-            if (row0.includes('... OK')) sawCounterOK = true;
-          }
-          if (isSyncText) {
-            if (textContent.some(x => x === 'loading transactions...')) sawLoadingTransactions = true;
-            if (textContent.some(x => /[\d,.]+ transactions loaded successfully/.test(x))) sawTransactionsLoaded = true;
-            if (textContent.some(x => /daily snapshots\.\.\. [\d,]+ loaded/.test(x))) sawSnapshotsRow = true;
-            if (textContent.some(x => /network [\d,.]+ nodes \| apps [\d,.]+/.test(x))) sawNetworkRow = true;
-            if (textContent.some(x => x === 'sync complete')) sawSyncComplete = true;
-            phases.syncTextSeen ??= t;
-          }
+      // An idle-rotation info frame (expiring or deployed), identified by its NAME row.
+      if (s.settled && /NAME\s+\S/.test(joined)) {
+        const isExpiring = /EXPIRE\s+\S/.test(joined) || joined.includes('EXPIRING');
+        const isDeployed = joined.includes('DOCKER') || joined.includes('GITHUB');
+
+        if (isExpiring) {
+          sawExpiringFrame = true;
+          if (joined.includes('updated-wordpress')) sawUpdatedExpiringName = true;
+        }
+        if (isDeployed) {
+          sawDeployedFrame = true;
+          sawDockerOrGithubIcon = true;
+          if (joined.includes('updated-minecraft')) sawUpdatedDeployedName = true;
+        }
+        if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
+        if (/INST\s+\d/.test(joined)) sawInstRow = true;
+        if (/RES\s+/.test(joined)) sawResRow = true;
+
+        const empties = s.rows.filter(r => r.text.length === 0).length;
+        if (empties > 0) emptyRowViolations++;
+
+        if (infoTextStyleMatchesBoot === null && s.textStyle) {
+          infoTextStyleMatchesBoot = s.textStyle.color === bootTextStyle.color && s.textStyle.fontSize === bootTextStyle.fontSize;
         }
       }
-      // sync ends when the box is back to the pure logo
-      if (s.settled && logoFrame && phases.syncStartT !== null) {
-        syncDurations.push(t - phases.syncStartT);
-        phases.syncStartT = null;
-        if (phases.syncTextSeen !== null) phases.backToLogo ??= t;
+
+      if (s.settled && logoFrame && (sawExpiringFrame || sawDeployedFrame)) {
+        returnedToLogoAfterInfo = true;
       }
     }
     await new Promise(r => setTimeout(r, SAMPLE_MS));
-    if (phases.backToLogo !== null && syncDurations.length >= 1 && Date.now() - t0 > 40000) break;
+    if (sawUpdatedDeployedName && sawUpdatedExpiringName && returnedToLogoAfterInfo && Date.now() - t0 > 45000) break;
   }
   await page.screenshot({ path: fileURLToPath(new URL('./steady.png', import.meta.url)), clip: { x: 0, y: 0, width: 700, height: 160 } }).catch(() => {});
-
-  // ---------- deployment scenario (issues #98 / #104) ----------
-  // Injected only after the sync scenario above has run its course, so the two
-  // animations never compete for the same poll -- see stub-api.mjs's comment.
-  const deploy = await runDeploymentScenario(page, t0);
 
   const build = await page.evaluate(() => {
     const pick = sel => {
@@ -286,17 +212,11 @@ const run = async () => {
   const bootSamples = phases.firstLogoRow ? samples.filter(s => s.t < phases.firstLogoRow) : samples;
   const maxBootHeader = Math.max(...bootSamples.map(s => s.headerH));
   const steady = samples.filter(s => phases.settled !== null && s.t > phases.settled + 2000)[0];
-  const bootTextStyleSample = samples.find(s => s.rows.some(r => r.cls.includes('row-text') && r.text.length > 0));
 
   const firstText = phases.firstText ?? Infinity;
   const readingPhase = phases.firstLogoRow !== null && phases.firstText !== null
     ? phases.firstLogoRow - phases.firstText
     : 0;
-  const syncTextMatchesBoot = (() => {
-    const syncStyle = samples.find(s => s.textStyle && /synched blocks|transactions loaded successfully/.test(s.textStyle.text) && s.t > (phases.settled ?? 0) + 2000);
-    if (!syncStyle) return null;
-    return syncStyle.textStyle.color === bootTextStyle.color && syncStyle.textStyle.fontSize === bootTextStyle.fontSize;
-  })();
 
   const checks = [
     ['boot text appears at boot start', firstText < 1500],
@@ -306,32 +226,26 @@ const run = async () => {
     ['header height constant boot vs steady', steady ? Math.abs(maxBootHeader - steady.headerH) < 1 : false],
     ['header height constant overall (one distinct value)', distinctHeader.length === 1],
     ['no console errors', consoleErrors.length === 0],
-    ['sync observed', syncSamples > 0],
-    ['sync frames never show an empty row', syncSamples > 0 && emptyRowViolations === 0],
-    ['sync counter counts up and lands "... OK"', counterValues.length >= 2 && counterValues[counterValues.length - 1] > counterValues[0] && sawCounterOK],
-    ['sync text frame carries all real-data rows', sawLoadingTransactions && sawTransactionsLoaded && sawSnapshotsRow && sawNetworkRow && sawSyncComplete],
-    ['sync total ~2.7s (consistent wipe speeds)', syncDurations.length > 0 && syncDurations.every(d => d > 1800 && d < 4200)],
-    ['sync text style matches boot text', syncTextMatchesBoot === true],
-    ['pattern is a random 2-char texture, different per sync', patternContents.size >= 2],
+    ['idle rotation: expiring frame observed', sawExpiringFrame],
+    ['idle rotation: deployed frame observed', sawDeployedFrame],
+    ['idle rotation: docker/github icon shown on the deployed frame', sawDockerOrGithubIcon],
+    ['idle rotation: EXPIRE row shown', sawExpireRow],
+    ['idle rotation: INST row shown', sawInstRow],
+    ['idle rotation: RES row shown', sawResRow],
+    ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
+    ['idle rotation: info-frame text style matches boot text', infoTextStyleMatchesBoot === true],
+    ['idle rotation: returns to the logo between info frames', returnedToLogoAfterInfo],
+    ['idle rotation: picks up the updated deployed app on a later poll (not cached)', sawUpdatedDeployedName],
+    ['idle rotation: picks up the updated expiring app on a later poll (not cached)', sawUpdatedExpiringName],
     ['build version is accent-green', build.version && build.version.color === GREEN],
     ['build codename is accent-purple', build.codename && build.codename.color === PURPLE],
-    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow],
-    ['deployment: injected successfully', deploy.injected],
-    ['deployment: box height never changes during the animation', deploy.injected && !deploy.boxHeightChanged],
-    ['deployment: docker icon shown for a non-orbit repo', deploy.sawIcon],
-    ['deployment: NAME row shown', deploy.sawName],
-    ['deployment: INST row shown', deploy.sawInstances],
-    ['deployment: RES row shown', deploy.sawResources],
-    ['deployment: frame never shows an empty row', deploy.sawName && deploy.emptyRowViolations === 0],
-    ['deployment: returns to the logo afterward', deploy.returnedToLogo]
+    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow]
   ];
 
-  console.log('deployment scenario:', JSON.stringify(deploy, null, 0));
-  console.log('phases:', JSON.stringify({ ...phases, syncStartT: undefined }, null, 0));
-  console.log('counter:', counterValues.join(' -> '), '| sync durations(ms):', syncDurations.join(', '));
+  console.log('phases:', JSON.stringify(phases, null, 0));
   console.log('distinct box heights:', distinctBox, '| distinct header heights:', distinctHeader);
   console.log('boot text @~2.2s:\n' + (bootTextAt2s.text || '(not captured)'));
-  console.log('pattern variants:', patternContents.size, '| empty-row violations:', emptyRowViolations);
+  console.log('empty-row violations:', emptyRowViolations);
 
   let allPass = true;
   console.log('\n=== CHECKS ===');

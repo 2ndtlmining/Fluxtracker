@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
   import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
-  import { shouldTriggerSync, deploymentId, pickNewDeployments } from '$lib/utils/terminalAnimation.js';
+  import { pickLatestDeployed, pickLatestExpiring } from '$lib/utils/terminalAnimation.js';
 
   let API_URL = '';
 
@@ -16,7 +16,6 @@
   let uptime = '0d 0:00';
   let snapshotCount = 0;
   let lastSnapshotDate = 'N/A';
-  let transactionCount = 0;
   let lastSyncBlock = null;
 
   // Host stats
@@ -35,23 +34,15 @@
   let apiStatus = 'checking';
   let dbStatus = 'checking';
 
-  // Terminal boot/sync animation tracking
+  // Terminal boot tracking
   let dataReady = false;
-  let bootComplete = false;
-  let previousBlockHeight = null;
-  let syncRequest = null;
-  let syncCounter = 0;
 
-  // Deployment event tracking (issues #98 / #104 Phase 1) -- capped queue plus a
-  // "currently playing" gate, checked on the same 30s /api/header poll (issue #98
-  // §Detection: "each cycle also reads /api/carousel/deployed").
-  const DEPLOYMENTS_PER_CYCLE = 3; // issue #98's "e.g. 3 per cycle"
-  let seenDeploymentIds = new Set();
-  let deploymentsSeeded = false;   // first poll only seeds seenIds, never queues
-  let deploymentQueue = [];
-  let deploymentRequest = null;
-  let deploymentCounter = 0;
-  let deploymentAnimationBusy = false;
+  // Idle-rotation data (issue #104 Phase 2): the header's ASCII box cycles through
+  // the current latest-deployed and latest-expiring apps once boot finishes. Both are
+  // refreshed on the same 30s poll as everything else, so the rotation never shows
+  // stale first-load data -- see fetchHeaderData/pollLatestApps.
+  let latestDeployedApp = null;
+  let latestExpiringApp = null;
 
   // Guards against overlapping poll cycles and hung requests. Without both, a slow or
   // stalled fetch stacks up: setInterval fires every 30s regardless of whether the
@@ -81,7 +72,7 @@
 
   /**
    * Orchestrator: guards against overlapping cycles (a previous fetchHeaderStats/
-   * pollDeployments pair still in flight skips this tick entirely rather than starting
+   * pollLatestApps pair still in flight skips this tick entirely rather than starting
    * a second one on top of it), then runs both fetches concurrently rather than
    * sequentially -- halves the typical cycle duration, which shrinks the window in
    * which a slow cycle could still overlap the next one.
@@ -90,7 +81,7 @@
     if (isPolling) return;
     isPolling = true;
     try {
-      await Promise.all([fetchHeaderStats(), pollDeployments()]);
+      await Promise.all([fetchHeaderStats(), pollLatestApps()]);
     } finally {
       isPolling = false;
     }
@@ -125,7 +116,6 @@
 
       snapshotCount = data.tracker.snapshots;
       lastSnapshotDate = data.tracker.lastSnapshotDate || 'N/A';
-      transactionCount = data.tracker.transactions;
       lastSyncBlock = data.tracker.lastSyncBlock;
 
       // Build
@@ -140,11 +130,6 @@
       usedMemMB = data.host.usedMemMB;
       memPercent = data.host.memPercent;
 
-      if (shouldTriggerSync({ previousBlockHeight, newBlockHeight, bootComplete })) {
-        syncCounter += 1;
-        syncRequest = { from: previousBlockHeight, to: newBlockHeight, id: syncCounter };
-      }
-      previousBlockHeight = newBlockHeight;
       blockHeight = newBlockHeight;
       dataReady = true;
 
@@ -156,56 +141,25 @@
   }
 
   /**
-   * Reads the already-cached deployed-apps endpoint (carouselService caches it
+   * Reads the already-cached deployed/expiring endpoints (carouselService caches both
    * server-side on CAROUSEL_CONFIG's own 10 min TTL, so this 30s client poll never
-   * causes an extra upstream Flux API call). The first poll after page load only
-   * seeds seenDeploymentIds -- everything already deployed today is "new to this
-   * session" but not a genuinely new event (issue #98 §Detection).
+   * causes an extra upstream Flux API call) and keeps only the single most-current
+   * entry from each for the header's idle rotation. Run every cycle -- never seeded
+   * once and left stale -- so the rotation always reflects the latest cached data.
    */
-  async function pollDeployments() {
+  async function pollLatestApps() {
     try {
-      const response = await fetchWithTimeout(`${API_URL}/api/carousel/deployed`);
-      const data = await response.json();
-      const deployedApps = data?.stats || [];
+      const [deployedRes, expiringRes] = await Promise.all([
+        fetchWithTimeout(`${API_URL}/api/carousel/deployed`),
+        fetchWithTimeout(`${API_URL}/api/carousel/expiring`)
+      ]);
+      const [deployedData, expiringData] = await Promise.all([deployedRes.json(), expiringRes.json()]);
 
-      if (!deploymentsSeeded) {
-        for (const app of deployedApps) seenDeploymentIds.add(deploymentId(app));
-        deploymentsSeeded = true;
-        return;
-      }
-
-      const { picked, overflow } = pickNewDeployments(seenDeploymentIds, deployedApps, DEPLOYMENTS_PER_CYCLE);
-      for (const deployment of picked) {
-        seenDeploymentIds.add(deploymentId(deployment));
-        deploymentQueue = [...deploymentQueue, deployment];
-      }
-      if (overflow > 0) {
-        deploymentQueue = [...deploymentQueue, { overflowCount: overflow }];
-      }
-
-      advanceDeploymentQueue();
+      latestDeployedApp = pickLatestDeployed(deployedData?.stats || []);
+      latestExpiringApp = pickLatestExpiring(expiringData?.stats || []);
     } catch (error) {
-      console.error('Error polling deployed apps for header animation:', error);
+      console.error('Error polling latest deployed/expiring apps for header animation:', error);
     }
-  }
-
-  /** Issues the next queued deployment as a request, only when nothing is currently playing. */
-  function advanceDeploymentQueue() {
-    if (deploymentAnimationBusy || deploymentQueue.length === 0) return;
-    const [next, ...rest] = deploymentQueue;
-    deploymentQueue = rest;
-    deploymentCounter += 1;
-    deploymentRequest = { id: deploymentCounter, ...next };
-    deploymentAnimationBusy = true;
-  }
-
-  function handleDeploymentComplete() {
-    deploymentAnimationBusy = false;
-    advanceDeploymentQueue();
-  }
-
-  function handleBootComplete() {
-    bootComplete = true;
   }
 
   function formatPrice(price) {
@@ -246,16 +200,13 @@
         {totalNodes}
         {totalApps}
         {snapshotCount}
-        {transactionCount}
         {appVersion}
         {arcaneOsCodename}
         {apiStatus}
         {dbStatus}
         {dataReady}
-        {syncRequest}
-        {deploymentRequest}
-        on:bootComplete={handleBootComplete}
-        on:deploymentComplete={handleDeploymentComplete}
+        {latestDeployedApp}
+        {latestExpiringApp}
       />
       <div class="build-info">
         Build: <span class="build-version">{appVersion}</span>{#if arcaneOsCodename}{' '}<span class="build-codename">{arcaneOsCodename}</span>{/if}

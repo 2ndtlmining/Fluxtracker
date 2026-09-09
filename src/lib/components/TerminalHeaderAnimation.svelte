@@ -1,43 +1,35 @@
 <script>
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import {
     LOGO_LINES,
-    LOGO_WIDTH,
     BOOT_LINE_COUNT,
     ROW_KIND_TEXT,
     ROW_KIND_LOGO,
     pickBootStartBlock,
     computeAnimatedBlock,
-    mergeSyncTarget,
     formatStatusLine,
     formatSnapshotLine,
     formatSummaryLine,
-    buildSyncPatternLines,
-    pickPatternChars,
     padLines,
     composeRevealFrame,
     composeRevealKinds,
-    formatSyncBlocksLine,
-    formatTransactionsLine,
-    formatNetworkLine,
     formatDeploymentFrame,
-    formatDeploymentReducedMotionLines
+    formatExpiringFrame,
+    formatDeploymentReducedMotionLines,
+    formatExpiringReducedMotionLines
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
   export let totalApps = 0;
   export let snapshotCount = 0;
-  export let transactionCount = 0;
   export let appVersion = '...';
   export let arcaneOsCodename = '';
   export let apiStatus = 'checking';
   export let dbStatus = 'checking';
   export let dataReady = false;
-  export let syncRequest = null;
-  export let deploymentRequest = null;
-
-  const dispatch = createEventDispatcher();
+  export let latestDeployedApp = null;   // most recent /api/carousel/deployed entry, or null
+  export let latestExpiringApp = null;   // soonest /api/carousel/expiring entry, or null
 
   // Boot pacing. Everything the boot sequence schedules is multiplied by
   // BOOT_SLOWDOWN, so the whole read takes about twice as long as it used to
@@ -47,34 +39,23 @@
   const COUNTER_DURATION_MS = 1100 * BOOT_SLOWDOWN;
 
   // Row-reveal duration shared by every wipe — the boot's text -> logo reveal and
-  // all three sync phases — so the ASCII logo always repaints at the same pace,
-  // top-down, no matter when you catch it.
+  // every idle-rotation transition — so the ASCII logo always repaints at the same
+  // pace, top-down, no matter when you catch it.
   const REVEAL_MS = 400;
   const BOOT_SETTLE_MS = 350 * BOOT_SLOWDOWN; // glow settle after the reveal
   const BOOT_READY_DELAY_MS = 450 * BOOT_SLOWDOWN;
 
-  // Sync transition phases — logo -> pattern -> text -> logo, all in the logo's fixed box.
-  // Every phase fills all six rows with real data (never an empty row mid-frame, which
-  // read as the content "disappearing"), and every wipe runs at the shared REVEAL_MS.
-  // Holds stretch with SYNC_SLOWDOWN; inside the text phase the blocks counter counts
-  // up (HOLD2) before the logo repaints (HOLD3).
-  const SYNC_SLOWDOWN = 2;
-  const SYNC_PHASE1_MS = REVEAL_MS;           // logo -> sync pattern, reveals bottom-up
-  const SYNC_HOLD1_MS = 150 * SYNC_SLOWDOWN;  // pause on the full sync pattern
-  const SYNC_PHASE2_MS = REVEAL_MS;           // pattern -> text, reveals top-down
-  const SYNC_HOLD2_MS = 450 * SYNC_SLOWDOWN;  // blocks counter counts up inside the text frame
-  const SYNC_HOLD3_MS = 150 * SYNC_SLOWDOWN;  // beat after the counter lands before the logo repaints
-  const SYNC_PHASE3_MS = REVEAL_MS;           // text -> logo, reveals top-down — same pace as boot
+  // Idle rotation (replaces the old block-sync animation and the one-off "new
+  // deployment" flash): once boot finishes, the box cycles Logo -> Latest Expiring ->
+  // Latest Deployed -> Logo -> ... forever, skipping any slot with no data yet. Each
+  // slot's content is read live from props at the moment its wipe starts, so a poll
+  // update always shows up by the slot's next turn rather than needing a restart.
+  const ROTATE_SLOWDOWN = 2;
+  const ROTATE_TRANSITION_MS = REVEAL_MS;
+  const ROTATE_HOLD_MS = 4000 * ROTATE_SLOWDOWN; // readable hold, matches the old deploy-flash hold
 
-  // Deployment event (issues #98 / #104 Phase 1) -- one combined frame, wiped in and out
-  // at the shared REVEAL_MS pace, held long enough to read per issue #98's ~10s budget.
-  const DEPLOY_SLOWDOWN = 2;
-  const DEPLOY_TRANSITION_MS = REVEAL_MS;
-  const DEPLOY_HOLD_MS = 4000 * DEPLOY_SLOWDOWN;      // full detail frame, readable hold
-  const DEPLOY_OVERFLOW_HOLD_MS = 1000 * DEPLOY_SLOWDOWN; // "+N more deployed" tally, brief
-
-  let state = 'booting'; // 'booting' | 'ready' | 'syncing' | 'deploying'
-  // The single fixed box: every phase of the header (boot text, logo, sync
+  let state = 'booting'; // 'booting' | 'ready'
+  // The single fixed box: every phase of the header (boot text, logo, rotation
   // frames) is rendered here, always exactly LOGO_LINES.length rows, so the
   // header keeps one constant size from first paint onwards.
   let frameLines = padLines([], BOOT_LINE_COUNT);
@@ -82,13 +63,8 @@
   let bootTextLines = [];
   let logoSettled = false;
   let reducedMotion = false;
-
-  let lastHandledSyncId = null;
-  let activeSyncEnd = null;
-  let lastHandledDeploymentId = null;
-  let deferredSyncRequest = null; // a sync that arrived mid-deployment, played once it ends
-  let deferredDeploymentRequest = null; // a deployment that arrived mid-sync, played once it ends
-  let deploymentAriaLabel = '';
+  let rotationIndex = 0; // index into idleSlots() of the slot currently on screen
+  let currentAriaLabel = 'Flux network status';
 
   let timeouts = [];
   let rafId = null;
@@ -198,26 +174,13 @@
   function finishBoot() {
     const baseLines = padLines(bootTextLines, BOOT_LINE_COUNT);
 
-    // Extremely unlikely in practice (Header.svelte's first poll only seeds its
-    // seen-set, never queues a request, so a deployment can't normally reach this
-    // component before boot finishes) -- checked anyway so 'booting' never becomes a
-    // silent-drop state the way it briefly was for deployments before this fix.
-    const playDeferredDeployment = () => {
-      if (deferredDeploymentRequest) {
-        const pending = deferredDeploymentRequest;
-        deferredDeploymentRequest = null;
-        startDeployment(pending);
-      }
-    };
-
     if (reducedMotion) {
       frameLines = LOGO_LINES;
       frameKinds = logoKinds();
       logoSettled = true;
       schedule(() => {
         state = 'ready';
-        dispatch('bootComplete');
-        playDeferredDeployment();
+        startIdleRotation();
       }, 30);
       return;
     }
@@ -228,8 +191,7 @@
       schedule(() => { logoSettled = true; }, BOOT_SETTLE_MS);
       schedule(() => {
         state = 'ready';
-        dispatch('bootComplete');
-        playDeferredDeployment();
+        startIdleRotation();
       }, BOOT_READY_DELAY_MS);
     });
   }
@@ -251,209 +213,72 @@
     rafId = requestAnimationFrame(frame);
   }
 
-  /** Replace a single row of the current frame without touching the others. */
-  function setFrameLine(index, text) {
-    frameLines = frameLines.map((line, i) => (i === index ? text : line));
+  /**
+   * The rotation's slot list, recomputed live on every advance so a poll update that
+   * lands mid-cycle is picked up by that slot's next turn rather than requiring a
+   * restart. The logo is always slot 0; "expiring"/"deployed" are included only when
+   * there's real data for them, so an app-less start (or a fetch error) just holds
+   * the logo instead of rotating into an empty frame.
+   */
+  function idleSlots() {
+    const slots = [{ kind: 'logo' }];
+    if (latestExpiringApp) slots.push({ kind: 'expiring', data: latestExpiringApp });
+    if (latestDeployedApp) slots.push({ kind: 'deployed', data: latestDeployedApp });
+    return slots;
   }
 
-  /**
-   * Boot-style count-up inside the text frame's top row: X climbs from the
-   * previous block height to the freshly polled one and lands with `... OK`.
-   * `activeSyncEnd` is read live so a sync that arrives mid-count extends the
-   * target without restarting.
-   */
-  function animateSyncCounter(fromBlock, onDone) {
-    const start = performance.now();
-
-    function frame(now) {
-      const target = typeof activeSyncEnd === 'number' ? activeSyncEnd : fromBlock;
-      const done = () => {
-        setFrameLine(0, `${formatSyncBlocksLine(target, target)} ... OK`);
-        onDone();
-      };
-      if (reducedMotion || fromBlock === null || target === null || target <= fromBlock) {
-        done();
-        return;
-      }
-      const progress = Math.min(1, (now - start) / SYNC_HOLD2_MS);
-      const value = computeAnimatedBlock(fromBlock, target, progress);
-      setFrameLine(0, formatSyncBlocksLine(value, target));
-      if (progress >= 1) {
-        done();
-        return;
-      }
-      rafId = requestAnimationFrame(frame);
+  function framesForSlot(slot) {
+    if (slot.kind === 'logo') {
+      return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
     }
-    rafId = requestAnimationFrame(frame);
+    if (slot.kind === 'expiring') {
+      const lines = reducedMotion ? formatExpiringReducedMotionLines(slot.data) : formatExpiringFrame(slot.data);
+      return { lines, kinds: textKinds(), ariaLabel: `Expiring soon: ${slot.data.name}` };
+    }
+    const lines = reducedMotion ? formatDeploymentReducedMotionLines(slot.data) : formatDeploymentFrame(slot.data);
+    return { lines, kinds: textKinds(), ariaLabel: `Latest deployment: ${slot.data.name}` };
   }
 
-  /**
-   * Sync animation: the whole thing plays out inside the logo's own fixed box (same row
-   * count throughout) so it never pushes the header around. Logo wipes into a sync-pattern
-   * texture from the bottom up, the pattern gives way to the live status text from the top
-   * down, then the logo repaints from the top down — all at the same REVEAL_MS pace as the
-   * boot's logo reveal. The text frame always fills all six rows with real data (counter,
-   * transactions pair, snapshots, network, sync complete) so no phase ever shows an empty
-   * row mid-wipe; only the blocks counter animates while the frame is on screen. Both the
-   * pattern and the text use the same style as the boot text, so all reads share one
-   * voice. The pattern is woven from a fresh random character pair on every sync.
-   */
-  function startSync(fromBlock, toBlock) {
-    state = 'syncing';
-    activeSyncEnd = toBlock;
+  function startIdleRotation() {
+    rotationIndex = 0;
+    frameLines = LOGO_LINES;
+    frameKinds = logoKinds();
+    currentAriaLabel = 'Flux network status';
+    scheduleNextRotationStep();
+  }
 
-    // Mirrors startDeployment's finish(): a deploymentRequest that arrived while this
-    // sync was playing was deferred (see the deploymentRequest reactive block below) --
-    // play it now that the box is idle again, same as a deferred sync is played once a
-    // deployment ends.
-    const finishSync = () => {
-      state = 'ready';
-      activeSyncEnd = null;
-      if (deferredDeploymentRequest) {
-        const pending = deferredDeploymentRequest;
-        deferredDeploymentRequest = null;
-        startDeployment(pending);
-      }
-    };
+  function scheduleNextRotationStep() {
+    schedule(() => advanceRotation(), ROTATE_HOLD_MS);
+  }
 
-    const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH, pickPatternChars());
-    // The full frame is revealed in one wipe — the transaction total, snapshot
-    // count and network stats are all real values from the last header fetch,
-    // so they can be on screen from the first row, like the boot's lines.
-    const buildTextLines = () =>
-      padLines(
-        [
-          formatSyncBlocksLine(fromBlock, activeSyncEnd),
-          'loading transactions...',
-          formatTransactionsLine(transactionCount),
-          formatSnapshotLine(snapshotCount),
-          formatNetworkLine(totalNodes, totalApps),
-          'sync complete'
-        ],
-        BOOT_LINE_COUNT
-      );
-
-    if (reducedMotion) {
-      frameLines = buildTextLines();
-      setFrameLine(0, `${formatSyncBlocksLine(activeSyncEnd, activeSyncEnd)} ... OK`);
-      frameKinds = textKinds();
-      schedule(() => {
-        frameLines = LOGO_LINES;
-        frameKinds = logoKinds();
-        finishSync();
-      }, 30);
+  function advanceRotation() {
+    const slots = idleSlots();
+    if (slots.length <= 1) {
+      // Nothing to rotate to yet (no expiring/deployed data) — hold the logo and
+      // check again next interval rather than wiping it into itself.
+      scheduleNextRotationStep();
       return;
     }
 
-    runReveal(LOGO_LINES, logoKinds(), patternLines, textKinds(), 'bottom-up', SYNC_PHASE1_MS, () => {
-      frameLines = patternLines;
-      frameKinds = textKinds();
-      schedule(() => {
-        const textLines = buildTextLines();
-        runReveal(patternLines, textKinds(), textLines, textKinds(), 'top-down', SYNC_PHASE2_MS, () => {
-          frameLines = textLines;
-          frameKinds = textKinds();
-          animateSyncCounter(fromBlock, () => {
-            schedule(() => {
-              runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
-                frameLines = LOGO_LINES;
-                frameKinds = logoKinds();
-                finishSync();
-              });
-            }, SYNC_HOLD3_MS);
-          });
-        });
-      }, SYNC_HOLD1_MS);
-    });
-  }
-
-  /**
-   * Deployment event (issues #98 / #104 Phase 1): one wipe from the logo into the
-   * combined detail frame (icon/NAME/REPO/INST/RES/icon), a readable hold, one wipe
-   * back to the logo. `deployment.overflowCount` (set by Header.svelte for a queued
-   * "+N more deployed" tally instead of a real deployment) renders through the same
-   * formatDeploymentFrame-shaped path but held only briefly -- it's a tally, not
-   * detail meant to be read closely.
-   */
-  function startDeployment(deployment) {
-    state = 'deploying';
-    const isOverflowTick = Number.isFinite(deployment.overflowCount);
-    const instances = Number.isFinite(deployment.instances) ? deployment.instances : 0;
-    deploymentAriaLabel = isOverflowTick
-      ? `${deployment.overflowCount} more apps deployed`
-      : `New deployment: ${deployment.name}, ${instances} ${instances === 1 ? 'instance' : 'instances'}`;
-
-    const finish = () => {
-      state = 'ready';
-      deploymentAriaLabel = '';
-      dispatch('deploymentComplete');
-      if (deferredSyncRequest) {
-        const pending = deferredSyncRequest;
-        deferredSyncRequest = null;
-        startSync(pending.from, pending.to);
-      }
-    };
+    rotationIndex = (rotationIndex + 1) % slots.length;
+    const next = framesForSlot(slots[rotationIndex]);
 
     if (reducedMotion) {
-      frameLines = isOverflowTick
-        ? padLines([`  +${deployment.overflowCount} MORE DEPLOYED`], BOOT_LINE_COUNT)
-        : formatDeploymentReducedMotionLines(deployment);
-      frameKinds = textKinds();
-      schedule(() => {
-        frameLines = LOGO_LINES;
-        frameKinds = logoKinds();
-        finish();
-      }, 30);
+      frameLines = next.lines;
+      frameKinds = next.kinds;
+      currentAriaLabel = next.ariaLabel;
+      scheduleNextRotationStep();
       return;
     }
 
-    const detailFrame = isOverflowTick
-      ? padLines([`  +${deployment.overflowCount} MORE DEPLOYED`], BOOT_LINE_COUNT)
-      : formatDeploymentFrame(deployment);
-    const holdMs = isOverflowTick ? DEPLOY_OVERFLOW_HOLD_MS : DEPLOY_HOLD_MS;
-
-    runReveal(LOGO_LINES, logoKinds(), detailFrame, textKinds(), 'top-down', DEPLOY_TRANSITION_MS, () => {
-      frameLines = detailFrame;
-      frameKinds = textKinds();
-      schedule(() => {
-        runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', DEPLOY_TRANSITION_MS, () => {
-          frameLines = LOGO_LINES;
-          frameKinds = logoKinds();
-          finish();
-        });
-      }, holdMs);
+    const fromLines = frameLines;
+    const fromKinds = frameKinds;
+    runReveal(fromLines, fromKinds, next.lines, next.kinds, 'top-down', ROTATE_TRANSITION_MS, () => {
+      frameLines = next.lines;
+      frameKinds = next.kinds;
+      currentAriaLabel = next.ariaLabel;
+      scheduleNextRotationStep();
     });
-  }
-
-  $: if (syncRequest && syncRequest.id !== lastHandledSyncId) {
-    lastHandledSyncId = syncRequest.id;
-    if (state === 'syncing') {
-      activeSyncEnd = mergeSyncTarget(activeSyncEnd, syncRequest.to);
-    } else if (state === 'ready') {
-      startSync(syncRequest.from, syncRequest.to);
-    } else if (state === 'deploying') {
-      // Never silently dropped: played immediately once the deployment frame ends
-      // (see startDeployment's finish()), merging targets the same way two syncs
-      // arriving close together already do via activeSyncEnd.
-      deferredSyncRequest = deferredSyncRequest
-        ? { from: deferredSyncRequest.from, to: mergeSyncTarget(deferredSyncRequest.to, syncRequest.to) }
-        : { from: syncRequest.from, to: syncRequest.to };
-    }
-  }
-
-  // Header.svelte issues one deploymentRequest at a time (its own queue gates on
-  // deploymentAnimationBusy) -- but its 30s poll can land in the same tick as a sync
-  // trigger, so this component can genuinely be 'syncing' (or still 'booting') when a
-  // request arrives, not just 'deploying'. Never dropped: deferred and played via
-  // finishSync() once the box is idle again, the same way a sync arriving mid-deployment
-  // is deferred and played via startDeployment's finish().
-  $: if (deploymentRequest && deploymentRequest.id !== lastHandledDeploymentId) {
-    lastHandledDeploymentId = deploymentRequest.id;
-    if (state === 'ready') {
-      startDeployment(deploymentRequest);
-    } else {
-      deferredDeploymentRequest = deploymentRequest;
-    }
   }
 
   onMount(() => {
@@ -472,18 +297,18 @@
   class="terminal-box"
   class:settled={logoSettled}
   style="--box-rows: {BOOT_LINE_COUNT};"
-  aria-label={deploymentAriaLabel || 'Flux network status'}
+  aria-label={currentAriaLabel}
 >{#each frameLines as line, i}<span class="row-{frameKinds[i]}">{line + '\n'}</span>{/each}</pre>
 
 <style>
   /* The fixed box: always --box-rows rows of --box-row height, whatever it is
-     showing (boot text, logo, sync pattern or sync text), so the header keeps
-     one constant size from first paint through every refresh.
+     showing (boot text, logo or a rotation frame), so the header keeps one
+     constant size from first paint through every refresh.
      overflow: clip (not hidden) keeps the logo's glow from being chopped into
      a hard-edged block at the box bounds: the clip sits overflow-clip-margin
      (32px — just past the widest --glow-cyan blur) outside the box, so the
      glow fades naturally like it did before the box was introduced, while a
-     too-long boot/sync line on a narrow screen still can't run away. */
+     too-long boot/rotation line on a narrow screen still can't run away. */
   .terminal-box {
     margin: 0;
     font-family: inherit;
@@ -501,8 +326,8 @@
     color: var(--text-dim);
   }
 
-  /* Logo (and sync-pattern) rows — the bright persistent identity. Line-height
-     comes from the box, so logo rows and text rows always align row for row. */
+  /* Logo rows — the bright persistent identity. Line-height comes from the box,
+     so logo rows and text rows always align row for row. */
   .row-logo {
     font-size: clamp(0.4rem, 1.4vw, 0.95rem);
     color: var(--text-primary);
