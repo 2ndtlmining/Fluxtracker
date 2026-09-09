@@ -40,7 +40,9 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
             { ip: '10.10.10.1', asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt }
         ]);
 
-        expect(await readBack(['10.10.10.1'])).toEqual([{ ip: '10.10.10.1', isDatacenter: true, classifiedAt }]);
+        expect(await readBack(['10.10.10.1'])).toEqual([
+            { ip: '10.10.10.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt }
+        ]);
     });
 
     it('stores isDatacenter=false as a real false, not just falsy', async () => {
@@ -74,7 +76,9 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
             { ip: '10.10.10.6', asn: 2, org: 'New Org', isDatacenter: true, classifiedAt: 2000 }
         ]);
 
-        expect(await readBack(['10.10.10.6'])).toEqual([{ ip: '10.10.10.6', isDatacenter: true, classifiedAt: 2000 }]);
+        expect(await readBack(['10.10.10.6'])).toEqual([
+            { ip: '10.10.10.6', org: 'New Org', isDatacenter: true, classifiedAt: 2000 }
+        ]);
     });
 
     it('handles a missing/null asn or org without throwing', async () => {

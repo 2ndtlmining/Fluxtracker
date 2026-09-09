@@ -10,3 +10,15 @@ export function computeUtilizationPercent(used, total) {
   const raw = (Math.max(0, used) / total) * 100;
   return Math.min(100, raw);
 }
+
+// Plain ASCII bar -- '=' filled / '-' empty inside brackets -- to match the terminal
+// aesthetic (same reasoning as the header's [[ DOCKER ]] icon motifs: a real text
+// character inherits the theme's color/glow, unlike a CSS-styled div or a unicode block
+// glyph). '=' and '-' are both flat, single-cell ASCII characters with no font-dependent
+// weight mismatch between the "filled" and "empty" glyphs -- the bug the original
+// unicode block-character bars had (see git history on this file).
+export function formatAsciiBar(percent, width = 16) {
+  const clamped = Math.max(0, Math.min(100, percent ?? 0));
+  const filled = Math.round((clamped / 100) * width);
+  return `[${'='.repeat(filled)}${'-'.repeat(width - filled)}]`;
+}

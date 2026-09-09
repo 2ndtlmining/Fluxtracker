@@ -1543,7 +1543,7 @@ export async function getAllNodeIpClassifications() {
     while (true) {
         const { data, error } = await supabase
             .from('node_ip_classification')
-            .select('ip, is_datacenter, classified_at')
+            .select('ip, org, is_datacenter, classified_at')
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch node_ip_classification failed: ${error.message}`);
@@ -1556,6 +1556,7 @@ export async function getAllNodeIpClassifications() {
 
     return rows.map(row => ({
         ip: row.ip,
+        org: row.org,
         isDatacenter: !!row.is_datacenter,
         classifiedAt: row.classified_at
     }));

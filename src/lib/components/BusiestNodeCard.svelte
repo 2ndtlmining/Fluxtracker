@@ -1,6 +1,6 @@
 <script>
   import { Server } from 'lucide-svelte';
-  import { computeUtilizationPercent } from '$lib/utils/resourceBar.js';
+  import { computeUtilizationPercent, formatAsciiBar } from '$lib/utils/resourceBar.js';
 
   export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
   export let loading = false;
@@ -55,9 +55,7 @@
             <span class="resource-label">{resource.label}</span>
             <span class="resource-percent">{Math.round(percent)}%</span>
           </div>
-          <div class="resource-track">
-            <div class="resource-fill" style="width: {percent}%"></div>
-          </div>
+          <div class="resource-bar">{formatAsciiBar(percent)}</div>
           <div class="resource-detail">{formatDecimal(resource.used)} / {formatDecimal(resource.total)} {resource.unit}</div>
         </div>
       {/each}
@@ -208,19 +206,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .resource-track {
-    height: 6px;
-    border-radius: 3px;
-    background: rgba(139, 146, 176, 0.15);
-    overflow: hidden;
-  }
-
-  .resource-fill {
-    height: 100%;
-    border-radius: 3px;
-    background: var(--text-primary);
-    box-shadow: 0 0 6px rgba(0, 255, 255, 0.5);
-    transition: width 0.4s ease;
+  .resource-bar {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 1px;
+    color: var(--text-primary);
+    text-shadow: 0 0 6px rgba(0, 255, 255, 0.4);
+    white-space: pre;
   }
 
   .resource-detail {

@@ -87,6 +87,33 @@ export async function classifyIp(rawIp) {
     throw new Error(errors.join('; '));
 }
 
+const TOP_DATACENTERS_LIMIT = 3;
+
+/**
+ * Groups the classified-as-datacenter rows by org, sorted by count. `percent` on each
+ * entry is share of ALL classified nodes (not just the datacenter subset), so these
+ * entries are directly comparable to and roughly sum toward the card's headline
+ * datacenterPercent -- "Hetzner: 24%" reads against the same 100% as "62% datacenter".
+ */
+function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
+    const datacenterRows = relevant.filter(row => row.isDatacenter);
+    const counts = new Map();
+    for (const row of datacenterRows) {
+        const key = row.org || 'Unknown';
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const classifiedCount = relevant.length;
+    const top = sorted.slice(0, limit).map(([org, count]) => ({
+        org,
+        count,
+        percent: classifiedCount > 0 ? (count / classifiedCount) * 100 : 0
+    }));
+
+    return { top, otherProviderCount: Math.max(0, sorted.length - top.length) };
+}
+
 /** Recomputes and caches the stats snapshot from an in-memory classification list. */
 function computeAndCacheStats(allClassifications, candidateIps) {
     const candidateSet = new Set(candidateIps);
@@ -94,6 +121,7 @@ function computeAndCacheStats(allClassifications, candidateIps) {
     const datacenterCount = relevant.filter(row => row.isDatacenter).length;
     const classifiedCount = relevant.length;
     const totalNodes = candidateIps.length;
+    const { top: topDatacenters, otherProviderCount } = computeTopDatacenters(relevant);
 
     statsCache = {
         totalNodes,
@@ -104,6 +132,8 @@ function computeAndCacheStats(allClassifications, candidateIps) {
         datacenterPercent: classifiedCount > 0 ? (datacenterCount / classifiedCount) * 100 : null,
         // Share of all candidate nodes classified so far -- how much to trust datacenterPercent.
         coveragePercent: totalNodes > 0 ? (classifiedCount / totalNodes) * 100 : 0,
+        topDatacenters,
+        otherProviderCount,
         updatedAt: Date.now()
     };
     statsCacheAt = Date.now();
@@ -153,7 +183,9 @@ export async function runDecentralizationCycle() {
 
     if (results.length > 0) {
         await upsertNodeIpClassifications(results);
-        for (const row of results) known.set(row.ip, { ip: row.ip, isDatacenter: row.isDatacenter, classifiedAt: row.classifiedAt });
+        for (const row of results) {
+            known.set(row.ip, { ip: row.ip, org: row.org, isDatacenter: row.isDatacenter, classifiedAt: row.classifiedAt });
+        }
     }
 
     computeAndCacheStats([...known.values()], candidateIps);
