@@ -382,6 +382,33 @@ export const BUSIEST_NODE_CONFIG = {
     freshnessThreshold: 2 * 60 * 60 * 1000,
 };
 
+// Decentralization metric (issue #108): what share of node-hosting IPs are in known
+// datacenters/cloud providers vs. not. Classified gradually via the free ipwho.is/ip-api.com
+// chain (no key, no bulk-download database to maintain) rather than all at once, to stay
+// well within those free tiers' rate limits at network scale (~6,000+ nodes) — see
+// decentralizationService.js.
+export const DECENTRALIZATION_CONFIG = {
+    updateInterval: 5 * 60 * 1000,          // classify one batch every 5 minutes
+    batchSize: 20,                          // IPs classified per batch (~4/min average — well under ip-api.com's 45/min free-tier cap)
+    staleAfterMs: 30 * 24 * 60 * 60 * 1000, // 30 days — an IP's ASN/org rarely changes, so a fresh classification is reused rather than re-fetched
+};
+
+// Known cloud/hosting-provider name fragments, matched case-insensitively against a node's
+// classified org/ISP string. Not exhaustive — covers the providers most commonly seen
+// hosting Flux nodes; a miss just leaves that node unclassified as "datacenter", it doesn't
+// misclassify it as something else. Maintained here the same way GAMING_REPOS/CRYPTO_REPOS
+// are: a plain keyword list, easy to extend as new providers show up in real data.
+export const DATACENTER_ORG_KEYWORDS = [
+    'hetzner', 'ovh', 'amazon', 'aws', 'google', 'microsoft', 'azure',
+    'digitalocean', 'digital ocean', 'vultr', 'choopa', 'linode', 'akamai',
+    'contabo', 'netcup', 'ionos', '1&1', 'scaleway', 'leaseweb', 'm247',
+    'oracle', 'alibaba', 'tencent', 'upcloud', 'phoenixnap', 'datapacket',
+    'psychz', 'colocrossing', 'gcore', 'cloudzy', 'hosthatch',
+    'data center', 'datacenter', 'colocation'
+    // NOT 'colo' alone -- it's a substring of unrelated org names (e.g. "Colombia"),
+    // the same class of false-positive keyword matching CATEGORY_EXCLUDE guards against.
+];
+
 // ============================================
 // DASHBOARD REFRESH
 // ============================================

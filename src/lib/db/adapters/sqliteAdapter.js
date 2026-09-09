@@ -226,6 +226,19 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_image_name ON repo_snapshots(image_name)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_composite ON repo_snapshots(image_name, snapshot_date)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category)`);
+
+    // Decentralization metric (issue #108): one row per node IP ever classified via the
+    // free ipwho.is/ip-api.com chain, cached indefinitely (an IP's ASN/org rarely changes)
+    // and re-checked only once classified_at goes stale -- see decentralizationService.js.
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS node_ip_classification (
+            ip TEXT PRIMARY KEY,
+            asn INTEGER,
+            org TEXT,
+            is_datacenter INTEGER NOT NULL DEFAULT 0,
+            classified_at INTEGER NOT NULL
+        )
+    `);
 }
 
 // ============================================
@@ -1582,6 +1595,53 @@ export async function upsertRepoSnapshots(rows) {
                 instance_count: row.instance_count,
                 category: row.category || null,
                 created_at: row.created_at || Math.floor(Date.now() / 1000)
+            });
+        }
+    });
+
+    insertAll(rows);
+    return rows.length;
+}
+
+// ============================================
+// NODE IP CLASSIFICATION (decentralization metric, issue #108)
+// ============================================
+
+/**
+ * Every classified node IP -- lightweight projection (no asn/org) since callers only need
+ * ip/isDatacenter/classifiedAt to decide what's stale and to aggregate the stats. SQLite has
+ * no row-count cap the way PostgREST does, so this is a plain unpaginated SELECT.
+ */
+export async function getAllNodeIpClassifications() {
+    const rows = getDb().prepare('SELECT ip, is_datacenter, classified_at FROM node_ip_classification').all();
+    return rows.map(row => ({
+        ip: row.ip,
+        isDatacenter: !!row.is_datacenter,
+        classifiedAt: row.classified_at
+    }));
+}
+
+export async function upsertNodeIpClassifications(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO node_ip_classification (ip, asn, org, is_datacenter, classified_at)
+        VALUES (@ip, @asn, @org, @is_datacenter, @classified_at)
+        ON CONFLICT(ip) DO UPDATE SET
+            asn = @asn,
+            org = @org,
+            is_datacenter = @is_datacenter,
+            classified_at = @classified_at
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const row of items) {
+            stmt.run({
+                ip: row.ip,
+                asn: row.asn ?? null,
+                org: row.org ?? null,
+                is_datacenter: row.isDatacenter ? 1 : 0,
+                classified_at: row.classifiedAt
             });
         }
     });

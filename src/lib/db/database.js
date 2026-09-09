@@ -106,4 +106,7 @@ export const {
     exportAllRepoSnapshots,
     upsertDailySnapshots,
     upsertRepoSnapshots,
+    // Node IP classification (issue #108)
+    getAllNodeIpClassifications,
+    upsertNodeIpClassifications,
 } = adapter;
