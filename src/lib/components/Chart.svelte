@@ -77,6 +77,17 @@
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' }
       ]
+    },
+    decentralization: {
+      label: 'Decentralization',
+      color: 'rgb(255, 180, 0)',
+      metrics: [
+        { id: 'dc_count', label: 'Quantity Datacenters', field: 'decentralization_datacenter_count', format: 'number' },
+        { id: 'indep_count', label: 'Quantity Independent', field: 'decentralization_independent_count', format: 'number' },
+        { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent' },
+        { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true },
+        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true }
+      ]
     }
   };
 
@@ -287,15 +298,23 @@
       return dateA - dateB;
     });
 
+    // For the decentralization category, pre-feature snapshots have NULL for
+    // all 5 metric fields (no DEFAULT was set). Drop those days entirely for
+    // this category so the chart doesn't fabricate a 0 (or, for invert
+    // metrics, a misleading 100%) before real data collection started.
+    const rows = selectedCategory === 'decentralization'
+      ? sortedSnapshots.filter(s => s[metric.field] != null)
+      : sortedSnapshots;
+
     let labels = [];
     let data = [];
     let rawDates = [];
 
     if (selectedAggregation === 'daily') {
       // DAILY - Your existing logic
-      const allDateStrs = sortedSnapshots.map(s => s.date || s.snapshot_date);
-      for (let i = 0; i < sortedSnapshots.length; i++) {
-        const snapshot = sortedSnapshots[i];
+      const allDateStrs = rows.map(s => s.date || s.snapshot_date);
+      for (let i = 0; i < rows.length; i++) {
+        const snapshot = rows[i];
         const dateStr = snapshot.date || snapshot.snapshot_date;
         if (!dateStr) continue;
 
@@ -313,19 +332,20 @@
           }
         } else {
           value = snapshot[metric.field] || 0;
+          if (metric.invert) value = 100 - value;
         }
-        
+
         data.push(value);
       }
     } else if (selectedAggregation === 'weekly') {
       // WEEKLY AGGREGATION
-      const weeklyData = aggregateByWeek(sortedSnapshots, metric);
+      const weeklyData = aggregateByWeek(rows, metric);
       labels = weeklyData.labels;
       data = weeklyData.data;
       rawDates = weeklyData.rawDates;
     } else if (selectedAggregation === 'monthly') {
       // MONTHLY AGGREGATION
-      const monthlyData = aggregateByMonth(sortedSnapshots, metric);
+      const monthlyData = aggregateByMonth(rows, metric);
       labels = monthlyData.labels;
       data = monthlyData.data;
       rawDates = monthlyData.rawDates;
@@ -369,6 +389,7 @@
         }
       } else {
         value = snapshot[metric.field] || 0;
+        if (metric.invert) value = 100 - value;
       }
 
       if (!weeklyMap.has(weekKey)) {
@@ -433,6 +454,7 @@
         }
       } else {
         value = snapshot[metric.field] || 0;
+        if (metric.invert) value = 100 - value;
       }
 
       if (!monthlyMap.has(monthKey)) {

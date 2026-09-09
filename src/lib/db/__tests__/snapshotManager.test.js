@@ -11,6 +11,12 @@ vi.mock('../database.js', () => ({
     getCurrentMetrics: vi.fn(),
     getSnapshotByDate: vi.fn(),
     getRevenueForDateRange: vi.fn(() => 123.45),
+    createDecentralizationSnapshots: vi.fn(),
+}));
+
+vi.mock('../../services/decentralizationService.js', () => ({
+    getDecentralizationStats: vi.fn(),
+    getFullDatacenterBreakdown: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock('../../services/cloudService.js', () => ({
@@ -45,9 +51,11 @@ import {
     getCurrentMetrics,
     getSnapshotByDate,
     getRevenueForDateRange,
+    createDecentralizationSnapshots,
 } from '../database.js';
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
+import { getDecentralizationStats, getFullDatacenterBreakdown } from '../../services/decentralizationService.js';
 
 // ============================================
 // Helpers
@@ -122,6 +130,8 @@ describe('snapshotManager', () => {
         getRevenueForDateRange.mockResolvedValue(123.45);
         createRepoSnapshots.mockResolvedValue(50);
         getLatestRepoCounts.mockReturnValue(null);
+        getDecentralizationStats.mockResolvedValue({ datacenterCount: 40, classifiedCount: 100, datacenterPercent: 40 });
+        getFullDatacenterBreakdown.mockResolvedValue([]);
     });
 
     afterEach(() => {
@@ -292,6 +302,68 @@ describe('snapshotManager', () => {
             expect(result.snapshotDate).toBe('2026-03-19');
             expect(result.repoCount).toBe(15);
             expect(createRepoSnapshots).toHaveBeenCalledWith('2026-03-19', repoCounts);
+        });
+    });
+
+    describe('decentralization snapshot collection', () => {
+        it('writes the headline decentralization columns onto the daily snapshot', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getDecentralizationStats.mockResolvedValue({ datacenterCount: 45, classifiedCount: 100, datacenterPercent: 45 });
+            getFullDatacenterBreakdown.mockResolvedValue([{ org: 'Hetzner', count: 45 }, { org: '(independent)', count: 55 }]);
+
+            await takeManualSnapshot();
+
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.decentralization_datacenter_count).toBe(45);
+            expect(snapshotData.decentralization_independent_count).toBe(55);
+            expect(snapshotData.decentralization_datacenter_percent).toBe(45);
+        });
+
+        it('writes null (not 0) for the headline columns when nothing is classified yet', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getDecentralizationStats.mockResolvedValue({ datacenterCount: 0, classifiedCount: 0, datacenterPercent: null });
+            getFullDatacenterBreakdown.mockResolvedValue([]);
+
+            await takeManualSnapshot();
+
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.decentralization_datacenter_count).toBeNull();
+            expect(snapshotData.decentralization_independent_count).toBeNull();
+            expect(snapshotData.decentralization_datacenter_percent).toBeNull();
+        });
+
+        it('calls createDecentralizationSnapshots with the full breakdown for the snapshot date', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getDecentralizationStats.mockResolvedValue({ datacenterCount: 45, classifiedCount: 100, datacenterPercent: 45 });
+            const breakdown = [{ org: 'Hetzner', count: 45 }, { org: '(independent)', count: 55 }];
+            getFullDatacenterBreakdown.mockResolvedValue(breakdown);
+
+            const result = await takeManualSnapshot();
+
+            expect(createDecentralizationSnapshots).toHaveBeenCalledWith(result.snapshotDate, breakdown);
+        });
+
+        it('skips createDecentralizationSnapshots when the breakdown is empty, without failing the snapshot', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getDecentralizationStats.mockResolvedValue({ datacenterCount: 0, classifiedCount: 0, datacenterPercent: null });
+            getFullDatacenterBreakdown.mockResolvedValue([]);
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            expect(createDecentralizationSnapshots).not.toHaveBeenCalled();
+        });
+
+        it('a decentralizationService failure does not block the daily_snapshots row from being written', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getDecentralizationStats.mockRejectedValue(new Error('decentralization cache unavailable'));
+            getFullDatacenterBreakdown.mockResolvedValue([]);
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.decentralization_datacenter_percent).toBeNull();
         });
     });
 });

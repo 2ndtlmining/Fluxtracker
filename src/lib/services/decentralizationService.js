@@ -114,6 +114,35 @@ function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
     return { top, otherProviderCount: Math.max(0, sorted.length - top.length) };
 }
 
+/**
+ * Every distinct datacenter org's count, uncapped (unlike topDatacenters, which caps at
+ * 3 for the live card), plus the non-datacenter classified count under the reserved
+ * '(independent)' sentinel org. Used only by the daily snapshot collector -- the live
+ * card's getDecentralizationStats() is unaffected by this function.
+ */
+export async function getFullDatacenterBreakdown() {
+    const candidateIps = getCachedNetworkNodeIps();
+    const candidateSet = new Set(candidateIps);
+    const allClassifications = await getAllNodeIpClassifications();
+    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
+
+    const counts = new Map();
+    let independentCount = 0;
+
+    for (const row of relevant) {
+        if (row.isDatacenter) {
+            const key = row.org || 'Unknown';
+            counts.set(key, (counts.get(key) || 0) + 1);
+        } else {
+            independentCount++;
+        }
+    }
+
+    const breakdown = [...counts.entries()].map(([org, count]) => ({ org, count }));
+    if (independentCount > 0) breakdown.push({ org: '(independent)', count: independentCount });
+    return breakdown;
+}
+
 /** Recomputes and caches the stats snapshot from an in-memory classification list. */
 function computeAndCacheStats(allClassifications, candidateIps) {
     const candidateSet = new Set(candidateIps);

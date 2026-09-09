@@ -73,7 +73,12 @@
     change: comparison.changes.storage?.change || 0,
     trend: comparison.changes.storage?.trend || 'neutral'
   } : null;
-  
+
+  $: decentralizationComparison = comparison ? {
+    change: comparison.changes.decentralization?.change || 0,
+    trend: comparison.changes.decentralization?.trend || 'neutral'
+  } : null;
+
   // Node comparison data
   $: cumulusComparison = comparison ? {
     change: comparison.changes.nodes?.cumulusChange || 0,
@@ -457,7 +462,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
 
       <!-- Decentralization (issue #108) — % of node IPs in known datacenters vs. not,
            classified gradually in the background; coverage fills in over time. -->
-      <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} />
+      <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} comparison={decentralizationComparison} />
     </div>
 
     <!-- Historical Performance Chart -->

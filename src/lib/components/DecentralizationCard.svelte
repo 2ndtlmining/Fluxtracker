@@ -1,12 +1,16 @@
 <script>
-  import { Globe } from 'lucide-svelte';
+  import { Globe, Download } from 'lucide-svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
+  import { getApiUrl } from '$lib/config.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
   //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
   export let stats = null;
   export let loading = false;
   export let error = false;
+  export let comparison = null; // { change: number, trend: 'up'|'down'|'neutral' } | null
+
+  let exporting = false;
 
   $: hasData = stats && stats.classifiedCount > 0;
   $: hasDatacenters = hasData && stats.topDatacenters && stats.topDatacenters.length > 0;
@@ -20,12 +24,66 @@
     if (num === null || num === undefined) return '--';
     return `${num.toFixed(1)}%`;
   }
+
+  function escapeField(field) {
+    const value = field == null ? '' : String(field);
+    if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+    return value;
+  }
+
+  async function exportToCSV() {
+    exporting = true;
+    try {
+      const API_URL = getApiUrl();
+      const response = await fetch(`${API_URL}/api/decentralization/history?days=90`);
+      if (!response.ok) throw new Error(`Export failed: ${response.status}`);
+      const { history, headline } = await response.json();
+
+      const headlineByDate = new Map(headline.map(h => [h.date, h]));
+      const headers = ['date', 'org', 'count', 'percent_of_classified', 'datacenter_total', 'independent_total', 'datacenter_percent', 'total_nodes'];
+      const rows = history.map(row => {
+        const h = headlineByDate.get(row.date);
+        const classified = h ? (h.datacenterCount ?? 0) + (h.independentCount ?? 0) : 0;
+        const percentOfClassified = classified > 0 ? ((row.count / classified) * 100).toFixed(1) : '';
+        return [
+          row.date,
+          row.org,
+          row.count,
+          percentOfClassified,
+          h?.datacenterCount ?? '',
+          h?.independentCount ?? '',
+          h?.datacenterPercent != null ? h.datacenterPercent.toFixed(1) : '',
+          h?.totalNodes ?? ''
+        ];
+      });
+
+      const csvContent = [headers.join(','), ...rows.map(r => r.map(escapeField).join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const timestamp = new Date().toISOString().split('T')[0];
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `flux_decentralization_${timestamp}.csv`);
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting decentralization CSV:', error);
+    } finally {
+      exporting = false;
+    }
+  }
 </script>
 
 <div class="decentralization-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Globe size={24} strokeWidth={2} /></div>
     <div class="card-title">Decentralization</div>
+    <button class="csv-button" on:click={exportToCSV} disabled={exporting} title="Export decentralization history to CSV">
+      <Download size={14} />
+    </button>
   </div>
 
   {#if loading}
@@ -43,7 +101,15 @@
     <div class="metric-row">
       <div class="metric-heading">
         <span class="metric-label">In known datacenters</span>
-        <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
+        <span class="metric-value-group">
+          <span class="metric-value">{formatPercent(stats.datacenterPercent)}</span>
+          {#if comparison}
+            <span class="metric-trend" class:up={comparison.trend === 'up'} class:down={comparison.trend === 'down'} class:neutral={comparison.trend === 'neutral'}>
+              {#if comparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if comparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {comparison.change >= 0 ? '+' : ''}{comparison.change.toFixed(1)}%
+            </span>
+          {/if}
+        </span>
       </div>
       <div class="ascii-bar">{formatAsciiBar(stats.datacenterPercent)}</div>
       <div class="metric-detail">{formatNumber(stats.datacenterCount)} of {formatNumber(stats.classifiedCount)} classified nodes</div>
@@ -128,6 +194,28 @@
     flex: 1;
   }
 
+  .csv-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: var(--radius-sm);
+    transition: color 0.2s ease;
+  }
+
+  .csv-button:hover:not(:disabled) {
+    color: var(--text-primary);
+  }
+
+  .csv-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .card-empty-state {
     padding: var(--spacing-lg) 0;
     text-align: center;
@@ -170,6 +258,47 @@
     font-weight: 700;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
+  }
+
+  .metric-value-group {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+
+  /* Comparison indicator (mirrors CloudCard.svelte's .metric-change) */
+  .metric-trend {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    width: fit-content;
+  }
+
+  .metric-trend.up {
+    color: var(--accent-green);
+    background: rgba(0, 255, 65, 0.1);
+    border: 1px solid rgba(0, 255, 65, 0.3);
+  }
+
+  .metric-trend.down {
+    color: var(--accent-red);
+    background: rgba(255, 68, 68, 0.1);
+    border: 1px solid rgba(255, 68, 68, 0.3);
+  }
+
+  .metric-trend.neutral {
+    color: var(--text-dim);
+    background: rgba(139, 146, 176, 0.1);
+    border: 1px solid rgba(139, 146, 176, 0.3);
+  }
+
+  .metric-trend .trend-arrow {
+    font-size: 0.875rem;
+    font-weight: 700;
   }
 
   /* ASCII bar -- a real text character (not a CSS div fill), so it inherits the

@@ -34,6 +34,12 @@ function extractExportedFunctions(source) {
     return names.sort();
 }
 
+// getDb() (sqliteAdapter only) is a raw-connection test-introspection helper, not part of
+// the adapter contract database.js re-exports -- Supabase has no comparable raw handle to
+// expose (its client is already imported directly where needed), so it is deliberately
+// excluded from the parity checks below rather than faked on the Supabase side.
+const NON_CONTRACT_EXPORTS = new Set(['getDb']);
+
 /**
  * Extract the destructured names from the `export const { ... } = adapter;`
  * block in database.js.
@@ -55,8 +61,8 @@ function extractRouterExports(source) {
     return names.sort();
 }
 
-const sqliteFns = extractExportedFunctions(sqliteSrc);
-const supabaseFns = extractExportedFunctions(supabaseSrc);
+const sqliteFns = extractExportedFunctions(sqliteSrc).filter((fn) => !NON_CONTRACT_EXPORTS.has(fn));
+const supabaseFns = extractExportedFunctions(supabaseSrc).filter((fn) => !NON_CONTRACT_EXPORTS.has(fn));
 const routerFns = extractRouterExports(routerSrc);
 
 describe('Adapter contract', () => {
@@ -64,12 +70,12 @@ describe('Adapter contract', () => {
         expect(sqliteFns).toEqual(supabaseFns);
     });
 
-    it('SQLite adapter exports exactly 75 functions', () => {
-        expect(sqliteFns).toHaveLength(75);
+    it('SQLite adapter exports exactly 77 functions', () => {
+        expect(sqliteFns).toHaveLength(77);
     });
 
-    it('Supabase adapter exports exactly 75 functions', () => {
-        expect(supabaseFns).toHaveLength(75);
+    it('Supabase adapter exports exactly 77 functions', () => {
+        expect(supabaseFns).toHaveLength(77);
     });
 
     it('no adapter has extra functions the other lacks', () => {
@@ -92,7 +98,7 @@ describe('database.js router', () => {
         expect(extraInRouter).toEqual([]);
     });
 
-    it('re-exports exactly 75 functions', () => {
-        expect(routerFns).toHaveLength(75);
+    it('re-exports exactly 77 functions', () => {
+        expect(routerFns).toHaveLength(77);
     });
 });

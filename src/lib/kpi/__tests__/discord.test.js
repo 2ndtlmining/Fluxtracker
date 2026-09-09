@@ -50,6 +50,7 @@ describe('buildDiscordPayload', () => {
         cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
         flux_price_usd: 0.4213,
         total_apps: 6400,
+        decentralization_datacenter_percent: 35.2,
         ...overrides
     }));
 
@@ -82,6 +83,7 @@ describe('buildDiscordPayload', () => {
             'Nodes - AVERAGE',
             'Resource Utilization - AVERAGE',
             'Applications - AVERAGE',
+            'Decentralization - AVERAGE',
             'Data coverage'
         ]);
         expect(embed.footer.text).toBe('via FluxTracker');
@@ -144,7 +146,7 @@ describe('buildDiscordPayload', () => {
         })).embeds[0];
 
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
-        expect(coverage.value).toContain('2 of 18 metrics are not reported');
+        expect(coverage.value).toContain('2 of 19 metrics are not reported');
         expect(embed.fields[2].value).toContain('Insufficient data (7 days missing)');
     });
 
@@ -187,6 +189,47 @@ describe('buildDiscordPayload', () => {
         expect(JSON.stringify(embed).length).toBeLessThan(6000);
     });
 
+    it('appends the top-3 datacenter providers to the Decentralization section field', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        const payload = buildDiscordPayload({
+            ...withDecentralization,
+            topDatacenters: [
+                { org: 'Hetzner Online GmbH', avgCount: 45.3 },
+                { org: 'OVH SAS', avgCount: 31.0 }
+            ]
+        });
+        const embed = payload.embeds[0];
+        const field = embed.fields.find(f => f.name.startsWith('Decentralization'));
+
+        expect(field).toBeDefined();
+        expect(field.value).toContain('Hetzner Online GmbH');
+        expect(field.value).toContain('OVH SAS');
+    });
+
+    it('omits the top-datacenters block entirely when there is nothing to rank', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        const payload = buildDiscordPayload({ ...withDecentralization, topDatacenters: [] });
+        const embed = payload.embeds[0];
+        const field = embed.fields.find(f => f.name.startsWith('Decentralization'));
+
+        expect(field).toBeDefined();
+        expect(field.value).not.toContain('Top datacenters');
+    });
+
+    it('renders correctly when topDatacenters is omitted entirely (older report shape)', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        expect(() => buildDiscordPayload(withDecentralization)).not.toThrow();
+    });
+
     describe('daily rendering', () => {
         function dailyDataset(instant) {
             return buildKpiDataset({
@@ -220,7 +263,7 @@ describe('buildDiscordPayload', () => {
         it('drops the aggregation suffix and note — daily snapshots are not averaged', () => {
             const embed = buildDiscordPayload(dailyReport()).embeds[0];
             const names = embed.fields.map(f => f.name);
-            expect(names).toEqual(['Revenue', 'Nodes', 'Resource Utilization', 'Applications', 'Data coverage']);
+            expect(names).toEqual(['Revenue', 'Nodes', 'Resource Utilization', 'Applications', 'Decentralization', 'Data coverage']);
             for (const field of embed.fields) {
                 expect(field.value).not.toContain('AVERAGE');
                 expect(field.value).not.toContain('SUM of all days');

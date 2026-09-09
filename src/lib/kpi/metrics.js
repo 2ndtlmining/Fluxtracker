@@ -105,6 +105,15 @@ export const SECTIONS = [
         metrics: [
             { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' }
         ]
+    },
+    {
+        key: 'decentralization',
+        title: 'Decentralization',
+        source: 'daily_snapshots',
+        aggregation: 'average',
+        metrics: [
+            { key: 'datacenterPercent', label: '% Datacenter', column: 'decentralization_datacenter_percent', format: 'percent' }
+        ]
     }
 ];
 
@@ -149,6 +158,30 @@ export function averageColumn(snapshots, column, expectedDays) {
         expectedDays,
         covered: values.length / expectedDays >= MIN_COVERAGE
     };
+}
+
+/**
+ * Ranks datacenter providers by their average daily count over a period. Each org is
+ * averaged only over the days it actually has a row for (a provider with rows on 3 of 7
+ * days averages over 3, not 7 -- the same "average what actually happened" reasoning
+ * averageColumn() uses, adapted to a sparse per-org series). The '(independent)' sentinel
+ * from decentralization_snapshots is excluded -- this ranks datacenter providers only.
+ */
+export function computeTopDatacentersForPeriod(historyRows, limit = 3) {
+    const byOrg = new Map();
+    for (const row of historyRows) {
+        if (row.org === '(independent)') continue;
+        if (!byOrg.has(row.org)) byOrg.set(row.org, []);
+        byOrg.get(row.org).push(row.node_count);
+    }
+
+    return [...byOrg.entries()]
+        .map(([org, counts]) => ({
+            org,
+            avgCount: counts.reduce((a, b) => a + b, 0) / counts.length
+        }))
+        .sort((a, b) => b.avgCount - a.avgCount)
+        .slice(0, limit);
 }
 
 /** Sum a per-day series over a period. Missing days count as zero revenue, which is real. */

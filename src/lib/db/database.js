@@ -109,4 +109,7 @@ export const {
     // Node IP classification (issue #108)
     getAllNodeIpClassifications,
     upsertNodeIpClassifications,
+    // Decentralization snapshots (historical -- issue #108 Phase 3)
+    createDecentralizationSnapshots,
+    getDecentralizationSnapshotHistory,
 } = adapter;

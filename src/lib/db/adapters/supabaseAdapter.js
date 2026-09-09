@@ -225,6 +225,9 @@ export async function createDailySnapshot(snapshot) {
         node_nimbus: snapshot.node_nimbus,
         node_stratus: snapshot.node_stratus,
         node_total: snapshot.node_total,
+        decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
+        decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
+        decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,
         sync_status: snapshot.sync_status || 'completed',
         created_at: Date.now()
     };
@@ -1587,6 +1590,56 @@ export async function upsertNodeIpClassifications(rows) {
     }
 
     return total;
+}
+
+// ============================================
+// DECENTRALIZATION SNAPSHOTS (historical per-provider breakdown, issue #108 Phase 3)
+// ============================================
+
+export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const rows = breakdown.map(item => ({
+        snapshot_date: snapshotDate,
+        org: item.org,
+        node_count: item.count,
+        created_at: Date.now()
+    }));
+
+    const { error } = await supabase
+        .from('decentralization_snapshots')
+        .upsert(rows, { onConflict: 'snapshot_date,org' });
+
+    if (error) throw new Error(`Upsert decentralization_snapshots failed: ${error.message}`);
+    return rows.length;
+}
+
+/** Must page — see exportAllRepoSnapshots() for the identical pattern. A long date
+ *  range times dozens of providers can exceed PostgREST's 1000-row cap. */
+export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('decentralization_snapshots')
+            .select('snapshot_date, org, node_count')
+            .gte('snapshot_date', startDate)
+            .lte('snapshot_date', endDate)
+            .order('snapshot_date', { ascending: true })
+            .order('node_count', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Fetch decentralization_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
 }
 
 export async function closeDatabase() {

@@ -24,7 +24,7 @@ if (!fs.existsSync(dbDir)) {
 
 let db = null;
 
-function getDb() {
+export function getDb() {
     if (!db) {
         db = new Database(DB_PATH);
         db.pragma('journal_mode = WAL');
@@ -227,6 +227,19 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_composite ON repo_snapshots(image_name, snapshot_date)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category)`);
 
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS decentralization_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            org TEXT NOT NULL,
+            node_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            UNIQUE(snapshot_date, org)
+        )
+    `);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_snapshot_date ON decentralization_snapshots(snapshot_date)`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_decentralization_org ON decentralization_snapshots(org)`);
+
     // Decentralization metric (issue #108): one row per node IP ever classified via the
     // free ipwho.is/ip-api.com chain, cached indefinitely (an IP's ASN/org rarely changes)
     // and re-checked only once classified_at goes stale -- see decentralizationService.js.
@@ -413,6 +426,9 @@ export async function createDailySnapshot(snapshot) {
         node_nimbus: snapshot.node_nimbus ?? null,
         node_stratus: snapshot.node_stratus ?? null,
         node_total: snapshot.node_total ?? null,
+        decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
+        decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
+        decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,
         sync_status: snapshot.sync_status || 'completed',
         created_at: Date.now()
     };
@@ -1650,4 +1666,44 @@ export async function upsertNodeIpClassifications(rows) {
 
     insertAll(rows);
     return rows.length;
+}
+
+// ============================================
+// DECENTRALIZATION SNAPSHOTS (historical per-provider breakdown, issue #108 Phase 3)
+// ============================================
+
+export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+    if (!breakdown || breakdown.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO decentralization_snapshots (snapshot_date, org, node_count, created_at)
+        VALUES (@snapshot_date, @org, @node_count, @created_at)
+        ON CONFLICT(snapshot_date, org) DO UPDATE SET
+            node_count = @node_count
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const item of items) {
+            stmt.run({
+                snapshot_date: snapshotDate,
+                org: item.org,
+                node_count: item.count,
+                created_at: Date.now()
+            });
+        }
+    });
+
+    insertAll(breakdown);
+    return breakdown.length;
+}
+
+/** Inclusive date range, ordered by date then node_count desc -- backs the CSV export
+ *  and the KPI top-3-for-period computation. */
+export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+    return getDb().prepare(`
+        SELECT snapshot_date, org, node_count
+        FROM decentralization_snapshots
+        WHERE snapshot_date >= ? AND snapshot_date <= ?
+        ORDER BY snapshot_date ASC, node_count DESC
+    `).all(startDate, endDate);
 }

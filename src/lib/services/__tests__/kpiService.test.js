@@ -6,7 +6,8 @@ vi.mock('../../db/database.js', () => ({
     getRevenueForDateRange: vi.fn(),
     getDailyRevenueUSDInRange: vi.fn(),
     getOldestTransactionDate: vi.fn(),
-    getRevenueFromAddressesForDateRange: vi.fn()
+    getRevenueFromAddressesForDateRange: vi.fn(),
+    getDecentralizationSnapshotHistory: vi.fn(() => Promise.resolve([]))
 }));
 vi.mock('../carouselService.js', () => ({
     getFluxCloudSnapshot: vi.fn()
@@ -18,7 +19,8 @@ import {
     getRevenueForDateRange,
     getDailyRevenueUSDInRange,
     getOldestTransactionDate,
-    getRevenueFromAddressesForDateRange
+    getRevenueFromAddressesForDateRange,
+    getDecentralizationSnapshotHistory
 } from '../../db/database.js';
 import { getFluxCloudSnapshot } from '../carouselService.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
@@ -191,6 +193,40 @@ describe('buildKpiReport — daily', () => {
         const report = await buildKpiReport('weekly', NOW);
         expect(report.dataset.sections.map(s => s.key)).not.toContain('fluxCloud');
         expect(report.fluxCloud).toBeNull();
+    });
+});
+
+describe('buildKpiReport — topDatacenters', () => {
+    it('includes topDatacenters computed from the decentralization history', async () => {
+        getDecentralizationSnapshotHistory.mockResolvedValue([
+            { snapshot_date: '2026-08-10', org: 'Hetzner', node_count: 40 },
+            { snapshot_date: '2026-08-11', org: 'Hetzner', node_count: 50 }
+        ]);
+
+        const report = await buildKpiReport('weekly', NOW);
+
+        expect(report.topDatacenters).toEqual([{ org: 'Hetzner', avgCount: 45 }]);
+    });
+
+    it('is [] when there is no decentralization history for the period', async () => {
+        getDecentralizationSnapshotHistory.mockResolvedValue([]);
+
+        const report = await buildKpiReport('weekly', NOW);
+
+        expect(report.topDatacenters).toEqual([]);
+    });
+
+    it('degrades to an empty topDatacenters instead of failing the whole report when the decentralization history query rejects', async () => {
+        // Unlike the other Promise.all members above (which must propagate failures — see
+        // "a failed query is refused, not reported as zero" below), decentralization history
+        // feeds only this small supplement. A missing decentralization_snapshots table (e.g.
+        // its migration hasn't been applied yet) must not take down the entire KPI report.
+        getDecentralizationSnapshotHistory.mockRejectedValue(new Error('relation "decentralization_snapshots" does not exist'));
+
+        const report = await buildKpiReport('weekly', NOW);
+
+        expect(report.topDatacenters).toEqual([]);
+        expect(report.dataset.empty).toBe(false);
     });
 });
 
