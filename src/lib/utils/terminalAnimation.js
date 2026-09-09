@@ -152,7 +152,7 @@ export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
   return text.slice(0, Math.max(0, maxWidth - 3)) + '...';
 }
 
-/** Single-line ASCII glyphs -- whale for docker, octocat for git -- centered to LOGO_WIDTH. */
+/** Single-line ASCII glyphs -- a distinct bracket motif per type -- centered to LOGO_WIDTH. */
 function centerInBox(text, width = LOGO_WIDTH) {
   if (text.length >= width) return text.slice(0, width);
   const totalPad = width - text.length;
@@ -161,9 +161,15 @@ function centerInBox(text, width = LOGO_WIDTH) {
   return ' '.repeat(left) + text + ' '.repeat(right);
 }
 
-export const DOCKER_ICON_LINE = centerInBox('🐳 DOCKER 🐳'); // 🐳 whale, matches Docker's own mascot
-export const GIT_ICON_LINE = centerInBox('🐙 GITHUB 🐙'); // 🐙 octopus, closest common emoji to the octocat
-export const EXPIRING_ICON_LINE = centerInBox('⏳ EXPIRING ⏳'); // hourglass -- distinct from either deploy icon
+// Plain ASCII, not emoji: an emoji glyph renders in its own fixed color and ignores the
+// box's `color`/`text-shadow` styling, so it shows up as a flat, un-glowing sticker against
+// the monochrome cyan terminal text everywhere else -- it reads as visually broken, not
+// distinctive. A bracket motif is a real text character, so it inherits the glow like
+// every other row, and a different bracket shape per type is still easy to tell apart at
+// a glance without relying on color.
+export const DOCKER_ICON_LINE = centerInBox('[[ DOCKER ]]'); // double brackets -- heaviest weight, docker is the common case
+export const GIT_ICON_LINE = centerInBox('<< GITHUB >>'); // angle brackets -- distinct shape from docker's
+export const EXPIRING_ICON_LINE = centerInBox('!! EXPIRING !!'); // exclamation marks read as "urgent" on sight
 
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
