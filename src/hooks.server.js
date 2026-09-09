@@ -1,6 +1,8 @@
 // src/hooks.server.js
 // API Proxy - Routes /api/* requests to the Express backend.
 
+import { applySecurityHeaders } from './lib/security/contentSecurityPolicy.js';
+
 /**
  * Where the Express API is listening.
  *
@@ -57,33 +59,35 @@ export async function handle({ event, resolve }) {
             });
             
             // Return the proxied response
+            applySecurityHeaders(responseHeaders);
             return new Response(body, {
                 status: response.status,
                 statusText: response.statusText,
                 headers: responseHeaders
             });
-            
+
         } catch (error) {
             console.error('[API Proxy Error]', error.message);
-            
+
+            const errorHeaders = new Headers({ 'Content-Type': 'application/json' });
+            applySecurityHeaders(errorHeaders);
             return new Response(
-                JSON.stringify({ 
-                    error: 'Backend API unavailable', 
+                JSON.stringify({
+                    error: 'Backend API unavailable',
                     details: error.message,
                     timestamp: new Date().toISOString()
-                }), 
+                }),
                 {
                     status: 503,
-                    headers: { 
-                        'Content-Type': 'application/json' 
-                    }
+                    headers: errorHeaders
                 }
             );
         }
     }
-    
+
     // For non-API requests, proceed normally with SvelteKit rendering
     const response = await resolve(event);
+    applySecurityHeaders(response.headers);
     return response;
 }
 
