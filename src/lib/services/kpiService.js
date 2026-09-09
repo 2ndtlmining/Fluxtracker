@@ -4,11 +4,12 @@ import {
     getRevenueForDateRange,
     getDailyRevenueUSDInRange,
     getOldestTransactionDate,
-    getRevenueFromAddressesForDateRange
+    getRevenueFromAddressesForDateRange,
+    getDecentralizationSnapshotHistory
 } from '../db/database.js';
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
-import { buildKpiDataset, sumDaily } from '../kpi/metrics.js';
+import { buildKpiDataset, sumDaily, computeTopDatacentersForPeriod } from '../kpi/metrics.js';
 import { buildDiscordPayload, buildFluxCloudActivityPayload, buildSchedulerFailurePayload, isValidDiscordWebhook } from '../kpi/discord.js';
 import { getFluxCloudSnapshot } from './carouselService.js';
 import { createLogger } from '../logger.js';
@@ -116,13 +117,14 @@ async function getFluxCloudData() {
 export async function buildKpiReport(timeframe, now = new Date()) {
     const { current, comparison, label } = getPeriodRanges(timeframe, now);
 
-    const [currentSnapshots, comparisonSnapshots, currentRevenue, comparisonRevenue, earliestRevenueDate] =
+    const [currentSnapshots, comparisonSnapshots, currentRevenue, comparisonRevenue, earliestRevenueDate, decentralizationHistory] =
         await Promise.all([
             getSnapshotsInRange(current.start, current.end),
             getSnapshotsInRange(comparison.start, comparison.end),
             getPeriodRevenue(current),
             getPeriodRevenue(comparison),
-            getOldestTransactionDate()
+            getOldestTransactionDate(),
+            getDecentralizationSnapshotHistory(current.start, current.end)
         ]);
 
     // The Flux Cloud reading only exists "now", so it rides on the daily report,
@@ -140,6 +142,8 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         instant: fluxCloud?.instant
     });
 
+    const topDatacenters = computeTopDatacentersForPeriod(decentralizationHistory);
+
     return {
         timeframe,
         label,
@@ -151,6 +155,7 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         // Per-app Flux Cloud detail, present only on daily. Discord renders it as a
         // second "Flux Cloud Activity" message; other consumers can ignore it.
         fluxCloud: fluxCloud?.activity ?? null,
+        topDatacenters,
         generatedAt: new Date(now).toISOString()
     };
 }

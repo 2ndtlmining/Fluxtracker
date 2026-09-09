@@ -189,6 +189,47 @@ describe('buildDiscordPayload', () => {
         expect(JSON.stringify(embed).length).toBeLessThan(6000);
     });
 
+    it('appends the top-3 datacenter providers to the Decentralization section field', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        const payload = buildDiscordPayload({
+            ...withDecentralization,
+            topDatacenters: [
+                { org: 'Hetzner Online GmbH', avgCount: 45.3 },
+                { org: 'OVH SAS', avgCount: 31.0 }
+            ]
+        });
+        const embed = payload.embeds[0];
+        const field = embed.fields.find(f => f.name.startsWith('Decentralization'));
+
+        expect(field).toBeDefined();
+        expect(field.value).toContain('Hetzner Online GmbH');
+        expect(field.value).toContain('OVH SAS');
+    });
+
+    it('omits the top-datacenters block entirely when there is nothing to rank', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        const payload = buildDiscordPayload({ ...withDecentralization, topDatacenters: [] });
+        const embed = payload.embeds[0];
+        const field = embed.fields.find(f => f.name.startsWith('Decentralization'));
+
+        expect(field).toBeDefined();
+        expect(field.value).not.toContain('Top datacenters');
+    });
+
+    it('renders correctly when topDatacenters is omitted entirely (older report shape)', () => {
+        const withDecentralization = report({
+            currentSnapshots: snapshots({ decentralization_datacenter_percent: 40 }),
+            comparisonSnapshots: snapshots({ node_total: 5800, decentralization_datacenter_percent: 35 })
+        });
+        expect(() => buildDiscordPayload(withDecentralization)).not.toThrow();
+    });
+
     describe('daily rendering', () => {
         function dailyDataset(instant) {
             return buildKpiDataset({

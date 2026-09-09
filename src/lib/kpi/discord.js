@@ -120,7 +120,7 @@ export function buildSchedulerFailurePayload(timeframe, errorMessage) {
  * @returns Discord webhook JSON body
  */
 export function buildDiscordPayload(report) {
-    const { timeframe, current, comparison, dataset, generatedAt } = report;
+    const { timeframe, current, comparison, dataset, generatedAt, topDatacenters = [] } = report;
     const isDaily = timeframe === 'daily';
 
     const currentLabel = formatPeriod(timeframe, current);
@@ -160,6 +160,12 @@ export function buildDiscordPayload(report) {
         let value =
             `${aggregationLine}` +
             '```\n' + sectionTable(section, isDaily) + '\n```';
+        if (section.key === 'decentralization' && topDatacenters.length > 0) {
+            const lines = topDatacenters
+                .map((dc, i) => `${i + 1}. ${dc.org} — ${Math.round(dc.avgCount)} avg nodes`)
+                .join('\n');
+            value += `\nTop datacenters:\n${lines}`;
+        }
         if (value.length > MAX_FIELD_CHARS) {
             value = value.slice(0, MAX_FIELD_CHARS - 4) + '\n```';
         }

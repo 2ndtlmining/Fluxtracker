@@ -3,6 +3,7 @@ import {
     averageColumn,
     computeChange,
     buildKpiDataset,
+    computeTopDatacentersForPeriod,
     formatValue,
     formatDelta,
     formatPercent,
@@ -451,6 +452,52 @@ describe('decentralization section', () => {
         const section = dataset.sections.find(s => s.key === 'decentralization');
         const metric = section.metrics.find(m => m.key === 'datacenterPercent');
         expect(metric.available).toBe(false);
+    });
+});
+
+describe('computeTopDatacentersForPeriod', () => {
+    it('averages each org over only the days it has a row for, ranks descending, caps at the limit', () => {
+        const rows = [
+            { snapshot_date: '2026-09-01', org: 'Hetzner', node_count: 40 },
+            { snapshot_date: '2026-09-02', org: 'Hetzner', node_count: 50 }, // avg 45 over 2 days
+            { snapshot_date: '2026-09-01', org: 'OVH', node_count: 20 },     // avg 20 over 1 day (only appeared once)
+            { snapshot_date: '2026-09-01', org: '(independent)', node_count: 100 } // excluded from ranking
+        ];
+
+        const top = computeTopDatacentersForPeriod(rows, 3);
+
+        expect(top).toEqual([
+            { org: 'Hetzner', avgCount: 45 },
+            { org: 'OVH', avgCount: 20 }
+        ]);
+    });
+
+    it('caps at the given limit', () => {
+        const rows = ['A', 'B', 'C', 'D', 'E'].map(org => ({ snapshot_date: '2026-09-01', org, node_count: 1 }));
+
+        expect(computeTopDatacentersForPeriod(rows, 3)).toHaveLength(3);
+    });
+
+    it('returns [] for an empty history', () => {
+        expect(computeTopDatacentersForPeriod([], 3)).toEqual([]);
+    });
+
+    it('excludes the (independent) bucket from the ranking entirely', () => {
+        const rows = [{ snapshot_date: '2026-09-01', org: '(independent)', node_count: 999 }];
+
+        expect(computeTopDatacentersForPeriod(rows, 3)).toEqual([]);
+    });
+
+    it('handles a single-day range correctly (the daily KPI timeframe case)', () => {
+        const rows = [
+            { snapshot_date: '2026-09-01', org: 'Hetzner', node_count: 45 },
+            { snapshot_date: '2026-09-01', org: 'OVH', node_count: 31 }
+        ];
+
+        expect(computeTopDatacentersForPeriod(rows, 3)).toEqual([
+            { org: 'Hetzner', avgCount: 45 },
+            { org: 'OVH', avgCount: 31 }
+        ]);
     });
 });
 
