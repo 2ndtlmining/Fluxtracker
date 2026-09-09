@@ -87,6 +87,7 @@
   let activeSyncEnd = null;
   let lastHandledDeploymentId = null;
   let deferredSyncRequest = null; // a sync that arrived mid-deployment, played once it ends
+  let deferredDeploymentRequest = null; // a deployment that arrived mid-sync, played once it ends
   let deploymentAriaLabel = '';
 
   let timeouts = [];
@@ -197,6 +198,18 @@
   function finishBoot() {
     const baseLines = padLines(bootTextLines, BOOT_LINE_COUNT);
 
+    // Extremely unlikely in practice (Header.svelte's first poll only seeds its
+    // seen-set, never queues a request, so a deployment can't normally reach this
+    // component before boot finishes) -- checked anyway so 'booting' never becomes a
+    // silent-drop state the way it briefly was for deployments before this fix.
+    const playDeferredDeployment = () => {
+      if (deferredDeploymentRequest) {
+        const pending = deferredDeploymentRequest;
+        deferredDeploymentRequest = null;
+        startDeployment(pending);
+      }
+    };
+
     if (reducedMotion) {
       frameLines = LOGO_LINES;
       frameKinds = logoKinds();
@@ -204,6 +217,7 @@
       schedule(() => {
         state = 'ready';
         dispatch('bootComplete');
+        playDeferredDeployment();
       }, 30);
       return;
     }
@@ -215,6 +229,7 @@
       schedule(() => {
         state = 'ready';
         dispatch('bootComplete');
+        playDeferredDeployment();
       }, BOOT_READY_DELAY_MS);
     });
   }
@@ -287,6 +302,20 @@
     state = 'syncing';
     activeSyncEnd = toBlock;
 
+    // Mirrors startDeployment's finish(): a deploymentRequest that arrived while this
+    // sync was playing was deferred (see the deploymentRequest reactive block below) --
+    // play it now that the box is idle again, same as a deferred sync is played once a
+    // deployment ends.
+    const finishSync = () => {
+      state = 'ready';
+      activeSyncEnd = null;
+      if (deferredDeploymentRequest) {
+        const pending = deferredDeploymentRequest;
+        deferredDeploymentRequest = null;
+        startDeployment(pending);
+      }
+    };
+
     const patternLines = buildSyncPatternLines(BOOT_LINE_COUNT, LOGO_WIDTH, pickPatternChars());
     // The full frame is revealed in one wipe — the transaction total, snapshot
     // count and network stats are all real values from the last header fetch,
@@ -311,8 +340,7 @@
       schedule(() => {
         frameLines = LOGO_LINES;
         frameKinds = logoKinds();
-        state = 'ready';
-        activeSyncEnd = null;
+        finishSync();
       }, 30);
       return;
     }
@@ -330,8 +358,7 @@
               runReveal(frameLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', SYNC_PHASE3_MS, () => {
                 frameLines = LOGO_LINES;
                 frameKinds = logoKinds();
-                state = 'ready';
-                activeSyncEnd = null;
+                finishSync();
               });
             }, SYNC_HOLD3_MS);
           });
@@ -414,15 +441,18 @@
     }
   }
 
-  // Header.svelte owns the deployment queue and only sends a new deploymentRequest once
-  // this component isn't mid-event (see the design spec's "minimal event abstraction"
-  // section), so the only real decision here is "am I ready right now." A request that
-  // arrives while not ready is simply not started; Header.svelte redelivers it (or the
-  // next queued one) once deploymentComplete fires.
+  // Header.svelte issues one deploymentRequest at a time (its own queue gates on
+  // deploymentAnimationBusy) -- but its 30s poll can land in the same tick as a sync
+  // trigger, so this component can genuinely be 'syncing' (or still 'booting') when a
+  // request arrives, not just 'deploying'. Never dropped: deferred and played via
+  // finishSync() once the box is idle again, the same way a sync arriving mid-deployment
+  // is deferred and played via startDeployment's finish().
   $: if (deploymentRequest && deploymentRequest.id !== lastHandledDeploymentId) {
     lastHandledDeploymentId = deploymentRequest.id;
     if (state === 'ready') {
       startDeployment(deploymentRequest);
+    } else {
+      deferredDeploymentRequest = deploymentRequest;
     }
   }
 

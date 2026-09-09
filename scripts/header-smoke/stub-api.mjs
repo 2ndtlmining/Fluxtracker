@@ -1,15 +1,23 @@
-// Deterministic /api/header stub for the header animation acceptance harness.
-// Bumps blockHeight on every request so the 30s header poll sees a new block and
-// triggers the sync animation on its second poll.
+// Deterministic /api/header + /api/carousel/deployed stub for the header animation
+// acceptance harness. Bumps blockHeight on every request so the 30s header poll sees a
+// new block and triggers the sync animation on its second poll.
+//
+// Deployment scenario (issue #98's harness acceptance criterion): starts with an empty
+// deployed-apps list so the header's baseline-seeding poll has nothing to seed against
+// falsely, then check-header.mjs calls POST /inject-deployment on demand to add a new
+// entry once it's done asserting the boot/sync behavior -- this avoids racing the sync
+// and deployment scenarios against each other on the same poll.
 import http from 'node:http';
 
 let blockHeight = 294912;
+let deployedApps = [];
 
 const server = http.createServer((req, res) => {
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*'
   });
+
   if (req.url.startsWith('/api/header')) {
     blockHeight += 3;
     res.end(JSON.stringify({
@@ -42,6 +50,32 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
+
+  if (req.url.startsWith('/api/carousel/deployed')) {
+    res.end(JSON.stringify({ stats: deployedApps, cached: true, cacheAge: 0, fresh: true }));
+    return;
+  }
+
+  if (req.method === 'POST' && req.url.startsWith('/inject-deployment')) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const overrides = body ? JSON.parse(body) : {};
+      deployedApps = [{
+        name: 'test-minecraft',
+        repo: 'itzg/minecraft-server:latest',
+        instances: 3,
+        cpu: 2,
+        ram: 4096,
+        hdd: 25,
+        height: blockHeight,
+        ...overrides
+      }];
+      res.end(JSON.stringify({ ok: true, deployedApps }));
+    });
+    return;
+  }
+
   // Other dashboard endpoints answer with an empty object so the rest of the
   // page renders without error noise.
   res.end('{}');

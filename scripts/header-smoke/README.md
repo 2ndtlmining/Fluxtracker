@@ -16,6 +16,11 @@ timing changes) are caught mechanically.
 - Build version renders `--accent-green`, codename `--accent-purple`
 - Mobile (375px): exactly 6 mobile rows, no wrapping
 - No console errors
+- **Deployment event** (issues #98 / #104): injected via the stub's
+  `POST /inject-deployment` once the sync scenario above finishes (so the two never
+  compete for the same poll) — box height never changes, the correct icon (whale for
+  docker, octocat for a `runonflux/orbit` repo) shows, NAME/INST/RES rows appear, no row
+  is ever empty mid-frame, and the box returns to the logo afterward
 
 ## Run it
 
@@ -27,5 +32,5 @@ node scripts/header-smoke/check-header.mjs    # terminal 3 — exits 0 when all 
 ```
 
 Env overrides: `BASE_URL`, `STUB_URL`, `BROWSER_PATH` (defaults to the first of
-Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~80s (waits for the 30s header poll
-to trigger a real sync).
+Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~2-3 minutes (waits for the 30s
+header poll to trigger a real sync, then injects and waits out a full deployment event).
