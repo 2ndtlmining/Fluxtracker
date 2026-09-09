@@ -225,6 +225,9 @@ export async function createDailySnapshot(snapshot) {
         node_nimbus: snapshot.node_nimbus,
         node_stratus: snapshot.node_stratus,
         node_total: snapshot.node_total,
+        decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
+        decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
+        decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,
         sync_status: snapshot.sync_status || 'completed',
         created_at: Date.now()
     };

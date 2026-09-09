@@ -10,9 +10,11 @@ import {
     getRepoSnapshotCountByDate,
     getCurrentMetrics,
     getSnapshotByDate,
-    getRevenueForDateRange
+    getRevenueForDateRange,
+    createDecentralizationSnapshots
 } from './database.js';
 import { getLatestRepoCounts } from '../services/cloudService.js';
+import { getDecentralizationStats, getFullDatacenterBreakdown } from '../services/decentralizationService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
 import { SNAPSHOT_CONFIG as SNAP_CFG } from '../config.js';
@@ -168,7 +170,17 @@ async function takeSnapshot() {
         const actualRevenue = await getRevenueForDateRange(snapshotDate, snapshotDate);
         
         log.info(`Revenue for ${snapshotDate}: ${actualRevenue.toFixed(2)} FLUX`);
-        
+
+        let decentralization = null;
+        let decentralizationBreakdown = [];
+        try {
+            decentralization = await getDecentralizationStats();
+            decentralizationBreakdown = await getFullDatacenterBreakdown();
+        } catch (error) {
+            log.warn(`Decentralization data unavailable for this snapshot: ${error.message}`);
+        }
+        const hasDecentralizationClassifications = (decentralization?.classifiedCount ?? 0) > 0;
+
         const snapshotData = {
             snapshot_date: snapshotDate,
             timestamp: Math.floor(now.getTime() / 1000),
@@ -226,11 +238,32 @@ async function takeSnapshot() {
             node_nimbus: currentMetrics.node_nimbus || 0,
             node_stratus: currentMetrics.node_stratus || 0,
             node_total: currentMetrics.node_total || 0,
-            
+
+            // Decentralization -- classifiedCount === 0 means "nothing classified yet", so the
+            // headline columns stay null (not 0) rather than reading as a real 0% datacenter share.
+            decentralization_datacenter_count: hasDecentralizationClassifications
+                ? decentralization?.datacenterCount ?? null
+                : null,
+            decentralization_independent_count:
+                hasDecentralizationClassifications && decentralization?.datacenterCount != null
+                    ? decentralization.classifiedCount - decentralization.datacenterCount
+                    : null,
+            decentralization_datacenter_percent: decentralization?.datacenterPercent ?? null,
+
             sync_status: 'completed'
         };
-        
+
         await createDailySnapshot(snapshotData);
+
+        // Per-provider breakdown -- best-effort, same posture as the repo-snapshot write
+        // immediately below: never blocks the headline daily_snapshots row.
+        if (decentralizationBreakdown.length > 0) {
+            try {
+                await createDecentralizationSnapshots(snapshotDate, decentralizationBreakdown);
+            } catch (error) {
+                log.warn(`Decentralization snapshot write failed: ${error.message}`);
+            }
+        }
 
         // Save per-repo Docker image counts
         const repoCounts = getLatestRepoCounts();
