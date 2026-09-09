@@ -378,27 +378,41 @@ router.get('/analytics/comparison/:days', async (req, res) => {
             // Decentralization (issue #108 Phase 3): "current" reads live from
             // decentralizationService rather than rawCurrent/current_metrics, since that's
             // where the always-fresh reading actually lives -- same reasoning /api/decentralization
-            // already uses.
-            const liveDecentralization = await getDecentralizationStats();
-            response.changes.decentralization = calculateChange(
-                liveDecentralization.datacenterPercent ?? 0,
-                pastSnapshot.decentralization_datacenter_percent
-            );
+            // already uses. Isolated in its own try/catch: this endpoint's revenue/nodes/
+            // gaming/crypto sections have nothing to do with decentralization, so a failure
+            // here (e.g. a DB schema not yet migrated to a newer decentralizationService
+            // column) must not 500 the whole comparison response -- it did exactly that
+            // before this fix, reported live after issue #138 shipped.
+            try {
+                const liveDecentralization = await getDecentralizationStats();
+                response.changes.decentralization = calculateChange(
+                    liveDecentralization.datacenterPercent ?? 0,
+                    pastSnapshot.decentralization_datacenter_percent
+                );
+            } catch (error) {
+                log.warn({ err: error }, 'decentralization comparison unavailable, continuing without it');
+            }
 
             // Apps deployed/expiring (item 3 of the decentralization follow-ups): "current"
             // reads live from carouselService, same reasoning as decentralization above --
             // an uncached live read (`cached: false`) is treated as 0 for the comparison
             // rather than blocking the rest of the response, matching liveDecentralization's
-            // `?? 0` fallback just above.
-            const liveActivity = await getFluxCloudActivity();
-            response.changes.appsDeployed = calculateChange(
-                liveActivity.deployedToday.cached ? liveActivity.deployedToday.apps.length : 0,
-                pastSnapshot.apps_deployed_today
-            );
-            response.changes.appsExpiring = calculateChange(
-                liveActivity.expiring24h.cached ? liveActivity.expiring24h.apps.length : 0,
-                pastSnapshot.apps_expiring_today
-            );
+            // `?? 0` fallback just above. Isolated in its own try/catch for the same reason
+            // as the decentralization block above -- a live-read failure here shouldn't cost
+            // the rest of the comparison response either.
+            try {
+                const liveActivity = await getFluxCloudActivity();
+                response.changes.appsDeployed = calculateChange(
+                    liveActivity.deployedToday.cached ? liveActivity.deployedToday.apps.length : 0,
+                    pastSnapshot.apps_deployed_today
+                );
+                response.changes.appsExpiring = calculateChange(
+                    liveActivity.expiring24h.cached ? liveActivity.expiring24h.apps.length : 0,
+                    pastSnapshot.apps_expiring_today
+                );
+            } catch (error) {
+                log.warn({ err: error }, 'apps deployed/expiring comparison unavailable, continuing without it');
+            }
 
             // Gaming comparisons with individual breakdowns
             response.changes.gaming = {
