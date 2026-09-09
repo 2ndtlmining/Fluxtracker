@@ -88,6 +88,7 @@ import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from './lib/services/priceHistoryService.js';
 
 import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
+import { getBusiestNode } from './lib/services/busiestNodeService.js';
 import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 import { buildKpiReport, sendToDiscord, isValidDiscordWebhook } from './lib/services/kpiService.js';
 import { startKpiScheduler, stopKpiScheduler, getKpiSchedulerState } from './lib/services/kpiScheduler.js';
@@ -1746,6 +1747,22 @@ app.get('/api/carousel/stats', (req, res) => {
             message: error.message,
             stats: [],
             cached: false
+        });
+    }
+});
+
+// Busiest Node card (issue #108) — on-demand fetch-if-stale, same pattern as the carousel
+// endpoints above, just on its own (slower) TTL.
+app.get('/api/busiest-node', async (req, res) => {
+    try {
+        const node = await getBusiestNode();
+        res.json({ node, timestamp: new Date().toISOString() });
+    } catch (error) {
+        log.error({ err: error }, 'busiest node API error');
+        res.status(500).json({
+            error: 'Failed to fetch busiest node',
+            message: error.message,
+            node: null
         });
     }
 });
