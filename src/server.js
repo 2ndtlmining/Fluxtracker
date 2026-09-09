@@ -35,7 +35,8 @@ import {
     recategorizeAllRepos,
     ensureInitialized,
     isDbReady,
-    probeDb
+    probeDb,
+    getDecentralizationSnapshotHistory
 } from './lib/db/database.js';
 
 import { shouldAllowRequest, recordSuccess, recordFailure, getCircuitState } from './lib/db/circuitBreaker.js';
@@ -1790,6 +1791,39 @@ app.get('/api/decentralization', async (req, res) => {
             error: 'Failed to fetch decentralization stats',
             message: error.message
         });
+    }
+});
+
+// Decentralization historical data (issue #108 Phase 3) -- backs the CSV export in
+// DecentralizationCard.svelte. `days` mirrors Chart.svelte's own timeframe options.
+app.get('/api/decentralization/history', async (req, res) => {
+    try {
+        const days = Math.max(1, parseInt(req.query.days) || 90);
+        const endDate = new Date().toISOString().split('T')[0];
+        const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
+
+        const [breakdown, snapshots] = await Promise.all([
+            getDecentralizationSnapshotHistory(startDate, endDate),
+            getSnapshotsInRange(startDate, endDate)
+        ]);
+
+        const headline = snapshots
+            .filter(s => s.decentralization_datacenter_percent != null)
+            .map(s => ({
+                date: s.snapshot_date,
+                datacenterCount: s.decentralization_datacenter_count,
+                independentCount: s.decentralization_independent_count,
+                datacenterPercent: s.decentralization_datacenter_percent,
+                totalNodes: s.node_total
+            }));
+
+        res.json({
+            history: breakdown.map(r => ({ date: r.snapshot_date, org: r.org, count: r.node_count })),
+            headline
+        });
+    } catch (error) {
+        log.error({ err: error }, 'decentralization history API error');
+        res.status(500).json({ error: 'Failed to fetch decentralization history', message: error.message });
     }
 });
 
