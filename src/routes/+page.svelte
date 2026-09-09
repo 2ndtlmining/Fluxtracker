@@ -9,12 +9,9 @@
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
-  import CategoryCard from '$lib/components/CategoryCard.svelte';
-  import AppsCard from '$lib/components/AppsCard.svelte';
   import Chart from '$lib/components/Chart.svelte';
   import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
-  import WordpressIcon from '$lib/components/WordpressIcon.svelte';
-  import { Gamepad2, Coins } from 'lucide-svelte';
+  import { Package } from 'lucide-svelte';
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
@@ -81,24 +78,6 @@
     trend: comparison.changes.nodes?.trend || 'neutral'
   } : null;
   
-  // Gaming and Crypto comparisons now handled by CategoryCard component
-  
-  // Apps comparison data
-  $: gitAppsComparison = comparison ? {
-    change: comparison.changes.apps?.gitChange || 0,
-    trend: comparison.changes.apps?.gitTrend || 'neutral'
-  } : null;
-  
-  $: dockerAppsComparison = comparison ? {
-    change: comparison.changes.apps?.dockerChange || 0,
-    trend: comparison.changes.apps?.dockerTrend || 'neutral'
-  } : null;
-  
-  $: totalAppsComparison = comparison ? {
-    change: comparison.changes.apps?.difference || 0,
-    trend: comparison.changes.apps?.trend || 'neutral'
-  } : null;
-  
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -127,18 +106,12 @@
   }
 };
   
-  // Gaming and Crypto data now fetched directly by CategoryCard component
-  
-  // Format apps data for AppsCard
-  $: appsData = metrics?.apps ? {
-    git: { count: metrics.apps.gitapps || 0 },
-    docker: { count: metrics.apps.dockerapps || 0 },
-    total: metrics.apps.total || 0
-  } : {
-    git: { count: 0 },
-    docker: { count: 0 },
-    total: 0
-  };
+  // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) —
+  // it comes from the running-apps census, not per-app image resolution. The git/docker
+  // split and Gaming/Crypto/WordPress category totals were removed: they depend on
+  // resolving each app's image, which only covers ~76-78% of instances now, and an
+  // undercounted number split by category is misleading, not just incomplete.
+  $: totalApps = metrics?.apps?.total || 0;
   
  onMount(async () => {
   API_URL = getApiUrl();
@@ -400,38 +373,23 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     
     <!-- Additional Stats Grid -->
     <h3 class="section-title">Additional Metrics</h3>
-    
-    <div class="stats-grid-wide">
-      <!-- Gaming Apps (Dynamic from repo_snapshots) -->
-      <CategoryCard category="gaming" label="Gaming App Instances" icon={Gamepad2} {loading} period={comparisonPeriod} />
 
-      <!-- Crypto Nodes (Dynamic from repo_snapshots) -->
-      <CategoryCard category="crypto" label="Crypto Node Instances" icon={Coins} {loading} period={comparisonPeriod} />
-      
-      <!-- WordPress Sites -->
+    <div class="stats-grid-wide">
+      <!-- Total App Instances — the one app-count metric still fully accurate after the
+           FluxOS v8.18 API change (see issue #106). Gaming/Crypto/WordPress category
+           totals and the Git/Docker split were removed alongside it. -->
       <StatCard
-        icon={WordpressIcon}
-        title="WordPress Instances"
-        value={loading ? '...' : formatNumber(metrics?.wordpress?.count || 0)}
-        subtitle="Active installations"
-        change={comparison ? formatChange(comparison.changes.wordpress, true) : ''}
-        trend={comparison ? getTrend(comparison.changes.wordpress) : 'neutral'}
+        icon={Package}
+        title="Total App Instances"
+        value={loading ? '...' : formatNumber(totalApps)}
+        subtitle="Across the network"
+        change={comparison ? formatChange(comparison.changes.apps, true) : ''}
+        trend={comparison ? getTrend(comparison.changes.apps) : 'neutral'}
         valueColor="cyan"
         {loading}
       />
-      
-      <!-- Total Apps (NEW: Using AppsCard component) -->
-      <AppsCard
-        git={appsData.git}
-        docker={appsData.docker}
-        total={appsData.total}
-        {gitAppsComparison}
-        {dockerAppsComparison}
-        totalComparison={totalAppsComparison}
-        {loading}
-      />
     </div>
-    
+
     <!-- Historical Performance Chart -->
     <Chart 
       title="Historical Performance" 
