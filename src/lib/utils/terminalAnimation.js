@@ -20,6 +20,13 @@ export const BOOT_LINE_COUNT = LOGO_LINES.length;
 /** Row style kinds: terminal text (like the boot output) vs the logo's bright glyphs. */
 export const ROW_KIND_TEXT = 'text';
 export const ROW_KIND_LOGO = 'logo';
+// The idle-rotation deploy/expire frames' icon bookend rows (item 4 of the
+// decentralization follow-ups): orange for an expiring app, green for a new
+// deployment, so color reinforces the icon glyph rather than every rotation frame
+// reading as the same plain terminal text. Middle detail rows (NAME/REPO/etc.) stay
+// ROW_KIND_TEXT -- only the icon rows carry the accent.
+export const ROW_KIND_EXPIRING = 'expiring';
+export const ROW_KIND_DEPLOYED = 'deployed';
 
 /**
  * Choose a visually reasonable starting block for the boot counter animation —
@@ -245,6 +252,18 @@ export function formatDeploymentFrame(deployment) {
 }
 
 /**
+ * Row kinds for formatDeploymentFrame's output: only the first/last (icon bookend)
+ * rows carry the green ROW_KIND_DEPLOYED accent -- the middle NAME/REPO/INST/RES rows
+ * stay ROW_KIND_TEXT, same plain terminal text as everywhere else.
+ */
+export function deploymentFrameKinds() {
+  const kinds = Array(BOOT_LINE_COUNT).fill(ROW_KIND_TEXT);
+  kinds[0] = ROW_KIND_DEPLOYED;
+  kinds[BOOT_LINE_COUNT - 1] = ROW_KIND_DEPLOYED;
+  return kinds;
+}
+
+/**
  * The symmetric "latest expiring" frame -- same shape as formatDeploymentFrame, but an
  * hourglass icon and an EXPIRE row (time until expiry) in place of REPO, since a repo
  * distinction isn't meaningful here.
@@ -262,6 +281,18 @@ export function formatExpiringFrame(app) {
   const middleRowCount = BOOT_LINE_COUNT - 2;
   const middle = padLines(detailLines, middleRowCount);
   return [EXPIRING_ICON_LINE, ...middle, EXPIRING_ICON_LINE];
+}
+
+/**
+ * Row kinds for formatExpiringFrame's output: only the first/last (icon bookend)
+ * rows carry the orange ROW_KIND_EXPIRING accent -- the middle NAME/EXPIRE/INST/RES
+ * rows stay ROW_KIND_TEXT, same plain terminal text as everywhere else.
+ */
+export function expiringFrameKinds() {
+  const kinds = Array(BOOT_LINE_COUNT).fill(ROW_KIND_TEXT);
+  kinds[0] = ROW_KIND_EXPIRING;
+  kinds[BOOT_LINE_COUNT - 1] = ROW_KIND_EXPIRING;
+  return kinds;
 }
 
 /**

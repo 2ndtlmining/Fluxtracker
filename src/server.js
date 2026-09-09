@@ -89,7 +89,7 @@ import { testAllServices } from './lib/services/test-allServices.js';
 import { backfillRevenueSnapshots } from './lib/db/run-backfill.js';
 import { backfillNullUsdAmounts, getPriceHistoryStatus, syncPriceHistory } from './lib/services/priceHistoryService.js';
 
-import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps } from './lib/services/carouselService.js';
+import { fetchCarouselData, getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getFluxCloudActivity } from './lib/services/carouselService.js';
 import { getBusiestNode } from './lib/services/busiestNodeService.js';
 import { getHostLocation, getHostLocationError } from './lib/services/hostLocationService.js';
 import { buildKpiReport, sendToDiscord, isValidDiscordWebhook } from './lib/services/kpiService.js';
@@ -1627,6 +1627,21 @@ app.get('/api/analytics/comparison/:days', async (req, res) => {
                 pastSnapshot.decentralization_datacenter_percent
             );
 
+            // Apps deployed/expiring (item 3 of the decentralization follow-ups): "current"
+            // reads live from carouselService, same reasoning as decentralization above --
+            // an uncached live read (`cached: false`) is treated as 0 for the comparison
+            // rather than blocking the rest of the response, matching liveDecentralization's
+            // `?? 0` fallback just above.
+            const liveActivity = await getFluxCloudActivity();
+            response.changes.appsDeployed = calculateChange(
+                liveActivity.deployedToday.cached ? liveActivity.deployedToday.apps.length : 0,
+                pastSnapshot.apps_deployed_today
+            );
+            response.changes.appsExpiring = calculateChange(
+                liveActivity.expiring24h.cached ? liveActivity.expiring24h.apps.length : 0,
+                pastSnapshot.apps_expiring_today
+            );
+
             // Gaming comparisons with individual breakdowns
             response.changes.gaming = {
                 ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
@@ -1866,6 +1881,29 @@ app.get('/api/carousel/expiring', async (req, res) => {
     } catch (error) {
         log.error({ err: error }, 'expiring apps API error');
         res.status(500).json({ error: 'Failed to fetch expiring apps', message: error.message, stats: [], cached: false });
+    }
+});
+
+// Deduped deployed/expiring counts for the Total App Instances card (item 3 of the
+// decentralization follow-ups) -- same getFluxCloudActivity() the KPI report and the
+// daily snapshot collector use, so this card's numbers can never disagree with theirs.
+app.get('/api/apps/activity', async (req, res) => {
+    try {
+        const activity = await getFluxCloudActivity();
+        res.json({
+            deployedToday: {
+                cached: activity.deployedToday.cached,
+                count: activity.deployedToday.cached ? activity.deployedToday.apps.length : null
+            },
+            expiring24h: {
+                cached: activity.expiring24h.cached,
+                count: activity.expiring24h.cached ? activity.expiring24h.apps.length : null
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        log.error({ err: error }, 'apps activity API error');
+        res.status(500).json({ error: 'Failed to fetch apps activity', message: error.message });
     }
 });
 

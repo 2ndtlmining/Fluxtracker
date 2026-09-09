@@ -531,3 +531,46 @@ export async function getFluxCloudSnapshot() {
         appsExpiring24h: { cached: expiring.cached, apps: expiring.stats }
     };
 }
+
+/**
+ * One row per app, not per spec: a re-deployment leaves the old spec in the registry
+ * alongside the new one, so the same app can appear twice in a 24h window. Deployments
+ * keep the newest registration (lowest blockAge); expiring rows keep the most urgent
+ * expiry (lowest blocksUntilExpiry). Matches the "unique active apps" unit of the
+ * KPI report's Apps deployed figure.
+ */
+export function dedupeAppsByName(apps, prefer) {
+    const byName = new Map();
+    for (const app of apps) {
+        if (!app?.name) continue;
+        const existing = byName.get(app.name);
+        if (!existing || prefer(app, existing)) byName.set(app.name, app);
+    }
+    return [...byName.values()];
+}
+
+/**
+ * Deduped deployed-today / expiring-24h app lists -- the single source of truth for
+ * "Deployed (24h)"/"Expiring (24h)" everywhere in the app (the KPI report and its
+ * Flux Cloud Activity message, the live dashboard card, and the daily snapshot
+ * collector all compute from this one function, so their numbers can never disagree).
+ * `cached === false` means the on-demand fetch failed with nothing ever stored — an
+ * absent reading, never a fake zero; callers must treat it as "not available", not 0.
+ */
+export async function getFluxCloudActivity() {
+    const snapshot = await getFluxCloudSnapshot();
+
+    const deployedToday = dedupeAppsByName(
+        snapshot.appsDeployedToday.apps,
+        (a, b) => (a.blockAge ?? Infinity) < (b.blockAge ?? Infinity)
+    );
+    const expiring24h = dedupeAppsByName(
+        snapshot.appsExpiring24h.apps,
+        (a, b) => (a.blocksUntilExpiry ?? Infinity) < (b.blocksUntilExpiry ?? Infinity)
+    );
+
+    return {
+        deployedToday: { cached: snapshot.appsDeployedToday.cached, apps: deployedToday },
+        expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h }
+    };
+}

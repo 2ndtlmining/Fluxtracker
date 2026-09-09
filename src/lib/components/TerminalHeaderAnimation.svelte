@@ -16,7 +16,9 @@
     formatDeploymentFrame,
     formatExpiringFrame,
     formatDeploymentReducedMotionLines,
-    formatExpiringReducedMotionLines
+    formatExpiringReducedMotionLines,
+    deploymentFrameKinds,
+    expiringFrameKinds
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -232,11 +234,15 @@
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
     }
     if (slot.kind === 'expiring') {
+      // Reduced motion stays plain text (essentials only, per its existing design
+      // intent) -- the orange accent is an animation-adjacent flourish, not information.
       const lines = reducedMotion ? formatExpiringReducedMotionLines(slot.data) : formatExpiringFrame(slot.data);
-      return { lines, kinds: textKinds(), ariaLabel: `Expiring soon: ${slot.data.name}` };
+      const kinds = reducedMotion ? textKinds() : expiringFrameKinds();
+      return { lines, kinds, ariaLabel: `Expiring soon: ${slot.data.name}` };
     }
     const lines = reducedMotion ? formatDeploymentReducedMotionLines(slot.data) : formatDeploymentFrame(slot.data);
-    return { lines, kinds: textKinds(), ariaLabel: `Latest deployment: ${slot.data.name}` };
+    const kinds = reducedMotion ? textKinds() : deploymentFrameKinds();
+    return { lines, kinds, ariaLabel: `Latest deployment: ${slot.data.name}` };
   }
 
   function startIdleRotation() {
@@ -339,6 +345,23 @@
     text-shadow: var(--glow-cyan);
   }
 
+  /* Idle-rotation icon bookend rows (item 4 of the decentralization follow-ups) --
+     orange for an expiring app, green for a new deployment, same glow treatment as
+     .row-logo above so they read as accented, not just a different color of plain
+     text. --accent-orange isn't defined in app.css root, so fall back the same way
+     CarouselCard.svelte already does. */
+  .row-expiring {
+    font-size: 0.7rem;
+    color: var(--accent-orange, #f97316);
+    text-shadow: 0 0 8px rgba(249, 115, 22, 0.6);
+  }
+
+  .row-deployed {
+    font-size: 0.7rem;
+    color: var(--accent-green);
+    text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
+  }
+
   @media (max-width: 480px) {
     .terminal-box {
       --box-row: 0.8rem;
@@ -350,6 +373,11 @@
 
     .row-logo {
       font-size: clamp(0.32rem, 2.4vw, 0.6rem);
+    }
+
+    .row-expiring,
+    .row-deployed {
+      font-size: 0.6rem;
     }
   }
 

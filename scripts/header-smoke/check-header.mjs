@@ -14,6 +14,10 @@
  *   - the rotation reflects a later poll's data, not what it first loaded: the
  *     stub switches both carousel endpoints to a different fixture app after
  *     their first call, and the harness waits to see that new name on screen
+ *   - the deployed/expiring frames' icon bookend rows carry their own accent colour
+ *     (green/orange) distinct from the shared boot-text colour (item 4 of the
+ *     decentralization follow-ups) -- middle NAME/REPO/EXPIRE/INST/RES rows keep the
+ *     shared voice checked above; only the icon rows are accented
  *   - build version is accent-green, codename accent-purple
  *   - mobile (375px): exactly 6 mobile rows, no wrapping
  *
@@ -63,6 +67,7 @@ async function stubReachable() {
 const bootTextStyle = { color: 'rgb(136, 146, 176)', fontSize: '11.2px' };
 const GREEN = 'rgb(0, 255, 65)';    // --accent-green
 const PURPLE = 'rgb(189, 147, 249)'; // --accent-purple
+const ORANGE = 'rgb(249, 115, 22)'; // --accent-orange fallback (#f97316)
 
 const run = async () => {
   if (!(await stubReachable())) {
@@ -104,6 +109,8 @@ const run = async () => {
   let sawDockerOrGithubIcon = false;
   let returnedToLogoAfterInfo = false;
   let infoTextStyleMatchesBoot = null;
+  let deployedIconIsGreen = null;
+  let expiringIconIsOrange = null;
 
   while (Date.now() - t0 < MAIN_LOOP_BUDGET_MS) {
     const s = await page.evaluate(() => {
@@ -114,11 +121,15 @@ const run = async () => {
       const style = textStyleRow
         ? (() => { const cs = getComputedStyle(textStyleRow); return { color: cs.color, fontSize: cs.fontSize, text: textStyleRow.textContent.replace(/\n/g, '') }; })()
         : null;
+      const deployedIconRow = spans.find(sp => sp.className.includes('row-deployed'));
+      const expiringIconRow = spans.find(sp => sp.className.includes('row-expiring'));
       return {
         settled: box.className.includes('settled'),
         boxH: box.getBoundingClientRect().height,
         headerH: document.querySelector('header.header')?.getBoundingClientRect().height ?? null,
         textStyle: style,
+        deployedIconColor: deployedIconRow ? getComputedStyle(deployedIconRow).color : null,
+        expiringIconColor: expiringIconRow ? getComputedStyle(expiringIconRow).color : null,
         rows: spans.map(sp => ({ cls: sp.className, text: sp.textContent.replace(/\n/g, '') }))
       };
     });
@@ -128,7 +139,13 @@ const run = async () => {
       const textRows = s.rows.filter(r => r.cls.includes('row-text'));
       const textContent = textRows.map(r => r.text);
       const withContent = textContent.filter(x => x.length > 0);
-      const joined = textContent.join('\n');
+      // Content detection (NAME/EXPIRE/DOCKER/GITHUB) reads every row's text, not just
+      // row-text ones: the deployed/expiring frames' icon bookend rows now carry their
+      // own row-deployed/row-expiring class (item 4 of the decentralization follow-ups),
+      // so a row-text-only join would silently drop the "<< GITHUB >>"/"!! EXPIRING !!"
+      // glyph text and undercount these checks. The text-style check below still reads
+      // s.textStyle, which is computed from a row-text row specifically.
+      const joined = s.rows.map(r => r.text).join('\n');
 
       samples.push({ t, boxH: s.boxH, headerH: s.headerH, settled: s.settled, rows: s.rows, textStyle: s.textStyle });
       if (s.settled) phases.settled ??= t;
@@ -161,6 +178,12 @@ const run = async () => {
 
         if (infoTextStyleMatchesBoot === null && s.textStyle) {
           infoTextStyleMatchesBoot = s.textStyle.color === bootTextStyle.color && s.textStyle.fontSize === bootTextStyle.fontSize;
+        }
+        if (isDeployed && deployedIconIsGreen === null && s.deployedIconColor) {
+          deployedIconIsGreen = s.deployedIconColor === GREEN;
+        }
+        if (isExpiring && expiringIconIsOrange === null && s.expiringIconColor) {
+          expiringIconIsOrange = s.expiringIconColor === ORANGE;
         }
       }
 
@@ -234,6 +257,8 @@ const run = async () => {
     ['idle rotation: RES row shown', sawResRow],
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
     ['idle rotation: info-frame text style matches boot text', infoTextStyleMatchesBoot === true],
+    ['idle rotation: deployed frame icon rows are accent-green', deployedIconIsGreen === true],
+    ['idle rotation: expiring frame icon rows are accent-orange', expiringIconIsOrange === true],
     ['idle rotation: returns to the logo between info frames', returnedToLogoAfterInfo],
     ['idle rotation: picks up the updated deployed app on a later poll (not cached)', sawUpdatedDeployedName],
     ['idle rotation: picks up the updated expiring app on a later poll (not cached)', sawUpdatedExpiringName],
@@ -246,6 +271,7 @@ const run = async () => {
   console.log('distinct box heights:', distinctBox, '| distinct header heights:', distinctHeader);
   console.log('boot text @~2.2s:\n' + (bootTextAt2s.text || '(not captured)'));
   console.log('empty-row violations:', emptyRowViolations);
+  if (consoleErrors.length > 0) console.log('console errors:', JSON.stringify(consoleErrors, null, 0));
 
   let allPass = true;
   console.log('\n=== CHECKS ===');

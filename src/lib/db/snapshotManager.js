@@ -15,6 +15,7 @@ import {
 } from './database.js';
 import { getLatestRepoCounts } from '../services/cloudService.js';
 import { getDecentralizationStats, getFullDatacenterBreakdown } from '../services/decentralizationService.js';
+import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
 import { SNAPSHOT_CONFIG as SNAP_CFG } from '../config.js';
@@ -181,6 +182,17 @@ async function takeSnapshot() {
         }
         const hasDecentralizationClassifications = (decentralization?.classifiedCount ?? 0) > 0;
 
+        // Flux Cloud activity -- best-effort, same posture as decentralization above: a
+        // read failure never blocks the headline snapshot row. `cached: false` means the
+        // on-demand fetch failed with nothing ever stored, so the count stays null (not a
+        // fabricated 0 that would misreport as "nothing deployed/expiring that day").
+        let fluxCloudActivity = null;
+        try {
+            fluxCloudActivity = await getFluxCloudActivity();
+        } catch (error) {
+            log.warn(`Flux Cloud activity unavailable for this snapshot: ${error.message}`);
+        }
+
         const snapshotData = {
             snapshot_date: snapshotDate,
             timestamp: Math.floor(now.getTime() / 1000),
@@ -249,6 +261,14 @@ async function takeSnapshot() {
                     ? decentralization.classifiedCount - decentralization.datacenterCount
                     : null,
             decentralization_datacenter_percent: decentralization?.datacenterPercent ?? null,
+
+            // Flux Cloud activity -- see fluxCloudActivity fetch above for the null posture.
+            apps_deployed_today: fluxCloudActivity?.deployedToday.cached
+                ? fluxCloudActivity.deployedToday.apps.length
+                : null,
+            apps_expiring_today: fluxCloudActivity?.expiring24h.cached
+                ? fluxCloudActivity.expiring24h.apps.length
+                : null,
 
             sync_status: 'completed'
         };

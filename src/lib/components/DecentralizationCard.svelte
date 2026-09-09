@@ -1,7 +1,6 @@
 <script>
-  import { Globe, Download } from 'lucide-svelte';
+  import { Globe } from 'lucide-svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
-  import { getApiUrl } from '$lib/config.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
   //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
@@ -9,8 +8,6 @@
   export let loading = false;
   export let error = false;
   export let comparison = null; // { change: number, trend: 'up'|'down'|'neutral' } | null
-
-  let exporting = false;
 
   $: hasData = stats && stats.classifiedCount > 0;
   $: hasDatacenters = hasData && stats.topDatacenters && stats.topDatacenters.length > 0;
@@ -24,66 +21,12 @@
     if (num === null || num === undefined) return '--';
     return `${num.toFixed(1)}%`;
   }
-
-  function escapeField(field) {
-    const value = field == null ? '' : String(field);
-    if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-    return value;
-  }
-
-  async function exportToCSV() {
-    exporting = true;
-    try {
-      const API_URL = getApiUrl();
-      const response = await fetch(`${API_URL}/api/decentralization/history?days=90`);
-      if (!response.ok) throw new Error(`Export failed: ${response.status}`);
-      const { history, headline } = await response.json();
-
-      const headlineByDate = new Map(headline.map(h => [h.date, h]));
-      const headers = ['date', 'org', 'count', 'percent_of_classified', 'datacenter_total', 'independent_total', 'datacenter_percent', 'total_nodes'];
-      const rows = history.map(row => {
-        const h = headlineByDate.get(row.date);
-        const classified = h ? (h.datacenterCount ?? 0) + (h.independentCount ?? 0) : 0;
-        const percentOfClassified = classified > 0 ? ((row.count / classified) * 100).toFixed(1) : '';
-        return [
-          row.date,
-          row.org,
-          row.count,
-          percentOfClassified,
-          h?.datacenterCount ?? '',
-          h?.independentCount ?? '',
-          h?.datacenterPercent != null ? h.datacenterPercent.toFixed(1) : '',
-          h?.totalNodes ?? ''
-        ];
-      });
-
-      const csvContent = [headers.join(','), ...rows.map(r => r.map(escapeField).join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const timestamp = new Date().toISOString().split('T')[0];
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `flux_decentralization_${timestamp}.csv`);
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error exporting decentralization CSV:', error);
-    } finally {
-      exporting = false;
-    }
-  }
 </script>
 
 <div class="decentralization-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Globe size={24} strokeWidth={2} /></div>
     <div class="card-title">Decentralization</div>
-    <button class="csv-button" on:click={exportToCSV} disabled={exporting} title="Export decentralization history to CSV">
-      <Download size={14} />
-    </button>
   </div>
 
   {#if loading}
@@ -192,28 +135,6 @@
     letter-spacing: 1px;
     font-weight: 600;
     flex: 1;
-  }
-
-  .csv-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.2rem;
-    border-radius: var(--radius-sm);
-    transition: color 0.2s ease;
-  }
-
-  .csv-button:hover:not(:disabled) {
-    color: var(--text-primary);
-  }
-
-  .csv-button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .card-empty-state {
