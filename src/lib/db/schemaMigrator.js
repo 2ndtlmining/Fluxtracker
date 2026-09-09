@@ -9,6 +9,13 @@ const FIXED_COLUMNS = [
     { name: 'dockerapps_count', type: 'INTEGER DEFAULT 0' },
     { name: 'gitapps_percent', type: 'DOUBLE PRECISION DEFAULT 0' },
     { name: 'dockerapps_percent', type: 'DOUBLE PRECISION DEFAULT 0' },
+    // No DEFAULT on these three, deliberately: an existing row must read back NULL
+    // ("not classified yet"), never a fabricated 0% that would misreport as a real
+    // reading. Every other FIXED_COLUMNS entry defaults to 0 because 0 IS a valid
+    // reading for those; it is not for a percent this feature hasn't computed yet.
+    { name: 'decentralization_datacenter_count', type: 'INTEGER' },
+    { name: 'decentralization_independent_count', type: 'INTEGER' },
+    { name: 'decentralization_datacenter_percent', type: 'DOUBLE PRECISION' },
 ];
 
 // ============================================
