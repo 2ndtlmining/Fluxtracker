@@ -1,22 +1,7 @@
 // src/hooks.server.js
 // API Proxy - Routes /api/* requests to the Express backend.
 
-import { dev } from '$app/environment';
-import { applySecurityHeaders } from './lib/security/contentSecurityPolicy.js';
-
-/**
- * The CSP (issue #125) is production-only. `vite dev` injects its own inline
- * <style>/<script> for HMR and dev-mode scoped styles -- our style-src/default-src
- * have no 'unsafe-inline', so under CSP every one of those gets silently blocked and
- * the dev server renders unstyled/broken (caught by scripts/header-smoke's harness,
- * which runs against `npm run dev`). The production build never does that (Svelte's
- * production output ships external stylesheets, no inline injection), so the built
- * app keeps the real policy — only local `npm run dev` skips it.
- */
-function maybeApplySecurityHeaders(headers) {
-    if (!dev) applySecurityHeaders(headers);
-    return headers;
-}
+import { applySecurityHeaders, applyStaticSecurityHeaders } from './lib/security/contentSecurityPolicy.js';
 
 /**
  * Where the Express API is listening.
@@ -73,8 +58,10 @@ export async function handle({ event, resolve }) {
                 if (value) responseHeaders.set(header, value);
             });
             
-            // Return the proxied response
-            maybeApplySecurityHeaders(responseHeaders);
+            // Return the proxied response. Safe to set the CSP header here directly (unlike
+            // on the resolve() response below) -- this is JSON, not HTML, so there's no inline
+            // script of its own for the header to block.
+            applySecurityHeaders(responseHeaders);
             return new Response(body, {
                 status: response.status,
                 statusText: response.statusText,
@@ -85,7 +72,7 @@ export async function handle({ event, resolve }) {
             console.error('[API Proxy Error]', error.message);
 
             const errorHeaders = new Headers({ 'Content-Type': 'application/json' });
-            maybeApplySecurityHeaders(errorHeaders);
+            applySecurityHeaders(errorHeaders);
             return new Response(
                 JSON.stringify({
                     error: 'Backend API unavailable',
@@ -100,9 +87,13 @@ export async function handle({ event, resolve }) {
         }
     }
 
-    // For non-API requests, proceed normally with SvelteKit rendering
+    // For non-API requests, proceed normally with SvelteKit rendering. The Content-Security-
+    // Policy header for this response comes from svelte.config.js's `kit.csp` (SvelteKit adds
+    // it itself, with the nonce/hash its own inline hydration script needs) -- do NOT set one
+    // here too; see the incident note in contentSecurityPolicy.js. Only the non-CSP hardening
+    // headers are safe to add by hand.
     const response = await resolve(event);
-    maybeApplySecurityHeaders(response.headers);
+    applyStaticSecurityHeaders(response.headers);
     return response;
 }
 
