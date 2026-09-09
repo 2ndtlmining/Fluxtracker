@@ -92,15 +92,18 @@ export const SECTIONS = [
         ]
     },
     {
+        // Docker Apps, Git and Gaming were dropped (issue #106): FluxOS v8.18 removed the
+        // per-instance image data these columns need, so they now only cover the ~76-78% of
+        // running instances that resolve to a known app spec (see appSpecsCache.js) — Docker
+        // Apps specifically absorbs every unresolved instance into a wrong number, not just an
+        // undercount. total_apps is unaffected — it comes from the running-instance census, not
+        // per-app resolution — so it's the only Applications metric still reported.
         key: 'applications',
         title: 'Applications',
         source: 'daily_snapshots',
         aggregation: 'average',
         metrics: [
-            { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' },
-            { key: 'docker', label: 'Docker Apps', column: 'dockerapps_count', format: 'int' },
-            { key: 'git', label: 'Git', column: 'gitapps_count', format: 'int' },
-            { key: 'gaming', label: 'Gaming', column: 'gaming_apps_total', format: 'int' }
+            { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' }
         ]
     }
 ];
