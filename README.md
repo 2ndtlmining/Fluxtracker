@@ -311,6 +311,7 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/carousel/stats`    | Cached carousel statistics |
 | GET    | `/api/carousel/deployed` | Recently deployed apps     |
 | GET    | `/api/carousel/expiring` | Apps expiring soon         |
+| GET    | `/api/busiest-node`      | The network's busiest node (most running instances), its resolved app names, and CPU/RAM/SSD used vs. its own benchmarked capacity (issue #108) |
 
 ### Admin
 

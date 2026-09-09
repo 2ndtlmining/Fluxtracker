@@ -136,6 +136,13 @@ export const API_ENDPOINTS = {
     API_FLUX_NETWORK_UTILISATION: 'https://stats.runonflux.io/fluxinfo?projection=apps.resources',
     API_NODE_BENCHMARKS: 'https://stats.runonflux.io/fluxinfo?projection=benchmark',
     API_NODE_GEOLOCATION: 'https://stats.runonflux.io/fluxinfo?projection=geolocation',
+
+    // Busiest Node card (issue #108): one combined projection so per-node app names,
+    // resource usage and benchmarked capacity all come from the same node document —
+    // no separate fetches to pair up by IP. Deliberately not folded into RUNNING_APPS
+    // (which gaming/crypto/wordpress/cloud share every ~1 min) since none of those need
+    // the extra resources/benchmark/ip fields — this gets its own slower refresh instead.
+    API_BUSIEST_NODE: 'https://stats.runonflux.io/fluxinfo?projection=ip,geolocation,tier,apps.runningapps.Names,apps.resources,benchmark.bench.cores,benchmark.bench.ram,benchmark.bench.ssd',
 };
 
 // ============================================
@@ -365,6 +372,14 @@ export const CAROUSEL_CONFIG = {
     // Data older than this is no longer advertised as "LIVE" in the UI.
     // Kept at 2x the update interval so a single missed cycle isn't reported as stale.
     freshnessThreshold: 20 * 60 * 1000,
+};
+
+// Busiest Node card — deliberately slower than CAROUSEL_CONFIG since its payload carries
+// per-node resources/benchmark data on top of app names (~4MB vs ~500KB), and "which node
+// is busiest" doesn't meaningfully change minute to minute.
+export const BUSIEST_NODE_CONFIG = {
+    updateInterval: 60 * 60 * 1000,      // 1 hour
+    freshnessThreshold: 2 * 60 * 60 * 1000,
 };
 
 // ============================================
