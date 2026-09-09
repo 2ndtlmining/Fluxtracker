@@ -1,7 +1,7 @@
 // src/hooks.server.js
 // API Proxy - Routes /api/* requests to the Express backend.
 
-import { applySecurityHeaders } from './lib/security/contentSecurityPolicy.js';
+import { applySecurityHeaders, applyStaticSecurityHeaders } from './lib/security/contentSecurityPolicy.js';
 
 /**
  * Where the Express API is listening.
@@ -58,7 +58,9 @@ export async function handle({ event, resolve }) {
                 if (value) responseHeaders.set(header, value);
             });
             
-            // Return the proxied response
+            // Return the proxied response. Safe to set the CSP header here directly (unlike
+            // on the resolve() response below) -- this is JSON, not HTML, so there's no inline
+            // script of its own for the header to block.
             applySecurityHeaders(responseHeaders);
             return new Response(body, {
                 status: response.status,
@@ -85,9 +87,13 @@ export async function handle({ event, resolve }) {
         }
     }
 
-    // For non-API requests, proceed normally with SvelteKit rendering
+    // For non-API requests, proceed normally with SvelteKit rendering. The Content-Security-
+    // Policy header for this response comes from svelte.config.js's `kit.csp` (SvelteKit adds
+    // it itself, with the nonce/hash its own inline hydration script needs) -- do NOT set one
+    // here too; see the incident note in contentSecurityPolicy.js. Only the non-CSP hardening
+    // headers are safe to add by hand.
     const response = await resolve(event);
-    applySecurityHeaders(response.headers);
+    applyStaticSecurityHeaders(response.headers);
     return response;
 }
 

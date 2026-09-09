@@ -24,8 +24,15 @@
  * Usage:
  *   1. npm install --no-save puppeteer-core   (uses the installed Edge/Chrome)
  *   2. node scripts/header-smoke/stub-api.mjs                 (terminal 1)
- *   3. VITE_API_URL=http://127.0.0.1:3100 npm run dev -- --port 5199   (terminal 2)
+ *   3. API_PORT=3100 npm run dev -- --port 5199                (terminal 2)
  *   4. node scripts/header-smoke/check-header.mjs             (terminal 3)
+ *
+ * API_PORT (not VITE_API_URL) is what points hooks.server.js's /api/* proxy at the
+ * stub -- the browser still calls same-origin relative paths via getApiUrl(), exactly
+ * like real usage. Issue #125's CSP `connect-src 'self'` (correctly) blocks a
+ * cross-origin VITE_API_URL override, which this harness relied on before that CSP
+ * shipped -- same-origin-via-proxy is also the more realistic test of the real request
+ * path anyway.
  *
  * Env overrides: BASE_URL (default http://127.0.0.1:5199), STUB_URL,
  * BROWSER_PATH (default: first of Edge/Chrome found), SAMPLE_MS.

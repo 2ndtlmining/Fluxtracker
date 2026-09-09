@@ -27,9 +27,13 @@ timing changes) are caught mechanically.
 ```bash
 npm install --no-save puppeteer-core          # uses the installed Edge/Chrome, no download
 node scripts/header-smoke/stub-api.mjs        # terminal 1 — deterministic /api/header
-VITE_API_URL=http://127.0.0.1:3100 npm run dev -- --port 5199   # terminal 2
+API_PORT=3100 npm run dev -- --port 5199      # terminal 2
 node scripts/header-smoke/check-header.mjs    # terminal 3 — exits 0 when all pass
 ```
+
+`API_PORT` (not `VITE_API_URL`) is what points `hooks.server.js`'s `/api/*` proxy at the
+stub — the browser calls same-origin relative paths, exactly like real usage. Issue #125's
+CSP (`connect-src 'self'`) blocks a cross-origin `VITE_API_URL` override.
 
 Env overrides: `BASE_URL`, `STUB_URL`, `BROWSER_PATH` (defaults to the first of
 Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~2 minutes (waits for the second
