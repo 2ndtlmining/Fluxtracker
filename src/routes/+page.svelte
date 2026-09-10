@@ -473,9 +473,13 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     </div>
 
     <!-- Historical Performance Chart -->
-    <Chart 
-      title="Historical Performance" 
-      height={400}
+    <!-- height 460 (issue #149/#153) -- Additional Metrics row above is a
+         CSS-grid-stretched row of 3 cards; BusiestNodeCard's compact resource
+         columns keep that row from towering, so a static height here reads as
+         proportionate without needing a ResizeObserver to track the row live. -->
+    <Chart
+      title="Historical Performance"
+      height={460}
       defaultCategory="revenue"
       defaultTimeframe="30d"
     />

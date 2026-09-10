@@ -55,7 +55,7 @@
             <span class="resource-label">{resource.label}</span>
             <span class="resource-percent">{Math.round(percent)}%</span>
           </div>
-          <div class="resource-bar">{formatAsciiBar(percent)}</div>
+          <div class="resource-bar">{formatAsciiBar(percent, 10)}</div>
           <div class="resource-detail">{formatDecimal(resource.used)} / {formatDecimal(resource.total)} {resource.unit}</div>
         </div>
       {/each}
@@ -88,6 +88,7 @@
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
+    container-type: inline-size;
   }
 
   .busiest-node-card:hover {
@@ -171,19 +172,30 @@
     font-weight: 600;
   }
 
+  /* Side-by-side CPU/RAM/SSD columns (issue #149) -- stacking them as three full-width
+     rows cost 9 lines of vertical space the card's width was mostly idle for. Falls back
+     to a stacked single column via the container query below if the card ever gets
+     squeezed down near the stats-grid-wide minmax(200px, 1fr) floor. */
   .node-resources {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-sm) var(--spacing-md);
     padding-top: var(--spacing-sm);
     padding-bottom: var(--spacing-md);
     border-top: 1px solid var(--border-color);
+  }
+
+  @container (max-width: 260px) {
+    .node-resources {
+      grid-template-columns: 1fr;
+    }
   }
 
   .resource-row {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    min-width: 0;
   }
 
   .resource-heading {
