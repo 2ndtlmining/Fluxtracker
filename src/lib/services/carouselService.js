@@ -118,12 +118,23 @@ export async function fetchLatestDeployedApps() {
         });
 
         log.info('Apps deployed today: %d', deployedToday.length);
-        
-        // Sort alphabetically by name
+
+        // Sort most-recently-deployed first (lowest blockAge = newest). This list's #rank
+        // badge is the only "which app is newest" signal a viewer sees on the carousel, and
+        // it has to agree with the header's own "NEW APP DEPLOYED" spotlight -- which picks
+        // strictly by blockAge (see terminalAnimation.js's pickLatestDeployed). Sorting
+        // alphabetically instead (the previous behavior) left #1 as whichever app's name
+        // happened to sort first, unrelated to recency -- the header could spotlight an app
+        // 8 minutes old while the carousel's #1 was a same-day app hours older, just because
+        // its name came first. That mismatch is what issue #140 was actually seeing (the
+        // Revenue Transaction Log disagreeing too is a separate, expected scope difference --
+        // it tracks payment events, not deployment events -- see the issue's own history).
+        // Name is still the tiebreaker for a stable order among same-block deployments.
         deployedToday.sort((a, b) => {
-            const nameA = (a.name || '').toLowerCase();
-            const nameB = (b.name || '').toLowerCase();
-            return nameA.localeCompare(nameB);
+            const blockAgeA = a.height ? currentBlockHeight - a.height : Infinity;
+            const blockAgeB = b.height ? currentBlockHeight - b.height : Infinity;
+            if (blockAgeA !== blockAgeB) return blockAgeA - blockAgeB;
+            return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
         });
         
         // Format for carousel display

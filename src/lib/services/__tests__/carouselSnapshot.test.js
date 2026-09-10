@@ -59,9 +59,12 @@ describe('getFluxCloudSnapshot', () => {
         const snapshot = await getFluxCloudSnapshot();
 
         expect(snapshot.appsDeployedToday.cached).toBe(true);
-        // Registered within 2880 blocks, sorted by name (the nameless spec sorts first)
+        // Registered within 2880 blocks, sorted most-recently-deployed first (issue #140 --
+        // rank order has to agree with the header's own blockAge-based spotlight, not
+        // alphabetical). app-active and the nameless spec share the same blockAge (918), so
+        // the name tiebreaker decides between them; '' sorts before 'app-active'.
         expect(snapshot.appsDeployedToday.apps.map(a => a.name)).toEqual([
-            undefined, 'app-active', 'app-expiring', 'app-noexpire'
+            'app-noexpire', 'app-expiring', undefined, 'app-active'
         ]);
         expect(snapshot.appsExpiring24h.cached).toBe(true);
         // Expiring within 2880 blocks; app-old's expiry is already past, app-active's
