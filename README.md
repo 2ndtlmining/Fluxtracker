@@ -8,6 +8,8 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 - **Revenue transaction tracking** -- Syncs with the Flux blockchain daemon, attributes payments to deployed apps, and classifies app type (git/docker)
 - **Price history** -- FLUX/USD daily closes via Binance, CoinGecko and CryptoCompare, stored for historical charts and USD revenue calculations
 - **Docker repository snapshots** -- Daily tracking of running instances for every Docker image the network still exposes an image for; still collected and queryable via the API, but no longer surfaced on the dashboard (see "App Categorisation" below)
+- **Decentralization tracking** -- Classifies node IPs as datacenter-hosted or independent via IP/org lookups, with daily snapshots and historical trends by datacenter, country and continent
+- **Team Funded revenue tracking** -- The Flux team's own hosting spend (`FLUX_TEAM_ADDRESSES`) trended daily as a FLUX amount, a USD amount, and a % of that day's total revenue
 - **Historical data visualization** -- Interactive Chart.js charts with configurable time ranges
 - **Period-over-period comparisons** -- Toggle between daily, weekly, monthly, quarterly, and yearly comparisons across all metrics
 - **KPI Discord reports** -- Manual (footer button, any webhook) and scheduled (env-configured) reports of Revenue, Nodes, Resource Utilization, Applications and Flux Cloud, comparing two completed periods
@@ -151,13 +153,26 @@ Optional -- CORS allowed origins (production only):
 
 ### Database Setup
 
-Run the SQL migration files in your Supabase SQL Editor, in order:
+Run every file in `supabase/migrations/` in your Supabase SQL Editor, in numeric order --
+unlike SQLite's self-healing `ALTER TABLE ADD COLUMN IF NOT EXISTS` schema, **Supabase
+migrations are not auto-applied**, so a fresh project or one that's fallen behind needs each
+file run manually:
 
-1. `supabase/migrations/001_initial_schema.sql` -- Creates all tables, indexes, and seed data
-2. `supabase/migrations/002_rpc_functions.sql` -- Creates RPC functions for aggregation queries
-3. `supabase/migrations/003_enable_rls.sql` -- Enables Row Level Security on all tables (service_role bypasses it)
+1. `001_initial_schema.sql` -- Creates all tables, indexes, and seed data
+2. `002_rpc_functions.sql` -- Creates RPC functions for aggregation queries
+3. `003_enable_rls.sql` -- Enables Row Level Security on all tables (service_role bypasses it)
+4. `004_partial_index_usd_null.sql` -- Partial index speeding up the USD-backfill scan
+5. `005_app_name_index.sql` -- Index on `app_name` for analytics/search queries
+6. `006_update_usd_batch.sql` -- RPC function for the USD backfill's batched updates
+7. `007_node_ip_classification.sql` -- Table for per-IP datacenter/independent classification
+8. `008_decentralization_snapshots.sql` -- Table for daily datacenter/independent history
+9. `009_decentralization_country_continent.sql` -- Country/continent columns + snapshot tables
+10. `010_daily_revenue_from_addresses.sql` -- RPC functions behind the Team Funded chart
 
-The schema migrator (`src/lib/db/schemaMigrator.js`) also runs on startup to add any dynamic columns needed by the current config (e.g., new gaming or crypto repo columns).
+The schema migrator (`src/lib/db/schemaMigrator.js`) also runs on startup to add any dynamic
+columns needed by the current config (e.g., new gaming or crypto repo columns) -- that part
+is automatic in both database modes. Only the files above (tables, indexes, RPC functions)
+need to be run by hand against Supabase.
 
 ### Install and Run
 
@@ -219,10 +234,14 @@ Supabase (PostgreSQL). All database functions in `src/lib/db/database.js` are as
 | `flux_price_history`   | `date` (DATE)    | Daily FLUX/USD prices from CoinGecko/CryptoCompare             |
 | `sync_status`          | `id` (BIGSERIAL) | Tracks last sync time, block height, and status per service. Unique on `sync_type`. |
 | `repo_snapshots`       | `id` (BIGSERIAL) | Daily Docker image instance counts with category labels. Unique on `(snapshot_date, image_name)`. |
+| `node_ip_classification` | `ip` (TEXT) | Per-IP datacenter/independent classification, cached indefinitely (an IP's org rarely changes) and re-checked once stale. |
+| `decentralization_snapshots` | `id` (BIGSERIAL) | Daily node count per datacenter/org. Unique on `(snapshot_date, org)`. |
+| `decentralization_country_snapshots` | `id` (BIGSERIAL) | Daily node count per country. Unique on `(snapshot_date, country)`. |
+| `decentralization_continent_snapshots` | `id` (BIGSERIAL) | Daily node count per continent. Unique on `(snapshot_date, continent)`. |
 
 ### RPC Functions
 
-Defined in `supabase/migrations/002_rpc_functions.sql`:
+Defined in `supabase/migrations/002_rpc_functions.sql`, with two more added later in `010_daily_revenue_from_addresses.sql`:
 
 | Function                         | Purpose                                          |
 |----------------------------------|--------------------------------------------------|
@@ -238,6 +257,8 @@ Defined in `supabase/migrations/002_rpc_functions.sql`:
 | `get_repo_history_merged`        | Instance count history merging tagged images     |
 | `get_distinct_repos`             | All distinct image names                         |
 | `get_distinct_repo_count`        | Count of distinct image names                    |
+| `get_daily_revenue_from_addresses_in_range` | Sum revenue by day within a date range, filtered to a given address list (Team Funded chart) |
+| `get_daily_revenue_usd_from_addresses_in_range` | Same, in USD |
 
 ### Row Level Security
 
@@ -251,7 +272,9 @@ Base URL: `/api`
 
 | Method | Endpoint        | Description                              |
 |--------|-----------------|------------------------------------------|
-| GET    | `/api/health`   | Health check with snapshot system status  |
+| GET    | `/api/health`   | Combined health (DB, snapshot, backup, price history, KPI scheduler) -- see [Health Endpoint](#health-endpoint) |
+| GET    | `/api/health/live` | Liveness only (process is running)    |
+| GET    | `/api/health/ready` | Readiness (DB reachable)             |
 | GET    | `/api/stats`    | Database row counts and last snapshot date |
 
 ### Metrics
@@ -299,8 +322,16 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | GET    | `/api/history/repos/latest`             | Latest snapshot of all repos                     |
 | GET    | `/api/history/category/:category`       | Category history (aggregated daily totals)       |
 | GET    | `/api/history/category/:category/repos` | Repos belonging to a category                    |
+| GET    | `/api/history/revenue/team-funded/daily?start_date=&end_date=` | Daily FLUX + USD revenue from `FLUX_TEAM_ADDRESSES`, merged by date (Team Funded chart) |
 
 Query parameters for history endpoints: `limit`, `start_date`, `end_date`
+
+### Decentralization
+
+| Method | Endpoint                        | Description                                                     |
+|--------|----------------------------------|------------------------------------------------------------------|
+| GET    | `/api/decentralization`         | Current datacenter vs. independent node split, plus top datacenters |
+| GET    | `/api/decentralization/history?days=` | Historical datacenter/independent, country and continent breakdowns, for the Historical Performance chart's search-and-trend view |
 
 ### Categories
 
@@ -318,14 +349,12 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/carousel/deployed` | Recently deployed apps     |
 | GET    | `/api/carousel/expiring` | Apps expiring soon         |
 | GET    | `/api/busiest-node`      | The network's busiest node (most running instances), its resolved app names, and CPU/RAM/SSD used vs. its own benchmarked capacity (issue #108) |
+| GET    | `/api/apps/activity`     | 24h deployed/expiring counts (the same data behind the KPI daily report's Flux Cloud section) |
 
 ### Admin
 
 | Method | Endpoint                              | Description                                    |
 |--------|---------------------------------------|------------------------------------------------|
-| GET    | `/api/health`                         | Combined health (DB, snapshot, backup, price history, KPI scheduler) |
-| GET    | `/api/health/live`                    | Liveness only (process is running)             |
-| GET    | `/api/health/ready`                   | Readiness (DB reachable)                       |
 | GET    | `/api/admin/snapshot-status`          | Snapshot system health and state                |
 | GET    | `/api/admin/revenue-status`           | Revenue sync status, block height, tx count    |
 | GET    | `/api/admin/test-status`              | Service test scheduler status                  |
@@ -491,7 +520,7 @@ so expect a step in the trend line on the day a change lands.
 ## Tests
 
 ```bash
-npm test            # vitest — 690+ tests
+npm test            # vitest — 590+ tests
 ```
 
 The pure logic is deliberately separated from the components so it is unit-testable: KPI period
@@ -963,7 +992,14 @@ src/
       circuitBreaker.js        # DB circuit breaker with auto-failover
       snapshot.js              # Snapshot data access
     services/
-      revenueService.js        # Blockchain transaction sync logic
+      revenueService.js        # Thin re-export hub for revenue/* (issue #124) -- every
+                                # existing import from this file keeps working unchanged
+      revenue/
+        transactionSync.js      # Fetch/process/progressive sync/initial sync/audit
+        revenueReporting.js     # Revenue calculation & reporting (date ranges, comparisons)
+        revenueBackfill.js      # One-off app_name/app_type backfill utilities
+        revenueSyncState.js     # In-memory sync state & failed-tx stats
+      fluxNetworkData.js       # Generic FLUX price / block height reads (shared network data)
       revenueScheduler.js      # Revenue sync interval manager
       kpiService.js            # KPI report computation + Discord delivery
       kpiScheduler.js          # Env-configured scheduled KPI reports
@@ -980,6 +1016,8 @@ src/
       wordpressService.js      # WordPress instance counting
       priceHistoryService.js   # FLUX/USD price history sync
       hostLocationService.js   # Server geolocation (6h cache)
+      busiestNodeService.js    # Network's busiest node: identity, resources, resolved apps
+      decentralizationService.js # Node IP datacenter/independent classification + snapshots
       carouselService.js       # Carousel feed data (deployed/expiring apps)
       servicesScheduler.js     # Service test and carousel scheduler
 supabase/
@@ -988,6 +1026,10 @@ supabase/
     002_rpc_functions.sql      # PostgreSQL RPC functions
     003_enable_rls.sql         # Row Level Security
     004-006                    # Partial index, app-name index, USD batch update
+    007_node_ip_classification.sql          # Per-IP datacenter/independent classification
+    008_decentralization_snapshots.sql      # Daily datacenter/independent history
+    009_decentralization_country_continent.sql # Country/continent columns + snapshot tables
+    010_daily_revenue_from_addresses.sql    # RPC functions behind the Team Funded chart
 scripts/                       # Utility scripts
   header-smoke/                # Terminal header acceptance harness (headless browser)
 Dockerfile                     # Multi-stage production build
