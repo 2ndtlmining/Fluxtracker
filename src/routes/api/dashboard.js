@@ -80,11 +80,30 @@ router.get('/decentralization/history', async (req, res) => {
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
 
+        // Each read isolated in its own try/catch: a Supabase instance where migration
+        // 009_decentralization_country_continent.sql hasn't been applied yet would throw
+        // "relation does not exist" for the two new tables and reject the whole Promise.all,
+        // 500ing the org breakdown and CSV export that have worked since #108 Phase 3 -- the
+        // exact failure mode already fixed for the comparison endpoint after issue #138
+        // shipped (see analytics.js). A missing dimension here degrades to an empty array
+        // instead of taking the others down with it.
         const [breakdown, countryBreakdown, continentBreakdown, snapshots] = await Promise.all([
-            getDecentralizationSnapshotHistory(startDate, endDate),
-            getDecentralizationCountrySnapshotHistory(startDate, endDate),
-            getDecentralizationContinentSnapshotHistory(startDate, endDate),
-            getSnapshotsInRange(startDate, endDate)
+            getDecentralizationSnapshotHistory(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'decentralization org history unavailable, continuing without it');
+                return [];
+            }),
+            getDecentralizationCountrySnapshotHistory(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'decentralization country history unavailable, continuing without it');
+                return [];
+            }),
+            getDecentralizationContinentSnapshotHistory(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'decentralization continent history unavailable, continuing without it');
+                return [];
+            }),
+            getSnapshotsInRange(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'decentralization headline snapshots unavailable, continuing without it');
+                return [];
+            })
         ]);
 
         const headline = snapshots

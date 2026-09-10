@@ -128,7 +128,10 @@
       metrics: [
         { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
         { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true },
-        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent' }
+        // Weekly/monthly must sum team_funded_flux and total_flux separately and divide
+        // afterwards, not average the daily percentages -- see the fetchAllData comment on
+        // total_flux and the aggregateByWeek/aggregateByMonth ratioFields handling.
+        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' } }
       ]
     }
   };
@@ -220,6 +223,14 @@
   $: if (selectedTimeframe !== lastTimeframe) {
     console.log(`⏱️ Timeframe changed from ${lastTimeframe} to ${selectedTimeframe} - fetching new data`);
     lastTimeframe = selectedTimeframe;
+    // Invalidate the cached decentralization history unconditionally, not just when
+    // currently viewing an entity-search tab: fetchAllData()'s decentralization branch only
+    // runs for decentralizationView !== 'overview', so a timeframe change made while on
+    // Overview left the old timeframe's payload sitting in decentralizationHistory.
+    // handleDecentralizationViewChange() then trusted that stale cache as "already have
+    // this timeframe" the next time the user switched into Countries/Continents/Datacenters,
+    // rendering the wrong period under the new timeframe's label/CSV filename.
+    decentralizationHistory = null;
     fetchAllData();
   }
 
@@ -308,8 +319,13 @@
         const endDateStr = endDate.toISOString().split('T')[0];
         const startDateStr = timeframe?.days
           ? (() => {
+              // -1: BETWEEN is inclusive on both ends, so "30 Days" must span exactly 30
+              // calendar days (today back through today-29), matching the Revenue chart's
+              // own convention (getDailyRevenueFromTransactions/UsingUSD subtract days - 1
+              // for the same reason) -- subtracting the raw day count here previously
+              // fetched 31 days, one more than every sibling chart for the same selection.
               const d = new Date(endDate);
-              d.setDate(d.getDate() - timeframe.days);
+              d.setDate(d.getDate() - (timeframe.days - 1));
               return d.toISOString().split('T')[0];
             })()
           : '2018-01-01'; // 'All' -- predates Flux mainnet, so this just covers every real row
@@ -324,17 +340,33 @@
         }
 
         const [teamJson, totalJson] = await Promise.all([teamRes.json(), totalRes.json()]);
-        const teamRows = teamJson.data || [];
+        const teamFluxByDate = new Map((teamJson.data || []).map(r => [r.date, r.daily_revenue || 0]));
+        const teamUsdByDate = new Map((teamJson.data || []).map(r => [r.date, r.daily_revenue_usd || 0]));
         const totalFluxByDate = new Map((totalJson.data || []).map(r => [r.date, r.daily_revenue || 0]));
 
-        allSnapshots = teamRows.map(r => {
-          const totalFlux = totalFluxByDate.get(r.date) || 0;
+        // Union of both endpoints' dates, not just the team-funded ones: the team-funded
+        // endpoint only returns days with at least one team-address transaction, so a day
+        // with real total revenue but zero team funding would otherwise be missing from
+        // allSnapshots entirely -- and with it, that day's total_flux would be missing from
+        // the weekly/monthly ratioFields sum below, silently undercounting the denominator
+        // and overstating the period's Team Funded percentage.
+        const allDates = new Set([...teamFluxByDate.keys(), ...totalFluxByDate.keys()]);
+
+        allSnapshots = [...allDates].sort().map(date => {
+          const teamFlux = teamFluxByDate.get(date) || 0;
+          const totalFlux = totalFluxByDate.get(date) || 0;
           return {
-            date: r.date,
-            team_funded_flux: r.daily_revenue || 0,
-            team_funded_usd: r.daily_revenue_usd || 0,
+            date,
+            team_funded_flux: teamFlux,
+            team_funded_usd: teamUsdByDate.get(date) || 0,
             // $0-revenue days report 0%, never NaN/Infinity
-            team_funded_percent: totalFlux > 0 ? (r.daily_revenue / totalFlux) * 100 : 0
+            team_funded_percent: totalFlux > 0 ? (teamFlux / totalFlux) * 100 : 0,
+            // Kept alongside the pre-computed daily percent so weekly/monthly aggregation
+            // can sum team_funded_flux and total_flux separately and divide afterwards --
+            // averaging the daily percentages themselves (as every other percent metric
+            // does) understates the real period share whenever revenue is unevenly spread
+            // across the days in that period. See the ratioFields handling below.
+            total_flux: totalFlux
           };
         });
       } else {
@@ -499,6 +531,27 @@
       const monday = new Date(date.setDate(diff));
       const weekKey = monday.toISOString().split('T')[0];
       
+      if (!weeklyMap.has(weekKey)) {
+        weeklyMap.set(weekKey, {
+          total: 0,
+          count: 0,
+          numeratorSum: 0,
+          denominatorSum: 0,
+          date: monday
+        });
+      }
+
+      const weekData = weeklyMap.get(weekKey);
+
+      // Ratio metrics (Team Funded's % of revenue): sum numerator and denominator
+      // separately and divide once at the end -- averaging the daily percentages instead
+      // understates the real period share whenever revenue is unevenly spread across days.
+      if (metric.ratioFields) {
+        weekData.numeratorSum += snapshot[metric.ratioFields.numerator] || 0;
+        weekData.denominatorSum += snapshot[metric.ratioFields.denominator] || 0;
+        return;
+      }
+
       let value = 0;
       if (selectedCategory === 'revenue') {
         if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
@@ -511,18 +564,8 @@
         if (metric.invert) value = 100 - value;
       }
 
-      if (!weeklyMap.has(weekKey)) {
-        weeklyMap.set(weekKey, {
-          total: 0,
-          count: 0,
-          date: monday
-        });
-      }
-      
-      const weekData = weeklyMap.get(weekKey);
-
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
-      // For other metrics (including Team Funded's % of revenue), average.
+      // For other metrics, average.
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         weekData.total += value;
       } else {
@@ -530,18 +573,22 @@
         weekData.count++;
       }
     });
-    
+
     // Convert map to arrays
     const sortedWeeks = Array.from(weeklyMap.entries())
       .sort((a, b) => new Date(a[0]) - new Date(b[0]));
-    
+
     const weekKeys = sortedWeeks.map(([key]) => key);
     const labels = sortedWeeks.map(([key, data], index) => {
       const date = new Date(key);
       return formatDateLabel(date, index, weekKeys, 'weekly');
     });
-    
+
     const data = sortedWeeks.map(([key, weekData]) => {
+      if (metric.ratioFields) {
+        // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
+        return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * 100 : 0;
+      }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return weekData.total; // Sum for revenue / sum-flagged metrics
       } else {
@@ -565,6 +612,27 @@
       const date = new Date(dateStr);
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
+      if (!monthlyMap.has(monthKey)) {
+        monthlyMap.set(monthKey, {
+          total: 0,
+          count: 0,
+          numeratorSum: 0,
+          denominatorSum: 0,
+          year: date.getFullYear(),
+          month: date.getMonth()
+        });
+      }
+
+      const monthData = monthlyMap.get(monthKey);
+
+      // Ratio metrics (Team Funded's % of revenue): sum numerator and denominator
+      // separately and divide once at the end -- see aggregateByWeek's identical handling.
+      if (metric.ratioFields) {
+        monthData.numeratorSum += snapshot[metric.ratioFields.numerator] || 0;
+        monthData.denominatorSum += snapshot[metric.ratioFields.denominator] || 0;
+        return;
+      }
+
       let value = 0;
       if (selectedCategory === 'revenue') {
         if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
@@ -577,19 +645,8 @@
         if (metric.invert) value = 100 - value;
       }
 
-      if (!monthlyMap.has(monthKey)) {
-        monthlyMap.set(monthKey, {
-          total: 0,
-          count: 0,
-          year: date.getFullYear(),
-          month: date.getMonth()
-        });
-      }
-      
-      const monthData = monthlyMap.get(monthKey);
-
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
-      // For other metrics (including Team Funded's % of revenue), average.
+      // For other metrics, average.
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         monthData.total += value;
       } else {
@@ -597,17 +654,20 @@
         monthData.count++;
       }
     });
-    
+
     // Convert map to arrays
     const sortedMonths = Array.from(monthlyMap.entries())
       .sort((a, b) => a[0].localeCompare(b[0]));
-    
+
     const labels = sortedMonths.map(([key, data]) => {
       const date = new Date(data.year, data.month);
       return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     });
-    
+
     const data = sortedMonths.map(([key, monthData]) => {
+      if (metric.ratioFields) {
+        return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * 100 : 0;
+      }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return monthData.total; // Sum for revenue / sum-flagged metrics
       } else {
