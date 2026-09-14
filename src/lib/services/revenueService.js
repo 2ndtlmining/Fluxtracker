@@ -21,7 +21,7 @@ export {
     getRevenueSyncStatus
 } from './revenue/revenueSyncState.js';
 
-export { fetchFluxPrice, fetchCurrentBlockHeight } from './fluxNetworkData.js';
+export { fetchFluxPrice, fetchCurrentBlockHeight, getLastGoodPrice } from './fluxNetworkData.js';
 
 export {
     progressiveSync,

@@ -18,7 +18,7 @@ import { getActiveInstanceName } from '../../lib/db/supabaseClient.js';
 import { API_ENDPOINTS, APP_VERSION } from '../../lib/config.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getSnapshotSystemStatus } from '../../lib/db/snapshotManager.js';
-import { fetchCurrentBlockHeight } from '../../lib/services/revenueService.js';
+import { fetchCurrentBlockHeight, getLastGoodPrice } from '../../lib/services/revenueService.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getHostLocation } from '../../lib/services/hostLocationService.js';
 import { getPriceHistoryStatus } from '../../lib/services/priceHistoryService.js';
@@ -81,6 +81,16 @@ router.get('/health', async (req, res) => {
         priceHistoryInfo = { error: 'Unable to get price history status' };
     }
 
+    const cachedPrice = getLastGoodPrice();
+    const livePriceInfo = cachedPrice
+        ? {
+            price: cachedPrice.price,
+            ageMinutes: Math.round(cachedPrice.ageMs / 60000),
+            // Past six hours the fallback stops being served, so a NULL-USD gap can reopen.
+            fallbackUsable: cachedPrice.ageMs <= 6 * 60 * 60 * 1000
+        }
+        : { price: null, ageMinutes: null, fallbackUsable: false };
+
     res.json({
         status: reachable ? 'ok' : 'degraded',
         timestamp: Date.now(),
@@ -98,6 +108,12 @@ router.get('/health', async (req, res) => {
             ageHours: backupStatus.ageHours
         },
         priceHistory: priceHistoryInfo,
+        // Live price (issue #183): how old the last price this process actually fetched is.
+        // When every source misses a pass, transactions are priced from this instead of
+        // being stored NULL -- so its age is what says whether that safety net is still
+        // valid. Without it, a price outage was only visible as missing cells in the
+        // transaction log hours later.
+        livePrice: livePriceInfo,
         kpiScheduler: getKpiSchedulerState()
     });
 });

@@ -11,7 +11,7 @@ import {
     getUnresolvedFailedTxids,
     resolveFailedTxid
 } from '../../db/database.js';
-import { syncPriceHistory, buildFullPriceMap } from '../priceHistoryService.js';
+import { syncPriceHistory, buildFullPriceMap, repairTodaysNullUsd } from '../priceHistoryService.js';
 import { fetchFluxPrice, fetchCurrentBlockHeight } from '../fluxNetworkData.js';
 import {
     revenueSyncState,
@@ -512,6 +512,19 @@ export async function progressiveSync() {
             await updateSyncStatus('revenue', 'completed', null, safeBlock);
         } else {
             await updateSyncStatus('revenue', 'completed', null, currentBlock);
+        }
+
+        // 8b. Re-price any of TODAY's transactions that a previous pass left unpriced
+        // because its live price fetch failed (issue #183). Today is the only day the
+        // date-based backfill cannot help with -- flux_price_history excludes the current
+        // day -- so without this those rows stay NULL until tomorrow. Isolated: a repair
+        // failure must never fail a sync that otherwise succeeded.
+        if (fluxPrice) {
+            try {
+                await repairTodaysNullUsd(fluxPrice);
+            } catch (repairErr) {
+                log.warn({ err: repairErr }, 'Same-day USD repair failed (non-fatal)');
+            }
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
