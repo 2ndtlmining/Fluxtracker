@@ -1651,6 +1651,46 @@ export async function upsertNodeIpClassifications(rows) {
 // DECENTRALIZATION SNAPSHOTS (historical per-provider breakdown, issue #108 Phase 3)
 // ============================================
 
+// ============================================
+// GAME SNAPSHOTS (issue #163)
+// ============================================
+
+export async function createGameSnapshots(snapshotDate, games) {
+    if (!games || games.length === 0) return 0;
+
+    const rows = games.map(g => ({
+        snapshot_date: snapshotDate,
+        game_name: g.name,
+        instance_count: g.instances,
+        created_at: Date.now()
+    }));
+
+    const { error } = await supabase
+        .from('game_snapshots')
+        .upsert(rows, { onConflict: 'snapshot_date,game_name' });
+
+    if (error) throw new Error(`Upsert game_snapshots failed: ${error.message}`);
+    return rows.length;
+}
+
+/**
+ * Per-game counts for one date. No .range() paging needed: this is a single date and the
+ * network runs well under a dozen distinct games, far below PostgREST's 1000-row cap.
+ */
+export async function getGameSnapshotsByDate(snapshotDate) {
+    const { data, error } = await supabase
+        .from('game_snapshots')
+        .select('game_name, instance_count')
+        .eq('snapshot_date', snapshotDate)
+        .order('instance_count', { ascending: false });
+
+    if (error) {
+        log.error(`getGameSnapshotsByDate error: ${error.message}`);
+        return [];
+    }
+    return data || [];
+}
+
 export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
     if (!breakdown || breakdown.length === 0) return 0;
 

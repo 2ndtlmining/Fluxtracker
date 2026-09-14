@@ -229,6 +229,23 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_composite ON repo_snapshots(image_name, snapshot_date)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_repo_category ON repo_snapshots(category)`);
 
+    // Per-game daily counts (issue #163). repo_snapshots cannot serve this: it is keyed by
+    // Docker image, and the games that most need tracking (FiveM, most Valheim) have
+    // encrypted specs with no image at all. Keyed by canonical game name instead, which is
+    // what both identification paths resolve to.
+    d.exec(`
+        CREATE TABLE IF NOT EXISTS game_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_date TEXT NOT NULL,
+            game_name TEXT NOT NULL,
+            instance_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            UNIQUE(snapshot_date, game_name)
+        )
+    `);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_game_snapshot_date ON game_snapshots(snapshot_date)`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_game_snapshot_name ON game_snapshots(game_name, snapshot_date)`);
+
     d.exec(`
         CREATE TABLE IF NOT EXISTS decentralization_snapshots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1825,6 +1842,45 @@ export async function getDecentralizationSnapshotHistory(startDate, endDate) {
         WHERE snapshot_date >= ? AND snapshot_date <= ?
         ORDER BY snapshot_date ASC, node_count DESC
     `).all(startDate, endDate);
+}
+
+// ============================================
+// GAME SNAPSHOTS (issue #163)
+// ============================================
+
+export async function createGameSnapshots(snapshotDate, games) {
+    if (!games || games.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO game_snapshots (snapshot_date, game_name, instance_count, created_at)
+        VALUES (@snapshot_date, @game_name, @instance_count, @created_at)
+        ON CONFLICT(snapshot_date, game_name) DO UPDATE SET
+            instance_count = @instance_count
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const item of items) {
+            stmt.run({
+                snapshot_date: snapshotDate,
+                game_name: item.name,
+                instance_count: item.instances,
+                created_at: Date.now()
+            });
+        }
+    });
+
+    insertAll(games);
+    return games.length;
+}
+
+/** Per-game counts for one date. Empty when that date was never snapshotted. */
+export async function getGameSnapshotsByDate(snapshotDate) {
+    return getDb().prepare(`
+        SELECT game_name, instance_count
+        FROM game_snapshots
+        WHERE snapshot_date = ?
+        ORDER BY instance_count DESC
+    `).all(snapshotDate);
 }
 
 // ============================================
