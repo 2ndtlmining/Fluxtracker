@@ -190,6 +190,9 @@
   function appTypeLabel(appType) {
     if (appType === 'git') return 'Git';
     if (appType === 'docker') return 'Docker';
+    // Issue #188: not an app at all -- a FluxDrive storage payment. "Unknown" was actively
+    // wrong for these; we know exactly what they are, they just have no app to name.
+    if (appType === 'fluxdrive') return 'FluxDrive';
     return 'Unknown';
   }
 
@@ -443,6 +446,12 @@
                       <path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/>
                     </svg>
                   </span>
+                {:else if tx.app_type === 'fluxdrive'}
+                  <span title="FluxDrive storage payment" class="type-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" class="icon-fluxdrive">
+                      <path d="M4 5h16a1 1 0 0 1 1 1v5H3V6a1 1 0 0 1 1-1zm-1 8h18v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5zm2.5 1.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm0-7a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>
+                    </svg>
+                  </span>
                 {:else}
                   <span class="type-unknown" title="Unknown">?</span>
                 {/if}
@@ -465,7 +474,16 @@
                   <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
                 {/if}
               </td>
-              <td class="app-name-col">{tx.app_name || '-'}</td>
+              <td class="app-name-col">
+                {#if tx.app_type === 'fluxdrive'}
+                  <!-- Deliberately a badge rather than a literal app_name: this is a
+                       classification of the payment, not the name of a deployed app, and
+                       App Analytics groups by app_name. See issue #188. -->
+                  <span class="fluxdrive-badge" title="FluxDrive storage payment — identified from the payment's OP_RETURN, not from an app specification">FLUXDRIVE</span>
+                {:else}
+                  {tx.app_name || '-'}
+                {/if}
+              </td>
               <td class="amount-col">{formatAmount(tx.amount)}</td>
               <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
               <td class="date-col">{formatDate(tx.date)}</td>
@@ -906,6 +924,30 @@
     text-transform: uppercase;
     vertical-align: middle;
     white-space: nowrap;
+  }
+
+  /* Issue #188. Independent of the TEAM/FIAT pair on purpose: those qualify the PAYER and
+     are mutually exclusive, this qualifies the PRODUCT, and a FluxDrive payment can also
+     come from the Flux team address -- both badges then show, in their own columns.
+     --accent-green rather than cyan: cyan is this component's interactive colour (filter
+     buttons, focus rings, export hover) and a static badge in it would read as a control. */
+  .fluxdrive-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--accent-green);
+    background: rgba(0, 255, 65, 0.12);
+    border: 1px solid rgba(0, 255, 65, 0.35);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .icon-fluxdrive {
+    color: var(--accent-green);
   }
 
   .flux-fiat-row {
