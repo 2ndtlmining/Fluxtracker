@@ -72,7 +72,16 @@
       const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        // Surface the server's own message. The endpoint returns actionable text for the
+        // failures that actually happen here -- a missing migration names the file to
+        // apply -- and collapsing that to "API error: 500" threw away the one piece of
+        // information that tells anyone what to do next (issue #171).
+        let detail = '';
+        try {
+          const body = await response.json();
+          detail = body?.error || '';
+        } catch { /* non-JSON error body; fall back to the status code */ }
+        throw new Error(detail || `API error: ${response.status}`);
       }
 
       const result = await response.json();
