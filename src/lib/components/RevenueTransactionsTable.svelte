@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
+  import { serialiseSources, toggleSource as nextSources } from '$lib/utils/transactionSources.js';
 
   // Bound to the parent so the shared header (page info, mode badge, export button
   // enablement) can reflect this view's state.
@@ -29,19 +30,32 @@
   // which is a different question from either alone. Empty = no filter.
   let activeSources = new Set();
 
-  // Serialised for the API and the export filename. Sorted so the same selection always
-  // produces the same string regardless of the order the badges were clicked.
-  $: sourceParam = [...activeSources].sort().join(',');
+  // Issue #173: this was a `$:` reactive statement that fetchTransactions() read. Svelte 4
+  // batches reactive statements until the next update cycle, so a click handler that had
+  // just reassigned activeSources still read the PREVIOUS value -- the badges rendered the
+  // new selection while the request carried the old one, and the table lagged the buttons by
+  // exactly one click. It is now computed at call time from whatever is passed in, so there
+  // is no stale read left to make.
+  function sourceParam(sources = activeSources) {
+    return serialiseSources(sources);
+  }
 
   function toggleSource(source) {
-    // Reassigned rather than mutated -- Svelte 4 doesn't track Set mutation.
-    const next = new Set(activeSources);
-    if (next.has(source)) next.delete(source); else next.add(source);
+    const next = nextSources(activeSources, source);
     activeSources = next;
 
     // A narrower filter can leave the current page beyond the end of the result set.
     currentPage = 1;
-    fetchTransactions();
+    // `next` passed explicitly, NOT read back off activeSources: the assignment above has
+    // not propagated yet at this point in the tick.
+    fetchTransactions(next);
+  }
+
+  function clearSources() {
+    const empty = new Set();
+    activeSources = empty;
+    currentPage = 1;
+    fetchTransactions(empty);
   }
 
   // Computed values
@@ -55,7 +69,7 @@
     fetchTransactions();
   });
 
-  async function fetchTransactions() {
+  async function fetchTransactions(sources = activeSources) {
     loading = true;
     error = null;
 
@@ -67,7 +81,8 @@
       });
       // Stacks with the search box rather than replacing it, so "team-funded payments for
       // app alpha" is expressible. Omitted entirely when no badge is active.
-      if (sourceParam) params.set('source', sourceParam);
+      const source = sourceParam(sources);
+      if (source) params.set('source', source);
 
       const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
 
@@ -210,6 +225,10 @@
       const originalText = mode;
       mode = 'EXPORTING...';
 
+      // Snapshot the filter once, up front: the export makes many requests and must not
+      // change scope halfway through if someone clicks a badge while it runs.
+      const exportSource = sourceParam();
+
       // Page through every transaction. Asking for all of them in one request looked like
       // it worked but the server caps the page size, so exports were silently truncated.
       const PAGE_SIZE = 5000;
@@ -220,7 +239,7 @@
       do {
         const response = await fetch(
           `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}` +
-          (sourceParam ? `&source=${encodeURIComponent(sourceParam)}` : '')
+          (exportSource ? `&source=${encodeURIComponent(exportSource)}` : '')
         );
 
         if (!response.ok) {
@@ -278,7 +297,7 @@
       const searchSuffix = searchQuery ? `_filtered_${searchQuery.substring(0, 10)}` : '';
       // The export inherits the active badges, so the filename has to record them --
       // otherwise two exports of very different scope land in Downloads under one name.
-      const sourceSuffix = sourceParam ? `_${sourceParam.replace(/,/g, '-')}` : '';
+      const sourceSuffix = exportSource ? `_${exportSource.replace(/,/g, '-')}` : '';
       const filename = `flux_revenue_transactions${searchSuffix}${sourceSuffix}_${timestamp}.csv`;
 
       // Create download link
@@ -342,7 +361,9 @@
     <div class="error-overlay">
       <span class="error-icon">⚠️</span>
       <p>{error}</p>
-      <button class="retry-button" on:click={fetchTransactions}>Retry</button>
+      <!-- Wrapped, not passed directly: fetchTransactions takes the active sources as its
+           first argument, and a bare handler would hand it the click Event instead. -->
+      <button class="retry-button" on:click={() => fetchTransactions()}>Retry</button>
     </div>
   {:else if transactions.length === 0}
     <div class="empty-state">
@@ -350,7 +371,7 @@
         <!-- Distinguishes "this filter matched nothing" from "there is no data", which
              otherwise look identical and read as a broken table. -->
         <p>No {[...activeSources].sort().join(' or ')} transactions{searchQuery ? ' match that search' : ''}</p>
-        <button type="button" class="retry-button" on:click={() => { activeSources = new Set(); currentPage = 1; fetchTransactions(); }}>
+        <button type="button" class="retry-button" on:click={clearSources}>
           Clear filter
         </button>
       {:else}
@@ -385,7 +406,7 @@
         <span class="legend-text">bought through the Flux fiat on-ramp</span>
       </button>
       {#if activeSources.size > 0}
-        <button type="button" class="badge-clear" on:click={() => { activeSources = new Set(); currentPage = 1; fetchTransactions(); }}>
+        <button type="button" class="badge-clear" on:click={clearSources}>
           clear filter
         </button>
       {/if}
