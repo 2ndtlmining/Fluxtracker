@@ -69,38 +69,40 @@
   {#if loading}
     <div class="card-empty-state">Loading...</div>
   {:else}
-    <div class="total-row">
-      <div class="total-value">{formatNumber(totalApps)}</div>
-      <div class="total-subtitle">Across the network</div>
-      {#if totalComparison && totalComparison.change !== undefined}
-        <div class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
-          {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
-          {formatChange(totalComparison)}
-        </div>
-      {/if}
-    </div>
-
-    <div class="activity-grid">
-      <div class="activity-metric">
-        <div class="activity-label">New/Updated Today</div>
-        <div class="activity-value">{formatNumber(deployedToday)}</div>
-        {#if deployedComparison && deployedComparison.change !== undefined}
-          <div class="metric-change" class:up={deployedComparison.trend === 'up'} class:down={deployedComparison.trend === 'down'} class:neutral={deployedComparison.trend === 'neutral'}>
-            {#if deployedComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if deployedComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
-            {formatChange(deployedComparison)}
+    <div class="headline-row">
+      <div class="total-block">
+        <div class="total-value">{formatNumber(totalApps)}</div>
+        <div class="total-subtitle">Across the network</div>
+        {#if totalComparison && totalComparison.change !== undefined}
+          <div class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
+            {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+            {formatChange(totalComparison)}
           </div>
         {/if}
       </div>
 
-      <div class="activity-metric">
-        <div class="activity-label">Expiring Today</div>
-        <div class="activity-value">{formatNumber(expiringToday)}</div>
-        {#if expiringComparison && expiringComparison.change !== undefined}
-          <div class="metric-change" class:up={expiringComparison.trend === 'up'} class:down={expiringComparison.trend === 'down'} class:neutral={expiringComparison.trend === 'neutral'}>
-            {#if expiringComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if expiringComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
-            {formatChange(expiringComparison)}
-          </div>
-        {/if}
+      <div class="activity-stack">
+        <div class="activity-metric">
+          <div class="activity-label">New/Updated Today</div>
+          <div class="activity-value">{formatNumber(deployedToday)}</div>
+          {#if deployedComparison && deployedComparison.change !== undefined}
+            <div class="metric-change" class:up={deployedComparison.trend === 'up'} class:down={deployedComparison.trend === 'down'} class:neutral={deployedComparison.trend === 'neutral'}>
+              {#if deployedComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if deployedComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {formatChange(deployedComparison)}
+            </div>
+          {/if}
+        </div>
+
+        <div class="activity-metric">
+          <div class="activity-label">Expiring Today</div>
+          <div class="activity-value">{formatNumber(expiringToday)}</div>
+          {#if expiringComparison && expiringComparison.change !== undefined}
+            <div class="metric-change" class:up={expiringComparison.trend === 'up'} class:down={expiringComparison.trend === 'down'} class:neutral={expiringComparison.trend === 'neutral'}>
+              {#if expiringComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if expiringComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {formatChange(expiringComparison)}
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -192,13 +194,34 @@
     font-size: 0.85rem;
   }
 
-  .total-row {
+  /* Two sections, not three: the headline total and today's activity read as one block
+     about app instances, with gaming below the rule as the only real subdivision. The
+     activity figures sit beside the total rather than under it, using the width the big
+     number leaves free instead of costing another row of height. */
+  .headline-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--spacing-lg);
+    /* No border-bottom: .gaming-section already draws a border-top, and carrying one here
+       too rendered two rules 32px apart with dead space between them. One divider, because
+       there is now exactly one division in this card. */
+  }
+
+  .total-block {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
-    padding-bottom: var(--spacing-md);
-    margin-bottom: var(--spacing-md);
-    border-bottom: 1px solid var(--border-color);
+    min-width: 0;
+  }
+
+  /* Stacked, so both labels get a full line and neither has to wrap or truncate --
+     "New/Updated Today" does not fit beside "Expiring Today" at this card width. */
+  .activity-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
   }
 
   .total-value {
@@ -216,16 +239,10 @@
     font-weight: 500;
   }
 
-  .activity-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--spacing-md);
-  }
-
   .activity-metric {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    gap: 2px;
   }
 
   .activity-label {
@@ -237,7 +254,7 @@
   }
 
   .activity-value {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 700;
     color: var(--text-white);
     line-height: 1.1;
@@ -371,9 +388,12 @@
   }
 
   @media (max-width: 768px) {
-    .activity-grid {
-      grid-template-columns: 1fr;
-      gap: var(--spacing-sm);
+    /* The card goes full-width in a single column here, but the two blocks still fit side
+       by side at phone width -- wrap rather than stack unconditionally, so the layout only
+       breaks apart when it actually has to. */
+    .headline-row {
+      flex-wrap: wrap;
+      gap: var(--spacing-md);
     }
 
     .total-value {
