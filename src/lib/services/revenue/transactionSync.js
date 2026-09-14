@@ -217,6 +217,92 @@ export function lookupAppName(hash) {
     return permanentMessagesCache.map.get(hash) || getAppNameByHash(hash) || null;
 }
 
+// ── Targeted hash lookup (issue: new deployments sat unnamed for up to an hour) ──────────
+//
+// The cached permanentmessages map has a 1h TTL, so an app registered two minutes ago is not
+// in it and its transaction was stored with app_name = NULL until the cache next refreshed.
+// The API answers a single-hash query directly -- permanentmessages?hash=<hash> returns just
+// that app's message -- so a cache miss no longer has to wait for the whole map.
+//
+// Two bounds keep this from becoming a request amplifier, because backfillAppNames retries
+// every unnamed transaction of the last 30 days on every sync pass:
+//
+//   1. Only for RECENT transactions. An old hash missing from a full, fresh map is not
+//      going to appear because we asked about it individually -- it is gone (expired or
+//      never propagated). Only a just-registered app benefits.
+//   2. A negative cache. A hash the API does not know is not asked about again for 30
+//      minutes, so one unresolvable payment costs one request per half hour, not one per
+//      sync pass forever.
+const TARGETED_LOOKUP_MAX_TX_AGE_MS = 24 * 60 * 60 * 1000;
+const MISSED_HASH_RETRY_MS = 30 * 60 * 1000;
+const missedHashes = new Map(); // hash -> when the targeted lookup last came back empty
+
+/** Test seam -- clears the negative cache. */
+export function resetMissedHashes() {
+    missedHashes.clear();
+}
+
+/**
+ * Ask the API about ONE hash and fold the answer into the cache. Returns the app name, or
+ * null when the API does not know it (yet).
+ */
+export async function fetchPermanentMessageByHash(hash) {
+    // The hash goes into a URL, so re-validate its shape here rather than trusting the
+    // caller -- extractAppHashFromTx already guarantees it, but this function is exported.
+    if (!/^[0-9a-f]{64}$/i.test(hash || '')) return null;
+
+    try {
+        const body = await resilientFetch(`${API_ENDPOINTS.APPS}/permanentmessages?hash=${hash}`, {
+            timeout: 10000,
+            breakerKey: 'permanent-message-by-hash'
+        });
+
+        if (body?.status !== 'success' || !Array.isArray(body.data) || body.data.length === 0) return null;
+
+        const msg = body.data[0];
+        const appSpec = msg.zelAppSpecification || msg.appSpecifications;
+        const name = appSpec?.name || msg.name;
+        if (!name) return null;
+
+        permanentMessagesCache.map.set(hash, name);
+        permanentMessagesCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
+        log.info({ hash: hash.substring(0, 10), name }, 'Resolved app name by targeted lookup: %s', name);
+        return name;
+    } catch (error) {
+        log.warn({ err: error, hash: hash.substring(0, 10) }, 'Targeted permanentmessages lookup failed');
+        return null;
+    }
+}
+
+/**
+ * The name for a hash: cache first, then a single targeted API call for a recent
+ * transaction whose app the cached map has not seen yet.
+ *
+ * @param {?string} hash app spec hash from the transaction's OP_RETURN
+ * @param {?number} txTimestamp unix seconds; older than a day skips the targeted call
+ */
+export async function resolveAppName(hash, txTimestamp = null) {
+    if (!hash) return null;
+
+    const cached = lookupAppName(hash);
+    if (cached) return cached;
+
+    const ageMs = Number.isFinite(txTimestamp) ? Date.now() - txTimestamp * 1000 : Infinity;
+    if (ageMs > TARGETED_LOOKUP_MAX_TX_AGE_MS) return null;
+
+    const lastMiss = missedHashes.get(hash);
+    if (lastMiss && Date.now() - lastMiss < MISSED_HASH_RETRY_MS) return null;
+
+    const name = await fetchPermanentMessageByHash(hash);
+    if (!name) {
+        missedHashes.set(hash, Date.now());
+        return null;
+    }
+
+    missedHashes.delete(hash);
+    return name;
+}
+
 /**
  * Look up app type (git/docker) by app name
  */
@@ -417,9 +503,12 @@ export async function progressiveSync() {
                         continue;
                     }
 
-                    // Extract app name via OP_RETURN -> permanentmessages lookup
+                    // Extract app name via OP_RETURN -> permanentmessages lookup. An app
+                    // registered minutes ago is not in the cached map yet, so a miss on a
+                    // recent transaction falls through to a single targeted query rather
+                    // than leaving the row unnamed until the cache's next hourly refresh.
                     const appHash = extractAppHashFromTx(tx);
-                    const appName = appHash ? lookupAppName(appHash) : null;
+                    const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
                     const appType = appName ? lookupAppType(appName) : null;
 
                     const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
@@ -473,7 +562,7 @@ export async function progressiveSync() {
                         if (!tx.confirmations || tx.confirmations < 8) continue;
 
                         const appHash = extractAppHashFromTx(tx);
-                        const appName = appHash ? lookupAppName(appHash) : null;
+                        const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
                         const appType = appName ? lookupAppType(appName) : null;
 
                         const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
@@ -596,7 +685,7 @@ export async function auditRecentTransactions() {
                     if (!tx || !tx.confirmations || tx.confirmations < 8) continue;
 
                     const appHash = extractAppHashFromTx(tx);
-                    const appName = appHash ? lookupAppName(appHash) : null;
+                    const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
                     const appType = appName ? lookupAppType(appName) : null;
 
                     payments.push(...processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap));

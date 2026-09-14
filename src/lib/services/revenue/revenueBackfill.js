@@ -11,7 +11,7 @@ import {
 import {
     ensurePermanentMessagesCache,
     extractAppHashFromTx,
-    lookupAppName,
+    resolveAppName,
     lookupAppType,
     fetchRawTransaction
 } from './transactionSync.js';
@@ -106,7 +106,9 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
                 continue;
             }
 
-            const appName = lookupAppName(appHash);
+            // Same targeted fallback as the sync path: a recent registration the cached
+            // map has not seen yet is resolved on this pass instead of the next hour's.
+            const appName = await resolveAppName(appHash, tx.blocktime);
             if (!appName) { noName++; continue; }
 
             const appType = lookupAppType(appName);
