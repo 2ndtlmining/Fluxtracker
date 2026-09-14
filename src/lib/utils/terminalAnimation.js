@@ -265,6 +265,129 @@ export function gamepadFrameKinds() {
   return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
 }
 
+// ── Valheim longship (issue #180) ─────────────────────────────────────────────────────
+//
+// The first per-game skin. A Valheim deployment sails a longship across moving water
+// instead of playing the shared controller; every other game keeps the controller, which
+// stays the fallback for any game with no art of its own.
+//
+// Two things make the motion, and both are length-preserving by construction -- which is
+// the whole trick, because the box must never depend on content (CLAUDE.md):
+//
+//   1. The water is TWO wave rows ROTATED by a different amount each step. Rotating a
+//      string can't change its length, so no amount of animation can move the box wall.
+//   2. The ship is OVERLAID onto a blank LOGO_WIDTH canvas by column, skipping its own
+//      spaces so the waves show through around the hull. Overlay writes in place and never
+//      appends, so the canvas stays exactly LOGO_WIDTH wide whatever the art does.
+//
+// terminalAnimation.test.js asserts a single distinct row width and row count across every
+// frame of the sequence, and that consecutive frames actually differ on the wave rows.
+
+/** Rotate a string left by `by` characters. Length-preserving -- see note above. */
+export function rotateStrip(strip, by) {
+  if (!strip.length) return strip;
+  const offset = ((by % strip.length) + strip.length) % strip.length;
+  return strip.slice(offset) + strip.slice(0, offset);
+}
+
+/** Build a wave strip of exactly LOGO_WIDTH columns from a repeating pattern. */
+function waveStrip(pattern) {
+  return pattern.repeat(Math.ceil(LOGO_WIDTH / pattern.length)).slice(0, LOGO_WIDTH);
+}
+
+// Two different periods so the rows never line up into one marching stripe -- the near
+// water reads as faster than the far water, which is what sells the parallax.
+const SEA_FAR = waveStrip('~~^~~~-~');
+const SEA_NEAR = waveStrip('~-~~~^~~~');
+
+// The ship, authored row by row. Rows are NOT padded to a common width on purpose: each is
+// overlaid at its own column, so only the canvas has a width, and the art can never set it.
+const SHIP_EDGE = String.fromCharCode(92); // backslash -- never written literally here
+const SHIP_ROWS = [
+  '___|___',
+  '|=======|',
+  '___|=======|___',
+  SHIP_EDGE + '__o__o__o__o__/'
+];
+// Left column per ship row, chosen so every row is centred on the hull's midpoint.
+const SHIP_COLUMNS = [13, 12, 9, 9];
+
+// Bob pattern: the hull rides at row offset 0 or 1, changing every two steps. At offset 1
+// the hull sits ON the far-water row and is overlaid into it, which reads as the ship
+// settling into the swell rather than floating above it.
+const SHIP_BOB = [0, 0, 1, 1, 0, 0, 1, 1];
+
+// Two gulls drifting across the sky at different rates. They are not decoration for its own
+// sake: when the ship bobs down it vacates the top row, and a frame with a genuinely empty
+// row is the one thing the header smoke harness rejects outright. The gulls guarantee every
+// row of every frame has content, whatever the hull is doing. Columns are taken modulo the
+// canvas width, so they can never land outside the box.
+// Both drift right, starting clear of the mast so neither is painted over by the sail.
+const GULL = 'v';
+const GULL_COLUMNS = [2, 22];
+const GULL_DRIFT = [1, 1];
+
+export const VALHEIM_FRAME_COUNT = SHIP_BOB.length;
+
+/**
+ * Overlay `art` onto `row` starting at `column`, skipping spaces in the art so whatever is
+ * underneath (the water) shows through the gaps in the ship. Never changes row length:
+ * anything that would land past the right edge is dropped.
+ */
+function overlayAt(row, column, art) {
+  const out = row.split('');
+  for (let i = 0; i < art.length; i++) {
+    const target = column + i;
+    if (target < 0 || target >= out.length) continue;
+    if (art[i] === ' ') continue;
+    out[target] = art[i];
+  }
+  return out.join('');
+}
+
+/**
+ * One frame of the longship, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
+ * @param {number} step index into the sequence; wraps, so callers can just count up.
+ */
+export function formatValheimFrame(step = 0) {
+  const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
+  const bob = SHIP_BOB[index];
+
+  const blank = ' '.repeat(LOGO_WIDTH);
+  const rows = Array(BOOT_LINE_COUNT).fill(blank);
+
+  // Water fills the bottom two rows. The near row rotates the other way and at half the
+  // rate of the far row, so the two never march in step.
+  rows[BOOT_LINE_COUNT - 2] = rotateStrip(SEA_FAR, index);
+  rows[BOOT_LINE_COUNT - 1] = rotateStrip(SEA_NEAR, -Math.floor(index / 2));
+
+  // Sky first, so the ship's mast paints over a gull rather than the other way round.
+  // Drift is driven by the WRAPPED index, not the raw step: every frame has to be a pure
+  // function of step % VALHEIM_FRAME_COUNT, or the sequence never repeats and a caller that
+  // just counts up forever slowly desynchronises the sky from the hull.
+  GULL_COLUMNS.forEach((start, gull) => {
+    const column = (start + GULL_DRIFT[gull] * index) % LOGO_WIDTH;
+    rows[0] = overlayAt(rows[0], column, GULL);
+  });
+
+  SHIP_ROWS.forEach((art, shipRow) => {
+    const target = shipRow + bob;
+    if (target >= BOOT_LINE_COUNT) return;
+    rows[target] = overlayAt(rows[target], SHIP_COLUMNS[shipRow], art);
+  });
+
+  return rows;
+}
+
+/**
+ * Row kinds for a longship frame. Same call as the gamepad's: the whole frame carries the
+ * green deployment accent, because here the art IS the event marker -- accenting only part
+ * of it would read as a rendering fault.
+ */
+export function valheimFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
 function formatDetailLine(label, value) {

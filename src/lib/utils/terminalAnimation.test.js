@@ -29,7 +29,11 @@ import {
   EXPIRING_ICON_LINE,
   formatGamepadFrame,
   gamepadFrameKinds,
-  GAMEPAD_FRAME_COUNT
+  GAMEPAD_FRAME_COUNT,
+  formatValheimFrame,
+  valheimFrameKinds,
+  VALHEIM_FRAME_COUNT,
+  rotateStrip
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -572,6 +576,107 @@ describe('formatGamepadFrame (issue #177)', () => {
 
   it('accents the whole controller, since here the art IS the event marker', () => {
     const kinds = gamepadFrameKinds();
+    expect(kinds).toHaveLength(BOOT_LINE_COUNT);
+    expect(new Set(kinds)).toEqual(new Set([ROW_KIND_DEPLOYED]));
+  });
+});
+
+describe('rotateStrip (issue #180)', () => {
+  // The whole reason the water can animate at all without risking the box: rotation cannot
+  // change a string's length, whatever offset it is handed.
+  it('never changes the length, for any offset including negative and out-of-range', () => {
+    const strip = '~~^~~-~~';
+    for (const by of [-99, -8, -1, 0, 1, 7, 8, 9, 1000]) {
+      expect(rotateStrip(strip, by).length).toBe(strip.length);
+    }
+  });
+
+  it('rotates left and wraps', () => {
+    expect(rotateStrip('abcdef', 2)).toBe('cdefab');
+    expect(rotateStrip('abcdef', -1)).toBe('fabcde');
+    expect(rotateStrip('abcdef', 6)).toBe('abcdef');
+  });
+
+  it('is safe on an empty strip', () => {
+    expect(rotateStrip('', 3)).toBe('');
+  });
+});
+
+describe('formatValheimFrame (issue #180)', () => {
+  it('renders BOOT_LINE_COUNT rows, like every other frame in the box', () => {
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      expect(formatValheimFrame(step)).toHaveLength(BOOT_LINE_COUNT);
+    }
+  });
+
+  // Box width and height are load-bearing (CLAUDE.md: never let them depend on content).
+  // The ship is overlaid onto a fixed-width canvas and the water is rotated in place, so a
+  // drift here means someone broke that invariant.
+  it('every row of every frame is exactly LOGO_WIDTH', () => {
+    const widths = new Set();
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      for (const row of formatValheimFrame(step)) widths.add(row.length);
+    }
+    expect([...widths]).toEqual([LOGO_WIDTH]);
+  });
+
+  it('never emits an empty row -- the harness rejects those outright', () => {
+    // The gulls exist for this: when the hull bobs down it vacates the top row.
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      for (const row of formatValheimFrame(step)) {
+        expect(row.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('actually animates: consecutive frames differ', () => {
+    for (let step = 0; step < VALHEIM_FRAME_COUNT - 1; step++) {
+      expect(formatValheimFrame(step)).not.toEqual(formatValheimFrame(step + 1));
+    }
+  });
+
+  it('the water moves on every step, not just when the hull bobs', () => {
+    for (let step = 0; step < VALHEIM_FRAME_COUNT - 1; step++) {
+      const near = formatValheimFrame(step)[BOOT_LINE_COUNT - 1];
+      const nextNear = formatValheimFrame(step + 1)[BOOT_LINE_COUNT - 1];
+      const far = formatValheimFrame(step)[BOOT_LINE_COUNT - 2];
+      const nextFar = formatValheimFrame(step + 1)[BOOT_LINE_COUNT - 2];
+      expect(near !== nextNear || far !== nextFar).toBe(true);
+    }
+  });
+
+  it('the two water rows are never in lockstep -- that is what reads as parallax', () => {
+    const shifts = new Set();
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      const [far, near] = formatValheimFrame(step).slice(-2);
+      shifts.add(far === near);
+    }
+    expect(shifts.has(true)).toBe(false);
+  });
+
+  it('keeps the ship intact: the hull appears in every frame', () => {
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      expect(formatValheimFrame(step).some(r => r.includes('__o__o__o__o__'))).toBe(true);
+    }
+  });
+
+  it('bobs the hull between two rows and no further', () => {
+    const hullRows = new Set();
+    for (let step = 0; step < VALHEIM_FRAME_COUNT; step++) {
+      const rows = formatValheimFrame(step);
+      hullRows.add(rows.findIndex(r => r.includes('__o__o__o__o__')));
+    }
+    expect([...hullRows].sort()).toEqual([3, 4]);
+  });
+
+  it('wraps on step, so callers can just count up forever', () => {
+    expect(formatValheimFrame(VALHEIM_FRAME_COUNT)).toEqual(formatValheimFrame(0));
+    expect(formatValheimFrame(VALHEIM_FRAME_COUNT * 3 + 2)).toEqual(formatValheimFrame(2));
+    expect(formatValheimFrame(-1)).toEqual(formatValheimFrame(VALHEIM_FRAME_COUNT - 1));
+  });
+
+  it('carries the deployment accent on every row, like the gamepad', () => {
+    const kinds = valheimFrameKinds();
     expect(kinds).toHaveLength(BOOT_LINE_COUNT);
     expect(new Set(kinds)).toEqual(new Set([ROW_KIND_DEPLOYED]));
   });

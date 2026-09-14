@@ -24,7 +24,9 @@ const INITIAL_DEPLOYED = {
   blockAge: 100
 };
 const UPDATED_DEPLOYED = {
-  name: 'palworld1789155733041',
+  // Valheim (issue #180): a game with its own art, where the first fixture is a game
+  // without any -- so one run covers the longship AND the shared controller fallback.
+  name: 'valheim1789155733041',
   // repo no longer drives the icon row (issue #127 dropped the docker/git distinction
   // from it) -- kept as a realistic field on the stub payload, unused by this harness.
   repo: 'runonflux/orbit:latest',

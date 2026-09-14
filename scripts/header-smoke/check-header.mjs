@@ -116,11 +116,16 @@ const run = async () => {
   let sawResRow = false;
   let sawDeployedIconBanner = false;
   // Issue #177: a game deployment plays an ASCII controller before its detail frame. The
-  // deployed fixture is named like a real dedicated-site deploy (palworld + 13-digit
+  // deployed fixture is named like a real dedicated-site deploy (a game name + 13-digit
   // timestamp) so this path is actually exercised; the expiring fixture stays a
   // non-game name, which keeps the no-gamepad path covered too.
   let sawGamepadFrame = false;
   let sawGamepadPress = false;
+  // Issue #180: Valheim has art of its own -- a longship on water that moves under it.
+  // The updated deployed fixture is a valheim dedicated-site name, so a single run covers
+  // the longship and the controller fallback (the initial fixture is palworld).
+  let sawLongshipFrame = false;
+  const longshipWaterRows = new Set();
   let returnedToLogoAfterInfo = false;
   let infoTextStyleMatchesBoot = null;
   let deployedIconIsGreen = null;
@@ -169,6 +174,17 @@ const run = async () => {
       }
       if (phases.firstLogoRow === null && s.rows.some(r => r.cls.includes('row-logo'))) phases.firstLogoRow = t;
 
+      // Longship frames (issue #180), checked outside the NAME-row guard for the same
+      // reason as the controller: the art frames carry no NAME row.
+      if (s.settled && joined.includes('__o__o__o__o__')) {
+        sawLongshipFrame = true;
+        // The two water rows are the last two of the frame. Collecting them across samples
+        // proves the water actually scrolls rather than sitting still under the hull.
+        for (const row of s.rows.slice(-2)) {
+          if (/[~^-]{6}/.test(row.text)) longshipWaterRows.add(row.text);
+        }
+      }
+
       // Gamepad frames (issue #177). Checked OUTSIDE the NAME-row guard below: a
       // controller frame has no NAME row, so inside it this could only ever match a
       // mid-wipe frame holding rows from both the controller and the detail frame.
@@ -195,7 +211,7 @@ const run = async () => {
         if (isDeployed) {
           sawDeployedFrame = true;
           sawDeployedIconBanner = true;
-          if (joined.includes('palworld1789155733041')) sawUpdatedDeployedName = true;
+          if (joined.includes('valheim1789155733041')) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
         if (/AGO\s+\S/.test(joined)) sawAgoRow = true;
@@ -288,6 +304,8 @@ const run = async () => {
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
     ['gamepad: controller frame shown for a game deployment', sawGamepadFrame],
     ['gamepad: at least one button/d-pad press animates', sawGamepadPress],
+    ['longship: Valheim deployment shows the ship', sawLongshipFrame],
+    ['longship: the water moves under it', longshipWaterRows.size > 1],
     ['idle rotation: info-frame text style matches boot text', infoTextStyleMatchesBoot === true],
     ['idle rotation: deployed frame icon rows are accent-green', deployedIconIsGreen === true],
     ['idle rotation: expiring frame icon rows are accent-orange', expiringIconIsOrange === true],
