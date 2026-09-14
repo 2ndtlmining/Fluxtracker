@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
+  import { resolveGameFromAppName } from '$lib/config.js';
   import {
     LOGO_LINES,
     BOOT_LINE_COUNT,
@@ -19,7 +20,10 @@
     formatDeploymentReducedMotionLines,
     formatExpiringReducedMotionLines,
     deploymentFrameKinds,
-    expiringFrameKinds
+    expiringFrameKinds,
+    formatGamepadFrame,
+    gamepadFrameKinds,
+    GAMEPAD_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -56,6 +60,11 @@
   const ROTATE_SLOWDOWN = 2;
   const ROTATE_TRANSITION_MS = REVEAL_MS;
   const ROTATE_HOLD_MS = 4000 * ROTATE_SLOWDOWN; // readable hold, matches the old deploy-flash hold
+
+  // Gamepad intro (issue #177): a game deployment gets the self-playing ASCII controller
+  // before its detail frame. ~2s total -- long enough to read as animation, short enough
+  // that the information it precedes is not meaningfully delayed.
+  const GAMEPAD_STEP_MS = 250 * ROTATE_SLOWDOWN;
 
   let state = 'booting'; // 'booting' | 'ready'
   // The single fixed box: every phase of the header (boot text, logo, rotation
@@ -230,6 +239,15 @@
     return slots;
   }
 
+  /**
+   * Is this deployment a game? Uses the app-name path from issue #162/#163 rather than the
+   * image: most game deployments come from Flux's dedicated sites, whose specs are
+   * enterprise-encrypted and carry no repotag at all, so an image check would miss them.
+   */
+  function isGameDeployment(slot) {
+    return slot?.kind === 'deployed' && !!resolveGameFromAppName(slot.data?.name);
+  }
+
   function framesForSlot(slot) {
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
@@ -268,7 +286,15 @@
     }
 
     rotationIndex = (rotationIndex + 1) % slots.length;
-    const next = framesForSlot(slots[rotationIndex]);
+    const slot = slots[rotationIndex];
+    const next = framesForSlot(slot);
+
+    // Reduced motion skips the controller entirely -- it is decoration, and an animated
+    // one at that, so it is exactly what that preference is asking us not to do.
+    if (!reducedMotion && isGameDeployment(slot)) {
+      playGamepadThen(next);
+      return;
+    }
 
     if (reducedMotion) {
       frameLines = next.lines;
@@ -286,6 +312,40 @@
       currentAriaLabel = next.ariaLabel;
       scheduleNextRotationStep();
     });
+  }
+
+  /**
+   * Step through the gamepad sequence, then wipe to the detail frame `next`.
+   * Each step is a straight frame swap (no wipe) so the presses read as one continuous
+   * animation; only the handover to the details uses the shared reveal.
+   */
+  function playGamepadThen(next) {
+    let step = 0;
+
+    const showStep = () => {
+      frameLines = formatGamepadFrame(step);
+      frameKinds = gamepadFrameKinds();
+      currentAriaLabel = next.ariaLabel;   // the details are the meaning; the art is not
+
+      step += 1;
+      if (step < GAMEPAD_FRAME_COUNT) {
+        schedule(showStep, GAMEPAD_STEP_MS);
+        return;
+      }
+
+      schedule(() => {
+        runReveal(frameLines, frameKinds, next.lines, next.kinds, 'top-down', ROTATE_TRANSITION_MS, () => {
+          frameLines = next.lines;
+          frameKinds = next.kinds;
+          currentAriaLabel = next.ariaLabel;
+          scheduleNextRotationStep();
+        });
+      }, GAMEPAD_STEP_MS);
+    };
+
+    // Wipe INTO the controller the same way every other rotation step arrives, so it does
+    // not pop in differently from the frames around it.
+    runReveal(frameLines, frameKinds, formatGamepadFrame(0), gamepadFrameKinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
   }
 
   onMount(() => {

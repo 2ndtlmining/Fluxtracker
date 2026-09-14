@@ -15,7 +15,7 @@ let deployedCalls = 0;
 let expiringCalls = 0;
 
 const INITIAL_DEPLOYED = {
-  name: 'initial-minecraft',
+  name: 'palworld1789155733040',
   repo: 'itzg/minecraft-server:latest',
   instances: 3,
   cpu: 2,
@@ -24,7 +24,7 @@ const INITIAL_DEPLOYED = {
   blockAge: 100
 };
 const UPDATED_DEPLOYED = {
-  name: 'updated-minecraft',
+  name: 'palworld1789155733041',
   // repo no longer drives the icon row (issue #127 dropped the docker/git distinction
   // from it) -- kept as a realistic field on the stub payload, unused by this harness.
   repo: 'runonflux/orbit:latest',

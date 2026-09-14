@@ -172,6 +172,99 @@ export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
 export const DEPLOYED_ICON_LINE = '>>>>>>>> NEW APP DEPLOYED <<<<<<<<';
 export const EXPIRING_ICON_LINE = '<<<<<<<<<<<< EXPIRING >>>>>>>>>>>>';
 
+// ── Gamepad frame (issue #177) ────────────────────────────────────────────────────────
+//
+// Games are by far the most common identifiable deployment on the network (348 app
+// components against 103 crypto and 33 WordPress), so a game deployment gets its own
+// full-box frame before the detail frame: an ASCII controller that plays itself for a
+// couple of seconds, then wipes to NAME/AGO/INST/RES as usual.
+//
+// Every control is exactly 3 columns in BOTH states -- d-pad `[^]` pressed `{^}`, button
+// `(o)` pressed `(*)` -- and the pressed state is spliced in BY COLUMN rather than by
+// string replacement. That is what makes the box impossible to break: a substitution whose
+// replacement differs in width by even one character would move the right-hand wall, and
+// the box height/width is load-bearing here (CLAUDE.md: the box must never depend on
+// content). terminalAnimation.test.js asserts a single distinct row width across every
+// frame of the sequence.
+const PAD_INNER = 25;                       // columns between the two side walls
+const PAD_TOP = ' ' + '_'.repeat(PAD_INNER) + ' ';
+// Built from a char code rather than written literally: a lone backslash in this file has
+// been a repeated source of escaping mistakes, and the art is load-bearing for box width.
+const PAD_EDGE = String.fromCharCode(92); // backslash
+const PAD_SHOULDERS = '/' + ' '.repeat(PAD_INNER) + PAD_EDGE;
+const PAD_BOTTOM = PAD_EDGE + '_'.repeat(PAD_INNER) + '/';
+const padWall = row => '|' + row.padEnd(PAD_INNER).slice(0, PAD_INNER) + '|';
+
+// Interior rows authored at rest; controls are overwritten in place by column.
+const PAD_ROWS = [
+  PAD_TOP,
+  PAD_SHOULDERS,
+  padWall('   [^]           (o) (o)'),
+  padWall('  [<] [>]'),
+  padWall('   [v]           (o) (o)'),
+  PAD_BOTTOM
+];
+
+// row index -> { control: start column in that row }
+const PAD_CONTROL_COLUMNS = {
+  2: { DU: 4, BY: 18, BB: 22 },
+  3: { DL: 3, DR: 7 },
+  4: { DD: 4, BX: 18, BA: 22 }
+};
+
+const PAD_AT_REST = { DU: '[^]', DD: '[v]', DL: '[<]', DR: '[>]', BY: '(o)', BB: '(o)', BX: '(o)', BA: '(o)' };
+const PAD_PRESSED = { DU: '{^}', DD: '{v}', DL: '{<}', DR: '{>}', BY: '(*)', BB: '(*)', BX: '(*)', BA: '(*)' };
+
+// Hand-authored rather than random: it reads as someone actually playing (move, jump,
+// turn, attack) instead of as noise, and a fixed sequence is assertable -- the header smoke
+// harness can check exact frames, which a random one could not without seeding.
+export const GAMEPAD_SEQUENCE = [
+  [],
+  ['DR'],
+  ['DR', 'BA'],
+  ['BA'],
+  ['DL'],
+  ['DL', 'BB'],
+  ['DU', 'BX'],
+  []
+];
+
+export const GAMEPAD_FRAME_COUNT = GAMEPAD_SEQUENCE.length;
+
+function spliceAt(row, column, text) {
+  return row.slice(0, column) + text + row.slice(column + text.length);
+}
+
+/**
+ * One frame of the self-playing gamepad, as BOOT_LINE_COUNT rows.
+ * @param {number} step index into GAMEPAD_SEQUENCE; wraps, so callers can just count up.
+ */
+export function formatGamepadFrame(step = 0) {
+  const pressed = new Set(GAMEPAD_SEQUENCE[((step % GAMEPAD_FRAME_COUNT) + GAMEPAD_FRAME_COUNT) % GAMEPAD_FRAME_COUNT]);
+  const artWidth = PAD_ROWS[0].length;
+  const leftPad = Math.max(0, Math.floor((LOGO_WIDTH - artWidth) / 2));
+
+  return PAD_ROWS.map((row, index) => {
+    const controls = PAD_CONTROL_COLUMNS[index];
+    let out = row;
+    if (controls) {
+      for (const [control, column] of Object.entries(controls)) {
+        out = spliceAt(out, column, (pressed.has(control) ? PAD_PRESSED : PAD_AT_REST)[control]);
+      }
+    }
+    return ' '.repeat(leftPad) + out;
+  });
+}
+
+/**
+ * Row kinds for a gamepad frame. The whole controller carries the green deployment accent
+ * -- unlike the detail frames, where only the bookend rows are accented, here the art IS
+ * the event marker, so accenting a subset would read as a rendering fault.
+ */
+export function gamepadFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
 function formatDetailLine(label, value) {
