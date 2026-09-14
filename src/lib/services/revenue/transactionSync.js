@@ -183,11 +183,41 @@ export async function ensurePermanentMessagesCache() {
     await Promise.all(fetches);
 }
 
+// A payment for FluxDrive rather than for an app (issue #188).
+//
+// FluxDrive payments carry an OP_RETURN too, but it is an order reference, not an app spec
+// hash -- nothing in globalappsspecifications or permanentmessages resolves it (checked
+// against the full permanentmessages dump: zero occurrences of "fluxdrive", and a hash query
+// for the string returns an empty result). So these rows can never be NAMED; they can only
+// be CLASSIFIED, which is what separates them from a failed lookup.
+//
+// The pattern is deliberately EXACT rather than a loose prefix test, because the
+// classification is inferred from on-chain behaviour rather than from any documented Flux
+// convention: the literal uppercase tag followed by exactly 24 lowercase base36 characters.
+// All 129 payments observed across two years of history match that shape, each with a
+// distinct suffix -- a per-payment order id, never reused. Anything that merely starts with
+// the tag but is shaped differently stays unclassified rather than being labelled on a guess.
+const FLUXDRIVE_OP_RETURN = /^FLUXDRIVE[0-9a-z]{24}$/;
+
+/** Value stored in revenue_transactions.app_type for a FluxDrive payment. */
+export const FLUXDRIVE_APP_TYPE = 'fluxdrive';
+
 /**
- * Extract app hash from OP_RETURN output of a transaction
+ * Decode a transaction OP_RETURN and say what kind of payment it is.
+ *
+ * ONE decoder for the whole sync: the four call sites that used to repeat
+ * extract-then-look-up ask this instead, so a new payment kind is added here and nowhere
+ * else.
+ *
+ * @param {object} tx raw transaction
+ * @returns {{kind: 'hash'|'fluxdrive'|'none', value: ?string}}
+ *   hash      -- an app spec hash, resolvable to an app name
+ *   fluxdrive -- a FluxDrive payment; value is the order reference, which resolves to
+ *                nothing and is not stored
+ *   none      -- no OP_RETURN, or one we cannot classify with confidence
  */
-export function extractAppHashFromTx(tx) {
-    if (!tx.vout) return null;
+export function classifyOpReturn(tx) {
+    if (!tx || !tx.vout) return { kind: 'none', value: null };
 
     for (const vout of tx.vout) {
         if (vout.scriptPubKey && vout.scriptPubKey.type === 'nulldata') {
@@ -196,9 +226,12 @@ export function extractAppHashFromTx(tx) {
             if (hex.length > 4 && hex.startsWith('6a')) {
                 const dataHex = hex.substring(4);
                 try {
-                    const decoded = Buffer.from(dataHex, 'hex').toString('utf8');
-                    if (/^[0-9a-f]{64}$/i.test(decoded.trim())) {
-                        return decoded.trim().toLowerCase();
+                    const decoded = Buffer.from(dataHex, 'hex').toString('utf8').trim();
+                    if (/^[0-9a-f]{64}$/i.test(decoded)) {
+                        return { kind: 'hash', value: decoded.toLowerCase() };
+                    }
+                    if (FLUXDRIVE_OP_RETURN.test(decoded)) {
+                        return { kind: 'fluxdrive', value: decoded };
                     }
                 } catch (e) {
                     // ignore parse errors
@@ -206,7 +239,16 @@ export function extractAppHashFromTx(tx) {
             }
         }
     }
-    return null;
+    return { kind: 'none', value: null };
+}
+
+/**
+ * Extract app hash from OP_RETURN output of a transaction.
+ * Thin wrapper over classifyOpReturn for callers that only care about the app-spec case.
+ */
+export function extractAppHashFromTx(tx) {
+    const { kind, value } = classifyOpReturn(tx);
+    return kind === 'hash' ? value : null;
 }
 
 /**
@@ -503,13 +545,16 @@ export async function progressiveSync() {
                         continue;
                     }
 
-                    // Extract app name via OP_RETURN -> permanentmessages lookup. An app
-                    // registered minutes ago is not in the cached map yet, so a miss on a
-                    // recent transaction falls through to a single targeted query rather
-                    // than leaving the row unnamed until the cache's next hourly refresh.
-                    const appHash = extractAppHashFromTx(tx);
-                    const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
-                    const appType = appName ? lookupAppType(appName) : null;
+                    // Classify the OP_RETURN, then resolve a name for the app-spec case. An
+                    // app registered minutes ago is not in the cached map yet, so a miss on a
+                    // recent transaction falls through to a single targeted query rather than
+                    // leaving the row unnamed until the next hourly cache refresh. A FluxDrive
+                    // payment has no name to find -- it carries its type instead.
+                    const opReturn = classifyOpReturn(tx);
+                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                    const appType = opReturn.kind === 'fluxdrive'
+                        ? FLUXDRIVE_APP_TYPE
+                        : (appName ? lookupAppType(appName) : null);
 
                     const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                     pendingPayments.push(...payments);
@@ -561,9 +606,11 @@ export async function progressiveSync() {
 
                         if (!tx.confirmations || tx.confirmations < 8) continue;
 
-                        const appHash = extractAppHashFromTx(tx);
-                        const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
-                        const appType = appName ? lookupAppType(appName) : null;
+                        const opReturn = classifyOpReturn(tx);
+                        const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                        const appType = opReturn.kind === 'fluxdrive'
+                            ? FLUXDRIVE_APP_TYPE
+                            : (appName ? lookupAppType(appName) : null);
 
                         const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                         pendingPayments.push(...payments);
@@ -684,9 +731,11 @@ export async function auditRecentTransactions() {
                     const tx = txResults[j];
                     if (!tx || !tx.confirmations || tx.confirmations < 8) continue;
 
-                    const appHash = extractAppHashFromTx(tx);
-                    const appName = appHash ? await resolveAppName(appHash, tx.blocktime) : null;
-                    const appType = appName ? lookupAppType(appName) : null;
+                    const opReturn = classifyOpReturn(tx);
+                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                    const appType = opReturn.kind === 'fluxdrive'
+                        ? FLUXDRIVE_APP_TYPE
+                        : (appName ? lookupAppType(appName) : null);
 
                     payments.push(...processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap));
                 }

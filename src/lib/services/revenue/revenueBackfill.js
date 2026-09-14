@@ -10,10 +10,11 @@ import {
 } from '../../db/database.js';
 import {
     ensurePermanentMessagesCache,
-    extractAppHashFromTx,
+    classifyOpReturn,
     resolveAppName,
     lookupAppType,
-    fetchRawTransaction
+    fetchRawTransaction,
+    FLUXDRIVE_APP_TYPE
 } from './transactionSync.js';
 
 const log = createLogger('revenueService');
@@ -85,6 +86,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
     let noHash = 0;
     let noName = 0;
     let fetchErrors = 0;
+    let fluxDrive = 0;
 
     const BATCH = 10;
     for (let i = 0; i < txids.length; i += BATCH) {
@@ -97,10 +99,28 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
 
             if (!tx) { fetchErrors++; continue; }
 
-            const appHash = extractAppHashFromTx(tx);
-            if (!appHash) {
-                // Direct FLUX payment — no OP_RETURN, will never have an app_name.
-                // Mark in DB so auto-backfill (skipFailed=true) skips it next time.
+            const opReturn = classifyOpReturn(tx);
+
+            if (opReturn.kind === 'fluxdrive') {
+                // A FluxDrive payment (issue #188). It HAS an OP_RETURN, so calling it
+                // no_hash was wrong -- but its reference resolves to nothing in any Flux
+                // API, so there is no name to wait for either. Record the type and mark it
+                // resolved-as-far-as-it-goes so the retry queue stops carrying it.
+                //
+                // app_name stays NULL deliberately: updateAppNameForTxid is guarded by
+                // app_name IS NULL, so writing a literal name here would freeze the row
+                // against any future resolution, and App Analytics groups by app_name --
+                // a literal would surface FluxDrive as a synthetic app.
+                await updateAppNameForTxid(txid, null, FLUXDRIVE_APP_TYPE);
+                await upsertFailedTxid(txid, '', 'fluxdrive');
+                fluxDrive++;
+                continue;
+            }
+
+            if (opReturn.kind !== 'hash') {
+                // Direct FLUX payment — no OP_RETURN (or one we cannot classify with
+                // confidence), so it will never have an app_name. Mark in DB so
+                // auto-backfill (skipFailed=true) skips it next time.
                 await upsertFailedTxid(txid, '', 'no_hash');
                 noHash++;
                 continue;
@@ -108,7 +128,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
 
             // Same targeted fallback as the sync path: a recent registration the cached
             // map has not seen yet is resolved on this pass instead of the next hour's.
-            const appName = await resolveAppName(appHash, tx.blocktime);
+            const appName = await resolveAppName(opReturn.value, tx.blocktime);
             if (!appName) { noName++; continue; }
 
             const appType = lookupAppType(appName);
@@ -121,7 +141,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
         }
     }
 
-    const remaining = total - updated;
-    log.info({ updated, noHash, noName, fetchErrors, remaining }, 'app_name backfill complete: %d updated, %d no OP_RETURN hash, %d hash not in cache, %d fetch errors, ~%d remaining', updated, noHash, noName, fetchErrors, remaining);
-    return { total, processed: txids.length, updated, noHash, noName, fetchErrors, remaining };
+    const remaining = total - updated - fluxDrive;
+    log.info({ updated, fluxDrive, noHash, noName, fetchErrors, remaining }, 'app_name backfill complete: %d updated, %d FluxDrive, %d no OP_RETURN hash, %d hash not in cache, %d fetch errors, ~%d remaining', updated, fluxDrive, noHash, noName, fetchErrors, remaining);
+    return { total, processed: txids.length, updated, fluxDrive, noHash, noName, fetchErrors, remaining };
 }
