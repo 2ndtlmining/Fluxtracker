@@ -23,7 +23,10 @@
     expiringFrameKinds,
     formatGamepadFrame,
     gamepadFrameKinds,
-    GAMEPAD_FRAME_COUNT
+    GAMEPAD_FRAME_COUNT,
+    formatValheimFrame,
+    valheimFrameKinds,
+    VALHEIM_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -61,10 +64,28 @@
   const ROTATE_TRANSITION_MS = REVEAL_MS;
   const ROTATE_HOLD_MS = 4000 * ROTATE_SLOWDOWN; // readable hold, matches the old deploy-flash hold
 
-  // Gamepad intro (issue #177): a game deployment gets the self-playing ASCII controller
-  // before its detail frame. ~2s total -- long enough to read as animation, short enough
-  // that the information it precedes is not meaningfully delayed.
-  const GAMEPAD_STEP_MS = 250 * ROTATE_SLOWDOWN;
+  // Intro frames (issues #177, #180): a game deployment plays a short animation before its
+  // detail frame. ~2s total -- long enough to read as animation, short enough that the
+  // information it precedes is not meaningfully delayed. One step duration for every intro,
+  // so they all move at the same pace no matter which art is playing.
+  const INTRO_STEP_MS = 250 * ROTATE_SLOWDOWN;
+
+  // The shared controller (issue #177): every game that has no art of its own.
+  const GAMEPAD_INTRO = {
+    frameCount: GAMEPAD_FRAME_COUNT,
+    format: formatGamepadFrame,
+    kinds: gamepadFrameKinds
+  };
+
+  // Per-game art, keyed by what resolveGameFromAppName() returns (issue #180). Adding a
+  // game is one entry here plus its formatter -- nothing else in this component changes.
+  const GAME_INTROS = {
+    Valheim: {
+      frameCount: VALHEIM_FRAME_COUNT,
+      format: formatValheimFrame,
+      kinds: valheimFrameKinds
+    }
+  };
 
   let state = 'booting'; // 'booting' | 'ready'
   // The single fixed box: every phase of the header (boot text, logo, rotation
@@ -240,12 +261,18 @@
   }
 
   /**
-   * Is this deployment a game? Uses the app-name path from issue #162/#163 rather than the
-   * image: most game deployments come from Flux's dedicated sites, whose specs are
-   * enterprise-encrypted and carry no repotag at all, so an image check would miss them.
+   * The intro animation for a slot, or null for slots that go straight to their detail
+   * frame. Game detection uses the APP NAME path from issues #162/#163, not the image: most
+   * game deployments come from Flux's dedicated sites, whose specs are enterprise-encrypted
+   * and carry no repotag at all, so an image check would miss nearly all of them.
+   *
+   * A game with its own art gets it; every other game falls back to the controller.
    */
-  function isGameDeployment(slot) {
-    return slot?.kind === 'deployed' && !!resolveGameFromAppName(slot.data?.name);
+  function introForSlot(slot) {
+    if (slot?.kind !== 'deployed') return null;
+    const game = resolveGameFromAppName(slot.data?.name);
+    if (!game) return null;
+    return GAME_INTROS[game] || GAMEPAD_INTRO;
   }
 
   function framesForSlot(slot) {
@@ -289,10 +316,11 @@
     const slot = slots[rotationIndex];
     const next = framesForSlot(slot);
 
-    // Reduced motion skips the controller entirely -- it is decoration, and an animated
-    // one at that, so it is exactly what that preference is asking us not to do.
-    if (!reducedMotion && isGameDeployment(slot)) {
-      playGamepadThen(next);
+    // Reduced motion skips intro art entirely -- it is decoration, and animated decoration
+    // at that, so it is exactly what that preference is asking us not to do.
+    const intro = reducedMotion ? null : introForSlot(slot);
+    if (intro) {
+      playIntroThen(intro, next);
       return;
     }
 
@@ -315,21 +343,23 @@
   }
 
   /**
-   * Step through the gamepad sequence, then wipe to the detail frame `next`.
-   * Each step is a straight frame swap (no wipe) so the presses read as one continuous
+   * Step through an intro's frames, then wipe to the detail frame `next`.
+   * Each step is a straight frame swap (no wipe) so the art reads as one continuous
    * animation; only the handover to the details uses the shared reveal.
+   *
+   * @param {{frameCount: number, format: (step: number) => string[], kinds: () => string[]}} intro
    */
-  function playGamepadThen(next) {
+  function playIntroThen(intro, next) {
     let step = 0;
 
     const showStep = () => {
-      frameLines = formatGamepadFrame(step);
-      frameKinds = gamepadFrameKinds();
+      frameLines = intro.format(step);
+      frameKinds = intro.kinds();
       currentAriaLabel = next.ariaLabel;   // the details are the meaning; the art is not
 
       step += 1;
-      if (step < GAMEPAD_FRAME_COUNT) {
-        schedule(showStep, GAMEPAD_STEP_MS);
+      if (step < intro.frameCount) {
+        schedule(showStep, INTRO_STEP_MS);
         return;
       }
 
@@ -340,12 +370,12 @@
           currentAriaLabel = next.ariaLabel;
           scheduleNextRotationStep();
         });
-      }, GAMEPAD_STEP_MS);
+      }, INTRO_STEP_MS);
     };
 
-    // Wipe INTO the controller the same way every other rotation step arrives, so it does
-    // not pop in differently from the frames around it.
-    runReveal(frameLines, frameKinds, formatGamepadFrame(0), gamepadFrameKinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
+    // Wipe INTO the art the same way every other rotation step arrives, so it does not pop
+    // in differently from the frames around it.
+    runReveal(frameLines, frameKinds, intro.format(0), intro.kinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
   }
 
   onMount(() => {
