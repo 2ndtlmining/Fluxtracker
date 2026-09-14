@@ -509,8 +509,11 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
          CSS-grid-stretched row of 3 cards; BusiestNodeCard's compact resource
          columns keep that row from towering, so a static height here reads as
          proportionate without needing a ResizeObserver to track the row live.
-         Raised from 460 when the Gaming breakdown grew that row from 367px to
-         432px: the chart is sized against the row, so it has to move with it. -->
+         Raised from 460 for issue #153, which asked for a taller chart. The row
+         itself is ~374px: the Gaming breakdown added height, then folding the
+         activity figures beside the headline total (two sections, one divider)
+         gave most of it back. The extra height here is the deliberate #153
+         change, not a reaction to the row. -->
     <Chart
       title="Historical Performance"
       height={525}
