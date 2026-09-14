@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import {
     LOGO_LINES,
     BOOT_LINE_COUNT,
@@ -302,7 +303,7 @@
 <pre
   class="terminal-box"
   class:settled={logoSettled}
-  style="--box-rows: {BOOT_LINE_COUNT};"
+  use:cssomStyle={{ '--box-rows': BOOT_LINE_COUNT }}
   aria-label={currentAriaLabel}
 >{#each frameLines as line, i}<span class="row-{frameKinds[i]}">{line + '\n'}</span>{/each}</pre>
 

@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { TrendingUp, Package, Hourglass } from 'lucide-svelte';
@@ -181,7 +182,12 @@
     </div>
   </div>
 
-  <div class="carousel-track-container" style="--scroll-duration: {scrollDuration}s; --mobile-scroll-duration: {mobileScrollDuration}s;">
+  <!-- style: directives, not a style="" attribute -- see Chart.svelte's note: the CSP
+       blocks inline style attributes, so these scroll durations never reached the CSS. -->
+  <div
+    class="carousel-track-container"
+    use:cssomStyle={{ '--scroll-duration': `${scrollDuration}s`, '--mobile-scroll-duration': `${mobileScrollDuration}s` }}
+  >
     {#if loading}
       <div class="carousel-message">
         <div class="loading-spinner">⟳</div>

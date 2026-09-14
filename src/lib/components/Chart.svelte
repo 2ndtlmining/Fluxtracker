@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users } from 'lucide-svelte';
@@ -7,6 +8,8 @@
   // Props
   export let title = 'Historical Data';
   export let height = 400;
+  // See cssomStyle: the CSP blocks inline style attributes, so dynamic styles in this app
+  // must be written through the CSSOM or they are silently dropped.
   export let defaultCategory = 'revenue';
   export let defaultTimeframe = '30d';
 
@@ -1118,7 +1121,7 @@
         class="category-pill"
         class:active={selectedCategory === id}
         on:click={() => handleCategoryChange(id)}
-        style="--category-color: {category.color}"
+        use:cssomStyle={{ '--category-color': category.color }}
       >
         <span class="category-icon">
           {#if id === 'revenue'}
@@ -1155,7 +1158,12 @@
   {/if}
 
   <!-- Chart Area -->
-  <div class="chart-wrapper" style="height: {height}px">
+  <!-- style: directive, not a style="" attribute. The CSP has no 'unsafe-inline' in
+       style-src, which blocks inline style ATTRIBUTES outright -- this div's height was
+       being silently dropped and the chart sat at Chart.js's 150px default no matter what
+       `height` was set to. Svelte compiles `style:` to element.style.setProperty(), a CSSOM
+       write, which CSP permits. Use `style:` for every dynamic style in this app. -->
+  <div class="chart-wrapper" use:cssomStyle={{ height: `${height}px` }}>
     {#if loading}
       <div class="chart-loading">
         <div class="loading-spinner"></div>
