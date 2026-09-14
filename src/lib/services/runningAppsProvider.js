@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, categorizeImage } from '../config.js';
+import { API_ENDPOINTS, categorizeImage, getCanonicalName, resolveGameFromAppName } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
@@ -46,6 +46,11 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
     // name itself, so it's tallied here, at the one place that still sees raw names,
     // rather than in cloudService (which only sees the already-resolved imageCounts).
     const imageCounts = new Map();
+    // Per-game instance tally (issue #162/#163), built alongside imageCounts rather than
+    // derived from it -- imageCounts cannot represent a game whose spec is encrypted, which
+    // is most of several games. One entry per CONTAINER, so a container both paths can
+    // identify is counted once, not twice.
+    const gameCounts = new Map();
     let totalInstances = 0;
     let unresolvedCount = 0;
     let watchtowerCount = 0;
@@ -64,12 +69,25 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
                 continue;
             }
 
+            // App-name path first: the dedicated site is authoritative about which game it
+            // deployed, and unlike the image it survives spec encryption. Runs before the
+            // resolve() below precisely so an encrypted app still lands in a game bucket.
+            const nameGame = resolveGameFromAppName(toAppName(containerName));
+
             const resolved = resolveRunningAppName(containerName);
             if (!resolved) {
+                if (nameGame) tally(gameCounts, nameGame);
                 unresolvedCount++;
                 continue;
             }
             imageCounts.set(resolved.repotag, (imageCounts.get(resolved.repotag) || 0) + 1);
+
+            // The name label wins when both paths fire: a bedrock image deployed under a
+            // java-plan name is still one game, and letting the image decide would split
+            // Minecraft across two rows.
+            const game = nameGame
+                || (categorizeImage(resolved.repotag) === 'gaming' ? getCanonicalName(resolved.repotag) : null);
+            if (game) tally(gameCounts, game);
         }
     }
 
@@ -93,7 +111,25 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
         watchtowerCount
     );
 
-    return { imageCounts, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
+    return { imageCounts, gameCounts, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
+}
+
+function tally(map, key) {
+    map.set(key, (map.get(key) || 0) + 1);
+}
+
+/**
+ * Flux app name from a Docker container name.
+ * "/fluxpalworld_palworld1788108278166" -> "palworld1788108278166"
+ * "/fluxdragonwilds1789155733040"       -> "dragonwilds1789155733040"
+ *
+ * Split at the FIRST underscore: the component name always comes first, and an app name may
+ * itself contain underscores (same rule as appSpecsCache.resolveRunningAppName).
+ */
+function toAppName(containerName) {
+    const stripped = containerName.replace(/^\//, '').replace(/^flux/, '');
+    const i = stripped.indexOf('_');
+    return i > 0 ? stripped.slice(i + 1) : stripped;
 }
 
 /**
@@ -162,6 +198,27 @@ export function countConfiguredRepos(runningApps, repos) {
     }
 
     return counts;
+}
+
+/**
+ * Per-game instance counts, highest first -- the figure the Gaming card shows.
+ *
+ * Combines both identification paths as a per-container union (see fetchRunningApps). Sorted
+ * here rather than by the caller so every consumer agrees on what "top 3 games" means.
+ *
+ * @returns {Map<string, number>} game name -> running instances
+ */
+export function countGames(runningApps) {
+    const entries = [...(runningApps.gameCounts || new Map())];
+    entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    return new Map(entries);
+}
+
+/** Total running game instances, across every game. */
+export function countGamingInstances(runningApps) {
+    let total = 0;
+    for (const count of (runningApps.gameCounts || new Map()).values()) total += count;
+    return total;
 }
 
 /** Test hook — drops the cached payload. */

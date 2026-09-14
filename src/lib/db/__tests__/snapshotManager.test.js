@@ -244,6 +244,44 @@ describe('snapshotManager', () => {
         });
 
         // ------------------------------------------
+        // 5b. Gaming instance totals (issue #162/#163)
+        // ------------------------------------------
+        it('snapshots BOTH gaming totals, keeping the image-only column intact', async () => {
+            // gaming_apps_total counts only instances with a readable image; the app-name
+            // path finds ~35% more. The old column must keep its old meaning, or the
+            // Historical Performance trend steps on the day this ships and reads as growth.
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics({
+                gaming_apps_total: 335,
+                gaming_instances_total: 520
+            }));
+            getRevenueForDateRange.mockResolvedValue(123.45);
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+
+            await takeManualSnapshot();
+
+            const snapshot = createDailySnapshot.mock.calls[0][0];
+            expect(snapshot.gaming_apps_total).toBe(335);
+            expect(snapshot.gaming_instances_total).toBe(520);
+        });
+
+        it('records a missing app-name total as null, never as a fabricated zero', async () => {
+            // A 0 here would render as "no game instances ran that day" and is
+            // indistinguishable from a real collection failure -- the KPI layer already
+            // treats a 0 in a snapshot column as missing by design.
+            getSnapshotByDate.mockResolvedValue(null);
+            const metrics = makeValidMetrics({ gaming_apps_total: 335 });
+            delete metrics.gaming_instances_total;
+            getCurrentMetrics.mockResolvedValue(metrics);
+            getRevenueForDateRange.mockResolvedValue(123.45);
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+
+            await takeManualSnapshot();
+
+            expect(createDailySnapshot.mock.calls[0][0].gaming_instances_total).toBeNull();
+        });
+
+        // ------------------------------------------
         // 6. takeManualSnapshot — metrics too old
         // ------------------------------------------
         it('returns skipped when metrics are older than 24 hours', async () => {

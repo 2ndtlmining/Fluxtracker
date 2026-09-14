@@ -205,6 +205,7 @@ export async function createDailySnapshot(snapshot) {
         gitapps_percent: snapshot.gitapps_percent,
         dockerapps_percent: snapshot.dockerapps_percent,
         gaming_apps_total: snapshot.gaming_apps_total,
+        gaming_instances_total: snapshot.gaming_instances_total,
         gaming_palworld: snapshot.gaming_palworld,
         gaming_enshrouded: snapshot.gaming_enshrouded,
         gaming_minecraft: snapshot.gaming_minecraft,
