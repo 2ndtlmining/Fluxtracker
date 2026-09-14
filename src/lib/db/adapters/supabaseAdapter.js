@@ -624,14 +624,20 @@ export async function getTxidCount() {
     return count || 0;
 }
 
-export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null) {
+export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null) {
     const offset = (page - 1) * limit;
+
+    // Payer filter (issue #159) -- see migration 011. NULL rather than an empty array when
+    // nothing is selected: the RPC treats both as "no filter", but sending NULL keeps the
+    // intent obvious in the query log.
+    const addresses = Array.isArray(fromAddresses) && fromAddresses.length > 0 ? fromAddresses : null;
 
     const { data, error } = await supabase.rpc('get_transactions_paginated', {
         p_search: search || null,
         p_app: appName || null,
         p_limit: limit,
-        p_offset: offset
+        p_offset: offset,
+        p_from_addresses: addresses
     });
 
     if (error) {

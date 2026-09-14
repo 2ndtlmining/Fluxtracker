@@ -793,12 +793,22 @@ export async function getTxidCount() {
 }
 
 // RPC equivalent: get_transactions_paginated
-export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null) {
+export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null) {
     const offset = (page - 1) * limit;
 
     try {
         let whereClauses = [];
         const params = {};
+
+        // Payer filter (issue #159). AND-ed with the search/app predicate below rather than
+        // folded into its either/or, so "team-funded payments for app alpha" is expressible.
+        // An empty array means "no filter" rather than "match nothing" -- the UI sends the
+        // selected badge set, and no badges selected has to mean show everything.
+        if (Array.isArray(fromAddresses) && fromAddresses.length > 0) {
+            const placeholders = fromAddresses.map((_, i) => `@fromAddr${i}`);
+            whereClauses.push(`from_address IN (${placeholders.join(', ')})`);
+            fromAddresses.forEach((addr, i) => { params[`fromAddr${i}`] = addr; });
+        }
 
         if (appName) {
             whereClauses.push('app_name = @appName');

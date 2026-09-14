@@ -24,6 +24,26 @@
   let searchQuery = '';
   let searchTimeout;
 
+  // Active payer filters (issue #159) -- the set of TEAM/FIAT badges toggled on. A Set
+  // rather than a single value because the two are additive: both on means "team OR fiat",
+  // which is a different question from either alone. Empty = no filter.
+  let activeSources = new Set();
+
+  // Serialised for the API and the export filename. Sorted so the same selection always
+  // produces the same string regardless of the order the badges were clicked.
+  $: sourceParam = [...activeSources].sort().join(',');
+
+  function toggleSource(source) {
+    // Reassigned rather than mutated -- Svelte 4 doesn't track Set mutation.
+    const next = new Set(activeSources);
+    if (next.has(source)) next.delete(source); else next.add(source);
+    activeSources = next;
+
+    // A narrower filter can leave the current page beyond the end of the result set.
+    currentPage = 1;
+    fetchTransactions();
+  }
+
   // Computed values
   $: offset = (currentPage - 1) * perPage;
   $: pageRange = getPageRange(currentPage, totalPages);
@@ -45,6 +65,9 @@
         limit: perPage,
         search: searchQuery
       });
+      // Stacks with the search box rather than replacing it, so "team-funded payments for
+      // app alpha" is expressible. Omitted entirely when no badge is active.
+      if (sourceParam) params.set('source', sourceParam);
 
       const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
 
@@ -187,7 +210,8 @@
 
       do {
         const response = await fetch(
-          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}`
+          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}` +
+          (sourceParam ? `&source=${encodeURIComponent(sourceParam)}` : '')
         );
 
         if (!response.ok) {
@@ -243,7 +267,10 @@
       // Generate filename with timestamp and search query
       const timestamp = new Date().toISOString().split('T')[0];
       const searchSuffix = searchQuery ? `_filtered_${searchQuery.substring(0, 10)}` : '';
-      const filename = `flux_revenue_transactions${searchSuffix}_${timestamp}.csv`;
+      // The export inherits the active badges, so the filename has to record them --
+      // otherwise two exports of very different scope land in Downloads under one name.
+      const sourceSuffix = sourceParam ? `_${sourceParam.replace(/,/g, '-')}` : '';
+      const filename = `flux_revenue_transactions${searchSuffix}${sourceSuffix}_${timestamp}.csv`;
 
       // Create download link
       const url = URL.createObjectURL(blob);
@@ -310,17 +337,49 @@
     </div>
   {:else if transactions.length === 0}
     <div class="empty-state">
-      <p>No transactions found</p>
+      {#if activeSources.size > 0}
+        <!-- Distinguishes "this filter matched nothing" from "there is no data", which
+             otherwise look identical and read as a broken table. -->
+        <p>No {[...activeSources].sort().join(' or ')} transactions{searchQuery ? ' match that search' : ''}</p>
+        <button type="button" class="retry-button" on:click={() => { activeSources = new Set(); currentPage = 1; fetchTransactions(); }}>
+          Clear filter
+        </button>
+      {:else}
+        <p>No transactions found</p>
+      {/if}
     </div>
   {:else}
     <!-- The badges qualify the payer, not the currency: every row settles in FLUX.
          Spelling that out here rather than leaving it to a hover tooltip, because the
          two badges side by side otherwise read as "paid in FLUX vs paid in fiat". -->
     <div class="badge-legend">
-      <span class="flux-team-badge">TEAM</span>
-      <span class="legend-text">funded by the Flux team</span>
-      <span class="flux-fiat-badge">FIAT</span>
-      <span class="legend-text">bought through the Flux fiat on-ramp</span>
+      <button
+        type="button"
+        class="badge-filter"
+        class:active={activeSources.has('team')}
+        aria-pressed={activeSources.has('team')}
+        on:click={() => toggleSource('team')}
+        title={activeSources.has('team') ? 'Showing Flux team payments — click to clear' : 'Show only payments funded by the Flux team'}
+      >
+        <span class="flux-team-badge">TEAM</span>
+        <span class="legend-text">funded by the Flux team</span>
+      </button>
+      <button
+        type="button"
+        class="badge-filter"
+        class:active={activeSources.has('fiat')}
+        aria-pressed={activeSources.has('fiat')}
+        on:click={() => toggleSource('fiat')}
+        title={activeSources.has('fiat') ? 'Showing fiat on-ramp payments — click to clear' : 'Show only payments bought through the Flux fiat on-ramp'}
+      >
+        <span class="flux-fiat-badge">FIAT</span>
+        <span class="legend-text">bought through the Flux fiat on-ramp</span>
+      </button>
+      {#if activeSources.size > 0}
+        <button type="button" class="badge-clear" on:click={() => { activeSources = new Set(); currentPage = 1; fetchTransactions(); }}>
+          clear filter
+        </button>
+      {/if}
       <span class="legend-note">All payments settle in FLUX.</span>
     </div>
     <div class="table-wrapper">
@@ -856,8 +915,60 @@
     color: var(--text-muted);
   }
 
+  /* The legend entries are the filter controls (issue #159): clicking TEAM or FIAT narrows
+     the table to that payer. Styled as bare text, not buttons -- the legend sits above the
+     table as a footnote and a pair of chunky buttons there would outweigh the data. The
+     active state is carried by the surrounding tint + underline rather than by restyling
+     the badge itself, so the badge still reads as the same token used in the rows. */
+  .badge-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .badge-filter:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .badge-filter:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 1px;
+  }
+
+  .badge-filter.active {
+    background: rgba(255, 255, 255, 0.09);
+    border-color: var(--border-color);
+  }
+
+  .badge-filter.active .legend-text {
+    color: var(--text-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .badge-clear {
+    background: none;
+    border: none;
+    padding: 0 4px;
+    font: inherit;
+    font-size: 0.7rem;
+    color: var(--accent-cyan);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
   /* The badges carry a left margin for their in-table use, which reads as a stray gap here. */
   .badge-legend .flux-team-badge,
+  .badge-filter .flux-team-badge,
+  .badge-filter .flux-fiat-badge,
   .badge-legend .flux-fiat-badge {
     margin-left: 0;
   }
