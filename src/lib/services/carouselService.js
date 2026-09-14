@@ -238,6 +238,32 @@ function formatStorage(hdd) {
 /**
  * Fetch top benchmark stats
  */
+// The tiers the carousel walks through, in ascending capacity order, keyed by the value
+// FluxOS reports in `benchmark.status.benchmarking`.
+//
+// Issue #161: this used to be a hardcoded `=== 'CUMULUS'` filter, which silently excluded
+// Nimbus and Stratus -- the two tiers that actually win most of these categories, since
+// they are the larger machines. The carousel claimed to show "Top Network Stats" while
+// only ever reporting the smallest third of the network.
+const BENCHMARK_TIERS = [
+    { key: 'CUMULUS', label: 'Cumulus' },
+    { key: 'NIMBUS', label: 'Nimbus' },
+    { key: 'STRATUS', label: 'Stratus' }
+];
+
+// One entry per carousel slide. Previously these were seven near-identical copy-pasted
+// reduce() blocks; as a table, adding a category is one line and every category is
+// guaranteed to get the same treatment across all three tiers.
+const BENCHMARK_CATEGORIES = [
+    { category: 'cores', label: 'Most Cores', field: 'cores', unit: 'cores' },
+    { category: 'ram', label: 'Most RAM', field: 'ram', unit: 'GB' },
+    { category: 'ssd', label: 'Biggest SSD', field: 'ssd', unit: 'GB' },
+    { category: 'ddwrite', label: 'Fastest Write', field: 'ddwrite', unit: 'MB/s', round: true },
+    { category: 'eps', label: 'Fastest EPS', field: 'eps', unit: 'events/s', round: true },
+    { category: 'download', label: 'Fastest Download', field: 'download_speed', unit: 'Mbps', round: true },
+    { category: 'upload', label: 'Fastest Upload', field: 'upload_speed', unit: 'Mbps', round: true }
+];
+
 async function fetchTopBenchmarks() {
     try {
         const body = await resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARKS, {
@@ -247,117 +273,63 @@ async function fetchTopBenchmarks() {
         });
 
         const benchmarks = body.data;
-        
-        // Filter out invalid/incomplete benchmarks
-        const validBenchmarks = benchmarks.filter(item => 
-            item.benchmark?.bench && 
-            item.benchmark.bench.cores > 0 &&
-            item.benchmark.status?.benchmarking === 'CUMULUS' // Only active nodes
+
+        // Filter out invalid/incomplete benchmarks. `cores > 0` is the liveness signal:
+        // a node that has never completed a benchmark reports zeroes across the board.
+        const validBenchmarks = benchmarks.filter(item =>
+            item.benchmark?.bench &&
+            item.benchmark.bench.cores > 0
         );
-        
+
         if (validBenchmarks.length === 0) {
             log.warn('No valid benchmarks found');
             return [];
         }
-        
-        // Find top performers in each category
+
+        // Grouped tier-by-tier rather than interleaved, so the carousel scrolls through all
+        // of Cumulus, then all of Nimbus, then all of Stratus. Interleaving by category
+        // would put three different tiers' "Most Cores" back to back, which reads as the
+        // number flickering rather than as three separate facts.
         const stats = [];
-        
-        // Most cores
-        const topCores = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.cores > (max?.benchmark.bench.cores || 0) ? item : max
+
+        for (const tier of BENCHMARK_TIERS) {
+            const tierNodes = validBenchmarks.filter(
+                item => item.benchmark.status?.benchmarking === tier.key
+            );
+
+            // A tier with no benchmarked nodes contributes nothing. Emitting placeholder
+            // slides would show "Most Cores: undefined" during a partial API response.
+            if (tierNodes.length === 0) {
+                log.warn({ tier: tier.label }, 'No benchmarked nodes for tier -- skipping its slides');
+                continue;
+            }
+
+            for (const { category, label, field, unit, round } of BENCHMARK_CATEGORIES) {
+                const top = tierNodes.reduce((max, item) =>
+                    (item.benchmark.bench[field] || 0) > (max?.benchmark.bench[field] || 0) ? item : max
+                );
+
+                const raw = top.benchmark.bench[field] || 0;
+                stats.push({
+                    type: 'benchmark',
+                    tier: tier.label,
+                    category,
+                    label,
+                    name: top.benchmark.bench.ipaddress,
+                    value: round ? Math.round(raw) : raw,
+                    unit
+                });
+            }
+        }
+
+        log.info(
+            { tiers: [...new Set(stats.map(s => s.tier))] },
+            'Benchmark stats fetched: %d records',
+            stats.length
         );
-        stats.push({
-            type: 'benchmark',
-            category: 'cores',
-            label: 'Most Cores',
-            name: topCores.benchmark.bench.ipaddress,
-            value: topCores.benchmark.bench.cores,
-            unit: 'cores'
-        });
-        
-        // Most RAM
-        const topRam = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.ram > (max?.benchmark.bench.ram || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'ram',
-            label: 'Most RAM',
-            name: topRam.benchmark.bench.ipaddress,
-            value: topRam.benchmark.bench.ram,
-            unit: 'GB'
-        });
-        
-        // Most SSD
-        const topSsd = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.ssd > (max?.benchmark.bench.ssd || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'ssd',
-            label: 'Biggest SSD',
-            name: topSsd.benchmark.bench.ipaddress,
-            value: topSsd.benchmark.bench.ssd,
-            unit: 'GB'
-        });
-        
-        // Fastest write speed
-        const topWriteSpeed = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.ddwrite > (max?.benchmark.bench.ddwrite || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'ddwrite',
-            label: 'Fastest Write',
-            name: topWriteSpeed.benchmark.bench.ipaddress,
-            value: Math.round(topWriteSpeed.benchmark.bench.ddwrite),
-            unit: 'MB/s'
-        });
-        
-        // Fastest EPS
-        const topEps = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.eps > (max?.benchmark.bench.eps || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'eps',
-            label: 'Fastest EPS',
-            name: topEps.benchmark.bench.ipaddress,
-            value: Math.round(topEps.benchmark.bench.eps),
-            unit: 'events/s'
-        });
-        
-        // Fastest download
-        const topDownload = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.download_speed > (max?.benchmark.bench.download_speed || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'download',
-            label: 'Fastest Download',
-            name: topDownload.benchmark.bench.ipaddress,
-            value: Math.round(topDownload.benchmark.bench.download_speed),
-            unit: 'Mbps'
-        });
-        
-        // Fastest upload
-        const topUpload = validBenchmarks.reduce((max, item) => 
-            item.benchmark.bench.upload_speed > (max?.benchmark.bench.upload_speed || 0) ? item : max
-        );
-        stats.push({
-            type: 'benchmark',
-            category: 'upload',
-            label: 'Fastest Upload',
-            name: topUpload.benchmark.bench.ipaddress,
-            value: Math.round(topUpload.benchmark.bench.upload_speed),
-            unit: 'Mbps'
-        });
-        
-        log.info('Benchmark stats fetched: %d records', stats.length);
-        
+
         return stats;
-        
+
     } catch (error) {
         log.error({ err: error }, 'Error fetching benchmark stats');
         return [];

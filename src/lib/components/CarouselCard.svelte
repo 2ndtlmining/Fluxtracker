@@ -200,6 +200,10 @@
               <span class="item-rank">#{stat.rank}</span>
             {/if}
 
+            {#if stat.tier}
+              <span class="item-tier tier-{stat.tier.toLowerCase()}">{stat.tier}</span>
+            {/if}
+
             {#if stat.label}
               <span class="item-label">
                 {stat.label}:
@@ -445,6 +449,33 @@
     font-weight: 700;
     color: var(--accent-cyan);
     text-shadow: 0 0 6px var(--accent-cyan);
+  }
+
+  /* Tier badge (issue #161). The carousel now walks Cumulus -> Nimbus -> Stratus, and
+     without a per-slide tier the three "Most Cores" figures read as one number changing
+     rather than as three tiers. Each tier gets its own colour so the transition between
+     blocks is visible at a glance while the track scrolls. */
+  .item-tier {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    opacity: 0.9;
+  }
+
+  .item-tier.tier-cumulus {
+    color: var(--accent-cyan);
+  }
+
+  .item-tier.tier-nimbus {
+    color: var(--accent-purple);
+  }
+
+  .item-tier.tier-stratus {
+    color: var(--accent-orange, #f97316);
   }
 
   .item-label {

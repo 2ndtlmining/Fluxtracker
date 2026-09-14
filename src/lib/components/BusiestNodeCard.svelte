@@ -1,6 +1,6 @@
 <script>
   import { Server } from 'lucide-svelte';
-  import { computeUtilizationPercent, formatAsciiBar } from '$lib/utils/resourceBar.js';
+  import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
 
   export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
   export let loading = false;
@@ -50,12 +50,13 @@
         { label: 'SSD', used: node.resources.ssd.used, total: node.resources.ssd.total, unit: 'GB' }
       ] as resource}
         {@const percent = computeUtilizationPercent(resource.used, resource.total)}
+        {@const level = utilizationLevel(percent)}
         <div class="resource-row">
           <div class="resource-heading">
             <span class="resource-label">{resource.label}</span>
-            <span class="resource-percent">{Math.round(percent)}%</span>
+            <span class="resource-percent {level}">{Math.round(percent)}%</span>
           </div>
-          <div class="resource-bar">{formatAsciiBar(percent, 10)}</div>
+          <div class="resource-bar {level}">{formatAsciiBar(percent, 10)}</div>
           <div class="resource-detail">{formatDecimal(resource.used)} / {formatDecimal(resource.total)} {resource.unit}</div>
         </div>
       {/each}
@@ -225,6 +226,29 @@
     color: var(--text-primary);
     text-shadow: 0 0 6px rgba(0, 255, 255, 0.4);
     white-space: pre;
+  }
+
+  /* Utilization bands (issue #160) -- comfortable / busy / saturated. The colours are the
+     ones already carrying these meanings elsewhere on the dashboard: the carousel's purple
+     and the expiring-apps orange, so a reader who has seen those reads this without a key.
+     .high deliberately gets no extra font-weight; the colour shift plus the fuller bar is
+     the signal, and bolding shifted the tabular-nums column width. */
+  .resource-percent.elevated,
+  .resource-bar.elevated {
+    color: var(--accent-purple);
+  }
+
+  .resource-bar.elevated {
+    text-shadow: 0 0 6px rgba(189, 147, 249, 0.45);
+  }
+
+  .resource-percent.high,
+  .resource-bar.high {
+    color: var(--accent-orange, #f97316);
+  }
+
+  .resource-bar.high {
+    text-shadow: 0 0 6px rgba(249, 115, 22, 0.45);
   }
 
   .resource-detail {
