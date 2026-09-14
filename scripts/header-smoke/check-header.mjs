@@ -115,6 +115,12 @@ const run = async () => {
   let sawInstRow = false;
   let sawResRow = false;
   let sawDeployedIconBanner = false;
+  // Issue #177: a game deployment plays an ASCII controller before its detail frame. The
+  // deployed fixture is named like a real dedicated-site deploy (palworld + 13-digit
+  // timestamp) so this path is actually exercised; the expiring fixture stays a
+  // non-game name, which keeps the no-gamepad path covered too.
+  let sawGamepadFrame = false;
+  let sawGamepadPress = false;
   let returnedToLogoAfterInfo = false;
   let infoTextStyleMatchesBoot = null;
   let deployedIconIsGreen = null;
@@ -163,6 +169,20 @@ const run = async () => {
       }
       if (phases.firstLogoRow === null && s.rows.some(r => r.cls.includes('row-logo'))) phases.firstLogoRow = t;
 
+      // Gamepad frames (issue #177). Checked OUTSIDE the NAME-row guard below: a
+      // controller frame has no NAME row, so inside it this could only ever match a
+      // mid-wipe frame holding rows from both the controller and the detail frame.
+      if (s.settled && /\[\^\]|\{\^\}/.test(joined)) {
+        sawGamepadFrame = true;
+        if (/\{[\^v<>]\}|\(\*\)/.test(joined)) sawGamepadPress = true;
+
+        // NOTE: row-width stability is deliberately NOT asserted here. Every wipe legitimately
+        // mixes controller rows with the outgoing frame's rows, which are a different width by
+        // design, so no frame-level filter expresses the invariant honestly at this layer.
+        // terminalAnimation.test.js asserts it exactly instead: one distinct row width across
+        // every frame of the sequence.
+      }
+
       // An idle-rotation info frame (expiring or deployed), identified by its NAME row.
       if (s.settled && /NAME\s+\S/.test(joined)) {
         const isExpiring = /EXPIRE\s+\S/.test(joined) || joined.includes('EXPIRING');
@@ -175,7 +195,7 @@ const run = async () => {
         if (isDeployed) {
           sawDeployedFrame = true;
           sawDeployedIconBanner = true;
-          if (joined.includes('updated-minecraft')) sawUpdatedDeployedName = true;
+          if (joined.includes('palworld1789155733041')) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
         if (/AGO\s+\S/.test(joined)) sawAgoRow = true;
@@ -266,6 +286,8 @@ const run = async () => {
     ['idle rotation: INST row shown', sawInstRow],
     ['idle rotation: RES row shown', sawResRow],
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
+    ['gamepad: controller frame shown for a game deployment', sawGamepadFrame],
+    ['gamepad: at least one button/d-pad press animates', sawGamepadPress],
     ['idle rotation: info-frame text style matches boot text', infoTextStyleMatchesBoot === true],
     ['idle rotation: deployed frame icon rows are accent-green', deployedIconIsGreen === true],
     ['idle rotation: expiring frame icon rows are accent-orange', expiringIconIsOrange === true],

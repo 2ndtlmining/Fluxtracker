@@ -26,7 +26,10 @@ import {
   deploymentFrameKinds,
   expiringFrameKinds,
   DEPLOYED_ICON_LINE,
-  EXPIRING_ICON_LINE
+  EXPIRING_ICON_LINE,
+  formatGamepadFrame,
+  gamepadFrameKinds,
+  GAMEPAD_FRAME_COUNT
 } from './terminalAnimation.js';
 
 describe('FLUX_LOGO', () => {
@@ -509,5 +512,67 @@ describe('formatExpiringReducedMotionLines', () => {
     expect(text).toContain('Minecraft');
     expect(text).toContain('2h');
     expect(text).toContain('EXPIRING SOON');
+  });
+});
+
+describe('formatGamepadFrame (issue #177)', () => {
+  it('renders BOOT_LINE_COUNT rows, like every other frame in the box', () => {
+    for (let step = 0; step < GAMEPAD_FRAME_COUNT; step++) {
+      expect(formatGamepadFrame(step)).toHaveLength(BOOT_LINE_COUNT);
+    }
+  });
+
+  // The box width and height are load-bearing (CLAUDE.md: never let them depend on
+  // content). Pressed and at-rest controls are both exactly 3 columns and are spliced in by
+  // column, so a drift here means someone broke that invariant.
+  it('every row of every frame is exactly the same width', () => {
+    const widths = new Set();
+    for (let step = 0; step < GAMEPAD_FRAME_COUNT; step++) {
+      for (const row of formatGamepadFrame(step)) widths.add(row.length);
+    }
+    expect([...widths]).toHaveLength(1);
+  });
+
+  it('never exceeds the box', () => {
+    for (let step = 0; step < GAMEPAD_FRAME_COUNT; step++) {
+      for (const row of formatGamepadFrame(step)) {
+        expect(row.length).toBeLessThanOrEqual(LOGO_WIDTH);
+      }
+    }
+  });
+
+  it('never emits an empty row -- the harness rejects those outright', () => {
+    for (let step = 0; step < GAMEPAD_FRAME_COUNT; step++) {
+      for (const row of formatGamepadFrame(step)) {
+        expect(row.trim().length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('actually animates: at least one control changes between consecutive frames', () => {
+    for (let step = 0; step < GAMEPAD_FRAME_COUNT - 1; step++) {
+      expect(formatGamepadFrame(step).join('\n')).not.toBe(formatGamepadFrame(step + 1).join('\n'));
+    }
+  });
+
+  it('shows pressed states only where the sequence says', () => {
+    const atRest = formatGamepadFrame(0).join('\n');
+    expect(atRest).not.toContain('{');   // frame 0 is idle
+    expect(atRest).not.toContain('(*)');
+
+    const jumping = formatGamepadFrame(2).join('\n'); // ['DR','BA']
+    expect(jumping).toContain('{>}');
+    expect(jumping).toContain('(*)');
+  });
+
+  it('wraps, so a caller can count up forever', () => {
+    expect(formatGamepadFrame(GAMEPAD_FRAME_COUNT)).toEqual(formatGamepadFrame(0));
+    expect(formatGamepadFrame(GAMEPAD_FRAME_COUNT * 3 + 2)).toEqual(formatGamepadFrame(2));
+  });
+
+  it('accents the whole controller, since here the art IS the event marker', () => {
+    const kinds = gamepadFrameKinds();
+    expect(kinds).toHaveLength(BOOT_LINE_COUNT);
+    expect(new Set(kinds)).toEqual(new Set([ROW_KIND_DEPLOYED]));
   });
 });
