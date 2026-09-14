@@ -138,6 +138,57 @@ describe('countGames', () => {
         expect(games.get('Palworld')).toBe(1);
     });
 
+    // ---------------------------------------------------------------
+    // Multi-component apps: sidecars are not instances of the game
+    // ---------------------------------------------------------------
+    // FiveM is a compose app. Every placement runs `operator` + `mariadb`, and the actual
+    // `fivem` game server runs on only ONE of the three nodes. Counting containers reported
+    // 84 FiveM "instances" where 12 game servers were running -- a 7x overcount.
+    //
+    // The image path never had this problem: mariadb and operator carry non-game images, so
+    // categorizeImage() ignores them. The app-name path sees the SAME app name on every
+    // component, so it needs the equivalent rule -- the same idea as CATEGORY_EXCLUDE, which
+    // already drops the *-server-website companion frontends.
+    it('counts the game server, not its database and operator sidecars', async () => {
+        mockNetwork([
+            // One FiveM app spread over three nodes, exactly as observed live.
+            node('/fluxoperator_fivem1788120258844', '/fluxmariadb_fivem1788120258844', '/fluxfivem_fivem1788120258844'),
+            node('/fluxoperator_fivem1788120258844', '/fluxmariadb_fivem1788120258844'),
+            node('/fluxoperator_fivem1788120258844', '/fluxmariadb_fivem1788120258844')
+        ], {});
+        const games = countGames(await getRunningApps({ force: true }));
+        expect(games.get('FiveM')).toBe(1);
+    });
+
+    it('drops the companion website component, as the image path already does', async () => {
+        mockNetwork([node(
+            '/fluxvalheimvalheim_valheim1788000000000',
+            '/fluxvalheimwebsite_valheim1788000000000'
+        )], {});
+        const games = countGames(await getRunningApps({ force: true }));
+        expect(games.get('Valheim')).toBe(1);
+    });
+
+    it('still counts a game whose component name differs from its plan prefix', async () => {
+        // App "minecraftj<ts>" runs a component called "minecraftserver" -- the component
+        // name is not derivable from the prefix, so the rule must be an exclusion of known
+        // helpers, not a requirement that the component match the game.
+        mockNetwork([node('/fluxminecraftserver_minecraftj1788000000000')], {});
+        const games = countGames(await getRunningApps({ force: true }));
+        expect(games.get('Minecraft')).toBe(1);
+    });
+
+    it('counts one game server per node when the game really is replicated', async () => {
+        // Palworld is single-component and genuinely runs one container per placement --
+        // the helper rule must not collapse those into one.
+        mockNetwork([
+            node('/fluxpalworld_palworld1788000000000'),
+            node('/fluxpalworld_palworld1788000000000')
+        ], {});
+        const games = countGames(await getRunningApps({ force: true }));
+        expect(games.get('Palworld')).toBe(2);
+    });
+
     it('returns counts sorted high to low, for a top-N card', async () => {
         mockNetwork([node(
             '/fluxfivem1788000000000',

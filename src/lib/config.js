@@ -276,6 +276,44 @@ const GAME_PREFIX_MATCHERS = [...GAME_APP_PREFIXES]
     .sort((a, b) => b.prefix.length - a.prefix.length)
     .map(({ prefix, name }) => ({ name, pattern: new RegExp('^' + prefix + '[0-9]{13,}$') }));
 
+// Components that are infrastructure FOR a game rather than an instance OF it.
+//
+// Multi-component (compose) apps run every component under the SAME app name, so the
+// app-name path sees them all. FiveM is the clear case: each deployment runs `operator` and
+// `mariadb` on three nodes while the actual `fivem` game server runs on only one, so
+// counting containers reported 84 FiveM instances where 12 game servers were running.
+//
+// The image path never had this problem -- mariadb and operator carry non-game images, so
+// categorizeImage() ignores them for free. This is the app-name equivalent, and the same
+// idea as CATEGORY_EXCLUDE above, which already drops the *-server-website frontends.
+//
+// Deliberately an exclusion list rather than "the component must name the game": component
+// names are not derivable from the app prefix (app `minecraftj<ts>` runs a component called
+// `minecraftserver`), so requiring a match would silently drop real game servers.
+//
+// NOTE: a new game shipping an unlisted sidecar (say `postgres` or `valkey`) would inflate
+// that game's count the same way FiveM's did. Worth checking a new game's component names
+// against this list before trusting its figure.
+const GAME_HELPER_COMPONENTS = [
+    'mariadb', 'mysql', 'postgres', 'postgresql', 'redis', 'valkey', 'mongo', 'mongodb',
+    'operator', 'watchtower', 'nginx', 'proxy'
+];
+
+/**
+ * True when a container's component is a sidecar rather than the game itself.
+ * @param {string} component component segment of the container name, e.g. "mariadb"
+ */
+export function isGameHelperComponent(component) {
+    if (!component) return false;
+    const lower = component.toLowerCase();
+    // Exact match for the infrastructure names -- a substring test would drop a game whose
+    // own component merely contains one of them.
+    if (GAME_HELPER_COMPONENTS.includes(lower)) return true;
+    // Companion frontends: `fivemserverwebsite`, `valheimwebsite`, `windrosewebsite`. Same
+    // exclusion CATEGORY_EXCLUDE applies to the image path via '-server-website'.
+    return lower.includes('website');
+}
+
 /**
  * Game a Flux app name belongs to, or null if it is not a dedicated-site game deployment.
  *

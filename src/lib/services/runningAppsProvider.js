@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, categorizeImage, getCanonicalName, resolveGameFromAppName } from '../config.js';
+import { API_ENDPOINTS, categorizeImage, getCanonicalName, resolveGameFromAppName, isGameHelperComponent } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
@@ -72,7 +72,12 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
             // App-name path first: the dedicated site is authoritative about which game it
             // deployed, and unlike the image it survives spec encryption. Runs before the
             // resolve() below precisely so an encrypted app still lands in a game bucket.
-            const nameGame = resolveGameFromAppName(toAppName(containerName));
+            //
+            // A compose app runs every component under the same app name, so the sidecars
+            // (mariadb, operator, the companion website) would otherwise each count as an
+            // instance of the game -- 84 FiveM "instances" for 12 actual game servers.
+            const { component, appName } = parseContainerName(containerName);
+            const nameGame = isGameHelperComponent(component) ? null : resolveGameFromAppName(appName);
 
             const resolved = resolveRunningAppName(containerName);
             if (!resolved) {
@@ -119,17 +124,20 @@ function tally(map, key) {
 }
 
 /**
- * Flux app name from a Docker container name.
- * "/fluxpalworld_palworld1788108278166" -> "palworld1788108278166"
- * "/fluxdragonwilds1789155733040"       -> "dragonwilds1789155733040"
+ * Component and app name from a Docker container name.
+ * "/fluxmariadb_fivem1788120258844" -> { component: "mariadb", appName: "fivem1788120258844" }
+ * "/fluxdragonwilds1789155733040"   -> { component: "",        appName: "dragonwilds1789155733040" }
  *
  * Split at the FIRST underscore: the component name always comes first, and an app name may
- * itself contain underscores (same rule as appSpecsCache.resolveRunningAppName).
+ * itself contain underscores (same rule as appSpecsCache.resolveRunningAppName). A flat
+ * container has no component segment.
  */
-function toAppName(containerName) {
+function parseContainerName(containerName) {
     const stripped = containerName.replace(/^\//, '').replace(/^flux/, '');
     const i = stripped.indexOf('_');
-    return i > 0 ? stripped.slice(i + 1) : stripped;
+    return i > 0
+        ? { component: stripped.slice(0, i), appName: stripped.slice(i + 1) }
+        : { component: '', appName: stripped };
 }
 
 /**
