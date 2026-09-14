@@ -53,6 +53,8 @@ export const {
     getRevenueForBlockRange,
     getLastSyncedBlock,
     getTxidCount,
+    createGameSnapshots,
+    getGameSnapshotsByDate,
     getTransactionsPaginated,
     getAppAnalytics,
     getDailyRevenueFromTransactions,
