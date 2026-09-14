@@ -46,6 +46,9 @@
   // Apps deployed/expiring today (issue #108 follow-up) -- rides on the shared dashboard
   // refresh, same as the rest of the Total App Instances card.
   let appsActivity = null;
+  // Gaming breakdown for the App Instances card (issue #163). Null until loaded, so the
+  // card omits the section entirely rather than flashing a zero.
+  let gamingData = null;
   let appsActivityLoading = true;
   
   // Comparison period toggle
@@ -159,7 +162,8 @@
     fetchComparison(comparisonPeriod),
     fetchBusiestNode(),
     fetchDecentralization(),
-    fetchAppsActivity()
+    fetchAppsActivity(),
+    fetchGaming()
   ]);
 
   prefetchComparisons();
@@ -177,6 +181,7 @@ async function refreshAll() {
   comparisonCache = {};                      // period comparisons are cached by period
   await fetchComparison(comparisonPeriod);
   await fetchAppsActivity();
+  await fetchGaming();
 }
 
 async function fetchBusiestNode() {
@@ -215,6 +220,26 @@ async function fetchDecentralization() {
   } finally {
     decentralizationLoading = false;
   }
+}
+
+// Top games plus the network-wide gaming total. `days` drives the comparison window and
+// follows the dashboard's period toggle, so the gaming arrows agree with every other
+// comparison on the page rather than silently using a different baseline.
+async function fetchGaming() {
+  try {
+    const response = await fetch(`${API_URL}/api/games/live?limit=3&days=${comparisonDays(comparisonPeriod)}`);
+    const data = await response.json();
+
+    if (data && !data.error) {
+      gamingData = data;
+    }
+  } catch (error) {
+    console.error('Error fetching gaming breakdown:', error);
+  }
+}
+
+function comparisonDays(period) {
+  return { D: 1, W: 7, M: 30, Q: 90, Y: 365 }[period] || 1;
 }
 
 async function fetchAppsActivity() {
@@ -370,6 +395,10 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     if (!comparisonCache[nextPeriod]) {
       await fetchComparison(nextPeriod);
     }
+
+    // Gaming arrows compare against a different window per period, so they have to be
+    // re-fetched too -- otherwise the card would show a daily delta under a "Y" label.
+    await fetchGaming();
   }
   
   // Helper to get trend from comparison data
@@ -460,6 +489,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         deployedComparison={appsDeployedComparison}
         expiringToday={appsActivity?.expiring24h?.cached ? appsActivity.expiring24h.count : null}
         expiringComparison={appsExpiringComparison}
+        gamingTotal={gamingData?.total ?? null}
+        gamingPrevious={gamingData?.previousTotal ?? null}
+        topGames={gamingData?.games ?? []}
         loading={loading || appsActivityLoading}
       />
 
@@ -473,13 +505,15 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     </div>
 
     <!-- Historical Performance Chart -->
-    <!-- height 460 (issue #149/#153) -- Additional Metrics row above is a
+    <!-- height 525 (issues #149/#153/#163) -- Additional Metrics row above is a
          CSS-grid-stretched row of 3 cards; BusiestNodeCard's compact resource
          columns keep that row from towering, so a static height here reads as
-         proportionate without needing a ResizeObserver to track the row live. -->
+         proportionate without needing a ResizeObserver to track the row live.
+         Raised from 460 when the Gaming breakdown grew that row from 367px to
+         432px: the chart is sized against the row, so it has to move with it. -->
     <Chart
       title="Historical Performance"
-      height={460}
+      height={525}
       defaultCategory="revenue"
       defaultTimeframe="30d"
     />

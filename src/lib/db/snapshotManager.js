@@ -7,6 +7,7 @@
 import {
     createDailySnapshot,
     createRepoSnapshots,
+    createGameSnapshots,
     getRepoSnapshotCountByDate,
     getCurrentMetrics,
     getSnapshotByDate,
@@ -16,6 +17,7 @@ import {
     createDecentralizationContinentSnapshots
 } from './database.js';
 import { getLatestRepoCounts } from '../services/cloudService.js';
+import { getLiveGameBreakdown } from '../services/gamingService.js';
 import {
     getDecentralizationStats,
     getFullDatacenterBreakdown,
@@ -327,6 +329,23 @@ async function takeSnapshot() {
             } catch (error) {
                 log.warn(`Decentralization continent snapshot write failed: ${error.message}`);
             }
+        }
+
+        // Per-game counts (issue #163) -- the history the Gaming section's comparison arrows
+        // read. Isolated in its own try/catch: this is a nice-to-have trend, and a failure
+        // here must not cost us the daily snapshot that everything else depends on.
+        try {
+            const breakdown = await getLiveGameBreakdown();
+            if (breakdown.games.length > 0) {
+                const saved = await createGameSnapshots(snapshotDate, breakdown.games);
+                log.info(`Games: ${saved} tracked, ${breakdown.total} instances`);
+            } else {
+                // Writing zero rows beats writing zeros: an empty day is visibly absent from
+                // the history rather than reading as "no games ran".
+                log.warn('Game snapshot skipped - no games resolved, likely partial API data');
+            }
+        } catch (error) {
+            log.warn(`Game snapshot write failed: ${error.message}`);
         }
 
         // Save per-repo Docker image counts

@@ -12,6 +12,7 @@ import {
     getRepoHistory,
     getAppAnalytics,
     getLastNSnapshots,
+    getGameSnapshotsByDate,
     getSnapshotByDate,
     getRevenueForDateRange
 } from '../../lib/db/database.js';
@@ -168,13 +169,32 @@ router.get('/metrics/category/:category/top', async (req, res) => {
  */
 router.get('/games/live', async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 0, 0), 50);
+    const days = Math.min(Math.max(parseInt(req.query.days) || 1, 1), 365);
 
-    return withDbFallback(gamesCache, `live:${limit}`, res, async () => {
+    return withDbFallback(gamesCache, `live:${limit}:${days}`, res, async () => {
         const breakdown = await getLiveGameBreakdown(limit);
+
+        // Per-game history for the comparison arrows. game_snapshots only starts filling on
+        // the first daily snapshot after this ships, so `previous` is legitimately empty for
+        // the first few days -- the card renders no arrow rather than a fabricated 0%.
+        const since = new Date();
+        since.setDate(since.getDate() - days);
+        const previousRows = await getGameSnapshotsByDate(since.toISOString().split('T')[0]);
+        const previous = new Map(previousRows.map(r => [r.game_name, r.instance_count]));
+
         return {
             total: breakdown.total,
             gameCount: breakdown.gameCount,
-            games: breakdown.games,
+            days,
+            games: breakdown.games.map(g => ({
+                ...g,
+                // undefined, not 0: "we have no reading for that day" is a different claim
+                // from "this game had no instances", and only one of them justifies an arrow.
+                previousInstances: previous.has(g.name) ? previous.get(g.name) : undefined
+            })),
+            previousTotal: previousRows.length > 0
+                ? previousRows.reduce((sum, r) => sum + r.instance_count, 0)
+                : undefined,
             fetchedAt: breakdown.fetchedAt
         };
     });

@@ -1,5 +1,5 @@
 <script>
-  import { Package } from 'lucide-svelte';
+  import { Package, Gamepad2 } from 'lucide-svelte';
 
   // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) --
   // it comes from the running-apps census, not per-app image resolution.
@@ -20,7 +20,35 @@
   export let expiringToday = null;
   export let expiringComparison = null;
 
+  // Gaming breakdown (issue #163). Games are a SUBSET of the instances counted above, not a
+  // separate category -- which is why they live in this card rather than a fourth one.
+  //
+  // Counts come from /api/games/live, which identifies games by app name as well as image;
+  // the image alone misses most FiveM and Valheim instances (encrypted specs carry no
+  // repotag). `previousInstances` is undefined until game_snapshots has history, and an
+  // undefined previous renders no arrow rather than a fabricated 0%.
+  export let gamingTotal = null;
+  export let gamingPrevious = null;
+  export let topGames = [];
+
   export let loading = false;
+
+  $: gamingComparison = toComparison(gamingTotal, gamingPrevious);
+
+  /**
+   * Percentage change between two readings, or null when there is nothing to compare.
+   * Returns null for a missing previous reading AND for a previous of 0 -- "up from zero"
+   * has no meaningful percentage, and rendering +Infinity% or +100% would both mislead.
+   */
+  function toComparison(current, previous) {
+    if (current === null || current === undefined) return null;
+    if (previous === null || previous === undefined || previous === 0) return null;
+    const change = ((current - previous) / previous) * 100;
+    return {
+      change,
+      trend: change > 0 ? 'up' : change < 0 ? 'down' : 'neutral'
+    };
+  }
 
   function formatNumber(num) {
     if (num === null || num === undefined) return '--';
@@ -35,7 +63,7 @@
 <div class="app-instances-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Package size={24} strokeWidth={2} /></div>
-    <div class="card-title">Total App Instances</div>
+    <div class="card-title">App Instances</div>
   </div>
 
   {#if loading}
@@ -75,6 +103,37 @@
         {/if}
       </div>
     </div>
+
+    {#if gamingTotal !== null}
+      <div class="gaming-section">
+        <div class="gaming-header">
+          <div class="gaming-icon"><Gamepad2 size={16} strokeWidth={2} /></div>
+          <div class="gaming-label">Gaming</div>
+          {#if gamingComparison}
+            <div class="metric-change compact" class:up={gamingComparison.trend === 'up'} class:down={gamingComparison.trend === 'down'} class:neutral={gamingComparison.trend === 'neutral'}>
+              {#if gamingComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if gamingComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {formatChange(gamingComparison)}
+            </div>
+          {/if}
+          <div class="gaming-total">{formatNumber(gamingTotal)}</div>
+        </div>
+
+        {#if topGames.length > 0}
+          <ul class="game-list">
+            {#each topGames as game}
+              {@const cmp = toComparison(game.instances, game.previousInstances)}
+              <li class="game-row">
+                <span class="game-name" title={game.name}>{game.name}</span>
+                <span class="game-count">{formatNumber(game.instances)}</span>
+                <span class="game-trend" class:up={cmp?.trend === 'up'} class:down={cmp?.trend === 'down'}>
+                  {#if cmp?.trend === 'up'}↑{:else if cmp?.trend === 'down'}↓{/if}
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {/if}
   {/if}
 </div>
 
@@ -183,6 +242,97 @@
     color: var(--text-white);
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Gaming breakdown (issue #163). A subsection of this card, not a card of its own: games
+     are a subset of the instances above. Set apart by a rule and a smaller type scale so it
+     reads as detail under the headline rather than as a competing metric. */
+  .gaming-section {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .gaming-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    /* Reserves the same trailing width the game rows give their trend column, so the total
+       and the per-game counts right-align on one axis instead of two. */
+    padding-right: calc(0.75rem + var(--spacing-sm));
+  }
+
+  .gaming-icon {
+    display: flex;
+    align-items: center;
+    color: var(--accent-purple);
+  }
+
+  .gaming-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    /* Takes the slack so the total sits hard right, aligned with the counts below it. */
+    flex: 1;
+    min-width: 0;
+  }
+
+  .gaming-total {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--text-white);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .game-list {
+    list-style: none;
+    margin: var(--spacing-sm) 0 0;
+    padding: 0;
+  }
+
+  .game-row {
+    display: grid;
+    /* Fixed trailing columns keep every count right-aligned on the same axis regardless of
+       name length; min-width:0 on the name is what lets the ellipsis actually engage. */
+    grid-template-columns: 1fr auto 0.75rem;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+    padding: 2px 0;
+  }
+
+  .game-name {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Arrow only -- the per-game percentage would be four more numbers competing with the
+     counts. An empty cell holds the column when there is no reading to compare against. */
+  .game-trend {
+    font-size: 0.7rem;
+    text-align: right;
+    color: transparent;
+  }
+
+  .game-trend.up { color: var(--accent-green); }
+  .game-trend.down { color: var(--accent-red); }
+
+  .metric-change.compact {
+    padding: 0.1rem 0.35rem;
+    font-size: 0.7rem;
   }
 
   /* Comparison indicator (mirrors CloudCard.svelte's .metric-change) */
