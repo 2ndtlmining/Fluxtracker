@@ -2,11 +2,16 @@
   import { Server } from 'lucide-svelte';
   import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
 
-  export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
+  export let node = null;           // { ip, tier, country, countryCode, appCount, containerCount, appNames, resources } | null
   export let loading = false;
   export let error = false;
 
   $: unresolvedCount = node ? node.appCount - (node.appNames?.length || 0) : 0;
+  // Issue #190: appCount is DISTINCT APPS now, matching what Flux's own node dashboard
+  // reports. A compose app runs a container per component, so the container count is
+  // usually higher -- worth showing, since it is the real measure of how loaded the node
+  // is, but not in place of the app count that the label promises.
+  $: extraContainers = node?.containerCount > node?.appCount;
 
   function formatNumber(num) {
     if (!num) return '0';
@@ -40,7 +45,14 @@
       {#if node.country}
         <span class="node-location">{node.country}</span>
       {/if}
-      <span class="node-app-count">{formatNumber(node.appCount)} apps running</span>
+      <span class="node-app-count">
+        {formatNumber(node.appCount)} {node.appCount === 1 ? 'app' : 'apps'} running
+        {#if extraContainers}
+          <span class="node-container-count" title="A compose app runs one container per component, so a node runs more containers than apps">
+            · {formatNumber(node.containerCount)} containers
+          </span>
+        {/if}
+      </span>
     </div>
 
     <div class="node-resources">
@@ -164,6 +176,12 @@
   .node-location {
     font-size: 0.75rem;
     color: var(--text-muted);
+  }
+
+  .node-container-count {
+    color: var(--text-dim);
+    font-weight: 400;
+    white-space: nowrap;
   }
 
   .node-app-count {

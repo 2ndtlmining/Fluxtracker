@@ -26,6 +26,50 @@ let inFlight = null;
 // hourly ~4MB fetch instead of two.
 let networkNodeIps = [];
 
+/**
+ * The APP a running container belongs to (issue #190).
+ *
+ * A compose app runs one container PER COMPONENT on the same node -- ghostddns alone runs
+ * ddns, nginx, operator, mysql and ghost -- so runningapps.length is a container count, not
+ * an app count. Counting containers reported 13 apps on a node that Flux's own node
+ * dashboard shows as 6. Same class of miscount as the FiveM one in issue #163.
+ *
+ * resolveRunningAppName is authoritative and is tried first: it confirms the app against the
+ * spec cache, and it handles the legacy flat-spec case where the container name IS the app
+ * name and may itself contain an underscore.
+ *
+ * The fallback matters for the COUNT. A container whose spec the cache doesn't know (pruned,
+ * expired, or simply missing) used to be counted in appCount but dropped from appNames --
+ * the card then said 13 while listing 8. Deriving the name from the container instead keeps
+ * one number behind both: "flux<component>_<appName>", split at the FIRST underscore because
+ * the component always comes first.
+ */
+export function appNameForContainer(containerName) {
+    if (!containerName) return null;
+
+    const resolved = resolveRunningAppName(containerName);
+    if (resolved?.appName) return resolved.appName;
+
+    const stripped = String(containerName).replace(/^\//, '').replace(/^flux/, '');
+    if (!stripped) return null;
+
+    const underscoreIndex = stripped.indexOf('_');
+    return underscoreIndex > 0 ? stripped.slice(underscoreIndex + 1) : stripped;
+}
+
+/** Distinct app names running on a node, in the order their first container appears. */
+function appNamesOnNode(node) {
+    const containers = node?.apps?.runningapps;
+    if (!Array.isArray(containers)) return [];
+
+    const names = new Set();
+    for (const container of containers) {
+        const name = appNameForContainer(container?.Names?.[0]);
+        if (name) names.add(name);
+    }
+    return [...names];
+}
+
 async function fetchBusiestNode() {
     const [body] = await Promise.all([
         resilientFetch(API_ENDPOINTS.API_BUSIEST_NODE, { timeout: 30000, breakerKey: 'busiest-node' }),
@@ -50,29 +94,37 @@ async function fetchBusiestNode() {
             .filter(Boolean)
     )];
 
+    // Busiest by DISTINCT APPS, not containers -- the card says "apps running", and picking
+    // by container count would crown a node running three compose apps over one running five
+    // separate apps. Containers break the tie: same number of apps, more containers is more
+    // work. First node seen wins a full tie, so the choice is stable between fetches.
     let busiestNode = null;
-    let busiestCount = 0;
+    let busiestNames = [];
+    let busiestContainers = 0;
 
     for (const node of nodes) {
-        const runningApps = node?.apps?.runningapps;
-        const appCount = Array.isArray(runningApps) ? runningApps.length : 0;
-        if (appCount === 0 || appCount <= busiestCount) continue;
+        const containers = node?.apps?.runningapps;
+        const containerCount = Array.isArray(containers) ? containers.length : 0;
+        if (containerCount === 0) continue;
+
+        const names = appNamesOnNode(node);
+        if (names.length === 0) continue;
+
+        const better = names.length > busiestNames.length
+            || (names.length === busiestNames.length && containerCount > busiestContainers);
+        if (!better) continue;
 
         busiestNode = node;
-        busiestCount = appCount;
+        busiestNames = names;
+        busiestContainers = containerCount;
     }
 
     if (!busiestNode) {
         throw new Error('No node with running apps found');
     }
 
-    const appNames = [];
-    for (const app of busiestNode.apps.runningapps) {
-        const containerName = app?.Names?.[0];
-        if (!containerName) continue;
-        const resolved = resolveRunningAppName(containerName);
-        if (resolved) appNames.push(resolved.appName);
-    }
+    const appNames = busiestNames;
+    const busiestCount = busiestNames.length;
 
     // appsRamLocked is MB; benchmark.bench.ram is GB (same MB-called-GB split this codebase
     // already has elsewhere — see cloudService.js). appsCpusLocked/appsHddLocked already share
@@ -86,6 +138,10 @@ async function fetchBusiestNode() {
         country: busiestNode.geolocation?.country || null,
         countryCode: busiestNode.geolocation?.countryCode || null,
         appCount: busiestCount,
+        // Kept alongside the app count: a node running 6 apps across 13 containers is doing
+        // more than one running 6 apps in 6, and the difference is the whole reason the old
+        // number looked wrong.
+        containerCount: busiestContainers,
         appNames,
         resources: {
             cpu: { used: resources.appsCpusLocked || 0, total: bench.cores || 0 },
@@ -95,11 +151,11 @@ async function fetchBusiestNode() {
     };
 
     log.info(
-        { ip: result.ip, appCount: result.appCount, resolvedNames: appNames.length },
-        'Busiest node: %s with %d instances (%d resolved)',
+        { ip: result.ip, appCount: result.appCount, containerCount: result.containerCount },
+        'Busiest node: %s with %d apps across %d containers',
         result.ip,
         result.appCount,
-        appNames.length
+        result.containerCount
     );
 
     return result;
