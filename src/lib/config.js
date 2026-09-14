@@ -222,6 +222,115 @@ export const GAMING_REPOS = [
 ];
 
 // ============================================
+// GAMES IDENTIFIED BY APP NAME (issue #162/#163)
+// ============================================
+// A second way to recognise a game, needed because `categorizeImage()` structurally cannot
+// see a large share of them.
+//
+// Flux app specs can be enterprise-ENCRYPTED: `compose: []` and no `repotag` anywhere in
+// globalappsspecifications. About 23% of running containers resolve to no image at all, and
+// the game sites are heavily represented in that group. Measured against the live network:
+// image matching found 4 Valheim instances where 84 were running, and ZERO of the 82 FiveM
+// and 1 Dragonwilds (RuneScape) instances, because those have no image string to match.
+//
+// What survives encryption is the APP NAME. Flux's dedicated game sites deploy as
+// `${prefix}${Date.now()}` -- "fivem1787211516616", "dragonwilds1789155733040" -- so the
+// prefix identifies the game even with no image.
+//
+// Ported from RunOnFlux/fluxview's src/constants/dedicatedSites.js, which is the upstream
+// source of truth. These prefixes CANNOT be derived from anything -- each site chooses its
+// own, sometimes per plan (Minecraft java/bedrock, Rust vanilla/oxide) -- so, exactly as
+// fluxview does, this list is maintained BY HAND. A new game, or a new plan on an existing
+// game, means a new entry here.
+//
+// Names are deliberately the canonical game, not the plan: "minecraftj" and "minecraftb"
+// are both Minecraft, so the two plans total into one figure rather than splitting the card.
+export const GAME_APP_PREFIXES = [
+    { prefix: 'palworld', name: 'Palworld' },
+    { prefix: 'minecraftj', name: 'Minecraft' },
+    { prefix: 'minecraftb', name: 'Minecraft' },
+    { prefix: 'minecraftserver', name: 'Minecraft' },
+    { prefix: 'minecraftbedrockserver', name: 'Minecraft' },
+    { prefix: 'projectzomboid', name: 'Project Zomboid' },
+    { prefix: 'windrose', name: 'Windrose' },
+    { prefix: 'enshrouded', name: 'Enshrouded' },
+    { prefix: 'rustserver', name: 'Rust' },
+    { prefix: 'rustserveroxide', name: 'Rust' },
+    { prefix: 'fivem', name: 'FiveM' },
+    { prefix: 'valheim', name: 'Valheim' },
+    { prefix: 'terraria', name: 'Terraria' },
+    // Issue #162. Flux's games hub lists this as "Dragonwilds"; the full title is
+    // "RuneScape: Dragonwilds". Named for the hub, which is also what the site's art says.
+    { prefix: 'dragonwilds', name: 'RuneScape: Dragonwilds' }
+
+    // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
+    // games -- deliberately omitted so the gaming figure means what its label says.
+];
+
+// `${prefix}${Date.now()}`. Date.now() is 13 digits and stays that way for centuries, so
+// anchoring on the digits keeps a hand-named "palworld16slots" out of the Palworld bucket
+// while still matching every site deployment. Longest prefix first, so "minecraftbedrockserver"
+// is tested before "minecraftb" -- otherwise the shorter one shadows it and the trailing
+// "edrockserver..." fails the digit anchor, dropping the app entirely.
+const GAME_PREFIX_MATCHERS = [...GAME_APP_PREFIXES]
+    .sort((a, b) => b.prefix.length - a.prefix.length)
+    .map(({ prefix, name }) => ({ name, pattern: new RegExp('^' + prefix + '[0-9]{13,}$') }));
+
+// Components that are infrastructure FOR a game rather than an instance OF it.
+//
+// Multi-component (compose) apps run every component under the SAME app name, so the
+// app-name path sees them all. FiveM is the clear case: each deployment runs `operator` and
+// `mariadb` on three nodes while the actual `fivem` game server runs on only one, so
+// counting containers reported 84 FiveM instances where 12 game servers were running.
+//
+// The image path never had this problem -- mariadb and operator carry non-game images, so
+// categorizeImage() ignores them for free. This is the app-name equivalent, and the same
+// idea as CATEGORY_EXCLUDE above, which already drops the *-server-website frontends.
+//
+// Deliberately an exclusion list rather than "the component must name the game": component
+// names are not derivable from the app prefix (app `minecraftj<ts>` runs a component called
+// `minecraftserver`), so requiring a match would silently drop real game servers.
+//
+// NOTE: a new game shipping an unlisted sidecar (say `postgres` or `valkey`) would inflate
+// that game's count the same way FiveM's did. Worth checking a new game's component names
+// against this list before trusting its figure.
+const GAME_HELPER_COMPONENTS = [
+    'mariadb', 'mysql', 'postgres', 'postgresql', 'redis', 'valkey', 'mongo', 'mongodb',
+    'operator', 'watchtower', 'nginx', 'proxy'
+];
+
+/**
+ * True when a container's component is a sidecar rather than the game itself.
+ * @param {string} component component segment of the container name, e.g. "mariadb"
+ */
+export function isGameHelperComponent(component) {
+    if (!component) return false;
+    const lower = component.toLowerCase();
+    // Exact match for the infrastructure names -- a substring test would drop a game whose
+    // own component merely contains one of them.
+    if (GAME_HELPER_COMPONENTS.includes(lower)) return true;
+    // Companion frontends: `fivemserverwebsite`, `valheimwebsite`, `windrosewebsite`. Same
+    // exclusion CATEGORY_EXCLUDE applies to the image path via '-server-website'.
+    return lower.includes('website');
+}
+
+/**
+ * Game a Flux app name belongs to, or null if it is not a dedicated-site game deployment.
+ *
+ * Matching is on the app name only -- callers strip any `flux` prefix and component segment
+ * from the container name first (see toAppName in runningAppsProvider).
+ *
+ * @param {string} appName e.g. "fivem1787211516616"
+ * @returns {string|null} canonical game name, e.g. "FiveM"
+ */
+export function resolveGameFromAppName(appName) {
+    if (!appName) return null;
+    const lower = String(appName).toLowerCase();
+    const match = GAME_PREFIX_MATCHERS.find(m => m.pattern.test(lower));
+    return match ? match.name : null;
+}
+
+// ============================================
 // CRYPTO NODE REPOSITORIES TO TRACK
 // ============================================
 export const CRYPTO_REPOS = [
@@ -306,7 +415,11 @@ const FIXED_METRIC_COLUMNS = [
     'total_storage_gb', 'used_storage_gb', 'storage_utilization_percent',
     'total_apps', 'watchtower_count',
     'gitapps_count', 'dockerapps_count', 'gitapps_percent', 'dockerapps_percent',
-    'gaming_apps_total', 'crypto_nodes_total', 'wordpress_count',
+    // gaming_apps_total counts only instances with a readable image (issue #106's rule);
+    // gaming_instances_total adds those identifiable only by app name (issue #162/#163).
+    // Both are kept: the first is what daily_snapshots has years of history for, the second
+    // is the real figure. See gamingService for why they are not merged.
+    'gaming_apps_total', 'gaming_instances_total', 'crypto_nodes_total', 'wordpress_count',
     'node_cumulus', 'node_nimbus', 'node_stratus', 'node_total'
 ];
 

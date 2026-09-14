@@ -18,6 +18,7 @@ import {
 
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getFluxCloudActivity } from '../../lib/services/carouselService.js';
+import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -28,6 +29,9 @@ const router = express.Router();
 const metricsCache = createCache(60_000);     // 60s
 const analyticsCache = createCache(300_000);  // 5 min
 const categoryCache = createCache(300_000);   // 5 min
+// Matches the running-apps payload's own ~60s TTL -- caching longer here would just serve
+// a stale copy of data the provider has already refreshed.
+const gamesCache = createCache(60_000);       // 60s
 
 // repo_snapshots stores one row per Docker image, but a game usually ships as several
 // images (Minecraft Java + Bedrock, three Valheim images, two Rust images). Users think
@@ -148,6 +152,30 @@ router.get('/metrics/category/:category/top', async (req, res) => {
             })),
             previousRepos,
             days
+        };
+    });
+});
+
+/**
+ * GET /api/games/live — per-game running instance counts (issue #162/#163).
+ *
+ * Separate from /api/metrics/category/gaming/top, which reads repo_snapshots and therefore
+ * can only report games with a readable Docker image. This counts by app name as well, so
+ * enterprise-encrypted deployments (most of FiveM, Valheim and RuneScape: Dragonwilds) are
+ * included.
+ *
+ * ?limit=N for a top-N breakdown; omit for every game.
+ */
+router.get('/games/live', async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 0, 0), 50);
+
+    return withDbFallback(gamesCache, `live:${limit}`, res, async () => {
+        const breakdown = await getLiveGameBreakdown(limit);
+        return {
+            total: breakdown.total,
+            gameCount: breakdown.gameCount,
+            games: breakdown.games,
+            fetchedAt: breakdown.fetchedAt
         };
     });
 });

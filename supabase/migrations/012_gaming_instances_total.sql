@@ -1,0 +1,23 @@
+-- Issue #162/#163: the real count of running game instances.
+--
+-- `gaming_apps_total` counts only instances whose image is readable. Flux app specs can be
+-- enterprise-encrypted (`compose: []`, no repotag anywhere in globalappsspecifications), and
+-- roughly 23% of running containers resolve to no image at all. Games are heavily
+-- represented in that group -- measured against the live network, image matching found 4
+-- Valheim instances where 84 were running, and none of the 82 FiveM instances.
+--
+-- `gaming_instances_total` adds the instances identifiable only by app name, via Flux's
+-- dedicated-site naming (`${prefix}${Date.now()}`), deduped per container against the image
+-- path so nothing is counted twice.
+--
+-- Deliberately a SECOND column rather than a correction of the first: daily_snapshots has
+-- years of history counted the old way, and overwriting the column's meaning would put a
+-- ~35% step in the Historical Performance trend that reads as growth rather than as a change
+-- of counting method. Both are recorded so the two can be compared like for like, and so the
+-- Gaming card has same-method history for its comparison arrows.
+-- No DEFAULT, deliberately: rows written before app-name matching shipped have no reading
+-- for this column, and a fabricated 0 would render as "no game instances ran that day" --
+-- false, and indistinguishable from a real collection failure (the KPI layer already treats
+-- a 0 in a snapshot column as missing by design).
+ALTER TABLE daily_snapshots ADD COLUMN IF NOT EXISTS gaming_instances_total INTEGER;
+ALTER TABLE current_metrics  ADD COLUMN IF NOT EXISTS gaming_instances_total INTEGER;

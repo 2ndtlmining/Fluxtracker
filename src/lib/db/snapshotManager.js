@@ -247,6 +247,10 @@ async function takeSnapshot() {
             
             // Gaming - INCLUDES gaming_valheim
             gaming_apps_total: currentMetrics.gaming_apps_total || 0,
+            // Same-method history for the Gaming card's comparison arrows (issue #163).
+            // gaming_apps_total above stays image-only so the existing trend line does not
+            // step on the day app-name matching ships.
+            gaming_instances_total: currentMetrics.gaming_instances_total ?? null,
             gaming_palworld: currentMetrics.gaming_palworld || 0,
             gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
             gaming_minecraft: currentMetrics.gaming_minecraft || 0,

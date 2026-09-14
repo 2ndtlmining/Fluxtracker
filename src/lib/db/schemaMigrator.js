@@ -21,6 +21,11 @@ const FIXED_COLUMNS = [
     // that would misreport as "nothing was deployed/expiring that day".
     { name: 'apps_deployed_today', type: 'INTEGER' },
     { name: 'apps_expiring_today', type: 'INTEGER' },
+    // Issue #162/#163. No DEFAULT, same reasoning as the two above: every row written
+    // before app-name matching shipped has no reading for this, and a fabricated 0 would
+    // render as "no game instances ran that day" -- which is both false and indistinguishable
+    // from a real collection failure (the KPI layer treats a 0 here as missing by design).
+    { name: 'gaming_instances_total', type: 'INTEGER' },
 ];
 
 // ============================================
