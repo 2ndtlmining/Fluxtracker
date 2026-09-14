@@ -318,6 +318,62 @@ export async function buildFullPriceMap() {
 // ============================================
 
 /**
+ * Repair TODAY's unpriced transactions with a live price (issue #183).
+ *
+ * The hole this fills: a transaction under 24h old can only be priced from the live price
+ * at the moment its sync pass ran, because flux_price_history deliberately excludes today
+ * (partial candle). When every live price source misses in one 5-minute pass -- CoinGecko
+ * rate-limits by IP, CryptoCompare is 401 without a key -- those rows are written NULL, and
+ * nothing revisits them: inserts are ON CONFLICT DO NOTHING, so a later pass with a working
+ * price does not touch an existing row, and backfillNullUsdAmounts() prices strictly BY DATE
+ * from a table that will not contain today until tomorrow. The rows sat unpriced for the
+ * rest of the day, and today's USD revenue was understated by exactly that much.
+ *
+ * So: after any pass that DID get a price, re-price today's stragglers with it. Worst case a
+ * row is priced five minutes late instead of eighteen hours late.
+ *
+ * Deliberately today-only. Yesterday and older are the date-based backfill's job, and it has
+ * a real per-day price for them -- repairing those here would substitute today's price for a
+ * day whose actual close is already known.
+ *
+ * @param {?number} livePrice USD per FLUX, or null/undefined when this pass had no price
+ * @param {Date} [now] injectable for tests
+ * @returns {Promise<{updated: number, examined: number, skipped: string}>}
+ */
+export async function repairTodaysNullUsd(livePrice, now = new Date()) {
+    if (!livePrice || !(livePrice > 0)) {
+        return { updated: 0, examined: 0, skipped: 'no live price this pass' };
+    }
+
+    const today = now.toISOString().slice(0, 10);
+
+    // getTransactionsWithNullUsd returns the NULL set newest-first (block_height DESC), so
+    // today's rows are always on the first page -- no paging needed, and no risk of an older
+    // unpriceable row (a date no source covers) pushing today's out of the window.
+    const candidates = await getTransactionsWithNullUsd(REVENUE_SYNC.PRICE_HISTORY_BATCH_SIZE, 0);
+    const todays = candidates.filter(tx => String(tx.date).slice(0, 10) === today);
+
+    if (todays.length === 0) {
+        return { updated: 0, examined: candidates.length, skipped: 'nothing unpriced for today' };
+    }
+
+    const updates = todays.map(tx => ({ txid: tx.txid, amount_usd: tx.amount * livePrice }));
+    const ok = await updateTransactionUsdBatch(updates);
+
+    if (!ok) {
+        log.warn('Same-day USD repair failed at the database');
+        return { updated: 0, examined: candidates.length, skipped: 'database error' };
+    }
+
+    log.info(
+        { updated: updates.length, price: livePrice },
+        'Same-day USD repair: priced %d transaction(s) that missed the live price',
+        updates.length
+    );
+    return { updated: updates.length, examined: candidates.length, skipped: '' };
+}
+
+/**
  * Find all transactions with amount_usd IS NULL, look up the historical price
  * for their date, and batch-update the USD amounts.
  *

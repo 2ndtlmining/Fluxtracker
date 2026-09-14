@@ -332,3 +332,84 @@ describe('backfillNullUsdAmounts', () => {
         });
     });
 });
+
+describe('repairTodaysNullUsd (issue #183)', () => {
+    // The hole being closed: a transaction under 24h old can only be priced from the live
+    // price at its sync pass, because flux_price_history excludes today. When every source
+    // missed in one pass those rows were written NULL and nothing revisited them -- inserts
+    // are ON CONFLICT DO NOTHING, and the date-based backfill has no price for today -- so
+    // they stayed unpriced until the next day and understated today's USD revenue.
+    const TODAY = '2026-08-21';   // NOW is 2026-08-21T12:00:00Z
+    const YESTERDAY = '2026-08-20';
+
+    it(`prices today's unpriced rows with the live price`, async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([
+            { txid: 'a', amount: 10, date: TODAY, timestamp: 1 },
+            { txid: 'b', amount: 2.5, date: TODAY, timestamp: 2 }
+        ]);
+        const { repairTodaysNullUsd } = await loadService();
+
+        const result = await repairTodaysNullUsd(0.05);
+
+        expect(result.updated).toBe(2);
+        expect(updateTransactionUsdBatch).toHaveBeenCalledWith([
+            { txid: 'a', amount_usd: 0.5 },
+            { txid: 'b', amount_usd: 0.125 }
+        ]);
+    });
+
+    it('leaves older rows to the date-based backfill, which has a real price for them', async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([
+            { txid: 'today', amount: 10, date: TODAY, timestamp: 1 },
+            { txid: 'yesterday', amount: 10, date: YESTERDAY, timestamp: 2 },
+            { txid: 'ancient', amount: 10, date: '2021-01-01', timestamp: 3 }
+        ]);
+        const { repairTodaysNullUsd } = await loadService();
+
+        const result = await repairTodaysNullUsd(0.05);
+
+        expect(result.updated).toBe(1);
+        expect(updateTransactionUsdBatch).toHaveBeenCalledWith([{ txid: 'today', amount_usd: 0.5 }]);
+    });
+
+    it('handles a date stored with a time component', async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([
+            { txid: 'a', amount: 4, date: TODAY + 'T09:14:00Z', timestamp: 1 }
+        ]);
+        const { repairTodaysNullUsd } = await loadService();
+
+        await expect(repairTodaysNullUsd(0.25)).resolves.toMatchObject({ updated: 1 });
+    });
+
+    it('does nothing when the pass had no price -- never writes a fabricated value', async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([{ txid: 'a', amount: 10, date: TODAY, timestamp: 1 }]);
+        const { repairTodaysNullUsd } = await loadService();
+
+        for (const noPrice of [null, undefined, 0, NaN, -1]) {
+            const result = await repairTodaysNullUsd(noPrice);
+            expect(result.updated).toBe(0);
+        }
+        expect(updateTransactionUsdBatch).not.toHaveBeenCalled();
+    });
+
+    it('is a cheap no-op when nothing is unpriced', async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([]);
+        const { repairTodaysNullUsd } = await loadService();
+
+        const result = await repairTodaysNullUsd(0.05);
+
+        expect(result.updated).toBe(0);
+        expect(updateTransactionUsdBatch).not.toHaveBeenCalled();
+    });
+
+    it('reports a database failure instead of claiming an update', async () => {
+        getTransactionsWithNullUsd.mockResolvedValue([{ txid: 'a', amount: 10, date: TODAY, timestamp: 1 }]);
+        updateTransactionUsdBatch.mockResolvedValue(false);
+        const { repairTodaysNullUsd } = await loadService();
+
+        const result = await repairTodaysNullUsd(0.05);
+
+        expect(result.updated).toBe(0);
+        expect(result.skipped).toContain('database');
+    });
+});

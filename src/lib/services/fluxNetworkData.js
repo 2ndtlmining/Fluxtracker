@@ -10,6 +10,40 @@ const log = createLogger('fluxNetworkData');
 // ============================================
 
 /**
+ * Last price we actually fetched, and when (issue #183).
+ *
+ * Every source can miss in the same pass -- CoinGecko rate-limits by IP and CryptoCompare
+ * returns 401 without a key -- and returning null then means every transaction synced in
+ * that pass is stored with amount_usd = NULL. FLUX does not move far in an hour, so a
+ * recent price is a far better answer than no answer at all.
+ *
+ * Held in memory rather than read back from current_metrics.flux_price_usd on purpose:
+ * current_metrics.last_update is bumped by ANY metrics write (nodes, apps, resources), so
+ * it says nothing about how old the PRICE is. A stale price wearing a fresh timestamp is
+ * exactly the failure this is meant to prevent. The cost is that a process which has never
+ * had a successful fetch has no fallback -- and that case is covered instead by the
+ * same-day repair pass, which re-prices those rows as soon as any later pass succeeds.
+ */
+const PRICE_FALLBACK_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6h
+let lastGoodPrice = null; // { price: number, at: number }
+
+/** The cached price and its age in ms, or null if nothing has been fetched yet. */
+export function getLastGoodPrice() {
+    if (!lastGoodPrice) return null;
+    return { price: lastGoodPrice.price, at: lastGoodPrice.at, ageMs: Date.now() - lastGoodPrice.at };
+}
+
+/** Test seam -- clears the in-memory price cache. */
+export function resetLastGoodPrice() {
+    lastGoodPrice = null;
+}
+
+function rememberPrice(price) {
+    lastGoodPrice = { price, at: Date.now() };
+    return price;
+}
+
+/**
  * Fetch FLUX price in USD.
  * Tries three sources in order: CoinGecko → Flux Explorer → CryptoCompare
  */
@@ -23,7 +57,7 @@ export async function fetchFluxPrice() {
             const price = data.zelcash.usd;
             log.info({ price }, 'FLUX price fetched from CoinGecko: $%s', price);
             await updateCurrentMetrics({ flux_price_usd: price });
-            return price;
+            return rememberPrice(price);
         }
     } catch (e) {
         log.warn({ err: e }, 'CoinGecko failed');
@@ -37,7 +71,7 @@ export async function fetchFluxPrice() {
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from Explorer: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
-                return price;
+                return rememberPrice(price);
             }
         }
     } catch (e) {
@@ -52,14 +86,24 @@ export async function fetchFluxPrice() {
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from CryptoCompare: $%s', price);
                 await updateCurrentMetrics({ flux_price_usd: price });
-                return price;
+                return rememberPrice(price);
             }
         }
     } catch (e) {
         log.warn({ err: e }, 'CryptoCompare failed');
     }
 
-    log.warn('All price sources failed -- USD values will be null');
+    // Fall back to the most recent price this process actually fetched, if it is recent
+    // enough to still be a fair approximation. Better a 20-minute-old price than a NULL that
+    // understates the day's USD revenue until tomorrow's backfill.
+    const cached = getLastGoodPrice();
+    if (cached && cached.ageMs <= PRICE_FALLBACK_MAX_AGE_MS) {
+        const ageMin = Math.round(cached.ageMs / 60000);
+        log.warn({ price: cached.price, ageMin }, 'All price sources failed -- using last known price ($%s, %d min old)', cached.price, ageMin);
+        return cached.price;
+    }
+
+    log.warn('All price sources failed and no recent cached price -- USD values will be null');
     return null;
 }
 
