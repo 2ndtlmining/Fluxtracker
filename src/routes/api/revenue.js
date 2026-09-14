@@ -12,7 +12,7 @@ import {
     getTransactionsPaginated
 } from '../../lib/db/database.js';
 
-import { FLUX_TEAM_ADDRESSES } from '../../lib/config.js';
+import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { createLogger } from '../../lib/logger.js';
 
 const log = createLogger('server');
@@ -20,6 +20,32 @@ const router = express.Router();
 
 // Largest page /api/transactions/paginated will serve. The CSV export pages at this size.
 const MAX_PAGE_SIZE = 5000;
+
+// Payer sources the TEAM / FIAT badges filter by (issue #159). Resolved server-side from
+// config rather than letting the client post an address list -- the client naming its own
+// addresses would turn this into an arbitrary from_address query.
+const TRANSACTION_SOURCES = {
+    team: FLUX_TEAM_ADDRESSES,
+    fiat: FLUX_FIAT_ADDRESSES
+};
+
+/**
+ * Map a `source` query param ("team", "fiat", or "team,fiat") to the addresses to filter
+ * on. Multiple sources are a union: selecting both badges shows team OR fiat payments.
+ * Unknown names are ignored rather than erroring -- a stale bookmark should degrade to
+ * showing more rows, not to a 400.
+ * @returns {string[]|null} addresses, or null for "no filter"
+ */
+export function resolveSourceAddresses(sourceParam) {
+    if (!sourceParam) return null;
+
+    const names = String(sourceParam).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const addresses = names.flatMap(name => TRANSACTION_SOURCES[name] || []);
+
+    // Deduped: an address listed under two sources must not double-count in the IN clause.
+    const unique = [...new Set(addresses)];
+    return unique.length > 0 ? unique : null;
+}
 
 /**
  * GET /api/revenue/:period
@@ -239,8 +265,9 @@ router.get('/transactions/paginated', async (req, res) => {
         const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), MAX_PAGE_SIZE);
         const search = req.query.search || '';
         const appName = req.query.appName || null;
+        const fromAddresses = resolveSourceAddresses(req.query.source);
 
-        const result = await getTransactionsPaginated(page, limit, search, appName);
+        const result = await getTransactionsPaginated(page, limit, search, appName, fromAddresses);
 
         res.json({
             transactions: result.transactions,
