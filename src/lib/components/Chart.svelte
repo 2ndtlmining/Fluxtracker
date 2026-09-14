@@ -3,7 +3,8 @@
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import Chart from 'chart.js/auto';
   import { getApiUrl } from '$lib/config.js';
-  import { DollarSign, Server, Cloud, Package, Globe, Download, Users } from 'lucide-svelte';
+  import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
+  import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
 
   // Props
   export let title = 'Historical Data';
@@ -48,6 +49,17 @@
   let showEntityDropdown = false;
   let filteredEntityList = [];
   let entityValueType = 'qty'; // 'qty' | 'percent'
+
+  // Gaming (issue #175): like the decentralization entity search above, ONE fetch per
+  // timeframe serves the whole category -- /api/history/games returns every game's daily
+  // counts plus the network-wide total in a single response, so switching game in the
+  // metric dropdown is a client-side re-derive with no network round trip.
+  let gameHistory = null; // raw /api/history/games response, cached per timeframe
+
+  // The metric list and the per-day series both live in $lib/utils/gameSeries.js -- the
+  // gap-vs-zero rule they implement is the point of the feature and is unit-tested there.
+  // Every gaming metric reads the same `game_instances` field, so processChartData() needs
+  // no gaming-specific branch.
 
   const ENTITY_DIMENSIONS = {
     country: { label: 'Country', pluralLabel: 'Countries', historyKey: 'countryHistory', nameField: 'country' },
@@ -120,6 +132,15 @@
         { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true },
         { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true }
       ]
+    },
+    gaming: {
+      // Issue #175. Deliberately NOT gaming_apps_total: that is the older image-only count
+      // which misses ~25% of instances (enterprise-encrypted specs carry no image), and is
+      // kept on daily_snapshots only so the pre-existing Applications trend stays
+      // continuous. Two series both labelled "gaming" but differing by 100+ would mislead.
+      label: 'Gaming',
+      color: 'rgb(189, 147, 249)', // --accent-purple, matching the Gaming card's icon
+      metrics: [GAMING_TOTAL_METRIC]
     },
     team_funded: {
       // Issue #146: Flux team's own FLUX_TEAM_ADDRESSES spend, trended daily -- FLUX amount,
@@ -195,6 +216,12 @@
       console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
       lastMetric = selectedMetric;
       fetchAllData();
+    } else if (selectedCategory === 'gaming') {
+      // Switching game re-derives from the cached payload -- no fetch. allSnapshots holds
+      // one series at a time, so it has to be rebuilt before the data is reprocessed.
+      lastMetric = selectedMetric;
+      allSnapshots = buildGameSnapshots(gameHistory, selectedMetric);
+      processChartData();
     } else {
       console.log(`📄 Metric changed to ${selectedMetric} - processing cached data`);
       lastMetric = selectedMetric;
@@ -234,6 +261,10 @@
     // this timeframe" the next time the user switched into Countries/Continents/Datacenters,
     // rendering the wrong period under the new timeframe's label/CSV filename.
     decentralizationHistory = null;
+    // Same reasoning as decentralizationHistory above: the cache is keyed by nothing but
+    // "we already fetched", so a timeframe change has to drop it or the next visit to
+    // Gaming renders the previous period under the new period's label.
+    gameHistory = null;
     fetchAllData();
   }
 
@@ -311,6 +342,34 @@
         }
 
         allSnapshots = buildEntitySnapshots(selectedEntity);
+      } else if (selectedCategory === 'gaming') {
+        // One fetch covers every game plus the total for the whole timeframe; only a
+        // timeframe change lands back here.
+        if (!gameHistory) {
+          console.log('🎮 Fetching per-game history');
+          const response = await fetch(`${API_URL}/api/history/games?days=${limitParam}`);
+
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+          }
+
+          gameHistory = await response.json();
+          applyGameMetrics();
+        }
+
+        allSnapshots = buildGameSnapshots(gameHistory, selectedMetric);
+
+        if (allSnapshots.length === 0) {
+          // Collection starts at migration 013, so a fresh (or un-migrated) database has
+          // nothing here yet -- and the endpoint degrades to empty rather than 500ing for
+          // exactly that case. That is an expected empty state, not a failure: fall through
+          // to the placeholder below instead of the red error box every other category
+          // would show. chartData is cleared so no stale series from the previous category
+          // is left for the render block to draw.
+          chartData = { labels: [], data: [], rawDates: [] };
+          loading = false;
+          return;
+        }
       } else if (selectedCategory === 'team_funded') {
         // Team Funded (issue #146): fetch the team-addresses daily trend plus the existing
         // total-revenue-daily endpoint for the same range, then compute % of revenue
@@ -893,6 +952,17 @@
     });
   }
 
+  /**
+   * Swap in the freshly-fetched game list. Reassigning `categories` is what re-runs the
+   * availableMetrics reactive block, which in turn fixes up selectedMetric.
+   */
+  function applyGameMetrics() {
+    categories = {
+      ...categories,
+      gaming: { ...categories.gaming, metrics: buildGameMetrics(gameHistory?.games || []) }
+    };
+  }
+
   function handleEntitySelect(entity) {
     selectedEntity = entity;
     entitySearchQuery = entity;
@@ -1134,6 +1204,8 @@
             <Package size={16} strokeWidth={2} />
           {:else if id === 'decentralization'}
             <Globe size={16} strokeWidth={2} />
+          {:else if id === 'gaming'}
+            <Gamepad2 size={16} strokeWidth={2} />
           {:else if id === 'team_funded'}
             <Users size={16} strokeWidth={2} />
           {/if}
@@ -1173,6 +1245,12 @@
       <div class="chart-error">
         <span class="error-icon">!</span>
         <p>{error}</p>
+      </div>
+    {:else if selectedCategory === 'gaming' && allSnapshots.length === 0}
+      <div class="chart-loading">
+        <Gamepad2 size={40} strokeWidth={1.5} />
+        <p>No game history collected yet</p>
+        <p class="repo-count-hint">Per-game counts start with the next daily snapshot</p>
       </div>
     {:else if selectedCategory === 'decentralization' && decentralizationView !== 'overview' && !selectedEntity}
       <div class="chart-loading">
