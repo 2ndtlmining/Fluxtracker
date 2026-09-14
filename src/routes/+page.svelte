@@ -509,11 +509,13 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
          CSS-grid-stretched row of 3 cards; BusiestNodeCard's compact resource
          columns keep that row from towering, so a static height here reads as
          proportionate without needing a ResizeObserver to track the row live.
-         Raised from 460 for issue #153, which asked for a taller chart. The row
-         itself is ~374px: the Gaming breakdown added height, then folding the
-         activity figures beside the headline total (two sections, one divider)
-         gave most of it back. The extra height here is the deliberate #153
-         change, not a reaction to the row. -->
+         `height` feeds .chart-wrapper, so it is the PLOT area alone -- the
+         title, controls and category tabs sit above it and add ~180px more.
+         This value did NOTHING until the CSP fix in this branch: the inline
+         style attribute carrying it was being refused, so the chart rendered at
+         Chart.js's 150px default regardless. 525 is ~3.5x what was actually on
+         screen before, and keeps a ~2.4:1 plot -- a time series, not a square.
+         Raising this further is fine; it now has an effect. -->
     <Chart
       title="Historical Performance"
       height={525}
