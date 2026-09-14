@@ -625,6 +625,19 @@ export async function getTxidCount() {
     return count || 0;
 }
 
+/**
+ * True when PostgREST could not find a function matching the arguments we sent -- i.e. the
+ * database is behind the code on a migration, rather than the query itself failing.
+ * PGRST202 is the documented code; the message check covers older PostgREST versions that
+ * report the same condition without one.
+ */
+function isMissingRpcSignature(error) {
+    if (!error) return false;
+    if (error.code === 'PGRST202') return true;
+    const message = String(error.message || '').toLowerCase();
+    return message.includes('could not find the function') || message.includes('does not exist');
+}
+
 export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null) {
     const offset = (page - 1) * limit;
 
@@ -633,17 +646,51 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
     // intent obvious in the query log.
     const addresses = Array.isArray(fromAddresses) && fromAddresses.length > 0 ? fromAddresses : null;
 
-    const { data, error } = await supabase.rpc('get_transactions_paginated', {
+    const baseArgs = {
         p_search: search || null,
         p_app: appName || null,
         p_limit: limit,
-        p_offset: offset,
+        p_offset: offset
+    };
+
+    let { data, error } = await supabase.rpc('get_transactions_paginated', {
+        ...baseArgs,
         p_from_addresses: addresses
     });
 
+    // Deploy-order resilience. Migration 011 added p_from_addresses; deploying this code
+    // against a database that has not had the migration applied yet makes PostgREST report
+    // PGRST202 ("could not find the function ... in the schema cache"). That used to be
+    // swallowed into an empty result, so the dashboard showed "0 transactions" beside a
+    // healthy sync indicator while 22k rows sat untouched -- a schema mismatch has to be
+    // distinguishable from "there is no data".
+    //
+    // The argument is optional by design (the migration gives it a SQL DEFAULT), so an
+    // un-migrated database can still answer the unfiltered question. Retry without it.
+    if (error && isMissingRpcSignature(error)) {
+        if (addresses) {
+            // But never on the filtered path: serving unfiltered rows under an active TEAM
+            // or FIAT badge would show someone else's payments as team-funded. Wrong data is
+            // worse than no data.
+            throw new Error(
+                'Transaction payer filter needs migration 011 (get_transactions_paginated). ' +
+                `Apply supabase/migrations/011_transactions_source_filter.sql. Cause: ${error.message}`
+            );
+        }
+
+        log.warn(
+            'get_transactions_paginated is missing p_from_addresses -- migration 011 not applied. ' +
+            'Serving unfiltered transactions; apply the migration to enable the TEAM/FIAT filter.'
+        );
+        ({ data, error } = await supabase.rpc('get_transactions_paginated', baseArgs));
+    }
+
     if (error) {
+        // Deliberately throws rather than returning an empty page. A timeout, a permission
+        // failure or a schema mismatch is not "no transactions", and rendering it as an
+        // empty table hides the problem behind a plausible-looking UI.
         log.error(`getTransactionsPaginated error: ${error.message}`);
-        return { transactions: [], total: 0, page, limit, offset };
+        throw new Error(`getTransactionsPaginated failed: ${error.message}`);
     }
 
     const total = data?.[0]?.total_count || 0;
