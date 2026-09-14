@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeUtilizationPercent, formatAsciiBar } from './resourceBar.js';
+import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from './resourceBar.js';
 
 describe('computeUtilizationPercent', () => {
   it('computes a plain percentage', () => {
@@ -55,5 +55,39 @@ describe('formatAsciiBar', () => {
 
   it('defaults to a width of 16', () => {
     expect(formatAsciiBar(50).length).toBe(18); // 16 cells + 2 brackets
+  });
+});
+
+describe('utilizationLevel', () => {
+  it('is normal below 50% -- the cyan the bars have always been', () => {
+    expect(utilizationLevel(0)).toBe('normal');
+    expect(utilizationLevel(49)).toBe('normal');
+    expect(utilizationLevel(49.4)).toBe('normal'); // 49.4 displays as 49
+  });
+
+  it('is elevated from 50% to 75%', () => {
+    expect(utilizationLevel(50)).toBe('elevated');
+    expect(utilizationLevel(75)).toBe('elevated');
+    expect(utilizationLevel(75.4)).toBe('elevated');
+  });
+
+  it('is high from 76% up', () => {
+    expect(utilizationLevel(76)).toBe('high');
+    expect(utilizationLevel(100)).toBe('high');
+  });
+
+  // The card prints Math.round(percent) next to the bar. Banding on the raw value would
+  // let a bar that reads "76%" still be drawn elevated (75.5 rounds up but is < 76), so
+  // the level is derived from the same rounded number the user sees.
+  it('bands on the displayed (rounded) percentage, not the raw one', () => {
+    expect(utilizationLevel(75.5)).toBe('high');
+    expect(utilizationLevel(49.5)).toBe('elevated');
+  });
+
+  it('clamps out-of-range and missing values rather than throwing', () => {
+    expect(utilizationLevel(150)).toBe('high');
+    expect(utilizationLevel(-20)).toBe('normal');
+    expect(utilizationLevel(null)).toBe('normal');
+    expect(utilizationLevel(undefined)).toBe('normal');
   });
 });
