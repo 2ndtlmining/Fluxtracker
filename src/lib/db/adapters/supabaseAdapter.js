@@ -1738,6 +1738,44 @@ export async function getGameSnapshotsByDate(snapshotDate) {
     return data || [];
 }
 
+/**
+ * Per-game counts across a date range (issue #175) -- backs the Historical Performance
+ * chart's Gaming category.
+ *
+ * Must page -- see getDecentralizationSnapshotHistory() for the identical pattern. A year of
+ * history times a dozen games is several thousand rows, well past PostgREST's 1000-row cap,
+ * and a missing .range() truncates silently rather than erroring.
+ *
+ * Unlike getGameSnapshotsByDate this THROWS on error rather than returning []: the caller
+ * degrades a missing table to an empty series deliberately and logs it, which an empty array
+ * here would hide.
+ */
+export async function getGameSnapshotHistory(startDate, endDate) {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('game_snapshots')
+            .select('snapshot_date, game_name, instance_count')
+            .gte('snapshot_date', startDate)
+            .lte('snapshot_date', endDate)
+            .order('snapshot_date', { ascending: true })
+            .order('instance_count', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Fetch game_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
 export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
     if (!breakdown || breakdown.length === 0) return 0;
 

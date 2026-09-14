@@ -15,13 +15,16 @@ import {
     getRepoHistory,
     getLatestRepoSnapshot,
     getCategoryHistory,
-    getReposByCategory
+    getReposByCategory,
+    getGameSnapshotHistory
 } from '../../lib/db/database.js';
 
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES } from '../../lib/config.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
+import { createLogger } from '../../lib/logger.js';
 
 const router = express.Router();
+const log = createLogger('server');
 
 const revenueCache = createCache(300_000); // 5 min
 
@@ -133,6 +136,73 @@ router.get('/snapshots', async (req, res) => {
         };
     });
 });
+
+/**
+ * Per-game history for the Historical Performance chart's Gaming category (issue #175).
+ *
+ * ONE fetch serves the whole category -- the total line and every per-game line -- so
+ * switching games in the dropdown is a client-side re-derive with no network round trip.
+ * Same shape of deal as /api/decentralization/history.
+ *
+ * `games` is derived from the data rather than from GAME_APP_PREFIXES: the game set is
+ * open-ended, so a newly-tracked dedicated site appears in the dropdown on its own.
+ *
+ * Both reads are isolated. A Supabase instance without migration 013 applied throws
+ * "relation does not exist" for game_snapshots, and that must degrade to an empty series
+ * rather than 500 the whole category -- the same failure mode already handled in
+ * /api/decentralization/history for migration 009.
+ */
+router.get('/games', async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 3650);
+    const cacheKey = `games:${days}`;
+
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
+        const endDate = new Date().toISOString().split('T')[0];
+        const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
+
+        const [rows, snapshots] = await Promise.all([
+            getGameSnapshotHistory(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'per-game history unavailable, continuing without it');
+                return [];
+            }),
+            getSnapshotsInRange(startDate, endDate).catch(error => {
+                log.warn({ err: error }, 'gaming total history unavailable, continuing without it');
+                return [];
+            })
+        ]);
+
+        return shapeGameHistory(rows, snapshots);
+    });
+});
+
+/**
+ * Pure shaping for /api/history/games -- exported so the ordering and the NULL handling can
+ * be tested without standing up Express (same reason revenue.js exports
+ * resolveSourceAddresses).
+ *
+ * @param {Array<{snapshot_date: string, game_name: string, instance_count: number}>} rows
+ * @param {Array<{snapshot_date: string, gaming_instances_total: ?number}>} snapshots
+ */
+export function shapeGameHistory(rows, snapshots) {
+    // Most recent count per game decides dropdown order, so the list reads the same way the
+    // Gaming card does -- biggest game first. rows arrive date-ascending, so a plain
+    // overwrite leaves the latest reading in place.
+    const latestByGame = new Map();
+    for (const r of rows) latestByGame.set(r.game_name, r.instance_count);
+    const games = [...latestByGame.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([name]) => name);
+
+    return {
+        games,
+        history: rows.map(r => ({ date: r.snapshot_date, game: r.game_name, count: r.instance_count })),
+        // NULL is dropped, never coerced to 0: every row written before migration 012 has no
+        // reading at all, and a fabricated zero would draw as "no games ran that day".
+        total: snapshots
+            .filter(s => s.gaming_instances_total != null)
+            .map(s => ({ date: s.snapshot_date, count: s.gaming_instances_total }))
+    };
+}
 
 // Docker repo history endpoints
 router.get('/repos/list', async (req, res) => {

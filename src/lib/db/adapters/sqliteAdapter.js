@@ -1883,6 +1883,23 @@ export async function getGameSnapshotsByDate(snapshotDate) {
     `).all(snapshotDate);
 }
 
+/**
+ * Per-game counts across a date range (issue #175) -- backs the Historical Performance
+ * chart's Gaming category.
+ *
+ * A game with no row on a date is genuinely absent from the result, never filled in as 0:
+ * the chart has to draw that as a gap, because "we took no reading" and "nobody ran it" are
+ * different claims and only the first one is true on a day the collection failed.
+ */
+export async function getGameSnapshotHistory(startDate, endDate) {
+    return getDb().prepare(`
+        SELECT snapshot_date, game_name, instance_count
+        FROM game_snapshots
+        WHERE snapshot_date >= ? AND snapshot_date <= ?
+        ORDER BY snapshot_date ASC, instance_count DESC
+    `).all(startDate, endDate);
+}
+
 // ============================================
 // DECENTRALIZATION COUNTRY/CONTINENT SNAPSHOTS (issue #138)
 // ============================================

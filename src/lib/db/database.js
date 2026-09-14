@@ -55,6 +55,7 @@ export const {
     getTxidCount,
     createGameSnapshots,
     getGameSnapshotsByDate,
+    getGameSnapshotHistory,
     getTransactionsPaginated,
     getAppAnalytics,
     getDailyRevenueFromTransactions,
