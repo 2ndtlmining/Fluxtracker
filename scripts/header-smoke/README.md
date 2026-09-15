@@ -43,6 +43,27 @@ node scripts/header-smoke/check-boot-race.mjs                  # terminal 3
 between runs. Unset (the default) it changes nothing, and `check-header.mjs` above runs
 exactly as before. Takes ~70s.
 
+## Reduced-motion check (issue #194)
+
+`check-reduced-motion.mjs` is a third run that covers the one visitor the other two never
+simulate: one whose browser reports `prefers-reduced-motion: reduce`. `schedule()` used to
+clamp *every* delay to 30ms under that preference, including `ROTATE_HOLD_MS` and
+`BOOT_TIMEOUT_MS`, so the box cycled Logo -> Expiring -> Deployment about 30 times a second
+(the flashing FLUX logo of issue #194) and the boot gave up on telemetry 30ms in. Brave
+reports the preference as fingerprinting protection whatever the OS setting is, which is why
+it read as a Brave-only bug.
+
+It asserts the box repaints at most 40 times in 30s and that the boot never falls back to
+`> telemetry unavailable` while the stub is answering.
+
+```bash
+node scripts/header-smoke/stub-api.mjs              # terminal 1
+API_PORT=3100 npm run dev -- --port 5199            # terminal 2
+node scripts/header-smoke/check-reduced-motion.mjs  # terminal 3
+```
+
+Takes ~30s. Before the fix: 923 repaints in 30s. After: 8.
+
 ## Run it
 
 ```bash
