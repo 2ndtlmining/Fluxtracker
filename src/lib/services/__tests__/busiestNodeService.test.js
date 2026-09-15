@@ -234,6 +234,25 @@ describe('counting apps rather than containers (issue #190)', () => {
         ]);
     });
 
+    it('reports each app with the number of containers it runs, summing to the total', async () => {
+        axios.get.mockResolvedValue(apiResponse([
+            node({ ip: '99.56.151.69', names: REAL_NODE_CONTAINERS })
+        ]));
+
+        const result = await getBusiestNode();
+
+        expect(result.apps).toEqual([
+            { name: 'ghostddns', containers: 5 },
+            { name: 'wordpress1691169388403', containers: 3 },
+            { name: 'whoogleflux', containers: 2 },
+            { name: 'softethervpn1783759222914', containers: 1 },
+            { name: 'tupelotreeservices', containers: 1 },
+            { name: 'FoldingAtRunOnFlux13', containers: 1 }
+        ]);
+        // Every running container is accounted for -- nothing is hidden by the dedupe.
+        expect(result.apps.reduce((sum, a) => sum + a.containers, 0)).toBe(result.containerCount);
+    });
+
     it('lists every app once, however many components it runs', async () => {
         axios.get.mockResolvedValue(apiResponse([
             node({ ip: '5.5.5.5', names: ['/fluxa_one', '/fluxb_one', '/fluxc_one'] })

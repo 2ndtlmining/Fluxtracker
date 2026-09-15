@@ -57,17 +57,27 @@ export function appNameForContainer(containerName) {
     return underscoreIndex > 0 ? stripped.slice(underscoreIndex + 1) : stripped;
 }
 
-/** Distinct app names running on a node, in the order their first container appears. */
-function appNamesOnNode(node) {
+/**
+ * Apps running on a node with the number of containers each one runs, in the order their
+ * first container appears.
+ *
+ * The per-app container count is what lets the card account for every running container
+ * without printing the same name five times: "ghostddns x5" is both shorter and more
+ * informative than five identical pills, and the counts sum to the node's container total.
+ *
+ * @returns {Array<{name: string, containers: number}>}
+ */
+function appsOnNode(node) {
     const containers = node?.apps?.runningapps;
     if (!Array.isArray(containers)) return [];
 
-    const names = new Set();
+    const counts = new Map();
     for (const container of containers) {
         const name = appNameForContainer(container?.Names?.[0]);
-        if (name) names.add(name);
+        if (!name) continue;
+        counts.set(name, (counts.get(name) || 0) + 1);
     }
-    return [...names];
+    return [...counts].map(([name, count]) => ({ name, containers: count }));
 }
 
 async function fetchBusiestNode() {
@@ -107,7 +117,7 @@ async function fetchBusiestNode() {
     // Apps break the tie: same container load, more distinct apps is more varied work. First
     // node seen wins a full tie, so the choice is stable between fetches.
     let busiestNode = null;
-    let busiestNames = [];
+    let busiestApps = [];
     let busiestContainers = 0;
 
     for (const node of nodes) {
@@ -115,15 +125,15 @@ async function fetchBusiestNode() {
         const containerCount = Array.isArray(containers) ? containers.length : 0;
         if (containerCount === 0) continue;
 
-        const names = appNamesOnNode(node);
-        if (names.length === 0) continue;
+        const apps = appsOnNode(node);
+        if (apps.length === 0) continue;
 
         const better = containerCount > busiestContainers
-            || (containerCount === busiestContainers && names.length > busiestNames.length);
+            || (containerCount === busiestContainers && apps.length > busiestApps.length);
         if (!better) continue;
 
         busiestNode = node;
-        busiestNames = names;
+        busiestApps = apps;
         busiestContainers = containerCount;
     }
 
@@ -131,8 +141,8 @@ async function fetchBusiestNode() {
         throw new Error('No node with running apps found');
     }
 
-    const appNames = busiestNames;
-    const busiestCount = busiestNames.length;
+    const appNames = busiestApps.map(app => app.name);
+    const busiestCount = busiestApps.length;
 
     // appsRamLocked is MB; benchmark.bench.ram is GB (same MB-called-GB split this codebase
     // already has elsewhere — see cloudService.js). appsCpusLocked/appsHddLocked already share
@@ -145,12 +155,15 @@ async function fetchBusiestNode() {
         tier: busiestNode.tier || null,
         country: busiestNode.geolocation?.country || null,
         countryCode: busiestNode.geolocation?.countryCode || null,
-        appCount: busiestCount,
-        // Kept alongside the app count: a node running 6 apps across 13 containers is doing
-        // more than one running 6 apps in 6, and the difference is the whole reason the old
-        // number looked wrong.
+        // Containers are the headline: they are what is actually running on the machine, and
+        // what the resource bars below measure. appCount says how many distinct APPS those
+        // containers belong to -- the distinction #190 was about.
         containerCount: busiestContainers,
+        appCount: busiestCount,
         appNames,
+        // Per-app container counts. These sum to containerCount, so the card can show every
+        // running container ("ghostddns x5") without repeating a name five times.
+        apps: busiestApps,
         resources: {
             cpu: { used: resources.appsCpusLocked || 0, total: bench.cores || 0 },
             ram: { used: (resources.appsRamLocked || 0) / 1000, total: bench.ram || 0 },
