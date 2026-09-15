@@ -245,9 +245,12 @@ describe('counting apps rather than containers (issue #190)', () => {
         expect(result.appCount).toBe(1);
     });
 
-    it('picks the node running more APPS, not the one running more containers', async () => {
+    // Ranking stays on containers: that is the node's real workload, and the resource bars
+    // under the headline measure exactly that. #190 was about calling containers "apps", not
+    // about which number to rank by -- the card now reports both.
+    it('picks the node running more CONTAINERS, even when another runs more distinct apps', async () => {
         axios.get.mockResolvedValue(apiResponse([
-            // 10 containers, but all of it is two compose apps.
+            // 10 containers, but all of it is two compose apps -- the busier MACHINE.
             node({ ip: '1.1.1.1', names: [
                 '/fluxa_alpha', '/fluxb_alpha', '/fluxc_alpha', '/fluxd_alpha', '/fluxe_alpha',
                 '/fluxa_beta', '/fluxb_beta', '/fluxc_beta', '/fluxd_beta', '/fluxe_beta'
@@ -258,25 +261,30 @@ describe('counting apps rather than containers (issue #190)', () => {
 
         const result = await getBusiestNode();
 
-        expect(result.ip).toBe('2.2.2.2');
-        expect(result.appCount).toBe(4);
-        expect(result.containerCount).toBe(4);
+        expect(result.ip).toBe('1.1.1.1');
+        expect(result.containerCount).toBe(10);
+        // ...and it still reports 2 apps, not 10 -- the miscount from #190 stays fixed.
+        expect(result.appCount).toBe(2);
+        expect(result.appNames).toEqual(['alpha', 'beta']);
     });
 
-    it('breaks an app-count tie on containers -- same apps, more work', async () => {
+    it('breaks a container tie on distinct apps -- same load, more varied work', async () => {
         axios.get.mockResolvedValue(apiResponse([
-            node({ ip: '1.1.1.1', names: ['/fluxx_one', '/fluxx_two'] }),
-            node({ ip: '2.2.2.2', names: ['/fluxa_one', '/fluxb_one', '/fluxa_two', '/fluxb_two'] })
+            // 4 containers, 2 apps.
+            node({ ip: '1.1.1.1', names: ['/fluxa_one', '/fluxb_one', '/fluxa_two', '/fluxb_two'] }),
+            // 4 containers, 4 apps.
+            node({ ip: '2.2.2.2', names: ['/fluxx_one', '/fluxx_two', '/fluxx_three', '/fluxx_four'] })
         ]));
 
         const result = await getBusiestNode();
 
         expect(result.ip).toBe('2.2.2.2');
-        expect(result.appCount).toBe(2);
         expect(result.containerCount).toBe(4);
+        expect(result.appCount).toBe(4);
     });
 
     it('keeps the first node on a full tie, so the choice is stable between fetches', async () => {
+        // Same containers AND same app count -- nothing left to separate them.
         axios.get.mockResolvedValue(apiResponse([
             node({ ip: '1.1.1.1', names: ['/fluxx_one', '/fluxx_two'] }),
             node({ ip: '2.2.2.2', names: ['/fluxx_three', '/fluxx_four'] })

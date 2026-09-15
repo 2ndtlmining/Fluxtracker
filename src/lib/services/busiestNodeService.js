@@ -94,10 +94,18 @@ async function fetchBusiestNode() {
             .filter(Boolean)
     )];
 
-    // Busiest by DISTINCT APPS, not containers -- the card says "apps running", and picking
-    // by container count would crown a node running three compose apps over one running five
-    // separate apps. Containers break the tie: same number of apps, more containers is more
-    // work. First node seen wins a full tie, so the choice is stable between fetches.
+    // Busiest by CONTAINER count, which is the node's actual workload: a compose app's five
+    // components are five running containers competing for that node's CPU, RAM and disk, and
+    // the resource bars below the headline measure exactly that. Deliberate choice, revisited
+    // in #190 -- ranking by distinct apps was tried and rejected, because a node running ten
+    // single-container apps is doing less work than one running six apps across thirteen
+    // containers at 93% CPU, and the card exists to show the busiest MACHINE.
+    //
+    // The count shown is still the app count (see appNameForContainer): what was wrong in #190
+    // was calling containers "apps", not ranking by them. The card now reports both.
+    //
+    // Apps break the tie: same container load, more distinct apps is more varied work. First
+    // node seen wins a full tie, so the choice is stable between fetches.
     let busiestNode = null;
     let busiestNames = [];
     let busiestContainers = 0;
@@ -110,8 +118,8 @@ async function fetchBusiestNode() {
         const names = appNamesOnNode(node);
         if (names.length === 0) continue;
 
-        const better = names.length > busiestNames.length
-            || (names.length === busiestNames.length && containerCount > busiestContainers);
+        const better = containerCount > busiestContainers
+            || (containerCount === busiestContainers && names.length > busiestNames.length);
         if (!better) continue;
 
         busiestNode = node;
