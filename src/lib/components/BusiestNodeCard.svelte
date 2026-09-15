@@ -2,11 +2,17 @@
   import { Server } from 'lucide-svelte';
   import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
 
-  export let node = null;           // { ip, tier, country, countryCode, appCount, appNames, resources } | null
+  export let node = null;           // { ip, tier, country, countryCode, containerCount, appCount, appNames, apps, resources } | null
   export let loading = false;
   export let error = false;
 
   $: unresolvedCount = node ? node.appCount - (node.appNames?.length || 0) : 0;
+  // Issue #190. Containers lead: every one of them is really running on that node and
+  // competing for the CPU/RAM/SSD the bars below measure. The app count follows, because a
+  // compose app runs one container per component -- 13 containers can be 6 apps, and calling
+  // those 13 "apps" was the original bug.
+  $: appList = node?.apps?.length ? node.apps : (node?.appNames || []).map(name => ({ name, containers: 1 }));
+  $: fewerApps = node?.appCount > 0 && node?.appCount < node?.containerCount;
 
   function formatNumber(num) {
     if (!num) return '0';
@@ -40,7 +46,14 @@
       {#if node.country}
         <span class="node-location">{node.country}</span>
       {/if}
-      <span class="node-app-count">{formatNumber(node.appCount)} apps running</span>
+      <span class="node-app-count">
+        {formatNumber(node.containerCount)} {node.containerCount === 1 ? 'container' : 'containers'} running
+        {#if fewerApps}
+          <span class="node-container-count" title="A compose app runs one container per component, so a node runs more containers than apps">
+            · {formatNumber(node.appCount)} {node.appCount === 1 ? 'app' : 'apps'}
+          </span>
+        {/if}
+      </span>
     </div>
 
     <div class="node-resources">
@@ -63,10 +76,14 @@
     </div>
 
     <div class="node-apps">
-      {#if node.appNames && node.appNames.length > 0}
+      {#if appList.length > 0}
         <div class="node-apps-list">
-          {#each node.appNames as name}
-            <span class="app-name-pill">{name}</span>
+          {#each appList as app}
+            <!-- x5 rather than five identical pills: the multipliers sum to the container
+                 count, so every running container is accounted for and nothing repeats. -->
+            <span class="app-name-pill">
+              {app.name}{#if app.containers > 1}<span class="app-pill-multiplier">×{app.containers}</span>{/if}
+            </span>
           {/each}
         </div>
         {#if unresolvedCount > 0}
@@ -164,6 +181,18 @@
   .node-location {
     font-size: 0.75rem;
     color: var(--text-muted);
+  }
+
+  .app-pill-multiplier {
+    color: var(--text-dim);
+    margin-left: 0.3rem;
+    font-size: 0.65rem;
+  }
+
+  .node-container-count {
+    color: var(--text-dim);
+    font-weight: 400;
+    white-space: nowrap;
   }
 
   .node-app-count {
