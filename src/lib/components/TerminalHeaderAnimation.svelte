@@ -100,8 +100,48 @@
   let currentAriaLabel = 'Flux network status';
 
   let timeouts = [];
-  let rafId = null;
   let bootTimeoutId = null;
+
+  // One-shot latch over the whole boot (issue #192). Two paths can finish the boot --
+  // data arriving and the BOOT_TIMEOUT_MS telemetry giveup -- and `state` cannot arbitrate
+  // between them: it only flips to 'ready' at the END of the reveal, ~2.1s after a path
+  // commits. An /api/header response landing in that window used to run the ENTIRE boot a
+  // second time, leaving two startIdleRotation() chains and two requestAnimationFrame
+  // loops fighting over frameLines every frame -- the reported flashing logo. Whichever
+  // path claims the boot first wins; the other becomes a no-op.
+  let bootClaimed = false;
+
+  // Exactly one animation drives frameLines at a time. Both the boot's block counter and
+  // every reveal run as requestAnimationFrame loops writing the same state, so a second
+  // loop starting while one is live repaints a conflicting frame on alternating frames.
+  // Starting a loop supersedes any loop already running: the older one sees a stale
+  // generation on its next frame and stops instead of writing.
+  let rafId = null;
+  let rafGeneration = 0;
+
+  /** Run `frame(now)` every animation frame until it returns false. */
+  function startRafLoop(frame) {
+    cancelRafLoop();
+    const generation = ++rafGeneration;
+    const step = now => {
+      if (generation !== rafGeneration) return;
+      rafId = frame(now) ? requestAnimationFrame(step) : null;
+    };
+    rafId = requestAnimationFrame(step);
+  }
+
+  function cancelRafLoop() {
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    rafId = null;
+    rafGeneration += 1;
+  }
+
+  /** True for the first caller only — see bootClaimed above. */
+  function claimBoot() {
+    if (bootClaimed) return false;
+    bootClaimed = true;
+    return true;
+  }
 
   function schedule(fn, delay) {
     const id = setTimeout(fn, reducedMotion ? Math.min(delay, 30) : delay);
@@ -139,7 +179,7 @@
     pushLine(`loading blocks ${startBlock} / ${targetBlock}`);
     const start = performance.now();
 
-    function frame(now) {
+    startRafLoop(now => {
       const progress = (now - start) / COUNTER_DURATION_MS;
       const value = computeAnimatedBlock(startBlock, targetBlock, progress);
       replaceLastLine(`loading blocks ${value} / ${targetBlock}`);
@@ -147,11 +187,10 @@
       if (progress >= 1) {
         replaceLastLine(`loading blocks ${targetBlock} / ${targetBlock} ... OK`);
         onDone();
-        return;
+        return false;
       }
-      rafId = requestAnimationFrame(frame);
-    }
-    rafId = requestAnimationFrame(frame);
+      return true;
+    });
   }
 
   function startBoot() {
@@ -164,7 +203,7 @@
     pushLine('> ./start_flux_tracker');
 
     bootTimeoutId = schedule(() => {
-      if (state === 'booting') {
+      if (state === 'booting' && claimBoot()) {
         replaceLastLine('> connecting to flux network... ERROR');
         pushLine('> telemetry unavailable');
         schedule(() => finishBoot(), 400 * BOOT_SLOWDOWN);
@@ -177,11 +216,14 @@
   }
 
   function waitForData() {
-    if (state !== 'booting') return;
+    if (state !== 'booting' || bootClaimed) return;
     if (!dataReady) {
       schedule(waitForData, 100 * BOOT_SLOWDOWN);
       return;
     }
+    // Claim before writing a single line: the timeout above may already have given up
+    // on telemetry and be part-way through finishing the boot (issue #192).
+    if (!claimBoot()) return;
     if (bootTimeoutId) clearTimeout(bootTimeoutId);
 
     replaceLastLine(`> connecting to flux network... ${apiStatus === 'offline' ? 'ERROR' : 'OK'}`);
@@ -232,18 +274,17 @@
   /** Animate the box from one frame to another, revealing row-by-row (with matching style kinds). */
   function runReveal(baseLines, baseKinds, incomingLines, incomingKinds, direction, duration, onDone) {
     const start = performance.now();
-    function frame(now) {
+    startRafLoop(now => {
       const progress = Math.min(1, (now - start) / duration);
       const revealedCount = Math.round(progress * baseLines.length);
       frameLines = composeRevealFrame(baseLines, incomingLines, revealedCount, direction);
       frameKinds = composeRevealKinds(baseKinds, incomingKinds, revealedCount, direction);
       if (progress >= 1) {
         onDone();
-        return;
+        return false;
       }
-      rafId = requestAnimationFrame(frame);
-    }
-    rafId = requestAnimationFrame(frame);
+      return true;
+    });
   }
 
   /**
@@ -386,7 +427,7 @@
   onDestroy(() => {
     timeouts.forEach(clearTimeout);
     if (bootTimeoutId) clearTimeout(bootTimeoutId);
-    if (rafId) cancelAnimationFrame(rafId);
+    cancelRafLoop();
   });
 </script>
 

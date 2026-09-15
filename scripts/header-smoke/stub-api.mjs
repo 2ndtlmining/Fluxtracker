@@ -13,6 +13,12 @@ import http from 'node:http';
 let blockHeight = 294912;
 let deployedCalls = 0;
 let expiringCalls = 0;
+let headerCalls = 0;
+
+// Issue #192 repro knob: delay the FIRST /api/header response by this many ms so it
+// lands after the header component's 8s BOOT_TIMEOUT_MS has already fired. Default 0
+// keeps every existing check-header.mjs run byte-identical.
+const HEADER_DELAY_MS = Number(process.env.HEADER_DELAY_MS || 0);
 
 const INITIAL_DEPLOYED = {
   name: 'palworld1789155733040',
@@ -54,62 +60,75 @@ const UPDATED_EXPIRING = {
   blocksUntilExpiry: 20 // 10m -- more urgent, as a real re-fetch would surface
 };
 
-const server = http.createServer((req, res) => {
+function send(res, body) {
   res.writeHead(200, {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': '*'
   });
+  res.end(body);
+}
 
+function headerPayload() {
+  blockHeight += 3;
+  return JSON.stringify({
+    appVersion: 'v1.03',
+    network: {
+      fluxPriceUsd: 0.1234,
+      blockHeight,
+      totalNodes: 12481,
+      totalApps: 3842,
+      arcaneOsCodename: 'jolly wombat'
+    },
+    tracker: {
+      uptime: 123456.7,
+      snapshots: 819,
+      lastSnapshotDate: '2026-09-04',
+      snapshotHealthy: true,
+      transactions: 9999,
+      lastSyncBlock: blockHeight
+    },
+    host: {
+      platform: 'win32',
+      nodeVersion: process.version,
+      cpuCores: 8,
+      totalMemMB: 16384,
+      usedMemMB: 8192,
+      memPercent: 50,
+      location: { city: 'Melbourne', country: 'Australia', countryCode: 'AU' }
+    },
+    dbStatus: 'online'
+  });
+}
+
+const server = http.createServer((req, res) => {
   if (req.url.startsWith('/api/header')) {
-    blockHeight += 3;
-    res.end(JSON.stringify({
-      appVersion: 'v1.03',
-      network: {
-        fluxPriceUsd: 0.1234,
-        blockHeight,
-        totalNodes: 12481,
-        totalApps: 3842,
-        arcaneOsCodename: 'jolly wombat'
-      },
-      tracker: {
-        uptime: 123456.7,
-        snapshots: 819,
-        lastSnapshotDate: '2026-09-04',
-        snapshotHealthy: true,
-        transactions: 9999,
-        lastSyncBlock: blockHeight
-      },
-      host: {
-        platform: 'win32',
-        nodeVersion: process.version,
-        cpuCores: 8,
-        totalMemMB: 16384,
-        usedMemMB: 8192,
-        memPercent: 50,
-        location: { city: 'Melbourne', country: 'Australia', countryCode: 'AU' }
-      },
-      dbStatus: 'online'
-    }));
+    headerCalls++;
+    const delay = headerCalls === 1 ? HEADER_DELAY_MS : 0;
+    if (delay > 0) {
+      setTimeout(() => send(res, headerPayload()), delay);
+      return;
+    }
+    send(res, headerPayload());
     return;
   }
 
   if (req.url.startsWith('/api/carousel/deployed')) {
     deployedCalls++;
     const app = deployedCalls === 1 ? INITIAL_DEPLOYED : UPDATED_DEPLOYED;
-    res.end(JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
+    send(res, JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
     return;
   }
 
   if (req.url.startsWith('/api/carousel/expiring')) {
     expiringCalls++;
     const app = expiringCalls === 1 ? INITIAL_EXPIRING : UPDATED_EXPIRING;
-    res.end(JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
+    send(res, JSON.stringify({ stats: [app], cached: true, cacheAge: 0, fresh: true }));
     return;
   }
 
   // Other dashboard endpoints answer with an empty object so the rest of the
   // page renders without error noise.
-  res.end('{}');
+  send(res, '{}');
 });
 
 const port = Number(process.env.STUB_PORT || 3100);
