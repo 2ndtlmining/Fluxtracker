@@ -22,6 +22,27 @@ timing changes) are caught mechanically.
 - Mobile (375px): exactly 6 mobile rows, no wrapping
 - No console errors
 
+## Boot-race check (issue #192)
+
+`check-boot-race.mjs` is a second, separate run that covers the one thing the suite above
+cannot see on a fast connection: an `/api/header` response landing *after* the component's
+8s `BOOT_TIMEOUT_MS` has given up on telemetry. That used to run the whole boot a second
+time, leaving two idle-rotation chains and two `requestAnimationFrame` loops writing
+`frameLines` on alternating frames — the flashing FLUX logo reported in issue #192.
+
+It asserts boot text never reappears once the logo has been shown, and that every completed
+rotation dwell lasts at least 5s (a second chain wipes frames away early).
+
+```bash
+HEADER_DELAY_MS=8500 node scripts/header-smoke/stub-api.mjs   # terminal 1
+API_PORT=3100 npm run dev -- --port 5199                       # terminal 2
+node scripts/header-smoke/check-boot-race.mjs                  # terminal 3
+```
+
+`HEADER_DELAY_MS` delays only the stub's **first** `/api/header` call, so restart the stub
+between runs. Unset (the default) it changes nothing, and `check-header.mjs` above runs
+exactly as before. Takes ~70s.
+
 ## Run it
 
 ```bash
