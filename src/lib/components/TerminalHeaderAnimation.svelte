@@ -143,10 +143,31 @@
     return true;
   }
 
+  /**
+   * A real delay, honoured whatever the motion preference is. This is the default for
+   * everything that is not animation pacing: a give-up timeout, a poll interval, and
+   * above all the rotation's dwell, which is how long a frame stays READABLE.
+   */
   function schedule(fn, delay) {
-    const id = setTimeout(fn, reducedMotion ? Math.min(delay, 30) : delay);
+    const id = setTimeout(fn, delay);
     timeouts.push(id);
     return id;
+  }
+
+  /**
+   * Animation pacing only -- the boot's cosmetic beat between lines. Reduced motion
+   * fast-forwards these to ~nothing, which is the whole point of the preference.
+   *
+   * Issue #194: this clamp used to live in schedule() itself and so hit EVERY delay,
+   * including ROTATE_HOLD_MS and BOOT_TIMEOUT_MS. A reduced-motion visitor got the
+   * rotation advancing every 30ms -- a 33Hz strobe of the FLUX logo, which is the exact
+   * opposite of what the preference asks for -- and a boot that gave up on telemetry
+   * 30ms in, so it always read "> telemetry unavailable" with no real numbers. Brave
+   * reports prefers-reduced-motion: reduce as fingerprinting protection regardless of
+   * the OS setting, which is why this surfaced as "the logo flashes in Brave".
+   */
+  function pace(fn, delay) {
+    return schedule(fn, reducedMotion ? Math.min(delay, 30) : delay);
   }
 
   function textKinds() {
@@ -206,13 +227,13 @@
       if (state === 'booting' && claimBoot()) {
         replaceLastLine('> connecting to flux network... ERROR');
         pushLine('> telemetry unavailable');
-        schedule(() => finishBoot(), 400 * BOOT_SLOWDOWN);
+        pace(() => finishBoot(), 400 * BOOT_SLOWDOWN);
       }
     }, BOOT_TIMEOUT_MS);
 
-    schedule(() => pushLine('> connecting to flux network...'), 300 * BOOT_SLOWDOWN);
+    pace(() => pushLine('> connecting to flux network...'), 300 * BOOT_SLOWDOWN);
 
-    schedule(() => waitForData(), 650 * BOOT_SLOWDOWN);
+    pace(() => waitForData(), 650 * BOOT_SLOWDOWN);
   }
 
   function waitForData() {
@@ -229,20 +250,20 @@
     replaceLastLine(`> connecting to flux network... ${apiStatus === 'offline' ? 'ERROR' : 'OK'}`);
     if (apiStatus === 'offline') {
       pushLine('> telemetry unavailable');
-      schedule(() => finishBoot(), 400 * BOOT_SLOWDOWN);
+      pace(() => finishBoot(), 400 * BOOT_SLOWDOWN);
       return;
     }
 
     pushLine(formatStatusLine(apiStatus, dbStatus));
     // Real tracker data — the snapshot line is only written once the header
     // fetch has landed, so the number is live, never a placeholder.
-    schedule(() => pushLine(formatSnapshotLine(snapshotCount)), 150 * BOOT_SLOWDOWN);
+    pace(() => pushLine(formatSnapshotLine(snapshotCount)), 150 * BOOT_SLOWDOWN);
 
     const target = blockHeight;
     const startBlock = pickBootStartBlock(target);
-    schedule(() => animateBlockCounter(startBlock, target, () => {
+    pace(() => animateBlockCounter(startBlock, target, () => {
       pushLine(formatSummaryLine(appVersion, arcaneOsCodename, totalNodes, totalApps));
-      schedule(() => finishBoot(), 550 * BOOT_SLOWDOWN);
+      pace(() => finishBoot(), 550 * BOOT_SLOWDOWN);
     }), 300 * BOOT_SLOWDOWN);
   }
 
@@ -253,7 +274,7 @@
       frameLines = LOGO_LINES;
       frameKinds = logoKinds();
       logoSettled = true;
-      schedule(() => {
+      pace(() => {
         state = 'ready';
         startIdleRotation();
       }, 30);
@@ -263,8 +284,8 @@
     runReveal(baseLines, textKinds(), LOGO_LINES, logoKinds(), 'top-down', REVEAL_MS, () => {
       frameLines = LOGO_LINES;
       frameKinds = logoKinds();
-      schedule(() => { logoSettled = true; }, BOOT_SETTLE_MS);
-      schedule(() => {
+      pace(() => { logoSettled = true; }, BOOT_SETTLE_MS);
+      pace(() => {
         state = 'ready';
         startIdleRotation();
       }, BOOT_READY_DELAY_MS);
@@ -400,11 +421,11 @@
 
       step += 1;
       if (step < intro.frameCount) {
-        schedule(showStep, INTRO_STEP_MS);
+        pace(showStep, INTRO_STEP_MS);
         return;
       }
 
-      schedule(() => {
+      pace(() => {
         runReveal(frameLines, frameKinds, next.lines, next.kinds, 'top-down', ROTATE_TRANSITION_MS, () => {
           frameLines = next.lines;
           frameKinds = next.kinds;
