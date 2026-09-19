@@ -94,6 +94,10 @@ describe('isKnownDatacenterOrg', () => {
         expect(isKnownDatacenterOrg('datavex')).toBe(true);
     });
 
+    it('does not match the MEVSPACE isp string -- only the org DataVex is keyed on', () => {
+        expect(isKnownDatacenterOrg('MEVSPACE sp. z o.o.')).toBe(false);
+    });
+
     it('does not false-positive on a substring match for an unrelated word (e.g. Colombia)', () => {
         expect(isKnownDatacenterOrg('Telefonica Colombia')).toBe(false);
     });

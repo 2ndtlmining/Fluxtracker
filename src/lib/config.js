@@ -519,7 +519,10 @@ export const DATACENTER_ORG_KEYWORDS = [
     'psychz', 'colocrossing', 'gcore', 'cloudzy', 'hosthatch',
     // Issue #196: ipwho.is reports these nodes as org "DataVex" (AS201814) while the isp
     // field says MEVSPACE -- and only org is matched, so the whole ASN read as independent.
-    'datavex', 'mevspace',
+    // Deliberately keyed on the org string alone: 'mevspace' is not listed, so the handful
+    // of rows on this ASN whose org resolves to "MEVSPACE sp. z o.o." instead of "DataVex"
+    // still count as independent.
+    'datavex',
     'data center', 'datacenter', 'colocation'
     // NOT 'colo' alone -- it's a substring of unrelated org names (e.g. "Colombia"),
     // the same class of false-positive keyword matching CATEGORY_EXCLUDE guards against.
