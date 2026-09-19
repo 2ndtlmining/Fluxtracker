@@ -41,7 +41,7 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
         ]);
 
         expect(await readBack(['10.10.10.1'])).toEqual([
-            { ip: '10.10.10.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt, country: null, countryCode: null, continent: null, continentCode: null }
+            { ip: '10.10.10.1', asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt, country: null, countryCode: null, continent: null, continentCode: null }
         ]);
     });
 
@@ -87,7 +87,7 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
         ]);
 
         expect(await readBack(['10.10.10.6'])).toEqual([
-            { ip: '10.10.10.6', org: 'New Org', isDatacenter: true, classifiedAt: 2000, country: null, countryCode: null, continent: null, continentCode: null }
+            { ip: '10.10.10.6', asn: 2, org: 'New Org', isDatacenter: true, classifiedAt: 2000, country: null, countryCode: null, continent: null, continentCode: null }
         ]);
     });
 
@@ -104,5 +104,25 @@ describe('getAllNodeIpClassifications / upsertNodeIpClassifications', () => {
 
     it('returns [] when nothing matches (a fresh IP with no classification yet)', async () => {
         expect(await readBack(['10.10.10.254'])).toEqual([]);
+    });
+});
+
+describe('asn survives a read/re-upsert round trip (issue #196)', () => {
+    it('re-upserting a row read back from the table preserves its asn', async () => {
+        const classifiedAt = Date.now();
+        await adapter.upsertNodeIpClassifications([
+            { ip: '10.10.20.1', asn: 201814, org: 'DataVex', isDatacenter: false, classifiedAt, country: 'Poland', countryCode: 'PL', continent: 'Europe', continentCode: 'EU' }
+        ]);
+
+        // What POST /api/admin/reclassify-datacenters does: read the stored rows, flip the
+        // flag, write them straight back. If the projection dropped asn, this would null it.
+        const [stored] = await readBack(['10.10.20.1']);
+        await adapter.upsertNodeIpClassifications([{ ...stored, isDatacenter: true }]);
+
+        expect(await readBack(['10.10.20.1'])).toEqual([
+            { ...stored, isDatacenter: true }
+        ]);
+        const [row] = await readBack(['10.10.20.1']);
+        expect(row.asn).toBe(201814);
     });
 });

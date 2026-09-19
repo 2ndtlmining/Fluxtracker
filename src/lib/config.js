@@ -517,6 +517,9 @@ export const DATACENTER_ORG_KEYWORDS = [
     'contabo', 'netcup', 'ionos', '1&1', 'scaleway', 'leaseweb', 'm247',
     'oracle', 'alibaba', 'tencent', 'upcloud', 'phoenixnap', 'datapacket',
     'psychz', 'colocrossing', 'gcore', 'cloudzy', 'hosthatch',
+    // Issue #196: ipwho.is reports these nodes as org "DataVex" (AS201814) while the isp
+    // field says MEVSPACE -- and only org is matched, so the whole ASN read as independent.
+    'datavex', 'mevspace',
     'data center', 'datacenter', 'colocation'
     // NOT 'colo' alone -- it's a substring of unrelated org names (e.g. "Colombia"),
     // the same class of false-positive keyword matching CATEGORY_EXCLUDE guards against.

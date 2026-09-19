@@ -10,6 +10,7 @@ import {
     auditRecentTransactions
 } from '../../../lib/services/revenueService.js';
 import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryService.js';
+import { reclassifyStoredDatacenterFlags } from '../../../lib/services/decentralizationService.js';
 import { backfillRevenueSnapshots } from '../../../lib/db/run-backfill.js';
 
 const log = createLogger('server');
@@ -125,6 +126,21 @@ router.post('/recategorize-repos', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: re-apply DATACENTER_ORG_KEYWORDS to already-classified node IPs (issue #196).
+// Needed because is_datacenter is decided at classification time and never re-derived on
+// read, so a keyword edit would otherwise only land as rows go stale over ~30 days. Does no
+// external lookups -- the stored org is all it needs.
+router.post('/reclassify-datacenters', async (req, res) => {
+    try {
+        log.info('datacenter reclassification triggered via API');
+        const { checked, changed } = await reclassifyStoredDatacenterFlags();
+        res.json({ success: true, checked, changed, message: `Re-checked ${checked} classified IP(s), updated ${changed}` });
+    } catch (error) {
+        log.error({ err: error }, 'datacenter reclassification failed');
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
