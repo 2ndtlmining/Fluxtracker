@@ -309,6 +309,45 @@ export async function runDecentralizationCycle() {
 }
 
 /**
+ * Re-applies the current DATACENTER_ORG_KEYWORDS to every already-classified row and writes
+ * back only the ones whose flag changed (issue #196).
+ *
+ * `is_datacenter` is decided once, at classification time, and read back verbatim -- unlike
+ * the repo-category system, which re-validates stored rows against current config on every
+ * read. So editing the keyword list does nothing to what's already in the table: a row is
+ * only re-derived when it goes stale at staleAfterMs (30 days), at batchSize per cycle across
+ * the whole network. This makes a keyword edit take effect immediately instead.
+ *
+ * Costs nothing externally -- `org` is already stored, so no IP is looked up again. The rows
+ * come from getAllNodeIpClassifications(), which carries asn for exactly this reason: they go
+ * straight back through upsertNodeIpClassifications(), which writes every column.
+ * classifiedAt is deliberately left alone so this doesn't reset the staleness clock.
+ */
+export async function reclassifyStoredDatacenterFlags() {
+    const stored = await getAllNodeIpClassifications();
+
+    const changed = stored
+        .map(row => ({ row, isDatacenter: isKnownDatacenterOrg(row.org) }))
+        .filter(({ row, isDatacenter }) => isDatacenter !== row.isDatacenter)
+        .map(({ row, isDatacenter }) => ({ ...row, isDatacenter }));
+
+    if (changed.length > 0) {
+        await upsertNodeIpClassifications(changed);
+        // Drop the memoised snapshot so the card reflects the correction on the next read
+        // rather than at the next scheduler tick (or restart).
+        clearDecentralizationStatsCache();
+    }
+
+    log.info(
+        { checked: stored.length, changed: changed.length },
+        'Reclassified stored datacenter flags: %d of %d row(s) changed',
+        changed.length, stored.length
+    );
+
+    return { checked: stored.length, changed: changed.length };
+}
+
+/**
  * The current decentralization stats, computed on demand if the scheduler hasn't run yet
  * (cold start) rather than returning nothing.
  */
@@ -320,7 +359,7 @@ export async function getDecentralizationStats() {
     return computeAndCacheStats(allClassifications, candidateIps);
 }
 
-/** Test hook. */
+/** Invalidates the memoised snapshot. Used by reclassifyStoredDatacenterFlags() and by tests. */
 export function clearDecentralizationStatsCache() {
     statsCache = null;
     statsCacheAt = 0;

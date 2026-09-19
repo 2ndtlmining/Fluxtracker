@@ -30,7 +30,8 @@ import {
     clearDecentralizationStatsCache,
     getFullDatacenterBreakdown,
     getFullCountryBreakdown,
-    getFullContinentBreakdown
+    getFullContinentBreakdown,
+    reclassifyStoredDatacenterFlags
 } from '../decentralizationService.js';
 
 function ipwhoisResponse(overrides = {}) {
@@ -86,6 +87,11 @@ describe('isKnownDatacenterOrg', () => {
     it('is false for a residential/consumer ISP', () => {
         expect(isKnownDatacenterOrg('Free SAS')).toBe(false);
         expect(isKnownDatacenterOrg('SingTel Optus Pty Ltd')).toBe(false);
+    });
+
+    it('matches DataVex, the MEVSPACE reseller that was counted as independent (issue #196)', () => {
+        expect(isKnownDatacenterOrg('DataVex')).toBe(true);
+        expect(isKnownDatacenterOrg('datavex')).toBe(true);
     });
 
     it('does not false-positive on a substring match for an unrelated word (e.g. Colombia)', () => {
@@ -561,5 +567,73 @@ describe('getFullContinentBreakdown', () => {
         getAllNodeIpClassifications.mockResolvedValue([]);
 
         expect(await getFullContinentBreakdown()).toEqual([]);
+    });
+});
+
+describe('reclassifyStoredDatacenterFlags (issue #196)', () => {
+    it('flags a stored row whose org became a known datacenter after a keyword was added', async () => {
+        const classifiedAt = Date.now() - 1000;
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: false, classifiedAt, country: 'Poland', countryCode: 'PL', continent: 'Europe', continentCode: 'EU' }
+        ]);
+
+        const result = await reclassifyStoredDatacenterFlags();
+
+        expect(result).toEqual({ checked: 1, changed: 1 });
+        expect(upsertNodeIpClassifications).toHaveBeenCalledWith([
+            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: true, classifiedAt, country: 'Poland', countryCode: 'PL', continent: 'Europe', continentCode: 'EU' }
+        ]);
+    });
+
+    it('re-upserts only the rows whose flag actually changed', async () => {
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: false, classifiedAt: 1 },
+            { ip: '2', asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: 2 },
+            { ip: '3', asn: 12322, org: 'Free SAS', isDatacenter: false, classifiedAt: 3 }
+        ]);
+
+        const result = await reclassifyStoredDatacenterFlags();
+
+        expect(result).toEqual({ checked: 3, changed: 1 });
+        const [rows] = upsertNodeIpClassifications.mock.calls[0];
+        expect(rows.map(row => row.ip)).toEqual(['1']);
+    });
+
+    it('clears a stale flag when an org is no longer a known datacenter', async () => {
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 1, org: 'Some Residential ISP', isDatacenter: true, classifiedAt: 1 }
+        ]);
+
+        const result = await reclassifyStoredDatacenterFlags();
+
+        expect(result).toEqual({ checked: 1, changed: 1 });
+        expect(upsertNodeIpClassifications.mock.calls[0][0][0]).toMatchObject({ ip: '1', isDatacenter: false });
+    });
+
+    it('writes nothing when every stored flag already matches current config', async () => {
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 24940, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: 1 },
+            { ip: '2', asn: 12322, org: 'Free SAS', isDatacenter: false, classifiedAt: 2 }
+        ]);
+
+        const result = await reclassifyStoredDatacenterFlags();
+
+        expect(result).toEqual({ checked: 2, changed: 0 });
+        expect(upsertNodeIpClassifications).not.toHaveBeenCalled();
+    });
+
+    it('makes the corrected flag visible on the next stats read, not only after a restart', async () => {
+        getCachedNetworkNodeIps.mockReturnValue(['1']);
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: false, classifiedAt: 1 }
+        ]);
+        expect((await getDecentralizationStats()).datacenterPercent).toBe(0);
+
+        await reclassifyStoredDatacenterFlags();
+        getAllNodeIpClassifications.mockResolvedValue([
+            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: true, classifiedAt: 1 }
+        ]);
+
+        expect((await getDecentralizationStats()).datacenterPercent).toBe(100);
     });
 });

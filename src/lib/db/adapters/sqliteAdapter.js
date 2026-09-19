@@ -1748,15 +1748,17 @@ export async function upsertRepoSnapshots(rows) {
 // ============================================
 
 /**
- * Every classified node IP -- lightweight projection (no asn) since callers only need
- * ip/org/isDatacenter/classifiedAt to decide what's stale, aggregate the stats and group
- * the top datacenters by provider. SQLite has no row-count cap the way PostgREST does, so
- * this is a plain unpaginated SELECT.
+ * Every classified node IP. Carries asn even though the stats/grouping callers ignore it:
+ * reclassifyStoredDatacenterFlags() (issue #196) writes rows from this projection straight
+ * back through upsertNodeIpClassifications(), which sets every column, so a projection that
+ * dropped asn would silently null it for every re-flagged row. SQLite has no row-count cap
+ * the way PostgREST does, so this is a plain unpaginated SELECT.
  */
 export async function getAllNodeIpClassifications() {
-    const rows = getDb().prepare('SELECT ip, org, is_datacenter, classified_at, country, country_code, continent, continent_code FROM node_ip_classification').all();
+    const rows = getDb().prepare('SELECT ip, asn, org, is_datacenter, classified_at, country, country_code, continent, continent_code FROM node_ip_classification').all();
     return rows.map(row => ({
         ip: row.ip,
+        asn: row.asn,
         org: row.org,
         isDatacenter: !!row.is_datacenter,
         classifiedAt: row.classified_at,

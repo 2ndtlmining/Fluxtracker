@@ -1640,7 +1640,10 @@ export async function getAllNodeIpClassifications() {
     while (true) {
         const { data, error } = await supabase
             .from('node_ip_classification')
-            .select('ip, org, is_datacenter, classified_at, country, country_code, continent, continent_code')
+            // asn is carried for reclassifyStoredDatacenterFlags() (issue #196) -- it writes
+            // these rows straight back through upsertNodeIpClassifications(), which sets
+            // every column, so dropping asn here would null it on every re-flagged row.
+            .select('ip, asn, org, is_datacenter, classified_at, country, country_code, continent, continent_code')
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch node_ip_classification failed: ${error.message}`);
@@ -1653,6 +1656,7 @@ export async function getAllNodeIpClassifications() {
 
     return rows.map(row => ({
         ip: row.ip,
+        asn: row.asn,
         org: row.org,
         isDatacenter: !!row.is_datacenter,
         classifiedAt: row.classified_at,
