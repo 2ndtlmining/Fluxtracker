@@ -553,6 +553,49 @@ export async function setSnapshotWalletCount(date, uniqueWallets) {
     return 'created';
 }
 
+/**
+ * Fill columns that are still NULL on an existing snapshot row. Returns the names filled.
+ *
+ * A metric that ships mid-day finds that day's row already written, and shouldTakeSnapshot()
+ * refuses to rewrite a day that already exists -- correctly, because a re-snapshot restates
+ * every column from whatever current_metrics holds at that moment. Without this the new
+ * column stays NULL for that one day forever and has to be written by hand, which is exactly
+ * what unique_wallets needed on the day it shipped (#201).
+ *
+ * Deliberately narrow:
+ *   - only columns that are currently NULL; a value already recorded is never restated
+ *   - only real readings; null/undefined and 0 are skipped, since 0 means "collection
+ *     failed" in a snapshot column and would swap one kind of missing for another
+ *   - only an existing row; a day with no snapshot is left to the snapshot job, because
+ *     creating one here would race it and leave a half-empty day
+ *
+ * COALESCE does the NULL check inside the statement rather than read-then-write, so a
+ * concurrent snapshot cannot land between the two.
+ */
+export async function fillSnapshotNullColumns(date, columns) {
+    const existing = await getSnapshotByDate(date);
+    if (!existing) return [];
+
+    const filled = [];
+    for (const [column, value] of Object.entries(columns || {})) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+        if (!(column in existing)) continue;      // column not on this table
+        if (existing[column] != null) continue;   // already has a reading
+
+        try {
+            const result = getDb()
+                .prepare(`UPDATE daily_snapshots SET ${column} = COALESCE(${column}, ?) WHERE snapshot_date = ?`)
+                .run(value, date);
+            if (result.changes > 0) filled.push(column);
+        } catch (error) {
+            log.warn(`fillSnapshotNullColumns(${date}.${column}): ${error.message}`);
+        }
+    }
+
+    if (filled.length > 0) log.info(`Filled NULL snapshot columns for ${date}: ${filled.join(', ')}`);
+    return filled;
+}
+
 export async function getSnapshotByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots WHERE snapshot_date = ?').get(date) || null;
