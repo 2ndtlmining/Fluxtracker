@@ -70,7 +70,12 @@ export const SECTIONS = [
             { key: 'total', label: 'Total', column: 'node_total', format: 'int' },
             { key: 'cumulus', label: 'Cumulus', column: 'node_cumulus', format: 'int' },
             { key: 'nimbus', label: 'Nimbus', column: 'node_nimbus', format: 'int' },
-            { key: 'stratus', label: 'Stratus', column: 'node_stratus', format: 'int' }
+            { key: 'stratus', label: 'Stratus', column: 'node_stratus', format: 'int' },
+            // Issue #201. Distinct node-operator payment addresses -- how many separate
+            // people run the network, as opposed to how many machines. Sits in this
+            // section because it is averaged from the same daily snapshots and so
+            // inherits the 0-means-missing rule and the 100% coverage gate unchanged.
+            { key: 'uniqueWallets', label: 'Unique wallets', column: 'unique_wallets', format: 'int' }
         ]
     },
     {

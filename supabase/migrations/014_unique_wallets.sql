@@ -1,0 +1,23 @@
+-- Issue #201: unique wallets running Flux nodes.
+--
+-- The deterministic node list (viewdeterministiczelnodelist) carries one entry per node with
+-- the operator's payment_address, so the count of DISTINCT addresses is the count of distinct
+-- node operators. Measured 2026-09-21: 6,448 nodes run by 830 wallets, ~7.8 nodes each.
+--
+-- This is the decentralization question the Decentralization card (#108) can only answer by
+-- IP: not "how spread out is the hosting" but "how many separate people are behind it".
+--
+-- Only ONE column, deliberately. Nodes-per-wallet is node_total / unique_wallets and is
+-- derived at read time the way team_funded_percent is, so the ratio can never drift out of
+-- step with the two figures it comes from.
+--
+-- No DEFAULT, deliberately, for the same reason as gaming_instances_total in migration 012:
+-- every row written before this shipped has no reading for this column, and a fabricated 0
+-- would render as "no wallets ran nodes that day" -- false, and indistinguishable from a real
+-- collection failure. The KPI layer already treats a 0 in a snapshot column as missing, so a
+-- 0 here would also be averaged into reports as a real reading. Absent must stay absent.
+--
+-- The one-off import of Fluxutilmon's 2024-06-17 -> 2026-09-20 history relies on this too:
+-- the 37 days it has no data for must stay NULL rather than become zeros.
+ALTER TABLE daily_snapshots ADD COLUMN IF NOT EXISTS unique_wallets INTEGER;
+ALTER TABLE current_metrics  ADD COLUMN IF NOT EXISTS unique_wallets INTEGER;

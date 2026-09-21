@@ -104,6 +104,7 @@ describe('buildKpiDataset', () => {
             node_cumulus: 2800,
             node_nimbus: 1500,
             node_stratus: 1700,
+            unique_wallets: 830,
             used_cpu_cores: 8800,
             used_ram_gb: 17,
             used_storage_gb: 250,
@@ -129,8 +130,8 @@ describe('buildKpiDataset', () => {
         });
 
         expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications', 'decentralization']);
-        expect(d.totalMetrics).toBe(19);   // 7 revenue + 4 nodes + 6 resources + 1 apps + 1 decentralization
-        expect(d.availableMetrics).toBe(19);
+        expect(d.totalMetrics).toBe(20);   // 7 revenue + 5 nodes + 6 resources + 1 apps + 1 decentralization
+        expect(d.availableMetrics).toBe(20);
         expect(d.empty).toBe(false);
     });
 
@@ -171,8 +172,8 @@ describe('buildKpiDataset', () => {
             expect(deployed.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
             expect(expiring.available).toBe(true);
             expect(expiring.current).toBe(12);
-            expect(d.totalMetrics).toBe(21);
-            expect(d.availableMetrics).toBe(21);
+            expect(d.totalMetrics).toBe(22);
+            expect(d.availableMetrics).toBe(22);
         });
 
         it('an absent reading is unavailable, not a fake zero', () => {
@@ -192,7 +193,7 @@ describe('buildKpiDataset', () => {
             expect(deployed.current).toBeNull();
             expect(expiring.available).toBe(true);
             // The rest of the report is still deliverable
-            expect(d.availableMetrics).toBe(20);
+            expect(d.availableMetrics).toBe(21);
             expect(d.empty).toBe(false);
         });
     });
@@ -313,7 +314,7 @@ describe('buildKpiDataset', () => {
         expect(byKey.ram.available).toBe(true);
         expect(resources.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(17);   // 19 total, less ssd and ssdPercent
+        expect(d.availableMetrics).toBe(18);   // 20 total, less ssd and ssdPercent
     });
 
     it('never reports a metric when only one of the two periods has data', () => {

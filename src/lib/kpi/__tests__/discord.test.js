@@ -45,7 +45,7 @@ describe('buildDiscordPayload', () => {
 
     const snapshots = (overrides = {}) => Array.from({ length: 7 }, (_, i) => ({
         snapshot_date: `2026-08-${String(10 + i).padStart(2, '0')}`,
-        node_total: 6000, node_cumulus: 2800, node_nimbus: 1500, node_stratus: 1700,
+        node_total: 6000, node_cumulus: 2800, node_nimbus: 1500, node_stratus: 1700, unique_wallets: 830,
         used_cpu_cores: 8800, used_ram_gb: 17, used_storage_gb: 250,
         cpu_utilization_percent: 42.5, ram_utilization_percent: 38.1, storage_utilization_percent: 29.7,
         flux_price_usd: 0.4213,
@@ -146,7 +146,7 @@ describe('buildDiscordPayload', () => {
         })).embeds[0];
 
         const coverage = embed.fields.find(f => f.name === 'Data coverage');
-        expect(coverage.value).toContain('2 of 19 metrics are not reported');
+        expect(coverage.value).toContain('2 of 20 metrics are not reported');
         expect(embed.fields[2].value).toContain('Insufficient data (7 days missing)');
     });
 

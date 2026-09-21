@@ -91,7 +91,11 @@
         { id: 'node_total', label: 'Total Nodes', field: 'node_total', format: 'number' },
         { id: 'node_cumulus', label: 'Cumulus Nodes', field: 'node_cumulus', format: 'number' },
         { id: 'node_nimbus', label: 'Nimbus Nodes', field: 'node_nimbus', format: 'number' },
-        { id: 'node_stratus', label: 'Stratus Nodes', field: 'node_stratus', format: 'number' }
+        { id: 'node_stratus', label: 'Stratus Nodes', field: 'node_stratus', format: 'number' },
+        // Issue #201. dropNulls because every snapshot predating this feature -- and the
+        // 37 days the imported history has no reading for -- stores NULL, and plotting
+        // those as 0 would draw a network with no operators rather than a gap.
+        { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true }
       ]
     },
     resources: {
@@ -511,13 +515,25 @@
       return dateA - dateB;
     });
 
-    // For the decentralization category, pre-feature snapshots have NULL for
-    // all 5 metric fields (no DEFAULT was set). Drop those days entirely for
-    // this category so the chart doesn't fabricate a 0 (or, for invert
-    // metrics, a misleading 100%) before real data collection started.
-    const rows = selectedCategory === 'decentralization'
+    // Columns with no DEFAULT read back NULL on every day before their feature shipped --
+    // the whole decentralization category, and any metric flagged dropNulls. Those days are
+    // dropped rather than plotted, so the chart shows a gap instead of fabricating a 0 (or,
+    // for invert metrics, a misleading 100%).
+    const rows = (selectedCategory === 'decentralization' || metric.dropNulls)
       ? sortedSnapshots.filter(s => s[metric.field] != null)
       : sortedSnapshots;
+
+    // Dropping can empty the set even though the category itself has data -- e.g. Nodes per
+    // Wallet over days that carry a wallet count but no node count. Say so explicitly:
+    // returning early here would leave the PREVIOUS metric's plot on screen under the new
+    // metric's title, which reads as real data for the wrong series.
+    if (rows.length === 0) {
+      chartData = { labels: [], data: [], rawDates: [] };
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      error = `No data recorded for ${metric.label} in this period`;
+      return;
+    }
+    error = null;
 
     let labels = [];
     let data = [];
@@ -728,6 +744,7 @@
 
     const data = sortedMonths.map(([key, monthData]) => {
       if (metric.ratioFields) {
+        // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
         return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * 100 : 0;
       }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {

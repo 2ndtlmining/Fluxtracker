@@ -117,6 +117,11 @@
     trend: comparison.changes.nodes?.trend || 'neutral'
   } : null;
   
+  // Unique wallets running nodes (issue #201). null until the first collection, and the
+  // card renders a dash rather than a 0 in that window -- "no wallets run the network"
+  // would be a false reading, not an empty one.
+  $: uniqueWallets = metrics?.wallets?.unique ?? null;
+
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -459,6 +464,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         {nimbusComparison}
         {stratusComparison}
         totalComparison={totalNodesComparison}
+        {uniqueWallets}
         {loading}
       />
       
@@ -502,6 +508,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       <!-- Decentralization (issue #108) — % of node IPs in known datacenters vs. not,
            classified gradually in the background; coverage fills in over time. -->
       <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} comparison={decentralizationComparison} />
+
     </div>
 
     <!-- Historical Performance Chart -->
