@@ -88,6 +88,9 @@ function createSchema() {
             -- Issue #201. No DEFAULT: absent must read back NULL, never a 0 that would
             -- mean "no wallets ran nodes that day".
             unique_wallets INTEGER,
+            -- Issue #209. No DEFAULT, same reasoning: a 0 would mean "nobody ran an app
+            -- that day", not "no reading taken".
+            unique_app_owners INTEGER,
             sync_status TEXT DEFAULT 'completed',
             created_at INTEGER NOT NULL
         )
@@ -177,7 +180,8 @@ function createSchema() {
             node_nimbus INTEGER DEFAULT 0,
             node_stratus INTEGER DEFAULT 0,
             node_total INTEGER DEFAULT 0,
-            unique_wallets INTEGER
+            unique_wallets INTEGER,
+            unique_app_owners INTEGER
         )
     `);
 
@@ -496,6 +500,7 @@ export async function createDailySnapshot(snapshot) {
         node_stratus: snapshot.node_stratus ?? null,
         node_total: snapshot.node_total ?? null,
         unique_wallets: snapshot.unique_wallets ?? null,
+        unique_app_owners: snapshot.unique_app_owners ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

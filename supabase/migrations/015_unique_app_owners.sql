@@ -1,0 +1,27 @@
+-- Issue #209: unique app owners on the Flux network.
+--
+-- Every spec in globalappsspecifications carries the deploying ZelID in `owner`, so the
+-- count of DISTINCT owners is the count of distinct app operators. Measured 2026-09-21:
+-- 1,710 specs, of which 1,659 unexpired, run by 1,143 owners -- roughly 1.45 apps each.
+--
+-- This is the applications-side counterpart to unique_wallets (migration 014): that column
+-- answers "how many separate people run the nodes", this one answers "how many separate
+-- people run the apps". Neither is derivable from the other.
+--
+-- The count excludes EXPIRED specs (height + expire <= current block). The registry lags
+-- pruning them -- 51 of 1,710 were already past expiry when this shipped -- and counting
+-- their owners would answer "who has ever deployed" rather than "who is running something".
+-- That is the same unit the KPI layer's "Apps deployed" figure already uses.
+--
+-- Only ONE column, deliberately. Apps-per-owner is total_apps / unique_app_owners and is
+-- derived at read time the way nodes-per-wallet is, so the ratio can never drift out of
+-- step with the two figures it comes from.
+--
+-- No DEFAULT, deliberately, for the same reason as unique_wallets in migration 014 and
+-- gaming_instances_total in 012: every row written before this shipped has no reading for
+-- this column, and a fabricated 0 would render as "nobody ran an app that day" -- false,
+-- and indistinguishable from a real collection failure. The KPI layer already treats a 0
+-- in a snapshot column as missing, so a 0 here would also be averaged into reports as a
+-- real reading. Absent must stay absent.
+ALTER TABLE daily_snapshots ADD COLUMN IF NOT EXISTS unique_app_owners INTEGER;
+ALTER TABLE current_metrics  ADD COLUMN IF NOT EXISTS unique_app_owners INTEGER;

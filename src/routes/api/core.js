@@ -101,6 +101,7 @@ router.get('/health', async (req, res) => {
         const lastMs = walletSync?.last_sync ? Number(walletSync.last_sync) : null;
         walletsInfo = {
             uniqueWallets: metrics?.unique_wallets ?? null,
+            uniqueAppOwners: metrics?.unique_app_owners ?? null,
             lastSyncStatus: walletSync?.status ?? null,
             ageHours: lastMs ? Math.round((Date.now() - lastMs) / 3600000) : null
         };
