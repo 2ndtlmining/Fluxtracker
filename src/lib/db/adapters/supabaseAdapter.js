@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage, METRIC_COLUMNS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('supabaseAdapter');
@@ -204,22 +204,15 @@ export async function createDailySnapshot(snapshot) {
         dockerapps_count: snapshot.dockerapps_count,
         gitapps_percent: snapshot.gitapps_percent,
         dockerapps_percent: snapshot.dockerapps_percent,
+        // Gaming and crypto columns are DERIVED FROM CONFIG here too (issue #229). The
+        // snapshot builder, this adapter and its Supabase twin each enumerated them
+        // literally, so a game added to GAMING_REPOS had to be remembered in THREE places
+        // -- and was not. Deriving all three from the same config list is what makes the
+        // documented "adding a repo to config is enough" actually true.
         gaming_apps_total: snapshot.gaming_apps_total,
         gaming_instances_total: snapshot.gaming_instances_total,
-        gaming_palworld: snapshot.gaming_palworld,
-        gaming_enshrouded: snapshot.gaming_enshrouded,
-        gaming_minecraft: snapshot.gaming_minecraft,
-        gaming_valheim: snapshot.gaming_valheim,
-        gaming_satisfactory: snapshot.gaming_satisfactory,
-        crypto_presearch: snapshot.crypto_presearch,
-        crypto_streamr: snapshot.crypto_streamr,
-        crypto_ravencoin: snapshot.crypto_ravencoin,
-        crypto_kadena: snapshot.crypto_kadena,
-        crypto_alephium: snapshot.crypto_alephium,
-        crypto_bittensor: snapshot.crypto_bittensor,
-        crypto_timpi_collector: snapshot.crypto_timpi_collector,
-        crypto_timpi_geocore: snapshot.crypto_timpi_geocore,
-        crypto_kaspa: snapshot.crypto_kaspa,
+        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
+        ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
         crypto_nodes_total: snapshot.crypto_nodes_total,
         wordpress_count: snapshot.wordpress_count,
         node_cumulus: snapshot.node_cumulus,
@@ -331,6 +324,50 @@ export async function fillSnapshotNullColumns(date, columns) {
     }
 
     if (filled.length > 0) log.info(`Filled NULL snapshot columns for ${date}: ${filled.join(', ')}`);
+    return filled;
+}
+
+/**
+ * Overwrite snapshot columns that hold a FABRICATED ZERO with a real reading (issue #229).
+ *
+ * Sibling to fillSnapshotNullColumns, and deliberately a separate function with a narrower
+ * contract rather than a flag on it. The top-up exists because an absent reading is NULL;
+ * this exists because four game columns were written as 0 by a writer that did not know
+ * about them, and 0 is not NULL so the top-up can never reach them.
+ *
+ * Two guards make it a repair rather than a rewrite:
+ *   - only a stored 0 is replaced; a real non-zero reading is never restated
+ *   - only a POSITIVE value is written, so a day the game genuinely ran zero stays 0
+ *
+ * Returns the columns actually changed.
+ */
+export async function fillZeroSnapshotColumns(date, columns) {
+    const existing = await getSnapshotByDate(date);
+    if (!existing) return [];
+
+    const filled = [];
+    for (const [column, value] of Object.entries(columns || {})) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+        if (!(column in existing)) continue;
+        if (existing[column] !== 0) continue;
+
+        // `.eq(column, 0)` re-checks server side, so a concurrent writer that set a real
+        // value between the read above and this update is not clobbered.
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .update({ [column]: value })
+            .eq('snapshot_date', date)
+            .eq(column, 0)
+            .select('snapshot_date');
+
+        if (error) {
+            log.warn(`fillZeroSnapshotColumns(${date}.${column}): ${error.message}`);
+            continue;
+        }
+        if (data && data.length > 0) filled.push(column);
+    }
+
+    if (filled.length > 0) log.info(`Repaired zeroed snapshot columns for ${date}: ${filled.join(', ')}`);
     return filled;
 }
 

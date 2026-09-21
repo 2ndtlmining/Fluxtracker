@@ -28,7 +28,7 @@ import {
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
-import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS } from '../config.js';
+import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('snapshotManager');
@@ -164,6 +164,116 @@ async function shouldTakeSnapshot() {
     };
 }
 
+/**
+ * The daily_snapshots row, as a pure function of the readings it is given (issue #229).
+ *
+ * Extracted from takeSnapshot() so the correspondence between METRIC_COLUMNS and what
+ * actually reaches the row can be asserted by a test -- see snapshotColumnParity.test.js.
+ * Nothing here does IO; every value is passed in.
+ */
+export function buildSnapshotData({
+    snapshotDate,
+    now,
+    actualRevenue,
+    currentMetrics,
+    decentralization,
+    hasDecentralizationClassifications,
+    fluxCloudActivity
+}) {
+    return {
+        snapshot_date: snapshotDate,
+        timestamp: Math.floor(now.getTime() / 1000),
+        
+        // Revenue - FROM TRANSACTIONS
+        daily_revenue: actualRevenue,
+        flux_price_usd: currentMetrics.flux_price_usd || null,
+        
+        // Cloud Utilization
+        total_cpu_cores: currentMetrics.total_cpu_cores || 0,
+        used_cpu_cores: currentMetrics.used_cpu_cores || 0,
+        cpu_utilization_percent: currentMetrics.cpu_utilization_percent || 0,
+        
+        total_ram_gb: currentMetrics.total_ram_gb || 0,
+        used_ram_gb: currentMetrics.used_ram_gb || 0,
+        ram_utilization_percent: currentMetrics.ram_utilization_percent || 0,
+        
+        total_storage_gb: currentMetrics.total_storage_gb || 0,
+        used_storage_gb: currentMetrics.used_storage_gb || 0,
+        storage_utilization_percent: currentMetrics.storage_utilization_percent || 0,
+        
+        // Apps
+        total_apps: currentMetrics.total_apps || 0,
+        watchtower_count: currentMetrics.watchtower_count || 0,
+        gitapps_count: currentMetrics.gitapps_count || 0,
+        dockerapps_count: currentMetrics.dockerapps_count || 0,
+        gitapps_percent: currentMetrics.gitapps_percent || 0,
+        dockerapps_percent: currentMetrics.dockerapps_percent || 0,
+        
+        // Gaming and crypto counts are DERIVED FROM CONFIG, not listed literally
+        // (issue #229). The literal list silently stopped matching GAMING_REPOS when
+        // games were added to config: gaming_rust/terraria/ark/windrose were never
+        // written here, and because schemaMigrator creates game columns as
+        // `INTEGER DEFAULT 0` the unwritten column landed as 0 rather than NULL -- so
+        // the NULL top-up below could never repair it, and those four games recorded a
+        // fabricated 0 every day while current_metrics held the real count.
+        //
+        // `|| 0` matches what the five hardcoded gaming columns always did, so existing
+        // history keeps its semantics; only the missing columns change behaviour.
+        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, currentMetrics[r.dbKey] || 0])),
+        gaming_apps_total: currentMetrics.gaming_apps_total || 0,
+        // Same-method history for the Gaming card's comparison arrows (issue #163).
+        // gaming_apps_total above stays image-only so the existing trend line does not
+        // step on the day app-name matching ships.
+        gaming_instances_total: currentMetrics.gaming_instances_total ?? null,
+
+        ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, currentMetrics[r.dbKey] || 0])),
+        crypto_nodes_total: currentMetrics.crypto_nodes_total || 0,
+
+        // Written explicitly rather than left to the NULL top-up (issue #229). The
+        // top-up still runs and is still the safety net for a metric that ships
+        // mid-day, but it should not be the PRIMARY way a column reaches the row --
+        // that is how the gaming columns above went unnoticed. `?? null` because these
+        // have no DEFAULT: absent must read back as "not collected", never a 0 the KPI
+        // layer would average in as a real reading.
+        unique_wallets: currentMetrics.unique_wallets ?? null,
+        unique_app_owners: currentMetrics.unique_app_owners ?? null,
+        locked_collateral_cumulus: currentMetrics.locked_collateral_cumulus ?? null,
+        locked_collateral_nimbus: currentMetrics.locked_collateral_nimbus ?? null,
+        locked_collateral_stratus: currentMetrics.locked_collateral_stratus ?? null,
+        locked_collateral: currentMetrics.locked_collateral ?? null,
+
+        // WordPress
+        wordpress_count: currentMetrics.wordpress_count || 0,
+        
+        // Nodes
+        node_cumulus: currentMetrics.node_cumulus || 0,
+        node_nimbus: currentMetrics.node_nimbus || 0,
+        node_stratus: currentMetrics.node_stratus || 0,
+        node_total: currentMetrics.node_total || 0,
+
+        // Decentralization -- classifiedCount === 0 means "nothing classified yet", so the
+        // headline columns stay null (not 0) rather than reading as a real 0% datacenter share.
+        decentralization_datacenter_count: hasDecentralizationClassifications
+        ? decentralization?.datacenterCount ?? null
+        : null,
+        decentralization_independent_count:
+        hasDecentralizationClassifications && decentralization?.datacenterCount != null
+            ? decentralization.classifiedCount - decentralization.datacenterCount
+            : null,
+        decentralization_datacenter_percent: decentralization?.datacenterPercent ?? null,
+
+        // Flux Cloud activity -- see fluxCloudActivity fetch above for the null posture.
+        apps_deployed_today: fluxCloudActivity?.deployedToday.cached
+        ? fluxCloudActivity.deployedToday.apps.length
+        : null,
+        apps_expiring_today: fluxCloudActivity?.expiring24h.cached
+        ? fluxCloudActivity.expiring24h.apps.length
+        : null,
+
+        sync_status: 'completed'
+    };
+}
+
 async function takeSnapshot() {
     log.info('[SNAPSHOT] Taking snapshot...');
     
@@ -219,89 +329,15 @@ async function takeSnapshot() {
             log.warn(`Flux Cloud activity unavailable for this snapshot: ${error.message}`);
         }
 
-        const snapshotData = {
-            snapshot_date: snapshotDate,
-            timestamp: Math.floor(now.getTime() / 1000),
-            
-            // Revenue - FROM TRANSACTIONS
-            daily_revenue: actualRevenue,
-            flux_price_usd: currentMetrics.flux_price_usd || null,
-            
-            // Cloud Utilization
-            total_cpu_cores: currentMetrics.total_cpu_cores || 0,
-            used_cpu_cores: currentMetrics.used_cpu_cores || 0,
-            cpu_utilization_percent: currentMetrics.cpu_utilization_percent || 0,
-            
-            total_ram_gb: currentMetrics.total_ram_gb || 0,
-            used_ram_gb: currentMetrics.used_ram_gb || 0,
-            ram_utilization_percent: currentMetrics.ram_utilization_percent || 0,
-            
-            total_storage_gb: currentMetrics.total_storage_gb || 0,
-            used_storage_gb: currentMetrics.used_storage_gb || 0,
-            storage_utilization_percent: currentMetrics.storage_utilization_percent || 0,
-            
-            // Apps
-            total_apps: currentMetrics.total_apps || 0,
-            watchtower_count: currentMetrics.watchtower_count || 0,
-            gitapps_count: currentMetrics.gitapps_count || 0,
-            dockerapps_count: currentMetrics.dockerapps_count || 0,
-            gitapps_percent: currentMetrics.gitapps_percent || 0,
-            dockerapps_percent: currentMetrics.dockerapps_percent || 0,
-            
-            // Gaming - INCLUDES gaming_valheim
-            gaming_apps_total: currentMetrics.gaming_apps_total || 0,
-            // Same-method history for the Gaming card's comparison arrows (issue #163).
-            // gaming_apps_total above stays image-only so the existing trend line does not
-            // step on the day app-name matching ships.
-            gaming_instances_total: currentMetrics.gaming_instances_total ?? null,
-            gaming_palworld: currentMetrics.gaming_palworld || 0,
-            gaming_enshrouded: currentMetrics.gaming_enshrouded || 0,
-            gaming_minecraft: currentMetrics.gaming_minecraft || 0,
-            gaming_valheim: currentMetrics.gaming_valheim || 0,
-            gaming_satisfactory: currentMetrics.gaming_satisfactory || 0,
-            
-            // Crypto Nodes
-            crypto_presearch: currentMetrics.crypto_presearch || 0,
-            crypto_streamr: currentMetrics.crypto_streamr || 0,
-            crypto_ravencoin: currentMetrics.crypto_ravencoin || 0,
-            crypto_kadena: currentMetrics.crypto_kadena || 0,
-            crypto_alephium: currentMetrics.crypto_alephium || 0,
-            crypto_bittensor: currentMetrics.crypto_bittensor || 0,
-            crypto_timpi_collector: currentMetrics.crypto_timpi_collector || 0,
-            crypto_timpi_geocore: currentMetrics.crypto_timpi_geocore || 0,
-            crypto_kaspa: currentMetrics.crypto_kaspa || 0,
-            crypto_nodes_total: currentMetrics.crypto_nodes_total || 0,
-            
-            // WordPress
-            wordpress_count: currentMetrics.wordpress_count || 0,
-            
-            // Nodes
-            node_cumulus: currentMetrics.node_cumulus || 0,
-            node_nimbus: currentMetrics.node_nimbus || 0,
-            node_stratus: currentMetrics.node_stratus || 0,
-            node_total: currentMetrics.node_total || 0,
-
-            // Decentralization -- classifiedCount === 0 means "nothing classified yet", so the
-            // headline columns stay null (not 0) rather than reading as a real 0% datacenter share.
-            decentralization_datacenter_count: hasDecentralizationClassifications
-                ? decentralization?.datacenterCount ?? null
-                : null,
-            decentralization_independent_count:
-                hasDecentralizationClassifications && decentralization?.datacenterCount != null
-                    ? decentralization.classifiedCount - decentralization.datacenterCount
-                    : null,
-            decentralization_datacenter_percent: decentralization?.datacenterPercent ?? null,
-
-            // Flux Cloud activity -- see fluxCloudActivity fetch above for the null posture.
-            apps_deployed_today: fluxCloudActivity?.deployedToday.cached
-                ? fluxCloudActivity.deployedToday.apps.length
-                : null,
-            apps_expiring_today: fluxCloudActivity?.expiring24h.cached
-                ? fluxCloudActivity.expiring24h.apps.length
-                : null,
-
-            sync_status: 'completed'
-        };
+        const snapshotData = buildSnapshotData({
+            snapshotDate,
+            now,
+            actualRevenue,
+            currentMetrics,
+            decentralization,
+            hasDecentralizationClassifications,
+            fluxCloudActivity
+        });
 
         await createDailySnapshot(snapshotData);
 

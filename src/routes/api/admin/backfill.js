@@ -13,6 +13,7 @@ import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryServic
 import { reclassifyStoredDatacenterFlags } from '../../../lib/services/decentralizationService.js';
 import { backfillRevenueSnapshots } from '../../../lib/db/run-backfill.js';
 import { backfillLockedCollateral } from '../../../lib/db/collateralBackfill.js';
+import { backfillGameCounts } from '../../../lib/db/gameCountBackfill.js';
 
 const log = createLogger('server');
 const router = express.Router();
@@ -146,6 +147,27 @@ router.post('/backfill-collateral', async (_req, res) => {
         });
     } catch (error) {
         log.error({ err: error }, 'locked collateral backfill failed');
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Admin: repair game counts written to daily_snapshots as a fabricated 0 (issue #229).
+// Reconstructs each day's figure from repo_snapshots, which holds per-image daily counts
+// from the same image-matching pass that feeds the live counter -- so this is exact, not an
+// estimate. Only a stored 0 is replaced, and only with a positive count, so a day the game
+// genuinely ran zero stays 0 and correctly-written columns are never restated. Does no
+// external lookups; idempotent.
+router.post('/backfill-game-counts', async (_req, res) => {
+    try {
+        log.info('game count repair triggered via API');
+        const result = await backfillGameCounts();
+        res.json({
+            success: true,
+            ...result,
+            message: `Repaired ${result.repaired} day(s) (${result.columns} column values), ${result.skipped} unchanged, ${result.failed} failed of ${result.total}`
+        });
+    } catch (error) {
+        log.error({ err: error }, 'game count repair failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
