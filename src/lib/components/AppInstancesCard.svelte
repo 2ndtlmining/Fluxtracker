@@ -86,23 +86,39 @@
     <div class="headline-row">
       <div class="total-block">
         {#if hasFill}
-          <div class="total-value">{fill.fillPct.toFixed(1)}%</div>
-          <div class="total-subtitle">{formatNumber(fill.running)} of {formatNumber(fill.ordered)} ordered</div>
-          <div
-            class="container-line"
-            title="A compose app runs one container per component, so the network runs more containers than deployments."
-          >
-            {formatNumber(fill.containers ?? totalApps)} containers
+          <!-- The percentage and the pair it comes from are ONE statement, so they sit
+               tight together; the container count is a separate fact and gets air above it.
+               Four evenly spaced lines read as an undifferentiated wall of numbers. -->
+          <div class="fill-group">
+            <div class="total-value">{fill.fillPct.toFixed(1)}%</div>
+            <div class="total-subtitle">{formatNumber(fill.running)} of {formatNumber(fill.ordered)} ordered</div>
+          </div>
+          <!-- The trend arrow tracks the container count, so it sits ON that line. Floating
+               below the block it looked like it applied to the fill percentage, which it
+               does not -- nothing snapshots fill yet. -->
+          <div class="container-row">
+            <span
+              class="container-line"
+              title="A compose app runs one container per component, so the network runs more containers than deployments."
+            >{formatNumber(fill.containers ?? totalApps)} containers</span>
+            {#if totalComparison && totalComparison.change !== undefined}
+              <span class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
+                {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+                {formatChange(totalComparison)}
+              </span>
+            {/if}
           </div>
         {:else}
-          <div class="total-value">{formatNumber(totalApps)}</div>
-          <div class="total-subtitle">containers across the network</div>
-        {/if}
-        {#if totalComparison && totalComparison.change !== undefined}
-          <div class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
-            {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
-            {formatChange(totalComparison)}
+          <div class="fill-group">
+            <div class="total-value">{formatNumber(totalApps)}</div>
+            <div class="total-subtitle">containers across the network</div>
           </div>
+          {#if totalComparison && totalComparison.change !== undefined}
+            <div class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
+              {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
+              {formatChange(totalComparison)}
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -236,7 +252,25 @@
   .total-block {
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-xs);
+    /* Spacing is set per group below rather than evenly here: the two groups need
+       different amounts of air, which one uniform gap cannot express. */
+    gap: var(--spacing-sm);
+    min-width: 0;
+  }
+
+  /* Percentage + the pair it comes from: one statement, so almost no gap. */
+  .fill-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  .container-row {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
     min-width: 0;
   }
 
@@ -254,23 +288,29 @@
     font-weight: 700;
     color: var(--text-primary);
     text-shadow: var(--glow-cyan);
-    line-height: 1.2;
+    line-height: 1.1;
     font-variant-numeric: tabular-nums;
   }
 
   .total-subtitle {
-    font-size: 0.875rem;
-    color: var(--text-dim);
+    font-size: 0.8125rem;
+    color: var(--text-muted);
     font-weight: 500;
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+    /* Deliberately allowed to wrap. nowrap here clipped "6,948 of 8,271 ordered" at narrow
+       card widths -- losing the figures the headline percentage is derived from. Two lines
+       beat a truncated one. */
   }
 
-  /* The container count keeps its place but stops competing with the fill headline. */
+  /* The container count keeps its place but stops competing with the fill headline:
+     smaller, dimmer, and a step down from the "of ordered" line above it. */
   .container-line {
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
-    margin-top: 0.125rem;
     cursor: help;
+    white-space: nowrap;
   }
 
   .activity-metric {
