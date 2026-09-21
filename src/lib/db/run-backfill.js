@@ -1,26 +1,42 @@
-// Place this file in: /src/lib/db/run-backfill.js
-// (Same directory as snapshot.js and database.js)
+// Revenue-only snapshot backfill, behind POST /api/admin/backfill and this file's CLI mode.
 
 import { getRevenueForDateRange, createDailySnapshot, getSnapshotByDate, getCurrentMetrics } from './database.js';
 
 /**
- * Backfills daily revenue snapshots from transaction history
- * Creates one snapshot per day using the SUM of transactions for that day
- * Uses zeros for all other metrics to avoid confusion with historical data
+ * Every UTC date from `fromDate` to `toDate` inclusive, as YYYY-MM-DD.
+ *
+ * UTC arithmetic on purpose (issue #218). The previous loop advanced a Date parsed as UTC
+ * midnight with local-time setDate(), so on a host in a DST-observing zone a spring-forward
+ * day was emitted twice and the last day of the range never reached at all.
+ */
+export function eachUtcDate(fromDate, toDate) {
+    const dates = [];
+    const end = Date.parse(`${toDate}T00:00:00Z`);
+    for (let t = Date.parse(`${fromDate}T00:00:00Z`); t <= end; t += 86400000) {
+        dates.push(new Date(t).toISOString().split('T')[0]);
+    }
+    return dates;
+}
+
+/**
+ * Backfill one daily_snapshots row per day from transaction history.
+ *
+ * Writes the revenue and NOTHING else (issue #218). Every other column is left unset so
+ * the adapter stores NULL, which is what the rest of the repo means by "no reading": the
+ * KPI layer treats a 0 as a failed collection, the analytics comparison would render a
+ * fabricated 0 as real history ("+6448 nodes, 0% change"), and fillSnapshotNullColumns()
+ * repairs NULL columns only -- it skips anything already set, so a fabricated 0 can never
+ * be healed. `sync_status: 'backfilled'` keeps these days distinguishable from a real
+ * nightly collection.
  */
 export async function backfillRevenueSnapshots(fromDate, toDate) {
-    console.log(`\n📊 Backfilling revenue snapshots from ${fromDate} to ${toDate}`);
-    
+    console.log(`
+📊 Backfilling revenue snapshots from ${fromDate} to ${toDate}`);
+
     let created = 0;
     let skipped = 0;
-    
-    const start = new Date(fromDate);
-    const end = new Date(toDate);
-    
-    // Iterate through each day in the range
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        
+
+    for (const dateStr of eachUtcDate(fromDate, toDate)) {
         // Check if snapshot already exists
         const existing = await getSnapshotByDate(dateStr);
         if (existing) {
@@ -28,55 +44,14 @@ export async function backfillRevenueSnapshots(fromDate, toDate) {
             continue;
         }
 
-        // Get revenue for this specific day
         const dailyRevenue = await getRevenueForDateRange(dateStr, dateStr);
 
-        // Create snapshot with ONLY revenue data - all other metrics set to 0
-        // This avoids confusion by not pretending we have historical metrics
-        const snapshot = {
+        await createDailySnapshot({
             snapshot_date: dateStr,
-            timestamp: new Date(dateStr).getTime(),
-            
-            // Revenue - the only real data we have
+            timestamp: Date.parse(`${dateStr}T00:00:00Z`),
             daily_revenue: dailyRevenue,
-            flux_price_usd: null,
-            
-            // All other metrics set to 0 (no historical data)
-            total_cpu_cores: 0,
-            used_cpu_cores: 0,
-            cpu_utilization_percent: 0,
-            total_ram_gb: 0,
-            used_ram_gb: 0,
-            ram_utilization_percent: 0,
-            total_storage_gb: 0,
-            used_storage_gb: 0,
-            storage_utilization_percent: 0,
-            total_apps: 0,
-            watchtower_count: 0,
-            gaming_apps_total: 0,
-            gaming_palworld: 0,
-            gaming_enshrouded: 0,
-            gaming_minecraft: 0,
-            crypto_presearch: 0,
-            crypto_streamr: 0,
-            crypto_ravencoin: 0,
-            crypto_kadena: 0,
-            crypto_alephium: 0,
-            crypto_bittensor: 0,
-            crypto_timpi_collector: 0,
-            crypto_timpi_geocore: 0,
-            crypto_kaspa: 0,
-            crypto_nodes_total: 0,
-            wordpress_count: 0,
-            node_cumulus: 0,
-            node_nimbus: 0,
-            node_stratus: 0,
-            node_total: 0,
-            sync_status: 'completed',
-            created_at: Date.now()
-        };
-        
-        await createDailySnapshot(snapshot);
+            sync_status: 'backfilled'
+        });
         created++;
     }
 
@@ -194,7 +169,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log('1. Create historical snapshots from your revenue data');
     console.log('2. Create today\'s snapshot with current metrics');
     console.log('3. Test that comparisons are working\n');
-    console.log('⚠️  Historical snapshots will use 0 for all metrics except revenue\n');
+    console.log('⚠️  Historical snapshots carry revenue only -- every other metric stays NULL\n');
     console.log('Starting in 3 seconds...\n');
 
     setTimeout(async () => {
@@ -213,7 +188,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             console.log('📊 Step 1: Backfilling revenue snapshots');
             console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
             console.log(`Creating snapshots from ${fromDateStr} to ${toDateStr}...\n`);
-            console.log('Note: Historical snapshots will have 0 for all metrics except revenue\n');
+            console.log('Note: Historical snapshots carry revenue only -- every other metric stays NULL\n');
             
             const result = await backfillRevenueSnapshots(fromDateStr, toDateStr);
             
@@ -266,7 +241,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             console.log('✅ Your comparison toggle should now work!');
             console.log('✅ Revenue comparisons available for all periods');
             console.log('✅ Daily snapshots will run automatically at midnight UTC\n');
-            console.log('💡 Historical snapshots use 0 for non-revenue metrics');
+            console.log('💡 Historical snapshots leave non-revenue metrics NULL (never 0)');
             console.log('💡 Only today\'s snapshot has actual current metrics\n');
             console.log('Next steps:');
             console.log('1. Restart your app to ensure cron job is running');

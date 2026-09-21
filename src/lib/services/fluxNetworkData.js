@@ -44,6 +44,23 @@ function rememberPrice(price) {
 }
 
 /**
+ * Store the price, but never let a failed store discard a good fetch (issue #220).
+ *
+ * updateCurrentMetrics() throws now, which is what the services that follow it with
+ * updateSyncStatus(..., 'completed') need. Here the write is a side effect: the header and
+ * the USD pricing of every transaction in this pass use the RETURNED value. Letting the
+ * throw escape would send a successful CoinGecko fetch down the fallback chain and end in
+ * a null price for the whole pass -- a database outage silently becoming a pricing outage.
+ */
+async function persistPrice(price) {
+    try {
+        await updateCurrentMetrics({ flux_price_usd: price });
+    } catch (e) {
+        log.warn({ err: e }, 'Price fetched but could not be stored -- using it anyway');
+    }
+}
+
+/**
  * Fetch FLUX price in USD.
  * Tries three sources in order: CoinGecko → Flux Explorer → CryptoCompare
  */
@@ -56,7 +73,7 @@ export async function fetchFluxPrice() {
         if (data?.zelcash?.usd) {
             const price = data.zelcash.usd;
             log.info({ price }, 'FLUX price fetched from CoinGecko: $%s', price);
-            await updateCurrentMetrics({ flux_price_usd: price });
+            await persistPrice(price);
             return rememberPrice(price);
         }
     } catch (e) {
@@ -70,7 +87,7 @@ export async function fetchFluxPrice() {
             const price = parseFloat(data.rate);
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from Explorer: $%s', price);
-                await updateCurrentMetrics({ flux_price_usd: price });
+                await persistPrice(price);
                 return rememberPrice(price);
             }
         }
@@ -85,7 +102,7 @@ export async function fetchFluxPrice() {
             const price = parseFloat(data.USD);
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from CryptoCompare: $%s', price);
-                await updateCurrentMetrics({ flux_price_usd: price });
+                await persistPrice(price);
                 return rememberPrice(price);
             }
         }

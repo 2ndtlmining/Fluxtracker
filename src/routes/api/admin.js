@@ -227,7 +227,11 @@ router.post('/snapshot', async (req, res) => {
         } else {
             res.status(400).json({
                 success: false,
+                // `error` carries a refused write (issue #220); `reason` carries a
+                // deliberate skip. Without both, a failed snapshot answered with an
+                // otherwise empty body.
                 reason: result.reason,
+                error: result.error,
                 skipped: result.skipped || false,
                 validationFailed: result.validationFailed || false,
                 lockFailed: result.lockFailed || false

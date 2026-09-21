@@ -65,6 +65,7 @@ import {
 } from '../database.js';
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
+import { isBackupEnabled, performBackup } from '../../services/backupService.js';
 import {
     getDecentralizationStats,
     getFullDatacenterBreakdown,
@@ -511,6 +512,43 @@ describe('snapshotManager', () => {
             const [snapshotData] = createDailySnapshot.mock.calls[0];
             expect(snapshotData.apps_deployed_today).toBeNull();
             expect(snapshotData.apps_expiring_today).toBeNull();
+        });
+    });
+    // ------------------------------------------
+    // A refused daily_snapshots write is a failure (issue #220)
+    // ------------------------------------------
+    describe('a failed createDailySnapshot write', () => {
+        // The adapters used to log the write error and return, so this whole path ran as
+        // though the day had been recorded: consecutiveFailures reset to 0, a backup fired
+        // over a missing row, and POST /api/admin/snapshot answered 200 { success: true }.
+        // Both adapters throw now; this is the contract that makes the throw matter.
+        beforeEach(() => {
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+            isBackupEnabled.mockReturnValue(true);
+            createDailySnapshot.mockRejectedValue(new Error('permission denied for table daily_snapshots'));
+        });
+
+        it('is reported as a failure, not a success', async () => {
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/permission denied/);
+        });
+
+        it('does not fire a backup over the missing row', async () => {
+            await takeManualSnapshot();
+
+            expect(performBackup).not.toHaveBeenCalled();
+        });
+
+        it('counts the failure instead of clearing the counter', async () => {
+            const before = getSnapshotState().consecutiveFailures;
+
+            await takeManualSnapshot();
+
+            expect(getSnapshotState().consecutiveFailures).toBe(before + 1);
         });
     });
 });
