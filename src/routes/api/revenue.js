@@ -13,6 +13,7 @@ import {
 } from '../../lib/db/database.js';
 
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
+import { getToDateRanges, TIMEFRAMES } from '../../lib/kpi/periods.js';
 import { createLogger } from '../../lib/logger.js';
 
 const log = createLogger('server');
@@ -73,108 +74,29 @@ router.get('/revenue/:period', async (req, res) => {
         const currentMetrics = await getCurrentMetrics();
         const fluxPrice = currentMetrics?.flux_price_usd || 0;
 
-        let currentRevenue, currentPayments, previousRevenue, previousPayments;
-        let currentStart, currentEnd, previousStart, previousEnd;
-
-        const now = new Date();
-
-        switch(period) {
-            case 'daily':
-                // Today
-                currentStart = currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
-
-                // Yesterday
-                const yesterday = new Date(now);
-                yesterday.setDate(yesterday.getDate() - 1);
-                previousStart = previousEnd = yesterday.toISOString().split('T')[0];
-                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
-                break;
-
-            case 'weekly':
-                // This week (Monday to Sunday)
-                const currentWeekStart = new Date(now);
-                const dayOfWeek = currentWeekStart.getDay();
-                const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Adjust Sunday (0) to be 6 days from Monday
-                currentWeekStart.setDate(currentWeekStart.getDate() - daysToMonday);
-                currentStart = currentWeekStart.toISOString().split('T')[0];
-                currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
-
-                // Last week (Monday to Sunday)
-                const lastWeekStart = new Date(currentWeekStart);
-                lastWeekStart.setDate(lastWeekStart.getDate() - 7);
-                previousStart = lastWeekStart.toISOString().split('T')[0];
-                const lastWeekEnd = new Date(lastWeekStart);
-                lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
-                previousEnd = lastWeekEnd.toISOString().split('T')[0];
-                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
-                break;
-
-            case 'monthly':
-                // This month
-                const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-                currentStart = firstDayOfMonth.toISOString().split('T')[0];
-                currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
-
-                // Last month
-                const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                previousStart = firstDayOfLastMonth.toISOString().split('T')[0];
-                const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-                previousEnd = lastDayOfLastMonth.toISOString().split('T')[0];
-                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
-                break;
-
-            case 'quarterly':
-                // This quarter
-                const currentQuarter = Math.floor(now.getMonth() / 3);
-                const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
-                currentStart = quarterStart.toISOString().split('T')[0];
-                currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
-
-                // Last quarter
-                const lastQuarterStart = new Date(now.getFullYear(), (currentQuarter - 1) * 3, 1);
-                if (currentQuarter === 0) {
-                    // If Q1, go to Q4 of last year
-                    lastQuarterStart.setFullYear(now.getFullYear() - 1);
-                    lastQuarterStart.setMonth(9); // October (Q4 starts)
-                }
-                previousStart = lastQuarterStart.toISOString().split('T')[0];
-                const lastQuarterEnd = new Date(lastQuarterStart.getFullYear(), lastQuarterStart.getMonth() + 3, 0);
-                previousEnd = lastQuarterEnd.toISOString().split('T')[0];
-                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
-                break;
-
-            case 'yearly':
-                // This year
-                const yearStart = new Date(now.getFullYear(), 0, 1);
-                currentStart = yearStart.toISOString().split('T')[0];
-                currentEnd = now.toISOString().split('T')[0];
-                currentRevenue = await getRevenueForDateRange(currentStart, currentEnd);
-                currentPayments = await getPaymentCountForDateRange(currentStart, currentEnd);
-
-                // Last year
-                const lastYearStart = new Date(now.getFullYear() - 1, 0, 1);
-                previousStart = lastYearStart.toISOString().split('T')[0];
-                const lastYearEnd = new Date(now.getFullYear() - 1, 11, 31);
-                previousEnd = lastYearEnd.toISOString().split('T')[0];
-                previousRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-                previousPayments = await getPaymentCountForDateRange(previousStart, previousEnd);
-                break;
-
-            default:
-                return res.status(400).json({ error: 'Invalid period. Use: daily, weekly, monthly, quarterly, or yearly' });
+        if (!TIMEFRAMES.includes(period)) {
+            return res.status(400).json({ error: 'Invalid period. Use: daily, weekly, monthly, quarterly, or yearly' });
         }
+
+        // Boundaries come from periods.js, which is pure, UTC throughout and unit-tested
+        // (issue #224). They were built here with local-time constructors and serialized
+        // with toISOString(), so on a host outside UTC "this month" started on the last
+        // day of the previous one and a day was counted in both periods at once --
+        // silently wrong for the change percentage and the self-funded share too.
+        //
+        // getToDateRanges is the period TO DATE vs the whole previous period, which is
+        // what a live dashboard shows. getPeriodRanges (two completed periods) is for KPI
+        // reports and deliberately answers something else.
+        const { current, previous } = getToDateRanges(period);
+        const { start: currentStart, end: currentEnd } = current;
+        const { start: previousStart, end: previousEnd } = previous;
+
+        const [currentRevenue, currentPayments, previousRevenue, previousPayments] = await Promise.all([
+            getRevenueForDateRange(currentStart, currentEnd),
+            getPaymentCountForDateRange(currentStart, currentEnd),
+            getRevenueForDateRange(previousStart, previousEnd),
+            getPaymentCountForDateRange(previousStart, previousEnd)
+        ]);
 
         // Calculate change percentage
         let changePercent = 0;

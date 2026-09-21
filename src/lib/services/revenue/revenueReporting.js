@@ -10,6 +10,7 @@ import { setRevenueSyncRunning, setRevenueSyncError } from './revenueSyncState.j
 import { fetchFluxPrice } from '../fluxNetworkData.js';
 import { progressiveSync } from './transactionSync.js';
 import { backfillAppTypes, backfillAppNames } from './revenueBackfill.js';
+import { getToDateRanges } from '../../kpi/periods.js';
 
 const log = createLogger('revenueService');
 
@@ -189,16 +190,11 @@ export function formatRevenueStats(revenueData, fluxPrice) {
  */
 export async function calculateMonthlyRevenue() {
     try {
-        const now = new Date();
+        // UTC month, from periods.js (issue #224). These were local-time constructors
+        // serialized with toISOString(), so outside UTC the month started on the last day
+        // of the previous one.
+        const { start: startDate, end: today } = getToDateRanges('monthly').current;
 
-        // Get first day of current month
-        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startDate = firstDayOfMonth.toISOString().split('T')[0];
-
-        // Get today
-        const today = now.toISOString().split('T')[0];
-
-        // Calculate revenue for current month
         const revenue = await getRevenueForDateRange(startDate, today);
 
         log.info({ startDate, endDate: today, revenue: revenue.toFixed(2) }, 'Monthly revenue (%s to %s): %s FLUX', startDate, today, revenue.toFixed(2));
@@ -216,17 +212,9 @@ export async function calculateMonthlyRevenue() {
  */
 export async function calculatePreviousMonthRevenue() {
     try {
-        const now = new Date();
+        // See calculateMonthlyRevenue: the old boundaries put one day in BOTH months.
+        const { start: startDate, end: endDate } = getToDateRanges('monthly').previous;
 
-        // Get first day of previous month
-        const firstDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const startDate = firstDayOfPrevMonth.toISOString().split('T')[0];
-
-        // Get last day of previous month
-        const lastDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-        const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
-
-        // Calculate revenue for previous month
         const revenue = await getRevenueForDateRange(startDate, endDate);
 
         log.info({ startDate, endDate, revenue: revenue.toFixed(2) }, 'Previous month revenue (%s to %s): %s FLUX', startDate, endDate, revenue.toFixed(2));
@@ -244,16 +232,9 @@ export async function calculatePreviousMonthRevenue() {
  */
 export async function getMonthlyPaymentCount() {
     try {
-        const now = new Date();
+        // Same month as calculateMonthlyRevenue, from the same source (issue #224).
+        const { start: startDate, end: today } = getToDateRanges('monthly').current;
 
-        // Get first day of current month
-        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startDate = firstDayOfMonth.toISOString().split('T')[0];
-
-        // Get today
-        const today = now.toISOString().split('T')[0];
-
-        // Get payment count for current month
         const count = await getPaymentCountForDateRange(startDate, today);
 
         log.info({ startDate, endDate: today, count }, 'Monthly payment count (%s to %s): %d', startDate, today, count);
@@ -271,17 +252,9 @@ export async function getMonthlyPaymentCount() {
  */
 export async function getPreviousMonthPaymentCount() {
     try {
-        const now = new Date();
+        // Same previous month as calculatePreviousMonthRevenue (issue #224).
+        const { start: startDate, end: endDate } = getToDateRanges('monthly').previous;
 
-        // Get first day of previous month
-        const firstDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const startDate = firstDayOfPrevMonth.toISOString().split('T')[0];
-
-        // Get last day of previous month
-        const lastDayOfPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-        const endDate = lastDayOfPrevMonth.toISOString().split('T')[0];
-
-        // Get payment count for previous month
         const count = await getPaymentCountForDateRange(startDate, endDate);
 
         log.info({ startDate, endDate, count }, 'Previous month payment count (%s to %s): %d', startDate, endDate, count);
