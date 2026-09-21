@@ -145,6 +145,73 @@ export function getPeriodRanges(timeframe, now = new Date()) {
     }
 }
 
+/**
+ * The in-progress period *to date*, and the whole period before it (issue #224).
+ *
+ * This is a different question from getPeriodRanges() above, which compares two COMPLETED
+ * periods because a KPI report must never show a partial one. /api/revenue/:period is a
+ * live dashboard read: "this month so far" against "last month" is exactly what it means
+ * to show, so it needs its own function rather than a flag on that one.
+ *
+ * It lives here so there is one UTC calendar implementation rather than two. The route
+ * built these boundaries with local-time constructors and serialized them with
+ * toISOString(), so on a host at UTC+10 "this month" started on the 31st of last month
+ * and "last month" ran from the 31st of the month before -- one day double-counted into
+ * both periods, and the month-over-month change computed off both wrong totals.
+ *
+ * @param {'daily'|'weekly'|'monthly'|'quarterly'|'yearly'} timeframe
+ * @param {Date} [now] defaults to the current time
+ * @returns {{ current: {start,end}, previous: {start,end} }}
+ */
+export function getToDateRanges(timeframe, now = new Date()) {
+    if (!TIMEFRAMES.includes(timeframe)) {
+        throw new Error(`Unknown timeframe: ${timeframe}`);
+    }
+
+    const today = startOfUtcDay(now);
+    const d = new Date(today);
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth();
+
+    switch (timeframe) {
+        case 'daily':
+            return {
+                current: range(today, today),
+                previous: range(today - MS_PER_DAY, today - MS_PER_DAY)
+            };
+
+        case 'weekly': {
+            const thisMonday = startOfIsoWeek(today);
+            return {
+                current: range(thisMonday, today),
+                previous: range(thisMonday - 7 * MS_PER_DAY, thisMonday - MS_PER_DAY)
+            };
+        }
+
+        case 'monthly':
+            // Day 0 of a month is the last day of the one before it, which covers short
+            // months and leap years with no special casing.
+            return {
+                current: range(utc(y, m, 1), today),
+                previous: range(utc(y, m - 1, 1), utc(y, m, 0))
+            };
+
+        case 'quarterly': {
+            const quarterStartMonth = Math.floor(m / 3) * 3;
+            return {
+                current: range(utc(y, quarterStartMonth, 1), today),
+                previous: range(utc(y, quarterStartMonth - 3, 1), utc(y, quarterStartMonth, 0))
+            };
+        }
+
+        case 'yearly':
+            return {
+                current: range(utc(y, 0, 1), today),
+                previous: range(utc(y - 1, 0, 1), utc(y - 1, 11, 31))
+            };
+    }
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** "Jun 9-15, 2026" / "Jul 2026" / "Q2 2026" / "2025" — for report headings. */
