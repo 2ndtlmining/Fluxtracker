@@ -93,6 +93,12 @@ export async function takeSnapshot() {
             node_stratus: currentMetrics.node_stratus || 0,
             node_total: currentMetrics.node_total || 0,
 
+            // Issue #201. `?? null` rather than `|| 0` like the columns above: a wallet
+            // service failure leaves current_metrics.unique_wallets unset, and writing 0
+            // for it would record "no wallets ran nodes today" as a real reading. Every
+            // consumer (KPI averaging, the chart, the import) treats NULL as missing.
+            unique_wallets: currentMetrics.unique_wallets ?? null,
+
             sync_status: 'completed'
         };
 
@@ -301,12 +307,21 @@ export async function getComparisonWithCurrent(daysAgo) {
         return null;
     }
 
+    // Nullable columns (unique_wallets, the decentralization trio, apps_deployed_today...)
+    // read back NULL on any day the collection didn't run. Comparing against one has no
+    // answer, so it returns null -- arithmetic on null silently yields Infinity for the
+    // change (null is not === 0, so the guard below misses it) and treats the missing side
+    // as zero for the difference, both of which render as real readings.
+    const isReading = v => typeof v === 'number' && Number.isFinite(v);
+
     const calculateChange = (oldVal, newVal) => {
+        if (!isReading(oldVal) || !isReading(newVal)) return null;
         if (oldVal === 0) return newVal > 0 ? 100 : 0;
         return ((newVal - oldVal) / oldVal) * 100;
     };
 
     const calculateDifference = (oldVal, newVal) => {
+        if (!isReading(oldVal) || !isReading(newVal)) return null;
         return newVal - oldVal;
     };
 
@@ -355,6 +370,12 @@ export async function getComparisonWithCurrent(daysAgo) {
             change: calculateChange(pastSnapshot.node_total, currentMetrics.node_total),
             difference: calculateDifference(pastSnapshot.node_total, currentMetrics.node_total)
         },
+        uniqueWallets: {
+            old: pastSnapshot.unique_wallets,
+            new: currentMetrics.unique_wallets,
+            change: calculateChange(pastSnapshot.unique_wallets, currentMetrics.unique_wallets),
+            difference: calculateDifference(pastSnapshot.unique_wallets, currentMetrics.unique_wallets)
+        },
         // NEW: Cloud resource comparisons
         cpu: {
             old: pastSnapshot.cpu_utilization_percent,
@@ -389,12 +410,21 @@ export async function getComparisonMetrics(date1, date2) {
         return null;
     }
 
+    // Nullable columns (unique_wallets, the decentralization trio, apps_deployed_today...)
+    // read back NULL on any day the collection didn't run. Comparing against one has no
+    // answer, so it returns null -- arithmetic on null silently yields Infinity for the
+    // change (null is not === 0, so the guard below misses it) and treats the missing side
+    // as zero for the difference, both of which render as real readings.
+    const isReading = v => typeof v === 'number' && Number.isFinite(v);
+
     const calculateChange = (oldVal, newVal) => {
+        if (!isReading(oldVal) || !isReading(newVal)) return null;
         if (oldVal === 0) return newVal > 0 ? 100 : 0;
         return ((newVal - oldVal) / oldVal) * 100;
     };
 
     const calculateDifference = (oldVal, newVal) => {
+        if (!isReading(oldVal) || !isReading(newVal)) return null;
         return newVal - oldVal;
     };
 
@@ -441,6 +471,12 @@ export async function getComparisonMetrics(date1, date2) {
             new: snapshot2.node_total,
             change: calculateChange(snapshot1.node_total, snapshot2.node_total),
             difference: calculateDifference(snapshot1.node_total, snapshot2.node_total)
+        },
+        uniqueWallets: {
+            old: snapshot1.unique_wallets,
+            new: snapshot2.unique_wallets,
+            change: calculateChange(snapshot1.unique_wallets, snapshot2.unique_wallets),
+            difference: calculateDifference(snapshot1.unique_wallets, snapshot2.unique_wallets)
         }
     };
 }

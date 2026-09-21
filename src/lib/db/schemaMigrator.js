@@ -26,6 +26,11 @@ const FIXED_COLUMNS = [
     // render as "no game instances ran that day" -- which is both false and indistinguishable
     // from a real collection failure (the KPI layer treats a 0 here as missing by design).
     { name: 'gaming_instances_total', type: 'INTEGER' },
+    // Issue #201. No DEFAULT, same reasoning again: a 0 would read as "no wallets ran
+    // nodes that day", which is false for every row predating this feature and cannot be
+    // told apart from a collection failure. Nodes-per-wallet is NOT stored -- it is
+    // node_total / unique_wallets, derived at read time so it cannot drift.
+    { name: 'unique_wallets', type: 'INTEGER' },
 ];
 
 // ============================================

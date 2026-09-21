@@ -101,6 +101,9 @@ export const API_ENDPOINTS = {
     EXPLORER: 'https://api.runonflux.io/explorer',
     APPS: 'https://api.runonflux.io/apps',
     DAEMON: 'https://api.runonflux.io/daemon',
+    // One entry per node, each carrying the operator's payment_address -- the source for
+    // the unique-wallet count (issue #201). ~4MB, so it gets its own slow cadence.
+    DETERMINISTIC_NODE_LIST: 'https://api.runonflux.io/daemon/viewdeterministiczelnodelist',
     BLOCKBOOK: 'https://blockbook.runonflux.io/api/v2/',
     BLOCKBOOK2: 'https://blockbookflux.app.runonflux.io/api/v2/',
     //not using the backups just yet
@@ -420,7 +423,11 @@ const FIXED_METRIC_COLUMNS = [
     // Both are kept: the first is what daily_snapshots has years of history for, the second
     // is the real figure. See gamingService for why they are not merged.
     'gaming_apps_total', 'gaming_instances_total', 'crypto_nodes_total', 'wordpress_count',
-    'node_cumulus', 'node_nimbus', 'node_stratus', 'node_total'
+    'node_cumulus', 'node_nimbus', 'node_stratus', 'node_total',
+    // Distinct node-operator payment addresses (issue #201). Deliberately NOT accompanied
+    // by a stored nodes-per-wallet: that is node_total / unique_wallets and is derived at
+    // read time, the way team_funded_percent is, so the two can never drift apart.
+    'unique_wallets'
 ];
 
 export const METRIC_COLUMNS = [
@@ -475,6 +482,17 @@ export const GAMING_CONFIG = {
     repos: GAMING_REPOS,                 // Gaming repos to track
     enableCache: true,
     cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
+};
+
+// ============================================
+// UNIQUE WALLETS CONFIG (issue #201)
+// ============================================
+// Hourly, for the same reason BUSIEST_NODE_CONFIG is: the deterministic node list is a
+// ~4MB payload, and "how many distinct operators run the network" does not meaningfully
+// change minute to minute.
+export const WALLET_CONFIG = {
+    updateInterval: 60 * 60 * 1000,      // 1 hour
+    freshnessThreshold: 2 * 60 * 60 * 1000,
 };
 
 // ============================================

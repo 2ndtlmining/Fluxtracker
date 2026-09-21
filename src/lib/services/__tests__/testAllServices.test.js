@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../nodeService.js', () => ({ fetchNodeStats: vi.fn() }));
 vi.mock('../cloudService.js', () => ({ fetchCloudStats: vi.fn() }));
+vi.mock('../walletService.js', () => ({ refreshUniqueWalletsIfStale: vi.fn() }));
 vi.mock('../gamingService.js', () => ({ fetchGamingStats: vi.fn() }));
 vi.mock('../cryptoService.js', () => ({ fetchCryptoStats: vi.fn() }));
 vi.mock('../wordpressService.js', () => ({ fetchWordPressStats: vi.fn() }));
@@ -25,6 +26,7 @@ vi.mock('../../db/database.js', () => ({
 
 import { fetchNodeStats } from '../nodeService.js';
 import { fetchCloudStats } from '../cloudService.js';
+import { refreshUniqueWalletsIfStale } from '../walletService.js';
 import { fetchGamingStats } from '../gamingService.js';
 import { fetchCryptoStats } from '../cryptoService.js';
 import { fetchWordPressStats } from '../wordpressService.js';
@@ -43,6 +45,7 @@ beforeEach(() => {
 
     fetchNodeStats.mockResolvedValue({});
     fetchCloudStats.mockResolvedValue({});
+    refreshUniqueWalletsIfStale.mockResolvedValue({});
     fetchGamingStats.mockResolvedValue({});
     fetchCryptoStats.mockResolvedValue({});
     fetchWordPressStats.mockResolvedValue({});
@@ -60,7 +63,7 @@ describe('testAllServices', () => {
         expect(result.allSucceeded).toBe(true);
         expect(result.failed).toEqual([]);
         expect(result.succeeded).toEqual([
-            'nodes', 'cloud', 'gaming', 'crypto', 'wordpress', 'revenue', 'repoSnapshot'
+            'nodes', 'wallets', 'cloud', 'gaming', 'crypto', 'wordpress', 'revenue', 'repoSnapshot'
         ]);
     });
 

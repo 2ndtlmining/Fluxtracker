@@ -73,7 +73,15 @@ router.get('/metrics/current', async (req, res) => {
             gaming: { total: metrics.gaming_apps_total, palworld: metrics.gaming_palworld, enshrouded: metrics.gaming_enshrouded, minecraft: metrics.gaming_minecraft },
             crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kaspa: metrics.crypto_kaspa, alephium: metrics.crypto_alephium },
             wordpress: { count: metrics.wordpress_count },
-            nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total }
+            nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total },
+            // Issue #201. `?? null` rather than `|| 0`: the card must be able to tell
+            // "not collected yet" from "zero wallets", and render nothing in the first case.
+            wallets: {
+                unique: metrics.unique_wallets ?? null,
+                nodesPer: metrics.unique_wallets > 0 && metrics.node_total > 0
+                    ? metrics.node_total / metrics.unique_wallets
+                    : null
+            }
         };
     });
 });

@@ -33,3 +33,6 @@ backups_*.json
 
 # header-smoke harness screenshot, regenerated on every run
 scripts/header-smoke/steady.png
+
+# Historical utilization/wallet JSON exported from Fluxutilmon for one-off import — never commit
+utildata_*/

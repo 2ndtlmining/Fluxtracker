@@ -14,6 +14,8 @@
   import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
   import AppInstancesCard from '$lib/components/AppInstancesCard.svelte';
+  import StatCard from '$lib/components/StatCard.svelte';
+  import { Wallet } from 'lucide-svelte';
   
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -117,6 +119,12 @@
     trend: comparison.changes.nodes?.trend || 'neutral'
   } : null;
   
+  // Unique wallets running nodes (issue #201). null until the first collection, and the
+  // card renders a dash rather than a 0 in that window -- "no wallets run the network"
+  // would be a false reading, not an empty one.
+  $: uniqueWallets = metrics?.wallets?.unique ?? null;
+  $: nodesPerWallet = metrics?.wallets?.nodesPer ?? null;
+
   // Format node data for NodeCard
   $: nodeData = metrics?.nodes ? {
     cumulus: { count: metrics.nodes.cumulus || 0 },
@@ -502,6 +510,19 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       <!-- Decentralization (issue #108) — % of node IPs in known datacenters vs. not,
            classified gradually in the background; coverage fills in over time. -->
       <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} comparison={decentralizationComparison} />
+
+      <!-- Unique Wallets (issue #201) — how many distinct people run the network, as
+           opposed to how many machines. The companion to DecentralizationCard: that one
+           answers "how spread out is the hosting" by IP, this one answers "how many
+           separate operators are behind it" by payment address. -->
+      <StatCard
+        icon={Wallet}
+        title="Unique Wallets"
+        value={uniqueWallets != null ? uniqueWallets.toLocaleString() : '—'}
+        subtitle={nodesPerWallet != null ? `${nodesPerWallet.toFixed(2)} nodes per wallet` : 'running Flux nodes'}
+        valueColor="cyan"
+        {loading}
+      />
     </div>
 
     <!-- Historical Performance Chart -->

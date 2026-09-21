@@ -1,4 +1,5 @@
 import { fetchNodeStats } from './nodeService.js';
+import { refreshUniqueWalletsIfStale } from './walletService.js';
 import { fetchCloudStats } from './cloudService.js';
 import { fetchGamingStats } from './gamingService.js';
 import { fetchCryptoStats } from './cryptoService.js';
@@ -54,6 +55,11 @@ async function testAllServices() {
 
     const steps = [
         ['nodes', fetchNodeStats],
+        // Issue #201. Self-gated to hourly inside the service -- the deterministic node
+        // list is ~4MB, so this is a no-op on most cycles. It belongs in this sequential
+        // list rather than on its own timer because it writes current_metrics, which is a
+        // read-modify-write of one row.
+        ['wallets', refreshUniqueWalletsIfStale],
         ['cloud', fetchCloudStats],
         ['gaming', fetchGamingStats],
         ['crypto', fetchCryptoStats],

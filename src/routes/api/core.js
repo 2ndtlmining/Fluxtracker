@@ -91,6 +91,23 @@ router.get('/health', async (req, res) => {
         }
         : { price: null, ageMinutes: null, fallbackUsable: false };
 
+    // Issue #201. Reports whether the wallet count has ever been taken and how stale it is,
+    // rather than whether it is non-zero -- the service refuses to write a 0, so "missing"
+    // is the only failure shape there is.
+    let walletsInfo;
+    try {
+        const walletSync = await getSyncStatus('wallets');
+        const metrics = await getCurrentMetrics();
+        const lastMs = walletSync?.last_sync ? Number(walletSync.last_sync) : null;
+        walletsInfo = {
+            uniqueWallets: metrics?.unique_wallets ?? null,
+            lastSyncStatus: walletSync?.status ?? null,
+            ageHours: lastMs ? Math.round((Date.now() - lastMs) / 3600000) : null
+        };
+    } catch {
+        walletsInfo = { error: 'Unable to get unique wallet status' };
+    }
+
     res.json({
         status: reachable ? 'ok' : 'degraded',
         timestamp: Date.now(),
@@ -114,7 +131,8 @@ router.get('/health', async (req, res) => {
         // valid. Without it, a price outage was only visible as missing cells in the
         // transaction log hours later.
         livePrice: livePriceInfo,
-        kpiScheduler: getKpiSchedulerState()
+        kpiScheduler: getKpiSchedulerState(),
+        uniqueWallets: walletsInfo
     });
 });
 
