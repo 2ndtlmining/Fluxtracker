@@ -990,7 +990,6 @@ src/
       schemaMigrator.js        # Dynamic column migrations (both backends)
       snapshotManager.js       # Daily snapshot scheduler + backup trigger
       circuitBreaker.js        # DB circuit breaker with auto-failover
-      snapshot.js              # Snapshot data access
     services/
       revenueService.js        # Thin re-export hub for revenue/* (issue #124) -- every
                                 # existing import from this file keeps working unchanged

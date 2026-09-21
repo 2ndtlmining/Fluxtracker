@@ -360,7 +360,7 @@ router.get('/analytics/comparison/:days', async (req, res) => {
         }
 
         // CRITICAL: Transform raw database columns into nested structure
-        // This matches what the OLD endpoint returned from snapshot.js
+        // This matches the shape the pre-snapshotManager endpoint returned
         const current = {
             nodes: {
                 total: rawCurrent.node_total,
