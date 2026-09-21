@@ -115,3 +115,25 @@ describe('fetchFluxPrice fallback', () => {
         expect(updateCurrentMetrics).not.toHaveBeenCalled();
     });
 });
+
+/**
+ * Issue #220 made updateCurrentMetrics throw on a failed write, which is right for the
+ * services that follow it with updateSyncStatus(..., 'completed') -- but the price path
+ * only persists as a side effect. A successful fetch must survive a database outage:
+ * the header and the USD pricing of every transaction in the pass read the returned
+ * value, not the stored one.
+ */
+describe('fetchFluxPrice when the metrics write fails', () => {
+    it('returns the fetched price instead of falling through to the next source', async () => {
+        resilientFetch.mockResolvedValueOnce(coingeckoOk(0.07));
+        updateCurrentMetrics.mockRejectedValueOnce(new Error('updateCurrentMetrics failed: permission denied'));
+
+        const { fetchFluxPrice, getLastGoodPrice } = await loadService();
+        const price = await fetchFluxPrice();
+
+        expect(price).toBe(0.07);
+        expect(getLastGoodPrice().price).toBe(0.07);
+        // The other two sources were never tried -- CoinGecko answered.
+        expect(resilientFetch).toHaveBeenCalledTimes(1);
+    });
+});

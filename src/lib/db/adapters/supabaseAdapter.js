@@ -172,11 +172,11 @@ export async function updateCurrentMetrics(metrics) {
         .update(mergedMetrics)
         .eq('id', 1);
 
-    if (error) {
-        log.error(`updateCurrentMetrics error: ${error.message}`);
-    } else {
-        log.info('Current metrics updated');
-    }
+    // Throws rather than logs-and-returns (issue #220): callers follow this with
+    // updateSyncStatus(..., 'completed'), so swallowing the error records a sync that
+    // wrote nothing.
+    if (error) throw new Error(`updateCurrentMetrics failed: ${error.message}`);
+    log.info('Current metrics updated');
 }
 
 // ============================================
@@ -242,11 +242,11 @@ export async function createDailySnapshot(snapshot) {
         .from('daily_snapshots')
         .upsert(row, { onConflict: 'snapshot_date' });
 
-    if (error) {
-        log.error(`createDailySnapshot error: ${error.message}`);
-    } else {
-        log.info(`Snapshot created for ${snapshot.snapshot_date}`);
-    }
+    // Throws rather than logs-and-returns (issue #220), matching every sibling snapshot
+    // writer. takeSnapshot()'s own try/catch turns this into { success: false }, which is
+    // what stops a lost day from resetting the failure counter and firing a backup.
+    if (error) throw new Error(`createDailySnapshot failed for ${snapshot.snapshot_date}: ${error.message}`);
+    log.info(`Snapshot created for ${snapshot.snapshot_date}`);
 }
 
 /**

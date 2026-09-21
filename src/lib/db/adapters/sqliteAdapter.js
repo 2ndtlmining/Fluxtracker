@@ -454,12 +454,11 @@ export async function updateCurrentMetrics(metrics) {
     }
 
     const setClauses = Object.keys(merged).map(k => `${k} = @${k}`).join(', ');
-    try {
-        getDb().prepare(`UPDATE current_metrics SET ${setClauses} WHERE id = 1`).run(merged);
-        log.info('Current metrics updated');
-    } catch (error) {
-        log.error(`updateCurrentMetrics error: ${error.message}`);
-    }
+    // Throws rather than logs-and-returns (issue #220): callers follow this with
+    // updateSyncStatus(..., 'completed'), so swallowing the error records a sync that
+    // wrote nothing.
+    getDb().prepare(`UPDATE current_metrics SET ${setClauses} WHERE id = 1`).run(merged);
+    log.info('Current metrics updated');
 }
 
 // ============================================
@@ -521,16 +520,15 @@ export async function createDailySnapshot(snapshot) {
     const placeholders = keys.map(k => `@${k}`).join(', ');
     const updateClauses = keys.filter(k => k !== 'snapshot_date').map(k => `${k} = @${k}`).join(', ');
 
-    try {
-        getDb().prepare(`
-            INSERT INTO daily_snapshots (${keys.join(', ')})
-            VALUES (${placeholders})
-            ON CONFLICT(snapshot_date) DO UPDATE SET ${updateClauses}
-        `).run(row);
-        log.info(`Snapshot created for ${snapshot.snapshot_date}`);
-    } catch (error) {
-        log.error(`createDailySnapshot error: ${error.message}`);
-    }
+    // Throws rather than logs-and-returns (issue #220), matching every sibling snapshot
+    // writer. takeSnapshot()'s own try/catch turns this into { success: false }, which is
+    // what stops a lost day from resetting the failure counter and firing a backup.
+    getDb().prepare(`
+        INSERT INTO daily_snapshots (${keys.join(', ')})
+        VALUES (${placeholders})
+        ON CONFLICT(snapshot_date) DO UPDATE SET ${updateClauses}
+    `).run(row);
+    log.info(`Snapshot created for ${snapshot.snapshot_date}`);
 }
 
 /**
