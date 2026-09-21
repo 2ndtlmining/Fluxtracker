@@ -36,6 +36,13 @@ const FIXED_COLUMNS = [
     // collection failure. Apps-per-owner is NOT stored -- it is total_apps /
     // unique_app_owners, derived at read time so it cannot drift.
     { name: 'unique_app_owners', type: 'INTEGER' },
+    // Issue #210. DOUBLE PRECISION and no DEFAULT: a 0 would read as "no collateral was
+    // locked that day", false for every row predating this feature. Node collection is
+    // all-or-nothing, so these four are written together or not at all.
+    { name: 'locked_collateral_cumulus', type: 'DOUBLE PRECISION' },
+    { name: 'locked_collateral_nimbus', type: 'DOUBLE PRECISION' },
+    { name: 'locked_collateral_stratus', type: 'DOUBLE PRECISION' },
+    { name: 'locked_collateral', type: 'DOUBLE PRECISION' },
 ];
 
 // ============================================

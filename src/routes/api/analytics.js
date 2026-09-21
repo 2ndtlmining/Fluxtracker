@@ -76,6 +76,14 @@ router.get('/metrics/current', async (req, res) => {
             crypto: { total: metrics.crypto_nodes_total, presearch: metrics.crypto_presearch, kaspa: metrics.crypto_kaspa, alephium: metrics.crypto_alephium },
             wordpress: { count: metrics.wordpress_count },
             nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total },
+            // Issue #210. `?? null` rather than `|| 0`: a consumer must be able to tell
+            // "not collected yet" from "nothing locked", which is never a real reading.
+            lockedCollateral: {
+                cumulus: metrics.locked_collateral_cumulus ?? null,
+                nimbus: metrics.locked_collateral_nimbus ?? null,
+                stratus: metrics.locked_collateral_stratus ?? null,
+                total: metrics.locked_collateral ?? null
+            },
             // Issue #201. `?? null` rather than `|| 0`: the card must be able to tell
             // "not collected yet" from "zero wallets", and hide the row in the first case.
             wallets: { unique: metrics.unique_wallets ?? null },
