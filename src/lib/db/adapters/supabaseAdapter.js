@@ -246,6 +246,44 @@ export async function createDailySnapshot(snapshot) {
     }
 }
 
+/**
+ * Set unique_wallets on one day, touching nothing else (issue #201).
+ *
+ * See the SQLite twin for why this is a targeted UPDATE rather than a snapshot upsert: the
+ * history import lands on days that already hold real revenue and node figures, and
+ * createDailySnapshot() would rewrite every column from whatever the caller passed.
+ *
+ * Returns 'updated' or 'created'. The UPDATE is issued first and its returned rows tell us
+ * which happened -- checking existence separately would race a concurrent nightly snapshot.
+ */
+export async function setSnapshotWalletCount(date, uniqueWallets) {
+    if (!Number.isInteger(uniqueWallets) || uniqueWallets <= 0) {
+        throw new Error(`Refusing to write unique_wallets=${uniqueWallets} for ${date}: must be a positive integer`);
+    }
+
+    const { data: updatedRows, error: updateError } = await supabase
+        .from('daily_snapshots')
+        .update({ unique_wallets: uniqueWallets })
+        .eq('snapshot_date', date)
+        .select('snapshot_date');
+
+    if (updateError) throw new Error(`setSnapshotWalletCount(${date}) update failed: ${updateError.message}`);
+    if (updatedRows && updatedRows.length > 0) return 'updated';
+
+    const { error: insertError } = await supabase
+        .from('daily_snapshots')
+        .upsert({
+            snapshot_date: date,
+            timestamp: new Date(`${date}T00:00:00Z`).getTime(),
+            daily_revenue: 0,
+            unique_wallets: uniqueWallets,
+            sync_status: 'backfilled'
+        }, { onConflict: 'snapshot_date' });
+
+    if (insertError) throw new Error(`setSnapshotWalletCount(${date}) insert failed: ${insertError.message}`);
+    return 'created';
+}
+
 export async function getSnapshotByDate(date) {
     const { data, error } = await supabase
         .from('daily_snapshots')
