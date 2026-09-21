@@ -388,6 +388,223 @@ export function valheimFrameKinds() {
   return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
 }
 
+// =======================================================================================
+// Issue #199 -- RuneScape: Dragonwilds. A dragon gliding over scrolling clouds.
+//
+// Structurally the longship with clouds for water and a dragon for a hull, which is the
+// point: that shape is already shipped, tested and proven against the box invariants, so
+// this is art plus a registry entry rather than new frame-assembly logic.
+//
+// The registry key is the exact string 'RuneScape: Dragonwilds' -- what
+// resolveGameFromAppName() returns. GAME_INTROS.Runescape silently falls through to the
+// gamepad with no error, so the key is spelled out in the component, not derived.
+// =======================================================================================
+
+// Backslash, never written literally -- this broke the gamepad art twice, and the dragon's
+// wings are nearly all backslash.
+const BSLASH = String.fromCharCode(92);
+
+// Clouds take the water's role: two rows, two periods, so they never march in step.
+const CLOUD_FAR = waveStrip('~~-~~~.~');
+const CLOUD_NEAR = waveStrip('~.~~~-~~~');
+
+// Wing tips, swapped between two poses to read as a flap: arched UP on one beat and DOWN
+// on the next, with the body held still between them. The body is what keeps the shape
+// readable at 34 columns while the wings do the moving.
+const WING_UP = '/' + BSLASH + '      /' + BSLASH;
+const WING_DOWN = BSLASH + '/      ' + BSLASH + '/';
+
+// Body rows, authored at their own columns. Not padded to a common width on purpose: each
+// is overlaid at its own column, so only the canvas has a width and the art cannot set it.
+const DRAGON_BODY = '___/  ' + BSLASH + '____/  ' + BSLASH + '___';
+const DRAGON_HEAD = '<__o';
+const DRAGON_TAIL = BSLASH + '~~';
+
+const DRAGON_UPPER_WING_COLUMN = 6;
+const DRAGON_BODY_COLUMN = 2;
+const DRAGON_HEAD_COLUMN = 1;
+const DRAGON_TAIL_COLUMN = 22;
+const DRAGON_LOWER_WING_COLUMN = 6;
+
+// Same bob as the hull: rides at row offset 0 or 1, changing every two steps.
+const DRAGON_BOB = [0, 0, 1, 1, 0, 0, 1, 1];
+
+// Sky furniture, load-bearing rather than decorative: when the dragon bobs down it vacates
+// the top rows, and a frame with a genuinely empty row is the one thing the header smoke
+// harness rejects outright. The sun is fixed; the two wisps drift at different rates so the
+// sky is never static either. Columns are taken modulo the canvas width, so they can never
+// land outside the box.
+const SUN = '(*)';
+const SUN_COLUMN = 28;
+const WISP = '~~';
+// Row 0's wisp always drifts. Row 1's is drawn ONLY when the dragon has bobbed down and
+// vacated that row -- it exists to keep the row non-empty, and drawing it while the dragon
+// is up puts a cloud straight through the wing.
+const WISP_ROWS = [0, 1];
+const WISP_COLUMNS = [4, 12];
+const WISP_DRIFT = [1, 2];
+const WISP_ONLY_WHEN_BOBBED = [false, true];
+
+export const DRAGON_FRAME_COUNT = DRAGON_BOB.length;
+
+/**
+ * One frame of the gliding dragon, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
+ * @param {number} step index into the sequence; wraps, so callers can just count up.
+ */
+export function formatDragonFrame(step = 0) {
+  const index = ((step % DRAGON_FRAME_COUNT) + DRAGON_FRAME_COUNT) % DRAGON_FRAME_COUNT;
+  const bob = DRAGON_BOB[index];
+  const wingsUp = index % 2 === 0;
+
+  const blank = ' '.repeat(LOGO_WIDTH);
+  const rows = Array(BOOT_LINE_COUNT).fill(blank);
+
+  // Clouds fill the bottom two rows, the near one rotating the other way and at half the
+  // rate, so the two never line up into one marching stripe.
+  rows[BOOT_LINE_COUNT - 2] = rotateStrip(CLOUD_FAR, index);
+  rows[BOOT_LINE_COUNT - 1] = rotateStrip(CLOUD_NEAR, -Math.floor(index / 2));
+
+  // Sky first, so the dragon paints over a wisp rather than the other way round. Drift is
+  // driven by the WRAPPED index, not the raw step: every frame must be a pure function of
+  // step % DRAGON_FRAME_COUNT, or a caller that counts up forever slowly desynchronises the
+  // sky from the body.
+  rows[0] = overlayAt(rows[0], SUN_COLUMN, SUN);
+  WISP_ROWS.forEach((row, wisp) => {
+    if (WISP_ONLY_WHEN_BOBBED[wisp] && bob === 0) return;
+    const column = (WISP_COLUMNS[wisp] + WISP_DRIFT[wisp] * index) % LOGO_WIDTH;
+    rows[row] = overlayAt(rows[row], column, WISP);
+  });
+
+  // The dragon occupies four rows from `1 + bob`: upper wing, body, head/tail, lower wing.
+  const top = 1 + bob;
+  const place = (offset, column, art) => {
+    const target = top + offset;
+    if (target >= BOOT_LINE_COUNT) return;
+    rows[target] = overlayAt(rows[target], column, art);
+  };
+
+  place(0, DRAGON_UPPER_WING_COLUMN, wingsUp ? WING_UP : WING_DOWN);
+  place(1, DRAGON_BODY_COLUMN, DRAGON_BODY);
+  place(2, DRAGON_HEAD_COLUMN, DRAGON_HEAD);
+  place(2, DRAGON_TAIL_COLUMN, DRAGON_TAIL);
+  place(3, DRAGON_LOWER_WING_COLUMN, wingsUp ? WING_DOWN : WING_UP);
+
+  return rows;
+}
+
+/**
+ * Row kinds for a dragon frame. Same call as the longship's: the whole frame carries the
+ * green deployment accent, because here the art IS the event marker.
+ */
+export function dragonFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
+// =======================================================================================
+// Issue #199 -- Minecraft. A structure assembles itself out of blocks, torch last.
+//
+// Chosen over the cheaper minecart because the MOTION means the same thing as the event:
+// a deployment is a server being built, and this literally builds one. The blocky [#]
+// texture is also Minecraft's most transferable trait into a 34-column monospace box.
+//
+// One registry key covers Java and Bedrock -- resolveGameFromAppName() returns 'Minecraft'
+// for all four of minecraftj / minecraftb / minecraftserver / minecraftbedrockserver.
+// =======================================================================================
+
+const BLOCK = '[#]';
+const GROUND = '#'.repeat(LOGO_WIDTH);
+
+// The build, as a list of parts with the step each one appears on. Cumulative: a part is
+// drawn on its step and every step after, so block count never decreases and the structure
+// only ever grows. A step that removed blocks would read as the opposite of a deployment.
+//
+// Row indices are from the TOP of the box; the ground is the last row and the foundation
+// sits directly on it.
+// The first foundation blocks are present from step 0, not step 1: the foundation row sits
+// directly on the ground, and clouds are sky furniture that cannot plausibly cover it, so
+// an empty opening frame there is both wrong-looking and rejected by the smoke harness.
+const BUILD_PARTS = [
+  { step: 0, row: BOOT_LINE_COUNT - 2, column: 9, art: BLOCK.repeat(3) },
+  { step: 1, row: BOOT_LINE_COUNT - 2, column: 3, art: BLOCK.repeat(7) },
+  { step: 2, row: BOOT_LINE_COUNT - 3, column: 14, art: BLOCK.repeat(2) },
+  { step: 3, row: BOOT_LINE_COUNT - 3, column: 8, art: BLOCK.repeat(2) },
+  { step: 4, row: BOOT_LINE_COUNT - 4, column: 14, art: BLOCK.repeat(2) },
+  { step: 5, row: BOOT_LINE_COUNT - 4, column: 8, art: BLOCK.repeat(2) }
+];
+
+// The torch lights last, on the final two steps, and flickers between two glyphs so the
+// last beat of the sequence is not a dead hold. Asserted to appear only in the back half:
+// a torch lit before the walls are up would read as a rendering fault.
+const TORCH_STEP = 6;
+const TORCH_ROW = BOOT_LINE_COUNT - 3;
+const TORCH_COLUMN = 6;
+const TORCH_GLYPHS = ['i', '!'];
+
+// Sky furniture across the upper rows -- load-bearing for exactly the reason the gulls are.
+// In the early steps the build has not reached the upper rows yet, and a frame with a
+// genuinely empty row is rejected outright by the smoke harness. The sun is fixed; the
+// clouds drift at different rates so the sky reads as alive while the build is still low.
+const MC_SUN = '(*)';
+const MC_SUN_COLUMN = 2;
+const MC_CLOUD = '~~~~~~';
+// `untilStep` is the step the build reaches that row. Past it the cloud stops being drawn,
+// because a wisp drifting through a finished wall reads as corruption rather than sky --
+// and by then the blocks themselves keep the row non-empty, which is the only job the
+// cloud had. The two top rows never get blocks, so their clouds run for the whole sequence.
+const MC_CLOUDS = [
+  { row: 0, column: 19, drift: 1, untilStep: Infinity },
+  { row: 1, column: 8, drift: 2, untilStep: Infinity },
+  { row: 2, column: 24, drift: 1, untilStep: 4 },
+  { row: 3, column: 1, drift: 2, untilStep: 2 }
+];
+
+export const MINECRAFT_FRAME_COUNT = 8;
+
+/**
+ * One frame of the block build, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
+ * @param {number} step index into the sequence; wraps, so callers can just count up.
+ */
+export function formatMinecraftFrame(step = 0) {
+  const index = ((step % MINECRAFT_FRAME_COUNT) + MINECRAFT_FRAME_COUNT) % MINECRAFT_FRAME_COUNT;
+
+  const blank = ' '.repeat(LOGO_WIDTH);
+  const rows = Array(BOOT_LINE_COUNT).fill(blank);
+
+  // Ground first and always -- the one row that is never empty by construction.
+  rows[BOOT_LINE_COUNT - 1] = GROUND;
+
+  // Sky next, so blocks paint over a cloud rather than the other way round. Drift uses the
+  // WRAPPED index so the frame stays a pure function of step % MINECRAFT_FRAME_COUNT.
+  rows[0] = overlayAt(rows[0], MC_SUN_COLUMN, MC_SUN);
+  for (const cloud of MC_CLOUDS) {
+    if (index >= cloud.untilStep) continue;
+    const column = (cloud.column + cloud.drift * index) % LOGO_WIDTH;
+    rows[cloud.row] = overlayAt(rows[cloud.row], column, MC_CLOUD);
+  }
+
+  // The build, cumulative: every part whose step has been reached is drawn.
+  for (const part of BUILD_PARTS) {
+    if (index < part.step) continue;
+    rows[part.row] = overlayAt(rows[part.row], part.column, part.art);
+  }
+
+  // Torch last, flickering on the final beats.
+  if (index >= TORCH_STEP) {
+    const glyph = TORCH_GLYPHS[(index - TORCH_STEP) % TORCH_GLYPHS.length];
+    rows[TORCH_ROW] = overlayAt(rows[TORCH_ROW], TORCH_COLUMN, glyph);
+  }
+
+  return rows;
+}
+
+/**
+ * Row kinds for a Minecraft frame. Same call as the longship's -- the whole frame carries
+ * the green deployment accent, because the art IS the event marker.
+ */
+export function minecraftFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
 function formatDetailLine(label, value) {

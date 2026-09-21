@@ -49,6 +49,43 @@ const SAMPLE_MS = Number(process.env.SAMPLE_MS || 60);
 // rotation (up to one full ~25s cycle away).
 const MAIN_LOOP_BUDGET_MS = 100000;
 
+// Issue #199: which game's intro this run checks. Must match the DEPLOYED_GAME the stub was
+// started with -- the stub names its second deployed fixture after it, and the component
+// picks the art from that name. Defaults to valheim so an unset run behaves as before.
+const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
+const GAME_ART_BY_NAME = {
+  // The hull, and the two scrolling water rows beneath it.
+  valheim: {
+    signature: /__o__o__o__o__/,
+    movingRows: rows => rows.slice(-2).filter(r => /[~^-]{6}/.test(r.text))
+  },
+  // The head and the two scrolling cloud rows -- the longship's structure, reused.
+  dragonwilds: {
+    signature: /<__o/,
+    movingRows: rows => rows.slice(-2).filter(r => /[~.\-]{6}/.test(r.text))
+  },
+  // Blocks on the ground line. The build's rows are what change here, not a scrolling
+  // strip, so every block row counts as a moving row: seeing more than one distinct one
+  // proves the structure actually grew rather than being painted once and held.
+  minecraft: {
+    signature: /\[#\]\[#\]/,
+    movingRows: rows => rows.filter(r => r.text.includes('[#]'))
+  }
+};
+// Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
+// name to appear in the rotation, proving the component re-polls rather than caching.
+const UPDATED_DEPLOYED_NAME = {
+  valheim: 'valheim1789155733041',
+  minecraft: 'minecraftj1789155733041',
+  dragonwilds: 'dragonwilds1789155733041'
+}[DEPLOYED_GAME];
+
+const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
+if (!GAME_ART) {
+  console.error(`unknown DEPLOYED_GAME "${DEPLOYED_GAME}" -- expected one of ${Object.keys(GAME_ART_BY_NAME).join(', ')}`);
+  process.exit(1);
+}
+
 const BROWSER_CANDIDATES = [
   process.env.BROWSER_PATH,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -121,11 +158,12 @@ const run = async () => {
   // non-game name, which keeps the no-gamepad path covered too.
   let sawGamepadFrame = false;
   let sawGamepadPress = false;
-  // Issue #180: Valheim has art of its own -- a longship on water that moves under it.
-  // The updated deployed fixture is a valheim dedicated-site name, so a single run covers
-  // the longship and the controller fallback (the initial fixture is palworld).
-  let sawLongshipFrame = false;
-  const longshipWaterRows = new Set();
+  // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
+  // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
+  // that game's art AND the controller fallback (the initial fixture is palworld, which
+  // has none). The three games need three runs -- see the note in stub-api.mjs.
+  let sawGameArtFrame = false;
+  const gameArtMovingRows = new Set();
   let returnedToLogoAfterInfo = false;
   let infoTextStyleMatchesBoot = null;
   let deployedIconIsGreen = null;
@@ -174,14 +212,15 @@ const run = async () => {
       }
       if (phases.firstLogoRow === null && s.rows.some(r => r.cls.includes('row-logo'))) phases.firstLogoRow = t;
 
-      // Longship frames (issue #180), checked outside the NAME-row guard for the same
-      // reason as the controller: the art frames carry no NAME row.
-      if (s.settled && joined.includes('__o__o__o__o__')) {
-        sawLongshipFrame = true;
-        // The two water rows are the last two of the frame. Collecting them across samples
-        // proves the water actually scrolls rather than sitting still under the hull.
-        for (const row of s.rows.slice(-2)) {
-          if (/[~^-]{6}/.test(row.text)) longshipWaterRows.add(row.text);
+      // Per-game art frames (issue #180/#199), checked outside the NAME-row guard for the
+      // same reason as the controller: the art frames carry no NAME row.
+      if (s.settled && GAME_ART.signature.test(joined)) {
+        sawGameArtFrame = true;
+        // Collecting the frame's moving rows across samples proves the art actually
+        // animates rather than sitting still: scrolling water/cloud rows for the longship
+        // and the dragon, the growing block rows for the Minecraft build.
+        for (const row of GAME_ART.movingRows(s.rows)) {
+          if (row.text.trim().length > 0) gameArtMovingRows.add(row.text);
         }
       }
 
@@ -211,7 +250,7 @@ const run = async () => {
         if (isDeployed) {
           sawDeployedFrame = true;
           sawDeployedIconBanner = true;
-          if (joined.includes('valheim1789155733041')) sawUpdatedDeployedName = true;
+          if (joined.includes(UPDATED_DEPLOYED_NAME)) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
         if (/AGO\s+\S/.test(joined)) sawAgoRow = true;
@@ -304,8 +343,8 @@ const run = async () => {
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
     ['gamepad: controller frame shown for a game deployment', sawGamepadFrame],
     ['gamepad: at least one button/d-pad press animates', sawGamepadPress],
-    ['longship: Valheim deployment shows the ship', sawLongshipFrame],
-    ['longship: the water moves under it', longshipWaterRows.size > 1],
+    [`${DEPLOYED_GAME}: deployment shows its own art`, sawGameArtFrame],
+    [`${DEPLOYED_GAME}: the art animates`, gameArtMovingRows.size > 1],
     ['idle rotation: info-frame text style matches boot text', infoTextStyleMatchesBoot === true],
     ['idle rotation: deployed frame icon rows are accent-green', deployedIconIsGreen === true],
     ['idle rotation: expiring frame icon rows are accent-orange', expiringIconIsOrange === true],

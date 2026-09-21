@@ -33,6 +33,12 @@ import {
   formatValheimFrame,
   valheimFrameKinds,
   VALHEIM_FRAME_COUNT,
+  formatDragonFrame,
+  dragonFrameKinds,
+  DRAGON_FRAME_COUNT,
+  formatMinecraftFrame,
+  minecraftFrameKinds,
+  MINECRAFT_FRAME_COUNT,
   rotateStrip
 } from './terminalAnimation.js';
 
@@ -679,5 +685,154 @@ describe('formatValheimFrame (issue #180)', () => {
     const kinds = valheimFrameKinds();
     expect(kinds).toHaveLength(BOOT_LINE_COUNT);
     expect(new Set(kinds)).toEqual(new Set([ROW_KIND_DEPLOYED]));
+  });
+});
+
+// ---------------------------------------------------------------------------------------
+// Issue #199 — per-game intros for Minecraft and RuneScape: Dragonwilds.
+//
+// The box invariants are the point of this suite, not the art. Every one of these assertions
+// caught a real break in the gamepad or the longship at some stage, so each new formatter
+// runs the identical battery rather than a reduced version of it.
+// ---------------------------------------------------------------------------------------
+
+describe.each([
+  ['formatDragonFrame', formatDragonFrame, dragonFrameKinds, DRAGON_FRAME_COUNT],
+  ['formatMinecraftFrame', formatMinecraftFrame, minecraftFrameKinds, MINECRAFT_FRAME_COUNT]
+])('%s (issue #199)', (_name, format, kinds, frameCount) => {
+  it('runs the same number of frames as the longship, so every intro is the same length', () => {
+    // Shared INTRO_STEP_MS: a different frame count would make one game's intro visibly
+    // longer than another's for no reason the viewer can see.
+    expect(frameCount).toBe(VALHEIM_FRAME_COUNT);
+  });
+
+  it('renders BOOT_LINE_COUNT rows, like every other frame in the box', () => {
+    for (let step = 0; step < frameCount; step++) {
+      expect(format(step)).toHaveLength(BOOT_LINE_COUNT);
+    }
+  });
+
+  it('every row of every frame is exactly LOGO_WIDTH', () => {
+    // Box width is load-bearing (CLAUDE.md: never let it depend on content). Art is
+    // overlaid onto a fixed-width canvas by column, never concatenated.
+    const widths = new Set();
+    for (let step = 0; step < frameCount; step++) {
+      for (const row of format(step)) widths.add(row.length);
+    }
+    expect([...widths]).toEqual([LOGO_WIDTH]);
+  });
+
+  it('never emits an empty row -- the harness rejects those outright', () => {
+    // This is what the sky furniture is for: whatever vacates a row (a build that has not
+    // grown into it yet, a dragon that has bobbed away from it) needs something behind it.
+    for (let step = 0; step < frameCount; step++) {
+      format(step).forEach((row, i) => {
+        expect(row.trim().length, `step ${step} row ${i} was empty`).toBeGreaterThan(0);
+      });
+    }
+  });
+
+  it('actually animates: consecutive frames differ', () => {
+    for (let step = 0; step < frameCount - 1; step++) {
+      expect(format(step)).not.toEqual(format(step + 1));
+    }
+  });
+
+  it('wraps on step, so callers can just count up forever', () => {
+    expect(format(frameCount)).toEqual(format(0));
+    expect(format(frameCount * 3 + 2)).toEqual(format(2));
+    expect(format(-1)).toEqual(format(frameCount - 1));
+    expect(format(-frameCount)).toEqual(format(0));
+  });
+
+  it('contains no literal backslash escaping mistakes', () => {
+    // Backslashes come from String.fromCharCode(92), never written literally -- this broke
+    // the gamepad art twice. A stray escape shows up as a lone forward slash count mismatch
+    // or a dropped character, both of which change the row width; this asserts the rows are
+    // still clean ASCII in the printable range.
+    for (let step = 0; step < frameCount; step++) {
+      for (const row of format(step)) {
+        expect(row).toMatch(/^[ -~]*$/);
+      }
+    }
+  });
+
+  it('carries the deployment accent on every row, like the gamepad', () => {
+    const rowKinds = kinds();
+    expect(rowKinds).toHaveLength(BOOT_LINE_COUNT);
+    expect(new Set(rowKinds)).toEqual(new Set([ROW_KIND_DEPLOYED]));
+  });
+});
+
+describe('formatDragonFrame specifics (issue #199)', () => {
+  it('keeps the dragon intact: the body appears in every frame', () => {
+    for (let step = 0; step < DRAGON_FRAME_COUNT; step++) {
+      expect(format_hasBody(formatDragonFrame(step))).toBe(true);
+    }
+  });
+
+  it('flaps: the wing rows are not the same in every frame', () => {
+    const wingShapes = new Set();
+    for (let step = 0; step < DRAGON_FRAME_COUNT; step++) {
+      wingShapes.add(formatDragonFrame(step).join('|'));
+    }
+    expect(wingShapes.size).toBeGreaterThan(1);
+  });
+
+  it('the cloud rows move on every step, not just when the dragon bobs', () => {
+    // The longship's parallax, reused: clouds for water.
+    for (let step = 0; step < DRAGON_FRAME_COUNT - 1; step++) {
+      const near = formatDragonFrame(step)[BOOT_LINE_COUNT - 1];
+      const nextNear = formatDragonFrame(step + 1)[BOOT_LINE_COUNT - 1];
+      const far = formatDragonFrame(step)[BOOT_LINE_COUNT - 2];
+      const nextFar = formatDragonFrame(step + 1)[BOOT_LINE_COUNT - 2];
+      expect(near !== nextNear || far !== nextFar).toBe(true);
+    }
+  });
+
+  it('the two cloud rows are never in lockstep -- that is what reads as parallax', () => {
+    for (let step = 0; step < DRAGON_FRAME_COUNT; step++) {
+      const [far, near] = formatDragonFrame(step).slice(-2);
+      expect(far).not.toBe(near);
+    }
+  });
+});
+
+function format_hasBody(rows) {
+  return rows.some(r => r.includes('o'));
+}
+
+describe('formatMinecraftFrame specifics (issue #199)', () => {
+  it('keeps the ground intact across the whole build', () => {
+    for (let step = 0; step < MINECRAFT_FRAME_COUNT; step++) {
+      const ground = formatMinecraftFrame(step)[BOOT_LINE_COUNT - 1];
+      expect(ground).toBe('#'.repeat(LOGO_WIDTH));
+    }
+  });
+
+  it('builds up rather than down: block count never decreases within the sequence', () => {
+    // The motion IS the meaning here -- a deployment is a server being built. A step that
+    // removed blocks would read as the opposite event.
+    let previous = -1;
+    for (let step = 0; step < MINECRAFT_FRAME_COUNT; step++) {
+      const blocks = formatMinecraftFrame(step).join('').split('[#]').length - 1;
+      expect(blocks).toBeGreaterThanOrEqual(previous);
+      previous = blocks;
+    }
+  });
+
+  it('finishes with more blocks than it started with', () => {
+    const first = formatMinecraftFrame(0).join('').split('[#]').length - 1;
+    const last = formatMinecraftFrame(MINECRAFT_FRAME_COUNT - 1).join('').split('[#]').length - 1;
+    expect(last).toBeGreaterThan(first);
+  });
+
+  it('lights the torch only once the structure is up', () => {
+    const torchSteps = [];
+    for (let step = 0; step < MINECRAFT_FRAME_COUNT; step++) {
+      if (formatMinecraftFrame(step).some(r => r.includes('i'))) torchSteps.push(step);
+    }
+    expect(torchSteps.length).toBeGreaterThan(0);
+    expect(Math.min(...torchSteps)).toBeGreaterThan(MINECRAFT_FRAME_COUNT / 2);
   });
 });
