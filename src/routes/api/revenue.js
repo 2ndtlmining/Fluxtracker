@@ -19,7 +19,22 @@ const log = createLogger('server');
 const router = express.Router();
 
 // Largest page /api/transactions/paginated will serve. The CSV export pages at this size.
-const MAX_PAGE_SIZE = 5000;
+//
+// This is PostgREST's db-max-rows, not a number of our choosing: the server caps every
+// response at 1000 rows silently, so advertising more meant `totalPages` was computed from
+// a page size the database never served -- ceil(23102/5000) = 5 pages x 1000 real rows, and
+// the export wrote 5,000 of 23,102 transactions reporting success (issue #158).
+export const MAX_PAGE_SIZE = 1000;
+
+/**
+ * Clamp a client-supplied `limit` to a page the database can actually serve.
+ * Exported for tests -- the arithmetic is what made #158 silent.
+ * @param {string|undefined} rawLimit
+ * @returns {number} rows per page, 1..MAX_PAGE_SIZE
+ */
+export function resolvePageSize(rawLimit) {
+    return Math.min(Math.max(parseInt(rawLimit) || 50, 1), MAX_PAGE_SIZE);
+}
 
 // Payer sources the TEAM / FIAT badges filter by (issue #159). Resolved server-side from
 // config rather than letting the client post an address list -- the client naming its own
@@ -262,7 +277,7 @@ router.get('/transactions/paginated', async (req, res) => {
         // Cap kept deliberately — the CSV export pages through this endpoint rather than
         // asking for everything at once. It used to request all ~21k rows in one call and
         // silently receive only the first 1000.
-        const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), MAX_PAGE_SIZE);
+        const limit = resolvePageSize(req.query.limit);
         const search = req.query.search || '';
         const appName = req.query.appName || null;
         const fromAddresses = resolveSourceAddresses(req.query.source);
