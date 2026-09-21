@@ -105,20 +105,20 @@
         // Issue #201. dropNulls because every snapshot predating this feature -- and the
         // 37 days the imported history has no reading for -- stores NULL, and plotting
         // those as 0 would draw a network with no operators rather than a gap.
-        { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true }
-      ]
-    },
-    collateral: {
-      // Issue #210. Its own category rather than four more entries under Node Distribution:
-      // these are FLUX amounts, not counts, and mixing the two formats in one dropdown
-      // makes the axis units depend on which entry happens to be selected.
-      //
-      // No aggregateAsSum. Locked collateral is a LEVEL, not a flow -- summing a week of
-      // daily readings would report seven times the FLUX that was ever locked. The default
-      // average is the right weekly/monthly figure.
-      label: 'Locked Collateral',
-      color: 'rgb(255, 140, 0)',
-      metrics: [
+        { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true },
+        // Issue #210. Metrics of this category rather than a category of their own: they
+        // are derived from the tier counts directly above them, and a seventh top-level
+        // button costs more space than the grouping saves. The unit is per-metric -- the
+        // axis and tooltip both read `metric.format` -- so FLUX amounts and node counts
+        // sit in one dropdown without either rendering in the other's unit.
+        //
+        // No aggregateAsSum. Locked collateral is a LEVEL, not a flow -- summing a week of
+        // daily readings would report seven times the FLUX that was ever locked. The
+        // default average is the right weekly/monthly figure.
+        //
+        // dropNulls for the same reason as unique_wallets above: rows predating the
+        // feature, and the days with no tier counts to derive from, store NULL. Plotting
+        // those as 0 would draw a network with nothing staked rather than a gap.
         { id: 'locked_collateral', label: 'Total Locked (FLUX)', field: 'locked_collateral', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_cumulus', label: 'Cumulus Locked (FLUX)', field: 'locked_collateral_cumulus', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_nimbus', label: 'Nimbus Locked (FLUX)', field: 'locked_collateral_nimbus', format: 'flux', dropNulls: true },
