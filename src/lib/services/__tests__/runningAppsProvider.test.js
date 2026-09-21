@@ -271,3 +271,80 @@ describe('toRepoCounts', () => {
         expect(toRepoCounts(runningApps)).toEqual({ 'a/b:1': 3, 'c/d:2': 2 });
     });
 });
+
+/**
+ * Deployments vs containers (issue #200).
+ *
+ * `totalInstances` counts containers -- one per entry in node.apps.runningapps. A compose app
+ * runs one container per component but is ONE deployment on ONE node, so the two figures are
+ * genuinely different units. Measured on the live network: 7,924 containers against 7,024
+ * deployments, a ~13% gap that was being reported under the word "instances".
+ */
+describe('deploymentCounts', () => {
+    beforeEach(() => {
+        clearRunningAppsCache();
+        // Every container resolves to some repotag: an all-null resolution trips the
+        // existing "resolved zero apps" guard, which is a different failure from the one
+        // these tests are about.
+        resolveRunningAppName.mockImplementation(name => ({ appName: name, repotag: 'org/img:latest' }));
+    });
+
+    /** One node running several named containers. */
+    function nodesWith(...perNodeContainerNames) {
+        return {
+            data: {
+                data: perNodeContainerNames.map(names => ({
+                    apps: { runningapps: names.map(n => ({ Names: [n] })) }
+                }))
+            }
+        };
+    }
+
+    it('counts a compose app once per node however many components it runs there', async () => {
+        // Six containers, one node, one app -> one deployment.
+        axios.get.mockResolvedValue(nodesWith([
+            '/fluxnginx_owncloudoffice',
+            '/fluxmariadb_owncloudoffice',
+            '/fluxredis_owncloudoffice',
+            '/fluxcollabora_owncloudoffice',
+            '/fluxoperator_owncloudoffice',
+            '/fluxweb_owncloudoffice'
+        ]));
+
+        const apps = await getRunningApps({ force: true });
+
+        expect(apps.totalInstances).toBe(6);                        // containers
+        expect(apps.deploymentCounts.get('owncloudoffice')).toBe(1); // deployments
+    });
+
+    it('counts the same app once per node across several nodes', async () => {
+        axios.get.mockResolvedValue(nodesWith(
+            ['/fluxnginx_myapp', '/fluxdb_myapp'],
+            ['/fluxnginx_myapp', '/fluxdb_myapp'],
+            ['/fluxnginx_myapp', '/fluxdb_myapp']
+        ));
+
+        const apps = await getRunningApps({ force: true });
+
+        expect(apps.totalInstances).toBe(6);
+        expect(apps.deploymentCounts.get('myapp')).toBe(3);
+    });
+
+    it('keeps separate apps on one node separate', async () => {
+        axios.get.mockResolvedValue(nodesWith(['/fluxalpha', '/fluxbeta', '/fluxdb_beta']));
+
+        const apps = await getRunningApps({ force: true });
+
+        expect(apps.deploymentCounts.get('alpha')).toBe(1);
+        expect(apps.deploymentCounts.get('beta')).toBe(1);
+    });
+
+    it('excludes watchtower, which is infrastructure rather than a deployment anyone ordered', async () => {
+        axios.get.mockResolvedValue(nodesWith(['/fluxwatchtower', '/fluxmyapp']));
+
+        const apps = await getRunningApps({ force: true });
+
+        expect(apps.deploymentCounts.has('watchtower')).toBe(false);
+        expect(apps.deploymentCounts.get('myapp')).toBe(1);
+    });
+});
