@@ -14,9 +14,14 @@ const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
 import { createLogger } from '../logger.js';
 const log = createLogger('database');
 
-const adapter = dbType === 'sqlite'
+import { instrumentAdapter } from './dbCallTracker.js';
+
+// Instrumented so the database circuit breaker can tell a database failure from an
+// upstream-API one (issue #219). Wrapping here covers every function in one place, and
+// covers any function added later for free.
+const adapter = instrumentAdapter(dbType === 'sqlite'
     ? await import('./adapters/sqliteAdapter.js')
-    : await import('./adapters/supabaseAdapter.js');
+    : await import('./adapters/supabaseAdapter.js'));
 
 log.info(`Database adapter: ${dbType}`);
 
