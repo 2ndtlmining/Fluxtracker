@@ -608,44 +608,6 @@ export async function fillSnapshotNullColumns(date, columns) {
     return filled;
 }
 
-/**
- * Overwrite snapshot columns that hold a FABRICATED ZERO with a real reading (issue #229).
- *
- * Sibling to fillSnapshotNullColumns, and deliberately a separate function with a narrower
- * contract rather than a flag on it. The top-up exists because an absent reading is NULL;
- * this exists because four game columns were written as 0 by a writer that did not know
- * about them, and 0 is not NULL so the top-up can never reach them.
- *
- * Two guards make it a repair rather than a rewrite:
- *   - only a stored 0 is replaced; a real non-zero reading is never restated
- *   - only a POSITIVE value is written, so a day the game genuinely ran zero stays 0
- *
- * Returns the columns actually changed.
- */
-export async function fillZeroSnapshotColumns(date, columns) {
-    const existing = await getSnapshotByDate(date);
-    if (!existing) return [];
-
-    const filled = [];
-    for (const [column, value] of Object.entries(columns || {})) {
-        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
-        if (!(column in existing)) continue;   // column not on this table
-        if (existing[column] !== 0) continue;  // a real reading (or NULL -- that is the top-up's job)
-
-        try {
-            const result = getDb()
-                .prepare(`UPDATE daily_snapshots SET ${column} = ? WHERE snapshot_date = ? AND ${column} = 0`)
-                .run(value, date);
-            if (result.changes > 0) filled.push(column);
-        } catch (error) {
-            log.warn(`fillZeroSnapshotColumns(${date}.${column}): ${error.message}`);
-        }
-    }
-
-    if (filled.length > 0) log.info(`Repaired zeroed snapshot columns for ${date}: ${filled.join(', ')}`);
-    return filled;
-}
-
 export async function getSnapshotByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots WHERE snapshot_date = ?').get(date) || null;

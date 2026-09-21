@@ -327,50 +327,6 @@ export async function fillSnapshotNullColumns(date, columns) {
     return filled;
 }
 
-/**
- * Overwrite snapshot columns that hold a FABRICATED ZERO with a real reading (issue #229).
- *
- * Sibling to fillSnapshotNullColumns, and deliberately a separate function with a narrower
- * contract rather than a flag on it. The top-up exists because an absent reading is NULL;
- * this exists because four game columns were written as 0 by a writer that did not know
- * about them, and 0 is not NULL so the top-up can never reach them.
- *
- * Two guards make it a repair rather than a rewrite:
- *   - only a stored 0 is replaced; a real non-zero reading is never restated
- *   - only a POSITIVE value is written, so a day the game genuinely ran zero stays 0
- *
- * Returns the columns actually changed.
- */
-export async function fillZeroSnapshotColumns(date, columns) {
-    const existing = await getSnapshotByDate(date);
-    if (!existing) return [];
-
-    const filled = [];
-    for (const [column, value] of Object.entries(columns || {})) {
-        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
-        if (!(column in existing)) continue;
-        if (existing[column] !== 0) continue;
-
-        // `.eq(column, 0)` re-checks server side, so a concurrent writer that set a real
-        // value between the read above and this update is not clobbered.
-        const { data, error } = await supabase
-            .from('daily_snapshots')
-            .update({ [column]: value })
-            .eq('snapshot_date', date)
-            .eq(column, 0)
-            .select('snapshot_date');
-
-        if (error) {
-            log.warn(`fillZeroSnapshotColumns(${date}.${column}): ${error.message}`);
-            continue;
-        }
-        if (data && data.length > 0) filled.push(column);
-    }
-
-    if (filled.length > 0) log.info(`Repaired zeroed snapshot columns for ${date}: ${filled.join(', ')}`);
-    return filled;
-}
-
 export async function getSnapshotByDate(date) {
     const { data, error } = await supabase
         .from('daily_snapshots')
