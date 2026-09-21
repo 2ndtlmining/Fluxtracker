@@ -75,13 +75,8 @@ router.get('/metrics/current', async (req, res) => {
             wordpress: { count: metrics.wordpress_count },
             nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total },
             // Issue #201. `?? null` rather than `|| 0`: the card must be able to tell
-            // "not collected yet" from "zero wallets", and render nothing in the first case.
-            wallets: {
-                unique: metrics.unique_wallets ?? null,
-                nodesPer: metrics.unique_wallets > 0 && metrics.node_total > 0
-                    ? metrics.node_total / metrics.unique_wallets
-                    : null
-            }
+            // "not collected yet" from "zero wallets", and hide the row in the first case.
+            wallets: { unique: metrics.unique_wallets ?? null }
         };
     });
 });

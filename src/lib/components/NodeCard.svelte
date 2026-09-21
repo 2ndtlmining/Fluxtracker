@@ -6,6 +6,13 @@
   export let stratus = { count: 0 };
   export let total = 0;
   export let loading = false;
+
+  // Unique operator wallets (issue #201) — distinct payment addresses across the node list.
+  // Sits here rather than in its own card because it only means anything next to the node
+  // count it sits under: 830 wallets is a fact about these 6,450 nodes.
+  // null (not 0) until the first collection: "no wallets run the network" would be a false
+  // reading, so the row hides itself instead of showing a zero.
+  export let uniqueWallets = null;
   
   // Comparison data (optional)
   export let cumulusComparison = null;    // { change: number, trend: 'up'|'down'|'neutral' }
@@ -106,6 +113,14 @@
         </div>
       {/if}
     </div>
+
+    <!-- Operator wallets: how many distinct people are behind those nodes -->
+    {#if uniqueWallets != null}
+      <div class="node-wallets">
+        <div class="wallets-label">Unique Wallets</div>
+        <div class="wallets-value">{formatNumber(uniqueWallets)}</div>
+      </div>
+    {/if}
   {:else}
     <div class="loading-state">Loading node data...</div>
   {/if}
@@ -284,6 +299,32 @@
     border: 1px solid rgba(255, 68, 68, 0.3);
   }
   
+  /* Operator wallets — deliberately quieter than Network Total: it is context for that
+     number, not a competing headline. */
+  .node-wallets {
+    display: flex;
+    align-items: baseline;
+    gap: var(--spacing-sm);
+    padding-top: var(--spacing-sm);
+  }
+
+  .wallets-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .wallets-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
   .loading-state {
     padding: var(--spacing-lg);
     text-align: center;

@@ -95,15 +95,7 @@
         // Issue #201. dropNulls because every snapshot predating this feature -- and the
         // 37 days the imported history has no reading for -- stores NULL, and plotting
         // those as 0 would draw a network with no operators rather than a gap.
-        { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true },
-        // Derived per row in fetchAllData, and aggregated as a ratio so a week/month sums
-        // nodes and wallets separately before dividing -- averaging daily ratios would
-        // weight a quiet day the same as a busy one.
-        {
-          id: 'nodes_per_wallet', label: 'Nodes per Wallet', field: 'nodes_per_wallet',
-          format: 'decimal', dropNulls: true,
-          ratioFields: { numerator: 'node_total', denominator: 'unique_wallets' }
-        }
+        { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true }
       ]
     },
     resources: {
@@ -462,16 +454,6 @@
         } else {
           allSnapshots = [];
         }
-
-        // Issue #201: nodes-per-wallet is never stored, so that it cannot drift from the
-        // two figures it comes from. Null unless BOTH sides are real readings -- a day
-        // with wallets but no node count has no ratio, and 0 would plot as a real one.
-        allSnapshots = allSnapshots.map(row => ({
-          ...row,
-          nodes_per_wallet: row.unique_wallets > 0 && row.node_total > 0
-            ? row.node_total / row.unique_wallets
-            : null
-        }));
       }
 
       if (allSnapshots.length === 0) {
@@ -533,16 +515,25 @@
       return dateA - dateB;
     });
 
-    // For the decentralization category, pre-feature snapshots have NULL for
-    // all 5 metric fields (no DEFAULT was set). Drop those days entirely for
-    // this category so the chart doesn't fabricate a 0 (or, for invert
-    // metrics, a misleading 100%) before real data collection started.
-    // Metrics whose column has no DEFAULT read back NULL on every day before the feature
-    // shipped. Those days are dropped rather than plotted, so the chart shows a gap instead
-    // of fabricating a 0 (or, for invert metrics, a misleading 100%).
+    // Columns with no DEFAULT read back NULL on every day before their feature shipped --
+    // the whole decentralization category, and any metric flagged dropNulls. Those days are
+    // dropped rather than plotted, so the chart shows a gap instead of fabricating a 0 (or,
+    // for invert metrics, a misleading 100%).
     const rows = (selectedCategory === 'decentralization' || metric.dropNulls)
       ? sortedSnapshots.filter(s => s[metric.field] != null)
       : sortedSnapshots;
+
+    // Dropping can empty the set even though the category itself has data -- e.g. Nodes per
+    // Wallet over days that carry a wallet count but no node count. Say so explicitly:
+    // returning early here would leave the PREVIOUS metric's plot on screen under the new
+    // metric's title, which reads as real data for the wrong series.
+    if (rows.length === 0) {
+      chartData = { labels: [], data: [], rawDates: [] };
+      if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+      error = `No data recorded for ${metric.label} in this period`;
+      return;
+    }
+    error = null;
 
     let labels = [];
     let data = [];
@@ -673,15 +664,8 @@
 
     const data = sortedWeeks.map(([key, weekData]) => {
       if (metric.ratioFields) {
-        const isPercent = metric.format === 'percent';
-        // Percent ratios scale to 100; a plain ratio like Nodes per Wallet must not, or a
-        // weekly point reads 777 where the daily points read 7.77.
-        const scale = isPercent ? 100 : 1;
-        // Empty denominator: percent keeps its established "$0-total weeks report 0%"
-        // convention, while a plain ratio has no meaningful zero -- "0 nodes per wallet"
-        // would be a reading, so it renders as a gap instead.
-        const empty = isPercent ? 0 : null;
-        return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * scale : empty;
+        // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
+        return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * 100 : 0;
       }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return weekData.total; // Sum for revenue / sum-flagged metrics
@@ -760,15 +744,8 @@
 
     const data = sortedMonths.map(([key, monthData]) => {
       if (metric.ratioFields) {
-        const isPercent = metric.format === 'percent';
-        // Percent ratios scale to 100; a plain ratio like Nodes per Wallet must not, or a
-        // weekly point reads 777 where the daily points read 7.77.
-        const scale = isPercent ? 100 : 1;
-        // Empty denominator: percent keeps its established "$0-total weeks report 0%"
-        // convention, while a plain ratio has no meaningful zero -- "0 nodes per wallet"
-        // would be a reading, so it renders as a gap instead.
-        const empty = isPercent ? 0 : null;
-        return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * scale : empty;
+        // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
+        return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * 100 : 0;
       }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return monthData.total; // Sum for revenue / sum-flagged metrics
@@ -863,8 +840,6 @@
                   return '$' + value.toFixed(2);
                 } else if (metric.format === 'percent') {
                   return value.toFixed(2) + '%';
-                } else if (metric.format === 'decimal') {
-                  return value.toFixed(2);
                 }
                 return Math.round(value);
               }
@@ -906,8 +881,6 @@
                   return '$' + value.toFixed(0);
                 } else if (metric.format === 'percent') {
                   return value.toFixed(2) + '%';
-                } else if (metric.format === 'decimal') {
-                  return value.toFixed(2);
                 }
                 return Math.round(value);
               }
