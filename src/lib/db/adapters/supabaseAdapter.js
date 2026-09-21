@@ -232,6 +232,10 @@ export async function createDailySnapshot(snapshot) {
         // survived only via snapshotManager's NULL top-up; both are written here now.
         unique_wallets: snapshot.unique_wallets ?? null,
         unique_app_owners: snapshot.unique_app_owners ?? null,
+        locked_collateral_cumulus: snapshot.locked_collateral_cumulus ?? null,
+        locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
+        locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,
+        locked_collateral: snapshot.locked_collateral ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,
@@ -381,17 +385,37 @@ export async function getSnapshotsInRange(startDate, endDate) {
     return data || [];
 }
 
+/**
+ * Must page — see exportAllRepoSnapshots() for the identical pattern. PostgREST caps every
+ * response at db-max-rows (1000), and this table gains a row a day: the 2.25 years of
+ * imported wallet history (#201) already put it within a few months of that cap, at which
+ * point an unpaged select would silently drop the OLDEST days with no error. The collateral
+ * backfill (#210) reads this, so a truncation would leave early history permanently NULL.
+ */
 export async function getAllSnapshots() {
-    const { data, error } = await supabase
-        .from('daily_snapshots')
-        .select('*')
-        .order('snapshot_date', { ascending: false });
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getAllSnapshots error: ${error.message}`);
-        return [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .select('*')
+            .order('snapshot_date', { ascending: false })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getAllSnapshots error: ${error.message}`);
+            return rows;
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
-    return data || [];
+
+    return rows;
 }
 
 export async function deleteOldSnapshots(daysToKeep = 365) {

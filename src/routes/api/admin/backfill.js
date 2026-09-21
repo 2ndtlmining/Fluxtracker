@@ -12,6 +12,7 @@ import {
 import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryService.js';
 import { reclassifyStoredDatacenterFlags } from '../../../lib/services/decentralizationService.js';
 import { backfillRevenueSnapshots } from '../../../lib/db/run-backfill.js';
+import { backfillLockedCollateral } from '../../../lib/db/collateralBackfill.js';
 
 const log = createLogger('server');
 const router = express.Router();
@@ -126,6 +127,26 @@ router.post('/recategorize-repos', async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// Admin: fill locked_collateral* on historical snapshots from their own stored tier
+// counts (issue #210). Exact rather than best-effort -- every snapshot back to day one
+// already holds node_cumulus/nimbus/stratus and the rates have never changed -- so one
+// call after deploying backfills the whole Historical graph. Does no external lookups.
+// Never restates a day that already has a figure.
+router.post('/backfill-collateral', async (_req, res) => {
+    try {
+        log.info('locked collateral backfill triggered via API');
+        const result = await backfillLockedCollateral();
+        res.json({
+            success: true,
+            ...result,
+            message: `Filled ${result.filled} of ${result.total} snapshot(s), skipped ${result.skipped}, failed ${result.failed}`
+        });
+    } catch (error) {
+        log.error({ err: error }, 'locked collateral backfill failed');
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

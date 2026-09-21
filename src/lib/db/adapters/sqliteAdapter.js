@@ -91,6 +91,12 @@ function createSchema() {
             -- Issue #209. No DEFAULT, same reasoning: a 0 would mean "nobody ran an app
             -- that day", not "no reading taken".
             unique_app_owners INTEGER,
+            -- Issue #210. No DEFAULT: absent must read back NULL, never a 0 that
+            -- would mean "no collateral was locked that day".
+            locked_collateral_cumulus REAL,
+            locked_collateral_nimbus REAL,
+            locked_collateral_stratus REAL,
+            locked_collateral REAL,
             sync_status TEXT DEFAULT 'completed',
             created_at INTEGER NOT NULL
         )
@@ -181,7 +187,11 @@ function createSchema() {
             node_stratus INTEGER DEFAULT 0,
             node_total INTEGER DEFAULT 0,
             unique_wallets INTEGER,
-            unique_app_owners INTEGER
+            unique_app_owners INTEGER,
+            locked_collateral_cumulus REAL,
+            locked_collateral_nimbus REAL,
+            locked_collateral_stratus REAL,
+            locked_collateral REAL
         )
     `);
 
@@ -501,6 +511,10 @@ export async function createDailySnapshot(snapshot) {
         node_total: snapshot.node_total ?? null,
         unique_wallets: snapshot.unique_wallets ?? null,
         unique_app_owners: snapshot.unique_app_owners ?? null,
+        locked_collateral_cumulus: snapshot.locked_collateral_cumulus ?? null,
+        locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
+        locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,
+        locked_collateral: snapshot.locked_collateral ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

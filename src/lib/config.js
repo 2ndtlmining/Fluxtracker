@@ -432,7 +432,11 @@ const FIXED_METRIC_COLUMNS = [
     // spec count: one owner routinely runs several apps, and the registry keeps specs past
     // their expiry block. Apps-per-owner is NOT stored -- it is total_apps / unique_app_owners,
     // derived at read time so the two can never drift apart.
-    'unique_app_owners'
+    'unique_app_owners',
+    // Issue #210. All four persisted: the total is what the graph headlines, the per-tier
+    // values are what keep history honest if a collateral rate ever changes.
+    'locked_collateral_cumulus', 'locked_collateral_nimbus', 'locked_collateral_stratus',
+    'locked_collateral'
 ];
 
 export const METRIC_COLUMNS = [
@@ -510,6 +514,63 @@ export const APP_OWNER_CONFIG = {
     updateInterval: 60 * 60 * 1000,      // 1 hour
     freshnessThreshold: 2 * 60 * 60 * 1000,
 };
+
+// NODE COLLATERAL (issue #210)
+// ============================================
+// FLUX that must be locked to run a node, per tier. These rates are set by the Flux
+// protocol, not by this app -- they are constants here only so that the one place the
+// multiplication happens is also the one place a protocol change would be edited.
+export const NODE_COLLATERAL = {
+    cumulus: 1000,
+    nimbus: 12500,
+    stratus: 40000
+};
+
+/**
+ * Locked collateral across the network, per tier and in total.
+ *
+ * The total is returned as the SUM OF THE PARTS computed in this one expression, never
+ * independently, so the headline figure and the breakdown that explains it cannot drift
+ * apart. That is the same reasoning that kept nodes-per-wallet out of the schema (#201) --
+ * the difference here is that the per-tier values ARE stored, so that if Flux ever changes
+ * a collateral rate, history keeps the rate that was in force on each day instead of being
+ * silently restated at the new one.
+ *
+ * Returns nulls unless all three counts are real numbers. Node collection is
+ * all-or-nothing -- fetchNodeStats writes the three counts together or throws -- so a
+ * partial reading would understate locked supply by an entire tier. With stratus at
+ * 40,000 FLUX that is most of the total, and a plausible-looking smaller number is worse
+ * than an absent one: every consumer (the chart, KPI averaging) already treats NULL as
+ * missing, and none of them can tell a real dip from a dropped tier.
+ */
+export function calculateLockedCollateral(tierCounts) {
+    const absent = {
+        locked_collateral_cumulus: null,
+        locked_collateral_nimbus: null,
+        locked_collateral_stratus: null,
+        locked_collateral: null
+    };
+
+    if (!tierCounts) return absent;
+    const { cumulus, nimbus, stratus } = tierCounts;
+
+    // Number.isFinite rather than a truthiness or != null check: it rejects null,
+    // undefined, NaN and the numeric STRINGS the Flux daemon occasionally returns, while
+    // still accepting a genuine 0. A coerced '2907' would work here and silently produce
+    // string concatenation somewhere else.
+    if (![cumulus, nimbus, stratus].every(Number.isFinite)) return absent;
+
+    const cumulusLocked = cumulus * NODE_COLLATERAL.cumulus;
+    const nimbusLocked = nimbus * NODE_COLLATERAL.nimbus;
+    const stratusLocked = stratus * NODE_COLLATERAL.stratus;
+
+    return {
+        locked_collateral_cumulus: cumulusLocked,
+        locked_collateral_nimbus: nimbusLocked,
+        locked_collateral_stratus: stratusLocked,
+        locked_collateral: cumulusLocked + nimbusLocked + stratusLocked
+    };
+}
 
 // ============================================
 // CAROUSEL CONFIG

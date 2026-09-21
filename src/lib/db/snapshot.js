@@ -102,6 +102,12 @@ export async function takeSnapshot() {
             // Issue #209, same `?? null` reasoning: an app-owner service failure must
             // record "no reading taken", not "nobody ran an app today".
             unique_app_owners: currentMetrics.unique_app_owners ?? null,
+            // Issue #210, same `?? null` reasoning: a node-collection failure must record
+            // "no reading taken", not "no collateral was locked today".
+            locked_collateral_cumulus: currentMetrics.locked_collateral_cumulus ?? null,
+            locked_collateral_nimbus: currentMetrics.locked_collateral_nimbus ?? null,
+            locked_collateral_stratus: currentMetrics.locked_collateral_stratus ?? null,
+            locked_collateral: currentMetrics.locked_collateral ?? null,
 
             sync_status: 'completed'
         };
@@ -386,6 +392,12 @@ export async function getComparisonWithCurrent(daysAgo) {
             change: calculateChange(pastSnapshot.unique_app_owners, currentMetrics.unique_app_owners),
             difference: calculateDifference(pastSnapshot.unique_app_owners, currentMetrics.unique_app_owners)
         },
+        lockedCollateral: {
+            old: pastSnapshot.locked_collateral,
+            new: currentMetrics.locked_collateral,
+            change: calculateChange(pastSnapshot.locked_collateral, currentMetrics.locked_collateral),
+            difference: calculateDifference(pastSnapshot.locked_collateral, currentMetrics.locked_collateral)
+        },
         // NEW: Cloud resource comparisons
         cpu: {
             old: pastSnapshot.cpu_utilization_percent,
@@ -493,6 +505,12 @@ export async function getComparisonMetrics(date1, date2) {
             new: snapshot2.unique_app_owners,
             change: calculateChange(snapshot1.unique_app_owners, snapshot2.unique_app_owners),
             difference: calculateDifference(snapshot1.unique_app_owners, snapshot2.unique_app_owners)
+        },
+        lockedCollateral: {
+            old: snapshot1.locked_collateral,
+            new: snapshot2.locked_collateral,
+            change: calculateChange(snapshot1.locked_collateral, snapshot2.locked_collateral),
+            difference: calculateDifference(snapshot1.locked_collateral, snapshot2.locked_collateral)
         }
     };
 }

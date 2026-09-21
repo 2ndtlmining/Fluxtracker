@@ -72,6 +72,16 @@
     ...Object.entries(ENTITY_DIMENSIONS).map(([id, dim]) => ({ id, label: dim.pluralLabel }))
   ];
 
+  // Locked collateral runs to ~90M FLUX (issue #210), and cumulative revenue is in the
+  // millions too. `toFixed(0)` on those produces a nine-character axis label that crowds
+  // the plot area, so the axis compacts and the tooltip keeps the exact figure.
+  function formatFluxAxis(value) {
+    const abs = Math.abs(value);
+    if (abs >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M FLUX';
+    if (abs >= 10_000) return (value / 1_000).toFixed(0) + 'k FLUX';
+    return value.toFixed(0) + ' FLUX';
+  }
+
   // Category definitions
   let categories = {
     revenue: {
@@ -96,6 +106,23 @@
         // 37 days the imported history has no reading for -- stores NULL, and plotting
         // those as 0 would draw a network with no operators rather than a gap.
         { id: 'unique_wallets', label: 'Unique Wallets', field: 'unique_wallets', format: 'number', dropNulls: true }
+      ]
+    },
+    collateral: {
+      // Issue #210. Its own category rather than four more entries under Node Distribution:
+      // these are FLUX amounts, not counts, and mixing the two formats in one dropdown
+      // makes the axis units depend on which entry happens to be selected.
+      //
+      // No aggregateAsSum. Locked collateral is a LEVEL, not a flow -- summing a week of
+      // daily readings would report seven times the FLUX that was ever locked. The default
+      // average is the right weekly/monthly figure.
+      label: 'Locked Collateral',
+      color: 'rgb(255, 140, 0)',
+      metrics: [
+        { id: 'locked_collateral', label: 'Total Locked (FLUX)', field: 'locked_collateral', format: 'flux', dropNulls: true },
+        { id: 'locked_collateral_cumulus', label: 'Cumulus Locked (FLUX)', field: 'locked_collateral_cumulus', format: 'flux', dropNulls: true },
+        { id: 'locked_collateral_nimbus', label: 'Nimbus Locked (FLUX)', field: 'locked_collateral_nimbus', format: 'flux', dropNulls: true },
+        { id: 'locked_collateral_stratus', label: 'Stratus Locked (FLUX)', field: 'locked_collateral_stratus', format: 'flux', dropNulls: true }
       ]
     },
     resources: {
@@ -839,7 +866,8 @@
               label: (context) => {
                 const value = context.parsed.y;
                 if (metric.format === 'flux') {
-                  return value.toFixed(0) + ' FLUX';
+                  // Tooltips keep full precision -- the axis is where compaction belongs.
+                  return Math.round(value).toLocaleString() + ' FLUX';
                 } else if (metric.format === 'usd') {
                   return '$' + value.toFixed(2);
                 } else if (metric.format === 'percent') {
@@ -880,7 +908,7 @@
               },
               callback: function(value) {
                 if (metric.format === 'flux') {
-                  return value.toFixed(0) + ' FLUX';
+                  return formatFluxAxis(value);
                 } else if (metric.format === 'usd') {
                   return '$' + value.toFixed(0);
                 } else if (metric.format === 'percent') {
