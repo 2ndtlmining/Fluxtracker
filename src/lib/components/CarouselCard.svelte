@@ -3,7 +3,7 @@
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
-  import { TrendingUp, Package, Hourglass } from 'lucide-svelte';
+  import { TrendingUp, Package, Hourglass, TriangleAlert } from 'lucide-svelte';
 
   let API_URL = '';
   let stats = [];
@@ -27,8 +27,10 @@
     return `${hours}h ${minutes % 60}m`;
   }
 
-  // Toggle state: 'network', 'deployed', or 'expiring'
-  let viewMode = 'network';
+  // Toggle state: 'deployed' | 'expiring' | 'missing' | 'network'.
+  // Defaults to the FIRST tab in the strip -- opening on a tab three positions along reads
+  // as a stuck selection rather than a default.
+  let viewMode = 'deployed';
 
   // Speed constants for consistent scroll speed across carousels
   const SECONDS_PER_ITEM = 5;
@@ -63,11 +65,12 @@
 
   async function fetchCarouselStats() {
     try {
-      const endpoint = viewMode === 'network'
-        ? `${API_URL}/api/carousel/stats`
-        : viewMode === 'deployed'
-        ? `${API_URL}/api/carousel/deployed`
-        : `${API_URL}/api/carousel/expiring`;
+      const endpoint = {
+        network: `${API_URL}/api/carousel/stats`,
+        deployed: `${API_URL}/api/carousel/deployed`,
+        expiring: `${API_URL}/api/carousel/expiring`,
+        missing: `${API_URL}/api/carousel/missing`
+      }[viewMode];
 
       console.log(`🎠 Fetching carousel data from: ${endpoint}`);
 
@@ -90,11 +93,14 @@
         loading = false;
         console.log(`✅ Loaded ${stats.length} carousel items`);
       } else if (stats.length === 0) {
-        error = viewMode === 'deployed'
-          ? 'No apps deployed today'
-          : viewMode === 'expiring'
-          ? 'No apps expiring within 24 hours'
-          : 'No stats available';
+        // 'missing' is the one tab whose empty state is GOOD NEWS. Saying "no data" there
+        // would read as a broken ticker rather than a fully deployed network.
+        error = {
+          deployed: 'No apps deployed today',
+          expiring: 'No apps expiring within 24 hours',
+          missing: 'All apps are running everything they ordered',
+          network: 'No stats available'
+        }[viewMode] || 'No stats available';
         loading = false;
         console.warn(`⚠️ No data available: ${error}`);
       } else {
@@ -139,23 +145,18 @@
 <div class="carousel-container">
   <div class="carousel-header">
     <div class="header-content">
-      {#if viewMode === 'network'}
-        <TrendingUp size={20} class="header-icon" />
-      {:else if viewMode === 'deployed'}
+      {#if viewMode === 'deployed'}
         <Package size={20} class="header-icon" />
-      {:else}
+      {:else if viewMode === 'expiring'}
         <Hourglass size={20} class="header-icon" />
+      {:else if viewMode === 'missing'}
+        <TriangleAlert size={20} class="header-icon" />
+      {:else}
+        <TrendingUp size={20} class="header-icon" />
       {/if}
 
       <!-- Toggle buttons -->
       <div class="view-toggle">
-        <button
-          class="toggle-btn"
-          class:active={viewMode === 'network'}
-          on:click={() => toggleViewMode('network')}
-        >
-          Top Network Stats
-        </button>
         <button
           class="toggle-btn"
           class:active={viewMode === 'deployed'}
@@ -169,6 +170,20 @@
           on:click={() => toggleViewMode('expiring')}
         >
           Expiring Soon
+        </button>
+        <button
+          class="toggle-btn"
+          class:active={viewMode === 'missing'}
+          on:click={() => toggleViewMode('missing')}
+        >
+          Missing Deployments
+        </button>
+        <button
+          class="toggle-btn"
+          class:active={viewMode === 'network'}
+          on:click={() => toggleViewMode('network')}
+        >
+          Top Network Stats
         </button>
       </div>
     </div>

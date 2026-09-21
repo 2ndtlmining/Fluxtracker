@@ -13,9 +13,20 @@ export const TARGET_ADDRESSES = [
 // ============================================
 // FLUX Donation address 
 // ============================================
+// Must match Fluxnode's ADDRESS_FLUX and Noxide's ADDRESS_CURRENT -- one project, one
+// donation address. The address has moved twice; this is the current one, live from
+// 2026-09-12.
+//
+// The previous value here, t1aUmu7HDr7BtwmdR1Y9i2K6KFRZs4Bumbt, was only ever current
+// between 2026-09-03 and 2026-09-12, and BOTH sibling projects deliberately dropped it --
+// Noxide names it "the short-lived middle address", and Fluxnode read its full explorer
+// history before removing it (every inbound payment inside the donor window came from the
+// project's own wallet). Leaving it here pointed the footer's copy button at a dead address.
+//
+// Display only: Fluxtracker does no donor-status scanning, so unlike the sibling projects it
+// needs no history of superseded addresses.
 export const DONATION_ADDRESSES = [
-    't1aUmu7HDr7BtwmdR1Y9i2K6KFRZs4Bumbt' // Your main donation address
-
+    't3YcVbiQWHerVYHKBccAQGUmSWDdKu9Zjrr'
 ];
 
 // ============================================

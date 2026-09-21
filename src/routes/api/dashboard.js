@@ -8,7 +8,7 @@ import {
     getDecentralizationCountrySnapshotHistory,
     getDecentralizationContinentSnapshotHistory
 } from '../../lib/db/database.js';
-import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getFluxCloudActivity } from '../../lib/services/carouselService.js';
+import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getCachedMissingDeployments, getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getBusiestNode } from '../../lib/services/busiestNodeService.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { createLogger } from '../../lib/logger.js';
@@ -150,6 +150,23 @@ router.get('/carousel/deployed', async (req, res) => {
             stats: [],
             cached: false
         });
+    }
+});
+
+// Carousel endpoint for apps not running everything they ordered (issue #213)
+router.get('/carousel/missing', async (req, res) => {
+    try {
+        const result = await getCachedMissingDeployments();
+        res.json({
+            stats: result.stats || [],
+            cached: result.cached,
+            cacheAge: result.cacheAge,
+            fresh: result.fresh,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        log.error({ err: error }, 'missing deployments API error');
+        res.status(500).json({ error: 'Failed to fetch missing deployments', message: error.message, stats: [], cached: false });
     }
 });
 
