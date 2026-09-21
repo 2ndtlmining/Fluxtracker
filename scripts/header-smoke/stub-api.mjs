@@ -29,10 +29,30 @@ const INITIAL_DEPLOYED = {
   hdd: 25,
   blockAge: 100
 };
+// Issue #199: which game the SECOND deployed fixture is named after, and therefore which
+// per-game intro the run exercises. Unset it behaves exactly as before (Valheim), so every
+// existing check-header.mjs invocation stays byte-identical.
+//
+// One run can only cover one of these: the component holds a single latestDeployedApp, and
+// the dashboard's 5-minute poll interval is longer than the harness's 100s budget, so the
+// stub is called about twice per run. Covering three games therefore means three runs, not
+// a longer fixture list.
+const DEPLOYED_GAME_NAMES = {
+  valheim: 'valheim1789155733041',
+  minecraft: 'minecraftj1789155733041',
+  dragonwilds: 'dragonwilds1789155733041'
+};
+const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
+const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
+if (!DEPLOYED_GAME_NAME) {
+  console.error(`[header-smoke] unknown DEPLOYED_GAME "${DEPLOYED_GAME}" -- expected one of ${Object.keys(DEPLOYED_GAME_NAMES).join(', ')}`);
+  process.exit(1);
+}
+
 const UPDATED_DEPLOYED = {
-  // Valheim (issue #180): a game with its own art, where the first fixture is a game
-  // without any -- so one run covers the longship AND the shared controller fallback.
-  name: 'valheim1789155733041',
+  // A game with art of its own, where the FIRST fixture (palworld) is a game without any --
+  // so one run covers the per-game intro AND the shared controller fallback.
+  name: DEPLOYED_GAME_NAME,
   // repo no longer drives the icon row (issue #127 dropped the docker/git distinction
   // from it) -- kept as a realistic field on the stub payload, unused by this harness.
   repo: 'runonflux/orbit:latest',
@@ -132,4 +152,4 @@ const server = http.createServer((req, res) => {
 });
 
 const port = Number(process.env.STUB_PORT || 3100);
-server.listen(port, '127.0.0.1', () => console.log(`[header-smoke] stub api on ${port}`));
+server.listen(port, '127.0.0.1', () => console.log(`[header-smoke] stub api on ${port} (deployed game: ${DEPLOYED_GAME})`));

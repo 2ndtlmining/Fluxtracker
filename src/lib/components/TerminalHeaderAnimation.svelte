@@ -26,7 +26,13 @@
     GAMEPAD_FRAME_COUNT,
     formatValheimFrame,
     valheimFrameKinds,
-    VALHEIM_FRAME_COUNT
+    VALHEIM_FRAME_COUNT,
+    formatDragonFrame,
+    dragonFrameKinds,
+    DRAGON_FRAME_COUNT,
+    formatMinecraftFrame,
+    minecraftFrameKinds,
+    MINECRAFT_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -84,6 +90,21 @@
       frameCount: VALHEIM_FRAME_COUNT,
       format: formatValheimFrame,
       kinds: valheimFrameKinds
+    },
+    // One key covers Java and Bedrock: resolveGameFromAppName() returns 'Minecraft' for
+    // all four of minecraftj / minecraftb / minecraftserver / minecraftbedrockserver.
+    Minecraft: {
+      frameCount: MINECRAFT_FRAME_COUNT,
+      format: formatMinecraftFrame,
+      kinds: minecraftFrameKinds
+    },
+    // The key is the exact string resolveGameFromAppName() returns (#162 named it for
+    // Flux's games hub). 'Runescape' or 'RuneScape' silently falls through to the gamepad
+    // with no error, so it is spelled out here in full rather than derived.
+    'RuneScape: Dragonwilds': {
+      frameCount: DRAGON_FRAME_COUNT,
+      format: formatDragonFrame,
+      kinds: dragonFrameKinds
     }
   };
 
