@@ -11,6 +11,7 @@ import {
     getRepoSnapshotCountByDate,
     getCurrentMetrics,
     getSnapshotByDate,
+    fillSnapshotNullColumns,
     getRevenueForDateRange,
     createDecentralizationSnapshots,
     createDecentralizationCountrySnapshots,
@@ -27,7 +28,7 @@ import {
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
-import { SNAPSHOT_CONFIG as SNAP_CFG } from '../config.js';
+import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('snapshotManager');
@@ -441,6 +442,28 @@ async function runCheck() {
 
             // Daily snapshot exists, but check if repo snapshots are missing
             const today = new Date().toISOString().split('T')[0];
+
+            // ...and whether it is missing any column that current_metrics can now answer.
+            // A metric that ships mid-day finds today's row already written, and this branch
+            // is the only chance to record it -- shouldTakeSnapshot() will refuse the day
+            // from here on, so without this the column stays NULL for that day forever and
+            // has to be written by hand (unique_wallets needed exactly that, #201).
+            // Only NULL columns are touched; a reading already taken is never restated.
+            try {
+                const metrics = await getCurrentMetrics();
+                if (metrics) {
+                    const patch = {};
+                    for (const column of METRIC_COLUMNS) patch[column] = metrics[column];
+                    const filled = await fillSnapshotNullColumns(today, patch);
+                    if (filled.length > 0) {
+                        log.info(`Filled ${filled.length} missing column(s) on today's snapshot: ${filled.join(', ')}`);
+                    }
+                }
+            } catch (error) {
+                // Never let a top-up failure affect the snapshot check itself.
+                log.warn({ err: error }, "Could not top up NULL columns on today's snapshot");
+            }
+
             const repoCount = await getRepoSnapshotCountByDate(today);
             if (repoCount === 0) {
                 const repoCounts = getLatestRepoCounts();

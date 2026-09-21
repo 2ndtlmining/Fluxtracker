@@ -34,6 +34,7 @@ export const {
     createDailySnapshot,
     getSnapshotByDate,
     setSnapshotWalletCount,
+    fillSnapshotNullColumns,
     getLastNSnapshots,
     getSnapshotsInRange,
     getAllSnapshots,

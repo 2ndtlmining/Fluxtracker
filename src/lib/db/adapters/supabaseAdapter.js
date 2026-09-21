@@ -284,6 +284,46 @@ export async function setSnapshotWalletCount(date, uniqueWallets) {
     return 'created';
 }
 
+/**
+ * Fill columns that are still NULL on an existing snapshot row. Returns the names filled.
+ *
+ * See the SQLite twin for the reasoning. Same three rules: NULL columns only, real readings
+ * only (0 means "collection failed" in a snapshot column), existing rows only.
+ *
+ * One UPDATE per column, each carrying its own `.is(column, null)` filter, so the NULL check
+ * happens in the statement rather than between a read and a write. PostgREST has no COALESCE
+ * in an update, and a single multi-column update could only guard one column -- the others
+ * would be restated blind. In practice this loops over the one or two columns a newly shipped
+ * metric left behind.
+ */
+export async function fillSnapshotNullColumns(date, columns) {
+    const existing = await getSnapshotByDate(date);
+    if (!existing) return [];
+
+    const filled = [];
+    for (const [column, value] of Object.entries(columns || {})) {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue;
+        if (!(column in existing)) continue;
+        if (existing[column] != null) continue;
+
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .update({ [column]: value })
+            .eq('snapshot_date', date)
+            .is(column, null)
+            .select('snapshot_date');
+
+        if (error) {
+            log.warn(`fillSnapshotNullColumns(${date}.${column}): ${error.message}`);
+            continue;
+        }
+        if (data && data.length > 0) filled.push(column);
+    }
+
+    if (filled.length > 0) log.info(`Filled NULL snapshot columns for ${date}: ${filled.join(', ')}`);
+    return filled;
+}
+
 export async function getSnapshotByDate(date) {
     const { data, error } = await supabase
         .from('daily_snapshots')

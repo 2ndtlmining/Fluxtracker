@@ -13,7 +13,8 @@
 		"start": "node build/index.js",
 		"start:all": "node scripts/start-all.mjs",
 		"test": "vitest run",
-		"db:import-repo-json": "node scripts/import-repo-json.mjs"
+		"db:import-repo-json": "node scripts/import-repo-json.mjs",
+		"db:import-wallets": "node scripts/import-wallet-history.mjs"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "^5.5.4",
