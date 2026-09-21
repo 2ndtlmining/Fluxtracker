@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage, METRIC_COLUMNS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('supabaseAdapter');
@@ -204,22 +204,15 @@ export async function createDailySnapshot(snapshot) {
         dockerapps_count: snapshot.dockerapps_count,
         gitapps_percent: snapshot.gitapps_percent,
         dockerapps_percent: snapshot.dockerapps_percent,
+        // Gaming and crypto columns are DERIVED FROM CONFIG here too (issue #229). The
+        // snapshot builder, this adapter and its Supabase twin each enumerated them
+        // literally, so a game added to GAMING_REPOS had to be remembered in THREE places
+        // -- and was not. Deriving all three from the same config list is what makes the
+        // documented "adding a repo to config is enough" actually true.
         gaming_apps_total: snapshot.gaming_apps_total,
         gaming_instances_total: snapshot.gaming_instances_total,
-        gaming_palworld: snapshot.gaming_palworld,
-        gaming_enshrouded: snapshot.gaming_enshrouded,
-        gaming_minecraft: snapshot.gaming_minecraft,
-        gaming_valheim: snapshot.gaming_valheim,
-        gaming_satisfactory: snapshot.gaming_satisfactory,
-        crypto_presearch: snapshot.crypto_presearch,
-        crypto_streamr: snapshot.crypto_streamr,
-        crypto_ravencoin: snapshot.crypto_ravencoin,
-        crypto_kadena: snapshot.crypto_kadena,
-        crypto_alephium: snapshot.crypto_alephium,
-        crypto_bittensor: snapshot.crypto_bittensor,
-        crypto_timpi_collector: snapshot.crypto_timpi_collector,
-        crypto_timpi_geocore: snapshot.crypto_timpi_geocore,
-        crypto_kaspa: snapshot.crypto_kaspa,
+        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
+        ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
         crypto_nodes_total: snapshot.crypto_nodes_total,
         wordpress_count: snapshot.wordpress_count,
         node_cumulus: snapshot.node_cumulus,

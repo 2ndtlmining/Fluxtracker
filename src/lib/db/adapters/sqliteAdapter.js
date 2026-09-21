@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { categorizeImage, METRIC_COLUMNS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('sqliteAdapter');
@@ -487,22 +487,15 @@ export async function createDailySnapshot(snapshot) {
         dockerapps_count: snapshot.dockerapps_count ?? null,
         gitapps_percent: snapshot.gitapps_percent ?? null,
         dockerapps_percent: snapshot.dockerapps_percent ?? null,
+        // Gaming and crypto columns are DERIVED FROM CONFIG here too (issue #229). The
+        // snapshot builder, this adapter and its Supabase twin each enumerated them
+        // literally, so a game added to GAMING_REPOS had to be remembered in THREE places
+        // -- and was not. Deriving all three from the same config list is what makes the
+        // documented "adding a repo to config is enough" actually true.
         gaming_apps_total: snapshot.gaming_apps_total ?? null,
         gaming_instances_total: snapshot.gaming_instances_total ?? null,
-        gaming_palworld: snapshot.gaming_palworld ?? null,
-        gaming_enshrouded: snapshot.gaming_enshrouded ?? null,
-        gaming_minecraft: snapshot.gaming_minecraft ?? null,
-        gaming_valheim: snapshot.gaming_valheim ?? null,
-        gaming_satisfactory: snapshot.gaming_satisfactory ?? null,
-        crypto_presearch: snapshot.crypto_presearch ?? null,
-        crypto_streamr: snapshot.crypto_streamr ?? null,
-        crypto_ravencoin: snapshot.crypto_ravencoin ?? null,
-        crypto_kadena: snapshot.crypto_kadena ?? null,
-        crypto_alephium: snapshot.crypto_alephium ?? null,
-        crypto_bittensor: snapshot.crypto_bittensor ?? null,
-        crypto_timpi_collector: snapshot.crypto_timpi_collector ?? null,
-        crypto_timpi_geocore: snapshot.crypto_timpi_geocore ?? null,
-        crypto_kaspa: snapshot.crypto_kaspa ?? null,
+        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
+        ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
         crypto_nodes_total: snapshot.crypto_nodes_total ?? null,
         wordpress_count: snapshot.wordpress_count ?? null,
         node_cumulus: snapshot.node_cumulus ?? null,
