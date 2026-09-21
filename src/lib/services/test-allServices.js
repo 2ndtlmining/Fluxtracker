@@ -1,5 +1,6 @@
 import { fetchNodeStats } from './nodeService.js';
 import { refreshUniqueWalletsIfStale } from './walletService.js';
+import { refreshUniqueAppOwnersIfStale } from './appOwnerService.js';
 import { fetchCloudStats } from './cloudService.js';
 import { fetchGamingStats } from './gamingService.js';
 import { fetchCryptoStats } from './cryptoService.js';
@@ -60,6 +61,10 @@ async function testAllServices() {
         // list rather than on its own timer because it writes current_metrics, which is a
         // read-modify-write of one row.
         ['wallets', refreshUniqueWalletsIfStale],
+        // Issue #209. Self-gated to hourly for the same reason, and placed after 'cloud'
+        // would be equivalent -- it reads appSpecsCache, which any earlier step may
+        // already have warmed, and owns only the cheap block-height call itself.
+        ['appOwners', refreshUniqueAppOwnersIfStale],
         ['cloud', fetchCloudStats],
         ['gaming', fetchGamingStats],
         ['crypto', fetchCryptoStats],

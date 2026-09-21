@@ -226,6 +226,12 @@ export async function createDailySnapshot(snapshot) {
         node_nimbus: snapshot.node_nimbus,
         node_stratus: snapshot.node_stratus,
         node_total: snapshot.node_total,
+        // `?? null` rather than bare, like the nullable columns below: a service failure
+        // leaves these unset and a fabricated 0 would record "no operators today" as a
+        // real reading. unique_wallets was omitted from this row when #201 shipped and
+        // survived only via snapshotManager's NULL top-up; both are written here now.
+        unique_wallets: snapshot.unique_wallets ?? null,
+        unique_app_owners: snapshot.unique_app_owners ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

@@ -78,7 +78,9 @@ router.get('/metrics/current', async (req, res) => {
             nodes: { cumulus: metrics.node_cumulus, nimbus: metrics.node_nimbus, stratus: metrics.node_stratus, total: metrics.node_total },
             // Issue #201. `?? null` rather than `|| 0`: the card must be able to tell
             // "not collected yet" from "zero wallets", and hide the row in the first case.
-            wallets: { unique: metrics.unique_wallets ?? null }
+            wallets: { unique: metrics.unique_wallets ?? null },
+            // Issue #209, same `?? null` reasoning as wallets above.
+            appOwners: { unique: metrics.unique_app_owners ?? null }
         };
     });
 });

@@ -427,7 +427,12 @@ const FIXED_METRIC_COLUMNS = [
     // Distinct node-operator payment addresses (issue #201). Deliberately NOT accompanied
     // by a stored nodes-per-wallet: that is node_total / unique_wallets and is derived at
     // read time, the way team_funded_percent is, so the two can never drift apart.
-    'unique_wallets'
+    'unique_wallets',
+    // Distinct app-spec owners (issue #209). A DISTINCT count over UNEXPIRED specs, not a
+    // spec count: one owner routinely runs several apps, and the registry keeps specs past
+    // their expiry block. Apps-per-owner is NOT stored -- it is total_apps / unique_app_owners,
+    // derived at read time so the two can never drift apart.
+    'unique_app_owners'
 ];
 
 export const METRIC_COLUMNS = [
@@ -491,6 +496,17 @@ export const GAMING_CONFIG = {
 // ~4MB payload, and "how many distinct operators run the network" does not meaningfully
 // change minute to minute.
 export const WALLET_CONFIG = {
+    updateInterval: 60 * 60 * 1000,      // 1 hour
+    freshnessThreshold: 2 * 60 * 60 * 1000,
+};
+
+// ============================================
+// APP OWNER CONFIG
+// ============================================
+// Issue #209. Same cadence as WALLET_CONFIG: the specs payload appSpecsCache holds is
+// refreshed hourly and the distinct-owner count barely moves inside that window, so
+// recounting on every few-minute service cycle would be work for an unchanged answer.
+export const APP_OWNER_CONFIG = {
     updateInterval: 60 * 60 * 1000,      // 1 hour
     freshnessThreshold: 2 * 60 * 60 * 1000,
 };

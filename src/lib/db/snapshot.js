@@ -99,6 +99,10 @@ export async function takeSnapshot() {
             // consumer (KPI averaging, the chart, the import) treats NULL as missing.
             unique_wallets: currentMetrics.unique_wallets ?? null,
 
+            // Issue #209, same `?? null` reasoning: an app-owner service failure must
+            // record "no reading taken", not "nobody ran an app today".
+            unique_app_owners: currentMetrics.unique_app_owners ?? null,
+
             sync_status: 'completed'
         };
 
@@ -376,6 +380,12 @@ export async function getComparisonWithCurrent(daysAgo) {
             change: calculateChange(pastSnapshot.unique_wallets, currentMetrics.unique_wallets),
             difference: calculateDifference(pastSnapshot.unique_wallets, currentMetrics.unique_wallets)
         },
+        uniqueAppOwners: {
+            old: pastSnapshot.unique_app_owners,
+            new: currentMetrics.unique_app_owners,
+            change: calculateChange(pastSnapshot.unique_app_owners, currentMetrics.unique_app_owners),
+            difference: calculateDifference(pastSnapshot.unique_app_owners, currentMetrics.unique_app_owners)
+        },
         // NEW: Cloud resource comparisons
         cpu: {
             old: pastSnapshot.cpu_utilization_percent,
@@ -477,6 +487,12 @@ export async function getComparisonMetrics(date1, date2) {
             new: snapshot2.unique_wallets,
             change: calculateChange(snapshot1.unique_wallets, snapshot2.unique_wallets),
             difference: calculateDifference(snapshot1.unique_wallets, snapshot2.unique_wallets)
+        },
+        uniqueAppOwners: {
+            old: snapshot1.unique_app_owners,
+            new: snapshot2.unique_app_owners,
+            change: calculateChange(snapshot1.unique_app_owners, snapshot2.unique_app_owners),
+            difference: calculateDifference(snapshot1.unique_app_owners, snapshot2.unique_app_owners)
         }
     };
 }

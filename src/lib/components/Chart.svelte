@@ -123,7 +123,11 @@
       metrics: [
         { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
         { id: 'apps_deployed_today', label: 'New/Updated Today', field: 'apps_deployed_today', format: 'number' },
-        { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number' }
+        { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number' },
+        // Issue #209. dropNulls for the same reason as unique_wallets: every snapshot
+        // predating this feature stores NULL, and plotting those as 0 would draw a
+        // network with no app operators rather than a gap in the record.
+        { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true }
       ]
     },
     decentralization: {

@@ -31,6 +31,11 @@ const FIXED_COLUMNS = [
     // told apart from a collection failure. Nodes-per-wallet is NOT stored -- it is
     // node_total / unique_wallets, derived at read time so it cannot drift.
     { name: 'unique_wallets', type: 'INTEGER' },
+    // Issue #209. No DEFAULT, same reasoning: a 0 would read as "nobody ran an app that
+    // day", false for every row predating this feature and indistinguishable from a
+    // collection failure. Apps-per-owner is NOT stored -- it is total_apps /
+    // unique_app_owners, derived at read time so it cannot drift.
+    { name: 'unique_app_owners', type: 'INTEGER' },
 ];
 
 // ============================================
