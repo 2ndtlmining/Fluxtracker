@@ -33,6 +33,7 @@ export const {
     // Daily snapshots
     createDailySnapshot,
     getSnapshotByDate,
+    setSnapshotWalletCount,
     getLastNSnapshots,
     getSnapshotsInRange,
     getAllSnapshots,

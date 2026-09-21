@@ -521,6 +521,38 @@ export async function createDailySnapshot(snapshot) {
     }
 }
 
+/**
+ * Set unique_wallets on one day, touching nothing else (issue #201).
+ *
+ * The history import lands on 789 days that mostly already hold real revenue and node
+ * figures, so this is a targeted UPDATE rather than a snapshot upsert -- createDailySnapshot()
+ * would rewrite every column from whatever the caller happened to pass, and a missing field
+ * there becomes a NULL that silently erases history.
+ *
+ * Returns 'updated' or 'created'. A day with no snapshot gets a row marked
+ * sync_status='backfilled', the same marker backfillRevenueSnapshots() uses, so a reader can
+ * tell it was never a real day of collection.
+ */
+export async function setSnapshotWalletCount(date, uniqueWallets) {
+    if (!Number.isInteger(uniqueWallets) || uniqueWallets <= 0) {
+        throw new Error(`Refusing to write unique_wallets=${uniqueWallets} for ${date}: must be a positive integer`);
+    }
+
+    const updated = getDb()
+        .prepare('UPDATE daily_snapshots SET unique_wallets = ? WHERE snapshot_date = ?')
+        .run(uniqueWallets, date);
+
+    if (updated.changes > 0) return 'updated';
+
+    getDb().prepare(`
+        INSERT INTO daily_snapshots (snapshot_date, timestamp, daily_revenue, unique_wallets, sync_status, created_at)
+        VALUES (?, ?, 0, ?, 'backfilled', ?)
+        ON CONFLICT(snapshot_date) DO UPDATE SET unique_wallets = excluded.unique_wallets
+    `).run(date, new Date(`${date}T00:00:00Z`).getTime(), uniqueWallets, Date.now());
+
+    return 'created';
+}
+
 export async function getSnapshotByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots WHERE snapshot_date = ?').get(date) || null;
