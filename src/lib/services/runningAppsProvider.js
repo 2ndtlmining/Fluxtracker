@@ -275,14 +275,30 @@ export function clearRunningAppsCache() {
  * 2026-09-21) but nobody ordered it, so counting it would add to the numerator against a
  * denominator it never contributed to.
  *
+ * EXCLUDE LAPSED REGISTRATIONS, when a currentBlock is supplied (issue #213). The registry
+ * keeps serving a spec past its expiry block, and a deployment nobody ordered any more is
+ * not missing. Measured against the live network 2026-09-21: 50 expired specs ordering 176
+ * instances, 2.1% of everything ordered -- and `EthereumNodeLight` alone orders 30, enough
+ * to land near the top of a most-missing-first ranking on the carousel.
+ *
  * Returns null when no specs are loaded: an empty cache is a failed fetch, not a network
  * that ordered nothing, and 0% would render as a catastrophic outage.
+ *
+ * @param {Map<string, number>} deploymentCounts  app name (lowercase) -> distinct nodes running it
+ * @param {object}  [options]
+ * @param {number}  [options.currentBlock]  chain height; when a positive number, specs whose
+ *   lease has run out are excluded. Omitted, every spec counts -- the behaviour the Apps
+ *   card had before #213, kept so an omitted block cannot silently restate its figure. A
+ *   non-positive value is ignored for the same reason: carouselService coerces a failed
+ *   height fetch to 0, and a 0 reaching the filter would mark EVERY spec as lapsed and
+ *   report "nothing is short", the exact opposite of the truth.
  */
-export function computeDeploymentFill(deploymentCounts) {
+export function computeDeploymentFill(deploymentCounts, { currentBlock } = {}) {
     const specs = getAllAppSpecs();
     if (!specs || specs.length === 0) return null;
 
     const counts = deploymentCounts instanceof Map ? deploymentCounts : new Map();
+    const filterExpired = typeof currentBlock === 'number' && currentBlock > 0;
 
     let ordered = 0;
     let running = 0;
@@ -293,6 +309,9 @@ export function computeDeploymentFill(deploymentCounts) {
         // No instances field is absence of information, not an order for zero.
         if (typeof wanted !== 'number' || wanted <= 0) continue;
 
+        // A lease that ran out ON this block is over, hence <= and not <.
+        if (filterExpired && (spec.height || 0) + (spec.expire || 0) <= currentBlock) continue;
+
         ordered += wanted;
 
         const got = counts.get((spec.name || '').toLowerCase()) || 0;
@@ -300,14 +319,31 @@ export function computeDeploymentFill(deploymentCounts) {
         running += counted;
 
         if (counted < wanted) {
-            shortfalls.push({ name: spec.name, ordered: wanted, running: got, short: wanted - counted });
+            shortfalls.push({
+                name: spec.name,
+                ordered: wanted,
+                running: got,
+                short: wanted - counted,
+                // Resources PER DEPLOYMENT, matching Latest Deployed Apps, so cpu/ram/hdd
+                // mean the same thing on every carousel tab (issue #213).
+                ...specResources(spec),
+                // Only `compose` is encrypted for enterprise apps -- `instances` is still
+                // readable, so the missing count is known even when the resources are not.
+                // They keep their rank and show the pill instead of the figures.
+                isEnterprise: !!spec.enterprise
+            });
         }
     }
 
     if (ordered === 0) return null;
 
-    // Sorted worst-first so a breakdown leads with the apps that actually move the figure.
-    shortfalls.sort((a, b) => b.short - a.short);
+    // Worst-first so a breakdown leads with the apps that actually move the figure, then by
+    // name so ties have a stable order -- the same tiebreak fetchLatestDeployedApps uses.
+    // Without it the carousel's #rank badges reshuffle between polls for no visible reason.
+    shortfalls.sort((a, b) => {
+        if (b.short !== a.short) return b.short - a.short;
+        return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+    });
 
     return {
         ordered,
@@ -316,4 +352,22 @@ export function computeDeploymentFill(deploymentCounts) {
         fillPct: (running / ordered) * 100,
         shortfalls
     };
+}
+
+/**
+ * Resources for ONE deployment of an app: summed across compose components when the spec is
+ * readable, falling back to the flat top-level fields for legacy specs. Mirrors what
+ * fetchLatestDeployedApps does, so the two tabs cannot drift apart on what a figure means.
+ * Enterprise specs have no readable compose and come back as zeros; the isEnterprise flag is
+ * what the renderer keys on, so those figures are never shown.
+ */
+function specResources(spec) {
+    if (Array.isArray(spec?.compose)) {
+        return {
+            cpu: spec.compose.reduce((sum, c) => sum + (c.cpu || 0), 0),
+            ram: spec.compose.reduce((sum, c) => sum + (c.ram || 0), 0),
+            hdd: spec.compose.reduce((sum, c) => sum + (c.hdd || 0), 0)
+        };
+    }
+    return { cpu: spec?.cpu || 0, ram: spec?.ram || 0, hdd: spec?.hdd || 0 };
 }

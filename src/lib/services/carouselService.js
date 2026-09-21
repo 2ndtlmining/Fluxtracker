@@ -2,6 +2,7 @@
 
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { getRunningApps, computeDeploymentFill } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -10,9 +11,11 @@ const log = createLogger('carouselService');
 let cachedCarouselData = null;
 let cachedDeployedApps = null;
 let cachedExpiringApps = null;
+let cachedMissingApps = null;
 let lastFetchTime = 0;
 let lastDeployedFetchTime = 0;
 let lastExpiringFetchTime = 0;
+let lastMissingFetchTime = 0;
 // Freshness window shared with the UI's LIVE badge (see CAROUSEL_CONFIG)
 const CACHE_DURATION = CAROUSEL_CONFIG.freshnessThreshold;
 
@@ -494,6 +497,126 @@ export async function getCachedExpiringApps() {
         cacheAge: Math.floor(cacheAge / 1000), // seconds
         fresh: isFresh
     };
+}
+
+/**
+ * Apps that are not running everything they ordered, most-missing first (issue #213).
+ *
+ * The shortfall figure is NOT computed here. computeDeploymentFill() already produces it
+ * for the Apps card's fill %, and the issue is explicit that a second implementation of the
+ * same number is the trap to avoid -- the sibling project found two calculations disagreeing
+ * by 62 deployments. This function only formats that list for the carousel, so the tab and
+ * the card can never tell different stories about the same network.
+ *
+ * Everything load-bearing therefore lives in computeDeploymentFill and is tested there:
+ * deployments rather than containers (a compose app runs several containers per node, so a
+ * container count is not a deployment count -- issue #190), the per-app cap so a redeploy's
+ * brief double-up cannot offset another app's shortfall, exclusion of apps with no spec, and
+ * exclusion of lapsed registrations.
+ *
+ * The printed instance count is what is MISSING, not what was ordered. An app that ordered
+ * 100 and runs 99 is a smaller problem than one that ordered 3 and runs none, and printing
+ * the ordered figure would rank and read as exactly the opposite.
+ */
+export const MISSING_DEPLOYMENTS_LIMIT = 25;
+
+export async function fetchMissingDeployments({ currentBlock } = {}) {
+    try {
+        log.info('Fetching missing deployments...');
+
+        const running = await getRunningApps();
+        const counts = running?.deploymentCounts instanceof Map ? running.deploymentCounts : new Map();
+
+        const fill = computeDeploymentFill(counts, { currentBlock });
+
+        // null means the specs cache was empty -- a failed fetch, not a network with nothing
+        // short. Returning [] lets the caller fall back to the last good list rather than
+        // advertising "all deployments filled", which would be a fabricated all-clear.
+        if (!fill) {
+            log.warn('Deployment fill unavailable (empty specs cache) — no missing list this cycle');
+            return cachedMissingApps || [];
+        }
+
+        // Capped, unlike the other two tabs, because this list is an order of magnitude
+        // longer: deployed-today is ~150 and expiring-24h ~30, but 841 apps were short when
+        // this shipped. The carousel scrolls at SECONDS_PER_ITEM (5s), so the full list is a
+        // 70-minute loop, and the track is duplicated for seamless scroll -- ~1,700 DOM
+        // nodes for a ticker nobody will watch to the end. The tab is ranked most-missing
+        // first, so the head IS the useful part; the tail is hundreds of apps short by one.
+        // The log line below still reports the true totals.
+        const formattedApps = fill.shortfalls.slice(0, MISSING_DEPLOYMENTS_LIMIT).map((row, index) => ({
+            type: 'missing',
+            rank: index + 1,
+            name: row.name,
+            // MISSING, not ordered -- see the note above.
+            instances: row.short,
+            ordered: row.ordered,
+            running: row.running,
+            cpu: row.cpu,
+            ram: row.ram,
+            hdd: row.hdd,
+            isEnterprise: row.isEnterprise,
+            details: [
+                `${row.short} ${row.short === 1 ? 'instance' : 'instances'}`,
+                formatCpu(row.cpu),
+                formatRam(row.ram),
+                formatStorage(row.hdd)
+            ].join(' \u2022 ')
+        }));
+
+        cachedMissingApps = formattedApps;
+        lastMissingFetchTime = Date.now();
+
+        log.info(
+            { shown: formattedApps.length, appsShort: fill.shortfalls.length, missing: fill.missing, ordered: fill.ordered },
+            'Missing deployments: %d app(s) short (showing top %d), %d of %d deployments missing',
+            fill.shortfalls.length, formattedApps.length, fill.missing, fill.ordered
+        );
+
+        return formattedApps;
+
+    } catch (error) {
+        log.error({ err: error }, 'Error fetching missing deployments');
+
+        if (cachedMissingApps) {
+            log.warn('Using cached missing deployments data due to fetch error');
+            return cachedMissingApps;
+        }
+        return [];
+    }
+}
+
+/** Cached accessor for the API endpoint, mirroring getCachedExpiringApps. */
+export async function getCachedMissingDeployments() {
+    const cacheAge = Date.now() - lastMissingFetchTime;
+    const isFresh = cacheAge < CACHE_DURATION;
+
+    if (!cachedMissingApps || !isFresh) {
+        log.info('No fresh missing deployments cache, fetching now...');
+        try {
+            // The block height comes from the shared Flux API cache the other two tabs
+            // already populate, so this costs no extra request in practice. A failed fetch
+            // leaves it undefined, which disables the expiry filter rather than emptying
+            // the tab -- see computeDeploymentFill's note on a zero block height.
+            const { currentBlockHeight } = await getSharedFluxApiData();
+            await fetchMissingDeployments({ currentBlock: currentBlockHeight });
+        } catch (error) {
+            log.error({ err: error }, 'Failed to fetch missing deployments on-demand');
+        }
+    }
+
+    return {
+        stats: cachedMissingApps || [],
+        cached: !!cachedMissingApps,
+        cacheAge: Math.floor(cacheAge / 1000), // seconds
+        fresh: isFresh
+    };
+}
+
+/** Test seam — clears the cache so each case starts cold. */
+export function __resetMissingCacheForTests() {
+    cachedMissingApps = null;
+    lastMissingFetchTime = 0;
 }
 
 /**

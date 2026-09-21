@@ -116,3 +116,142 @@ describe('computeDeploymentFill', () => {
         expect(fill.running).toBe(3);
     });
 });
+
+/**
+ * Issue #213 — the Missing Deployments carousel reads the same shortfall list the Apps card
+ * fill % comes from, so the two can never disagree. These cover what that tab needs on top
+ * of what the card already used.
+ */
+describe('computeDeploymentFill — expired specs (issue #213)', () => {
+    const CURRENT_BLOCK = 3_000_000;
+    const live = (name, instances) =>
+        ({ name, instances, height: CURRENT_BLOCK - 100, expire: 5000 });
+    const lapsed = (name, instances) =>
+        ({ name, instances, height: CURRENT_BLOCK - 9000, expire: 5000 });
+
+    it('excludes lapsed registrations when a current block is supplied', () => {
+        // A deployment nobody ordered any more is not missing. Measured against the live
+        // network 2026-09-21: 50 expired specs still in the registry ordering 176 instances,
+        // 2.1% of everything ordered -- and EthereumNodeLight alone orders 30, which would
+        // land near the top of a "most missing first" ranking.
+        getAllAppSpecs.mockReturnValue([live('alpha', 3), lapsed('ghost', 30)]);
+
+        const fill = computeDeploymentFill(new Map(), { currentBlock: CURRENT_BLOCK });
+
+        expect(fill.ordered).toBe(3);
+        expect(fill.shortfalls.map(s => s.name)).toEqual(['alpha']);
+    });
+
+    it('treats a spec expiring on exactly the current block as lapsed', () => {
+        getAllAppSpecs.mockReturnValue([
+            { name: 'edge', instances: 2, height: CURRENT_BLOCK - 5000, expire: 5000 }
+        ]);
+
+        expect(computeDeploymentFill(new Map(), { currentBlock: CURRENT_BLOCK })).toBeNull();
+    });
+
+    it('keeps counting every spec when no current block is supplied', () => {
+        // Back-compat: the Apps card called this with one argument before #213, and an
+        // omitted block must not silently change the figure it has been reporting.
+        getAllAppSpecs.mockReturnValue([live('alpha', 3), lapsed('ghost', 30)]);
+
+        expect(computeDeploymentFill(new Map()).ordered).toBe(33);
+    });
+
+    it('ignores a nonsense block height rather than expiring everything', () => {
+        // carouselService coerces a failed block-height fetch to 0. A 0 reaching the filter
+        // would mark every spec as lapsed and empty the tab, which reads as "nothing is
+        // short" -- the opposite of the truth.
+        getAllAppSpecs.mockReturnValue([live('alpha', 3), lapsed('ghost', 30)]);
+
+        expect(computeDeploymentFill(new Map(), { currentBlock: 0 }).ordered).toBe(33);
+    });
+});
+
+describe('computeDeploymentFill — shortfall detail for the carousel (issue #213)', () => {
+    it('ranks most-missing first, then by name so ties are stable', () => {
+        // Rank order is user-specified for this tab, so it is exactly the thing to pin.
+        getAllAppSpecs.mockReturnValue([
+            { name: 'zebra', instances: 2 },
+            { name: 'apple', instances: 2 },
+            { name: 'most', instances: 9 }
+        ]);
+
+        const fill = computeDeploymentFill(new Map());
+
+        expect(fill.shortfalls.map(s => s.name)).toEqual(['most', 'apple', 'zebra']);
+    });
+
+    it('carries per-deployment resources summed across compose components', () => {
+        // Per deployment, matching Latest Deployed Apps, so cpu/ram/hdd mean the same thing
+        // on every carousel tab.
+        getAllAppSpecs.mockReturnValue([{
+            name: 'multi',
+            instances: 3,
+            compose: [
+                { cpu: 1, ram: 1024, hdd: 10 },
+                { cpu: 0.5, ram: 512, hdd: 5 }
+            ]
+        }]);
+
+        const [row] = computeDeploymentFill(new Map()).shortfalls;
+
+        expect(row.cpu).toBe(1.5);
+        expect(row.ram).toBe(1536);
+        expect(row.hdd).toBe(15);
+    });
+
+    it('falls back to top-level resources when there is no compose array', () => {
+        getAllAppSpecs.mockReturnValue([
+            { name: 'flat', instances: 2, cpu: 2, ram: 2048, hdd: 20 }
+        ]);
+
+        const [row] = computeDeploymentFill(new Map()).shortfalls;
+
+        expect(row).toMatchObject({ cpu: 2, ram: 2048, hdd: 20 });
+    });
+
+    it('keeps an enterprise app in the ranking and flags it', () => {
+        // Only `compose` is encrypted -- the instances count is known, so the MISSING count
+        // is known too. Dropping enterprise apps would hide real shortfalls.
+        getAllAppSpecs.mockReturnValue([
+            { name: 'secret', instances: 5, enterprise: 'encrypted-blob' },
+            { name: 'plain', instances: 2 }
+        ]);
+
+        const fill = computeDeploymentFill(new Map());
+
+        expect(fill.shortfalls.map(s => s.name)).toEqual(['secret', 'plain']);
+        expect(fill.shortfalls[0].isEnterprise).toBe(true);
+        expect(fill.shortfalls[1].isEnterprise).toBe(false);
+    });
+
+    it('reports what is MISSING, never what was ordered', () => {
+        // The whole point of the tab: ordered 100 running 99 is a smaller problem than
+        // ordered 3 running 0, and printing `100` would say the opposite.
+        getAllAppSpecs.mockReturnValue([
+            { name: 'nearly', instances: 100 },
+            { name: 'none', instances: 3 }
+        ]);
+
+        const fill = computeDeploymentFill(new Map([['nearly', 99]]));
+
+        expect(fill.shortfalls.map(s => [s.name, s.short])).toEqual([['none', 3], ['nearly', 1]]);
+    });
+
+    it('leaves out an app that is fully deployed', () => {
+        getAllAppSpecs.mockReturnValue([{ name: 'full', instances: 2 }]);
+
+        expect(computeDeploymentFill(new Map([['full', 2]])).shortfalls).toEqual([]);
+    });
+
+    it('leaves out an over-deployed app rather than ranking it as negative', () => {
+        // A redeploy briefly doubles a deployment up. 4 against 3 ordered is filled.
+        getAllAppSpecs.mockReturnValue([{ name: 'over', instances: 3 }]);
+
+        const fill = computeDeploymentFill(new Map([['over', 4]]));
+
+        expect(fill.shortfalls).toEqual([]);
+        expect(fill.running).toBe(3);
+    });
+});
