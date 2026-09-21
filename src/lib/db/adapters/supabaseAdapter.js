@@ -340,18 +340,35 @@ export async function getSnapshotByDate(date) {
     return data || null;
 }
 
+/**
+ * Must page. `.limit(n)` is a no-op past db-max-rows (1000) — the Chart's "All" timeframe
+ * asks for 9999 days and used to get 1000 with no error (issue #217).
+ */
 export async function getLastNSnapshots(n = 30) {
-    const { data, error } = await supabase
-        .from('daily_snapshots')
-        .select('*')
-        .order('snapshot_date', { ascending: false })
-        .limit(n);
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getLastNSnapshots error: ${error.message}`);
-        return [];
+    while (offset < n) {
+        const take = Math.min(PAGE_SIZE, n - offset);
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .select('*')
+            .order('snapshot_date', { ascending: false })
+            .range(offset, offset + take - 1);
+
+        if (error) {
+            log.error(`getLastNSnapshots error: ${error.message}`);
+            return rows;
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < take) break;
+        offset += take;
     }
-    return data || [];
+
+    return rows;
 }
 
 /**
@@ -364,18 +381,34 @@ export async function getLastNSnapshots(n = 30) {
  * a try/catch or is a write path where aborting beats persisting a false zero.
  */
 export async function getSnapshotsInRange(startDate, endDate) {
-    const { data, error } = await supabase
-        .from('daily_snapshots')
-        .select('*')
-        .gte('snapshot_date', startDate)
-        .lte('snapshot_date', endDate)
-        .order('snapshot_date', { ascending: true });
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getSnapshotsInRange error: ${error.message}`);
-        throw new Error(`getSnapshotsInRange failed: ${error.message}`);
+    // Must page (issue #217). A truncated range is the worst failure this function can have:
+    // the KPI report requires 100% day coverage, so silently losing the tail of a range
+    // renders a metric "Insufficient data" — or worse, averages a partial period as fact.
+    while (true) {
+        const { data, error } = await supabase
+            .from('daily_snapshots')
+            .select('*')
+            .gte('snapshot_date', startDate)
+            .lte('snapshot_date', endDate)
+            .order('snapshot_date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getSnapshotsInRange error: ${error.message}`);
+            throw new Error(`getSnapshotsInRange failed: ${error.message}`);
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
-    return data || [];
+
+    return rows;
 }
 
 /**
@@ -490,22 +523,38 @@ export async function insertTransactionsBatch(transactions) {
     return true;
 }
 
+/**
+ * Must page (issue #227). Unpaged, the app-type backfill only ever saw an arbitrary 1000-row
+ * slice, so names outside it stayed undetermined forever with no error to say why.
+ */
 export async function getUndeterminedAppNames() {
-    const { data, error } = await supabase
-        .from('revenue_transactions')
-        .select('app_name')
-        .not('app_name', 'is', null)
-        .neq('app_name', '')
-        .is('app_type', null);
+    const names = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getUndeterminedAppNames error: ${error.message}`);
-        return [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('app_name')
+            .not('app_name', 'is', null)
+            .neq('app_name', '')
+            .is('app_type', null)
+            .order('id', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getUndeterminedAppNames error: ${error.message}`);
+            break;
+        }
+        if (!data || data.length === 0) break;
+
+        names.push(...data.map(r => r.app_name));
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
 
     // Deduplicate
-    const unique = [...new Set((data || []).map(r => r.app_name))];
-    return unique;
+    return [...new Set(names)];
 }
 
 export async function updateAppTypeForAppName(appName, appType) {
@@ -574,34 +623,66 @@ export async function updateAppNameForTxid(txid, appName, appType) {
     }
 }
 
+/**
+ * Must page (issue #227). The old `.limit(10000)` read as a generous ceiling but PostgREST
+ * caps at 1000 regardless, so a busy day's tail vanished with no error.
+ */
 export async function getTransactionsByDate(date) {
-    const { data, error } = await supabase
-        .from('revenue_transactions')
-        .select('*')
-        .eq('date', date)
-        .limit(10000);
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getTransactionsByDate error: ${error.message}`);
-        return [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('*')
+            .eq('date', date)
+            // Paging needs a total order or Postgres may repeat/skip rows between pages.
+            .order('id', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getTransactionsByDate error: ${error.message}`);
+            return rows;
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
-    return data || [];
+
+    return rows;
 }
 
+// Must page — same cap as getTransactionsByDate above (issue #227).
 export async function getTransactionsByBlockRange(startBlock, endBlock) {
-    const { data, error } = await supabase
-        .from('revenue_transactions')
-        .select('*')
-        .gte('block_height', startBlock)
-        .lte('block_height', endBlock)
-        .order('block_height', { ascending: false })
-        .limit(10000);
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
 
-    if (error) {
-        log.error(`getTransactionsByBlockRange error: ${error.message}`);
-        return [];
+    while (true) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('*')
+            .gte('block_height', startBlock)
+            .lte('block_height', endBlock)
+            .order('block_height', { ascending: false })
+            .order('id', { ascending: true }) // tiebreak: block_height is not unique
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) {
+            log.error(`getTransactionsByBlockRange error: ${error.message}`);
+            return rows;
+        }
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
     }
-    return data || [];
+
+    return rows;
 }
 
 export async function getRevenueForDateRange(startDate, endDate) {
@@ -1541,16 +1622,26 @@ export async function getReposByCategory(category) {
     return data || [];
 }
 
+/**
+ * The image list comes from the get_distinct_repos RPC, never from scanning rows.
+ *
+ * repo_snapshots holds one row per image per day — hundreds of images across 800+ days is
+ * hundreds of thousands of rows, and an unpaged select of them stopped at db-max-rows
+ * (1000), i.e. a handful of days of a single image. Because that truncated read could never
+ * drain a backlog bigger than the cap, this ran on every boot forever without finishing
+ * (issue #222). DISTINCT is server-side and bounded: hundreds of rows, no paging needed.
+ */
 export async function backfillRepoCategories() {
-    const { data: rows, error } = await supabase
+    const { count, error } = await supabase
         .from('repo_snapshots')
-        .select('image_name')
+        .select('image_name', { count: 'exact', head: true })
         .is('category', null);
 
-    if (error || !rows || rows.length === 0) return 0;
+    if (error || !count) return 0;
 
-    // Deduplicate
-    const uniqueImages = [...new Set(rows.map(r => r.image_name))];
+    const uniqueImages = await getDistinctRepos();
+    if (uniqueImages.length === 0) return 0;
+
     let updated = 0;
 
     for (const imageName of uniqueImages) {
@@ -1576,12 +1667,10 @@ export async function recategorizeAllRepos() {
         .update({ category: null })
         .neq('id', 0); // update all
 
-    // Get all distinct images
-    const { data: rows } = await supabase
-        .from('repo_snapshots')
-        .select('image_name');
-
-    const uniqueImages = [...new Set((rows || []).map(r => r.image_name))];
+    // Distinct images via the RPC, not a row scan — see backfillRepoCategories(). Scanning
+    // rows here was worse than lossy: every category was nulled above, then only the images
+    // that happened to appear in the first 1000 rows got one back (issue #222).
+    const uniqueImages = await getDistinctRepos();
     const counts = {};
 
     for (const imageName of uniqueImages) {

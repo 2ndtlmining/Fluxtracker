@@ -234,7 +234,10 @@
 
       // Page through every transaction. Asking for all of them in one request looked like
       // it worked but the server caps the page size, so exports were silently truncated.
-      const PAGE_SIZE = 5000;
+      // 1000 is the largest page the API will serve (PostgREST's db-max-rows) — asking for
+      // more just got clamped, while totalPages was computed from the number we asked for,
+      // so the loop stopped 4/5 of the way through (issue #158).
+      const PAGE_SIZE = 1000;
       const allTransactions = [];
       let page = 1;
       let totalPages = 1;
