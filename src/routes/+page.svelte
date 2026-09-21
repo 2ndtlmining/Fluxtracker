@@ -49,6 +49,8 @@
   // Gaming breakdown for the App Instances card (issue #163). Null until loaded, so the
   // card omits the section entirely rather than flashing a zero.
   let gamingData = null;
+  // Deployment fill (issue #200) — live, not snapshotted, so it is fetched like gaming data.
+  let deploymentFill = null;
   let appsActivityLoading = true;
   
   // Comparison period toggle
@@ -168,7 +170,8 @@
     fetchBusiestNode(),
     fetchDecentralization(),
     fetchAppsActivity(),
-    fetchGaming()
+    fetchGaming(),
+    fetchDeploymentFill()
   ]);
 
   prefetchComparisons();
@@ -187,6 +190,7 @@ async function refreshAll() {
   await fetchComparison(comparisonPeriod);
   await fetchAppsActivity();
   await fetchGaming();
+  await fetchDeploymentFill();
 }
 
 async function fetchBusiestNode() {
@@ -230,6 +234,20 @@ async function fetchDecentralization() {
 // Top games plus the network-wide gaming total. `days` drives the comparison window and
 // follows the dashboard's period toggle, so the gaming arrows agree with every other
 // comparison on the page rather than silently using a different baseline.
+// Deployment fill: ordered vs actually running (issue #200). Live only -- it reads the
+// shared running-apps census and the specs cache, neither of which is snapshotted, so there
+// is no history to compare against and no arrow to render.
+async function fetchDeploymentFill() {
+  try {
+    const response = await fetch(`${API_URL}/api/apps/deployment-fill`);
+    const data = await response.json();
+    if (data && !data.error) deploymentFill = data;
+  } catch (error) {
+    // Leave the previous value standing; the card falls back to the container count.
+    console.error('Error fetching deployment fill:', error);
+  }
+}
+
 async function fetchGaming() {
   try {
     const response = await fetch(`${API_URL}/api/games/live?limit=3&days=${comparisonDays(comparisonPeriod)}`);
@@ -495,6 +513,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         deployedComparison={appsDeployedComparison}
         expiringToday={appsActivity?.expiring24h?.cached ? appsActivity.expiring24h.count : null}
         expiringComparison={appsExpiringComparison}
+        fill={deploymentFill}
         gamingTotal={gamingData?.total ?? null}
         gamingPrevious={gamingData?.previousTotal ?? null}
         topGames={gamingData?.games ?? []}

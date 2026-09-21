@@ -20,6 +20,7 @@ import {
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
+import { getRunningApps, computeDeploymentFill } from '../../lib/services/runningAppsProvider.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -33,6 +34,7 @@ const categoryCache = createCache(300_000);   // 5 min
 // Matches the running-apps payload's own ~60s TTL -- caching longer here would just serve
 // a stale copy of data the provider has already refreshed.
 const gamesCache = createCache(60_000);       // 60s
+const fillCache = createCache(60_000);        // 60s -- issue #200
 
 // repo_snapshots stores one row per Docker image, but a game usually ships as several
 // images (Minecraft Java + Bedrock, three Valheim images, two Rust images). Users think
@@ -199,6 +201,54 @@ router.get('/games/live', async (req, res) => {
                 ? previousRows.reduce((sum, r) => sum + r.instance_count, 0)
                 : undefined,
             fetchedAt: breakdown.fetchedAt
+        };
+    });
+});
+
+/**
+ * GET /api/apps/deployment-fill — how many ordered deployments are actually running (#200).
+ *
+ * Reads the shared running-apps census (one fetch per cycle, TTL-cached) and the app specs
+ * cache, so it adds no upstream call of its own.
+ *
+ * `containers` and `deployments` are BOTH reported because the gap between them is the
+ * compose factor and is meaningful in itself: a compose app runs one container per component
+ * but is one deployment on one node. Reporting only containers is what made the Apps card
+ * read ~14% high against the word "instances".
+ *
+ * ?limit=N caps the shortfall breakdown; 0 omits it.
+ */
+router.get('/apps/deployment-fill', async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 0, 0), 100);
+
+    return withDbFallback(fillCache, `fill:${limit}`, res, async () => {
+        const apps = await getRunningApps();
+        const fill = computeDeploymentFill(apps.deploymentCounts);
+
+        // null means the specs cache was empty -- a failed fetch, not a network that ordered
+        // nothing. Say so rather than serving a 0% that reads as a total outage.
+        if (!fill) {
+            return {
+                available: false,
+                containers: apps.totalInstances - apps.watchtowerCount,
+                deployments: null,
+                fetchedAt: apps.fetchedAt
+            };
+        }
+
+        return {
+            available: true,
+            ordered: fill.ordered,
+            running: fill.running,
+            missing: fill.missing,
+            fillPct: fill.fillPct,
+            // Containers minus watchtower, matching how total_apps is derived, so the two
+            // figures on the card cannot disagree.
+            containers: apps.totalInstances - apps.watchtowerCount,
+            deployments: [...apps.deploymentCounts.values()].reduce((sum, n) => sum + n, 0),
+            appsShort: fill.shortfalls.length,
+            shortfalls: limit > 0 ? fill.shortfalls.slice(0, limit) : [],
+            fetchedAt: apps.fetchedAt
         };
     });
 });

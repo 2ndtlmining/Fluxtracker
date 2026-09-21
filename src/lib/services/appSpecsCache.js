@@ -152,6 +152,17 @@ export function resolveRunningAppName(containerName) {
     return null;
 }
 
+/**
+ * Every cached app spec, for callers that need to reason about what was ORDERED rather than
+ * what is running -- the deployment-fill calculation (issue #200) is the only one so far.
+ *
+ * Returns the specs as they came from globalappsspecifications; `instances` is the field that
+ * matters and is present on effectively all of them (1,707 of 1,709 measured 2026-09-21).
+ */
+export function getAllAppSpecs() {
+    return [...globalSpecsCache.specByName.values()];
+}
+
 /** Test hook — drops the cached payload. */
 export function clearGlobalSpecsCache() {
     globalSpecsCache.map.clear();

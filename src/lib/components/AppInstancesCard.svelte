@@ -6,6 +6,20 @@
   export let totalApps = 0;
   export let totalComparison = null; // { change: number, trend: 'up'|'down'|'neutral' } | null
 
+  // Deployment fill (issue #200): how many of the deployments app owners ORDERED are running.
+  // { available, ordered, running, missing, fillPct, containers, appsShort } | null.
+  //
+  // This leads the card because it is the one figure that moves when the app layer is
+  // unhealthy -- when there is no capacity, when nodes go down, when a deploy is failing.
+  // The container count stays, relabelled: it is the honest measure of actual workload, and
+  // the gap between it and deployments IS the compose factor, so the two are not redundant.
+  //
+  // null, or available:false, falls back to leading with the container count -- an empty
+  // specs cache is a failed fetch, not a network running nothing, and 0% would read as a
+  // total outage.
+  export let fill = null;
+  $: hasFill = fill && fill.available && typeof fill.fillPct === 'number';
+
   // New/updated + expiring today (issue #108 follow-up) -- deduped counts from
   // carouselService.getFluxCloudActivity(), the same function the KPI report and the
   // daily snapshot collector use. null means "not available" (an uncached on-demand
@@ -63,7 +77,7 @@
 <div class="app-instances-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Package size={24} strokeWidth={2} /></div>
-    <div class="card-title">App Instances</div>
+    <div class="card-title">Apps</div>
   </div>
 
   {#if loading}
@@ -71,8 +85,19 @@
   {:else}
     <div class="headline-row">
       <div class="total-block">
-        <div class="total-value">{formatNumber(totalApps)}</div>
-        <div class="total-subtitle">Across the network</div>
+        {#if hasFill}
+          <div class="total-value">{fill.fillPct.toFixed(1)}%</div>
+          <div class="total-subtitle">{formatNumber(fill.running)} of {formatNumber(fill.ordered)} ordered</div>
+          <div
+            class="container-line"
+            title="A compose app runs one container per component, so the network runs more containers than deployments."
+          >
+            {formatNumber(fill.containers ?? totalApps)} containers
+          </div>
+        {:else}
+          <div class="total-value">{formatNumber(totalApps)}</div>
+          <div class="total-subtitle">containers across the network</div>
+        {/if}
         {#if totalComparison && totalComparison.change !== undefined}
           <div class="metric-change" class:up={totalComparison.trend === 'up'} class:down={totalComparison.trend === 'down'} class:neutral={totalComparison.trend === 'neutral'}>
             {#if totalComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if totalComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
@@ -237,6 +262,15 @@
     font-size: 0.875rem;
     color: var(--text-dim);
     font-weight: 500;
+  }
+
+  /* The container count keeps its place but stops competing with the fill headline. */
+  .container-line {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+    margin-top: 0.125rem;
+    cursor: help;
   }
 
   .activity-metric {

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS, categorizeImage, getCanonicalName, resolveGameFromAppName, isGameHelperComponent } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
-import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
+import { ensureGlobalSpecsCache, resolveRunningAppName, getAllAppSpecs } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('runningAppsProvider');
@@ -51,6 +51,11 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
     // is most of several games. One entry per CONTAINER, so a container both paths can
     // identify is counted once, not twice.
     const gameCounts = new Map();
+    // Deployments per app (issue #200): how many NODES each app runs on, which is a
+    // different unit from the container count above. A compose app runs one container per
+    // component but is ONE deployment on ONE node, so owncloudoffice's six components
+    // contribute 6 containers and 1 deployment. Network-wide the gap is ~14%.
+    const deploymentCounts = new Map();
     let totalInstances = 0;
     let unresolvedCount = 0;
     let watchtowerCount = 0;
@@ -58,6 +63,10 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
     for (const node of nodes) {
         const runningApps = node?.apps?.runningapps;
         if (!Array.isArray(runningApps)) continue;
+
+        // App names seen on THIS node, so each app counts once per node however many
+        // containers it runs there.
+        const appsOnThisNode = new Set();
 
         for (const app of runningApps) {
             const containerName = app?.Names?.[0];
@@ -77,6 +86,7 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
             // (mariadb, operator, the companion website) would otherwise each count as an
             // instance of the game -- 84 FiveM "instances" for 12 actual game servers.
             const { component, appName } = parseContainerName(containerName);
+            if (appName) appsOnThisNode.add(appName.toLowerCase());
             const nameGame = isGameHelperComponent(component) ? null : resolveGameFromAppName(appName);
 
             const resolved = resolveRunningAppName(containerName);
@@ -94,6 +104,8 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
                 || (categorizeImage(resolved.repotag) === 'gaming' ? getCanonicalName(resolved.repotag) : null);
             if (game) tally(gameCounts, game);
         }
+
+        for (const name of appsOnThisNode) tally(deploymentCounts, name);
     }
 
     // A globalappsspecifications outage (or an open 'global-apps-specs' circuit breaker)
@@ -116,7 +128,7 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
         watchtowerCount
     );
 
-    return { imageCounts, gameCounts, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
+    return { imageCounts, gameCounts, deploymentCounts, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
 }
 
 function tally(map, key) {
@@ -233,4 +245,75 @@ export function countGamingInstances(runningApps) {
 export function clearRunningAppsCache() {
     cache = null;
     inFlight = null;
+}
+
+/**
+ * Deployment fill (issue #200): how many of the deployments app owners ordered are running.
+ *
+ *   ordered = sum of spec.instances across globalappsspecifications
+ *   running = sum of min(deployments_running, spec.instances) per app
+ *   fill %  = running / ordered
+ *
+ * Four rules, each of which produced a wrong-but-plausible number when it was got wrong:
+ *
+ * DIVIDE DEPLOYMENTS BY DEPLOYMENTS. `containers / ordered instances` reads a comfortable
+ * 96% and is not a fill rate at all -- a perfectly filled network would read ~111%, because
+ * it would run more containers than instances ordered (compose apps run several containers
+ * each). A percentage that cannot reach 100 when everything is correct is measuring the
+ * compose factor, not fill.
+ *
+ * DO NOT USE instances x components AS THE DENOMINATOR. It is unit-correct but `compose` is
+ * encrypted for enterprise apps -- readable for roughly 1,022 of 1,709 specs -- so that
+ * denominator is a floor and the figure a permanent ceiling. Deployments need no component
+ * count at all.
+ *
+ * CAP EACH APP AT WHAT IT ORDERED. An app running 4 against 3 is filled, not 133%. Without
+ * the cap one over-deployed app silently offsets another's shortfall and the headline says
+ * everything is fine.
+ *
+ * IGNORE APPS WITH NO SPEC. A lapsed registration keeps running (26 such names measured
+ * 2026-09-21) but nobody ordered it, so counting it would add to the numerator against a
+ * denominator it never contributed to.
+ *
+ * Returns null when no specs are loaded: an empty cache is a failed fetch, not a network
+ * that ordered nothing, and 0% would render as a catastrophic outage.
+ */
+export function computeDeploymentFill(deploymentCounts) {
+    const specs = getAllAppSpecs();
+    if (!specs || specs.length === 0) return null;
+
+    const counts = deploymentCounts instanceof Map ? deploymentCounts : new Map();
+
+    let ordered = 0;
+    let running = 0;
+    const shortfalls = [];
+
+    for (const spec of specs) {
+        const wanted = spec?.instances;
+        // No instances field is absence of information, not an order for zero.
+        if (typeof wanted !== 'number' || wanted <= 0) continue;
+
+        ordered += wanted;
+
+        const got = counts.get((spec.name || '').toLowerCase()) || 0;
+        const counted = Math.min(got, wanted);
+        running += counted;
+
+        if (counted < wanted) {
+            shortfalls.push({ name: spec.name, ordered: wanted, running: got, short: wanted - counted });
+        }
+    }
+
+    if (ordered === 0) return null;
+
+    // Sorted worst-first so a breakdown leads with the apps that actually move the figure.
+    shortfalls.sort((a, b) => b.short - a.short);
+
+    return {
+        ordered,
+        running,
+        missing: ordered - running,
+        fillPct: (running / ordered) * 100,
+        shortfalls
+    };
 }
