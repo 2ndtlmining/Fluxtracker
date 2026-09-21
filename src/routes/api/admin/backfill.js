@@ -17,6 +17,44 @@ import { backfillLockedCollateral } from '../../../lib/db/collateralBackfill.js'
 const log = createLogger('server');
 const router = express.Router();
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Inclusive day count, so the default window is exactly the 365 days ending at `to` --
+// the same span the hardcoded version produced.
+const DEFAULT_BACKFILL_DAYS = 365;
+
+/** A UTC date string `days` before `fromMs`, as YYYY-MM-DD. */
+function utcDaysAgo(fromMs, days) {
+    return new Date(fromMs - days * 86400000).toISOString().split('T')[0];
+}
+
+/**
+ * The date range POST /api/admin/backfill should fill (issue #218).
+ *
+ * The endpoint used to ignore its body and always rewrite the last 365 days, so repairing
+ * one known-bad week meant reprocessing a year. `from`/`to` are now honoured, with that
+ * window kept as the default, and every boundary is computed in UTC -- snapshot_date is a
+ * UTC date string, and deriving a default from local date parts is a day off for half the
+ * world. Throws on a bad range rather than falling back to the year-long default.
+ */
+export function resolveBackfillRange({ from, to } = {}) {
+    for (const [name, value] of [['from', from], ['to', to]]) {
+        if (value === undefined || value === null) continue;
+        if (typeof value !== 'string' || !DATE_RE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+            throw new Error(`Invalid "${name}" date: expected YYYY-MM-DD, got ${value}`);
+        }
+    }
+
+    const now = Date.now();
+    const resolvedTo = to ?? utcDaysAgo(now, 1);
+    const resolvedFrom = from ?? utcDaysAgo(Date.parse(`${resolvedTo}T00:00:00Z`), DEFAULT_BACKFILL_DAYS - 1);
+
+    if (Date.parse(`${resolvedFrom}T00:00:00Z`) > Date.parse(`${resolvedTo}T00:00:00Z`)) {
+        throw new Error(`"from" (${resolvedFrom}) must be on or before "to" (${resolvedTo})`);
+    }
+
+    return { from: resolvedFrom, to: resolvedTo };
+}
+
 // Backfill app_type (git/docker) for existing transactions
 router.post('/backfill-app-types', async (req, res) => {
     try {
@@ -66,24 +104,23 @@ router.post('/backfill-usd', async (req, res) => {
     }
 });
 
-// NEW: Backfill snapshots endpoint
+// Backfill revenue-only daily_snapshots rows. Body: { from?, to? } as YYYY-MM-DD;
+// defaults to the year ending yesterday (UTC). Only daily_revenue is written -- every
+// other column is left NULL (issue #218).
 router.post('/backfill', async (req, res) => {
+    let range;
     try {
-        log.info('backfill triggered via API');
+        range = resolveBackfillRange(req.body);
+    } catch (error) {
+        // A bad range is the caller's mistake, not a server failure -- and answering 500
+        // here previously meant falling through to a silent 365-day rewrite.
+        return res.status(400).json({ success: false, error: error.message });
+    }
 
-        // Calculate dynamic date range
-        const toDate = new Date();
-        toDate.setDate(toDate.getDate() - 1); // Yesterday
-        const toDateStr = toDate.toISOString().split('T')[0];
+    try {
+        log.info({ from: range.from, to: range.to }, 'backfill triggered via API');
 
-        const fromDate = new Date();
-        fromDate.setDate(fromDate.getDate() - 365); // 365 days ago
-        const fromDateStr = fromDate.toISOString().split('T')[0];
-
-        log.info({ from: fromDateStr, to: toDateStr }, 'backfilling date range');
-
-        // Run the backfill
-        const result = await backfillRevenueSnapshots(fromDateStr, toDateStr);
+        const result = await backfillRevenueSnapshots(range.from, range.to);
 
         log.info({ created: result.created, skipped: result.skipped }, 'backfill complete');
 
@@ -92,10 +129,7 @@ router.post('/backfill', async (req, res) => {
             message: 'Backfill completed successfully',
             created: result.created,
             skipped: result.skipped,
-            dateRange: {
-                from: fromDateStr,
-                to: toDateStr
-            }
+            dateRange: range
         });
     } catch (error) {
         log.error({ err: error }, 'backfill failed');
