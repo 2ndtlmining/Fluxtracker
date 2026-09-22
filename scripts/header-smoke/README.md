@@ -33,7 +33,7 @@ timing changes) are caught mechanically.
   done
   ```
 
-  The first fixture (palworld) has no art of its own, so every run also covers the shared
+  The first fixture (enshrouded) has no art of its own, so every run also covers the shared
   controller fallback.
 - Build version renders `--accent-green`, codename `--accent-purple`
 - Mobile (375px): exactly 6 mobile rows, no wrapping

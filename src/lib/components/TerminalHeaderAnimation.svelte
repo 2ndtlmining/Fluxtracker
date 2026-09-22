@@ -31,6 +31,9 @@
     dragonFrameKinds,
     DRAGON_FRAME_COUNT,
     formatMinecraftFrame,
+  formatPalworldFrame,
+  palworldFrameKinds,
+  PALWORLD_FRAME_COUNT,
     minecraftFrameKinds,
     MINECRAFT_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
@@ -101,6 +104,15 @@
     // The key is the exact string resolveGameFromAppName() returns (#162 named it for
     // Flux's games hub). 'Runescape' or 'RuneScape' silently falls through to the gamepad
     // with no error, so it is spelled out here in full rather than derived.
+    // Second by live instances, and until now the only game in the top four without art of
+    // its own. The key is what resolveGameFromAppName() returns for the 'palworld' app-name
+    // prefix -- app names rather than repotags, because most Palworld deployments are
+    // enterprise-encrypted and carry no readable image.
+    Palworld: {
+      frameCount: PALWORLD_FRAME_COUNT,
+      format: formatPalworldFrame,
+      kinds: palworldFrameKinds
+    },
     'RuneScape: Dragonwilds': {
       frameCount: DRAGON_FRAME_COUNT,
       format: formatDragonFrame,

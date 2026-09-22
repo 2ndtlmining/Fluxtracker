@@ -605,6 +605,106 @@ export function minecraftFrameKinds() {
   return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
 }
 
+// =======================================================================================
+// Palworld -- a Pal on the grass, watching a sphere arc in.
+//
+// Second by live instances (227 against Dragonwilds' 258) and until now the only game in
+// the top four with no art of its own, so every Palworld deployment played the shared
+// controller. Adding it takes per-game coverage from 61% to 93% of running game instances.
+//
+// Structurally the longship again: two ground strips rotated at different periods for
+// parallax, a creature overlaid onto a fixed-width canvas with the same two-row bob, and
+// sky furniture that exists to keep rows non-empty rather than for decoration. That shape
+// is shipped, tested and proven against the box invariants, so this is art plus a registry
+// entry rather than new frame-assembly logic.
+//
+// The registry key is 'Palworld', which is what resolveGameFromAppName() returns for the
+// `palworld` app-name prefix -- app names, not repotags, because most Palworld deployments
+// are enterprise-encrypted and carry no readable image.
+// =======================================================================================
+
+// Grass, in the water's role. Two different periods so the rows never march in step.
+const GRASS_FAR = waveStrip('..^..,..');
+const GRASS_NEAR = waveStrip('.,..^...,');
+
+// The Pal, authored row by row. Rows are NOT padded to a common width on purpose: each is
+// overlaid at its own column, so only the canvas has a width and the art can never set it.
+const PAL_EARS = '(' + BSLASH + '_/)';
+const PAL_FACE = '(o.o)';
+const PAL_FEET = '(")_(")';
+const PAL_ROWS = [PAL_EARS, PAL_FACE, PAL_FEET];
+// Left column per row, chosen so the three rows centre on the body.
+const PAL_COLUMNS = [23, 23, 22];
+
+// Same bob as the hull and the dragon: rides at row offset 0 or 1, changing every two
+// steps. At offset 1 the feet land ON the far grass row and are overlaid into it, which
+// reads as the Pal standing in the grass rather than hovering above it.
+const PAL_BOB = [0, 0, 1, 1, 0, 0, 1, 1];
+const PAL_TOP_ROW = 1;
+
+// The sphere arcs in from the left: one column further along each step, on a path that
+// rises and falls. Both arrays are indexed by the WRAPPED step, so the throw repeats
+// exactly rather than drifting out of sync with the bob.
+const SPHERE = '(o)';
+const SPHERE_COLUMNS = [1, 4, 7, 10, 12, 14, 16, 18];
+const SPHERE_ROWS = [3, 2, 1, 1, 1, 2, 3, 3];
+
+// Sky furniture, load-bearing rather than decorative: a frame with a genuinely empty row is
+// the one thing the header smoke harness rejects outright. Row 0 always carries a drifting
+// wisp because the Pal never reaches it. Row 1's is drawn ONLY when the Pal has bobbed down
+// and vacated that row -- drawing it otherwise puts a cloud through the Pal's ears.
+const WISP_TOP = '~~';
+const WISP_TOP_COLUMN = 5;
+const WISP_TOP_DRIFT = 2;
+const WISP_SECOND = '~';
+const WISP_SECOND_COLUMN = 30;
+
+export const PALWORLD_FRAME_COUNT = PAL_BOB.length;
+
+/**
+ * One frame of the Pal and the sphere, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH.
+ * @param {number} step index into the sequence; wraps, so callers can just count up.
+ */
+export function formatPalworldFrame(step = 0) {
+  const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
+  const bob = PAL_BOB[index];
+
+  const blank = ' '.repeat(LOGO_WIDTH);
+  const rows = Array(BOOT_LINE_COUNT).fill(blank);
+
+  // Grass fills the bottom two rows, the near one rotating the other way and at half the
+  // rate, so the two never line up into one marching stripe.
+  rows[BOOT_LINE_COUNT - 2] = rotateStrip(GRASS_FAR, index);
+  rows[BOOT_LINE_COUNT - 1] = rotateStrip(GRASS_NEAR, -Math.floor(index / 2));
+
+  // Sky before the Pal, so the Pal paints over a wisp rather than the other way round.
+  rows[0] = overlayAt(rows[0], (WISP_TOP_COLUMN + WISP_TOP_DRIFT * index) % LOGO_WIDTH, WISP_TOP);
+  if (bob === 1) {
+    rows[1] = overlayAt(rows[1], WISP_SECOND_COLUMN, WISP_SECOND);
+  }
+
+  // The sphere, before the Pal for the same reason -- a sphere that landed on the Pal's
+  // face would read as a rendering fault rather than a throw.
+  rows[SPHERE_ROWS[index]] = overlayAt(rows[SPHERE_ROWS[index]], SPHERE_COLUMNS[index], SPHERE);
+
+  PAL_ROWS.forEach((art, palRow) => {
+    const target = PAL_TOP_ROW + palRow + bob;
+    if (target >= BOOT_LINE_COUNT) return;
+    rows[target] = overlayAt(rows[target], PAL_COLUMNS[palRow], art);
+  });
+
+  return rows;
+}
+
+/**
+ * Row kinds for a Palworld frame. Same call as the longship's and the gamepad's: the whole
+ * frame carries the green deployment accent, because here the art IS the event marker --
+ * accenting only part of it would read as a rendering fault.
+ */
+export function palworldFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
 function formatDetailLine(label, value) {
