@@ -145,12 +145,15 @@
 <div class="carousel-container">
   <div class="carousel-header">
     <div class="header-content">
+      <!-- The icon carries the mode's own colour, matching the accent each view already
+           uses in its rows: green for a new deployment, orange for time running out,
+           purple for a gap in coverage. Network stats keep the card's default cyan. -->
       {#if viewMode === 'deployed'}
-        <Package size={20} class="header-icon" />
+        <Package size={20} class="header-icon icon-deployed" />
       {:else if viewMode === 'expiring'}
-        <Hourglass size={20} class="header-icon" />
+        <Hourglass size={20} class="header-icon icon-expiring" />
       {:else if viewMode === 'missing'}
-        <TriangleAlert size={20} class="header-icon" />
+        <TriangleAlert size={20} class="header-icon icon-missing" />
       {:else}
         <TrendingUp size={20} class="header-icon" />
       {/if}
@@ -320,6 +323,24 @@
     color: var(--accent-cyan);
     filter: drop-shadow(0 0 4px var(--accent-cyan));
     flex-shrink: 0;
+  }
+
+  /* Per-view colours. The glow is redeclared with each one, not inherited: `filter` takes a
+     colour literal, not `currentColor`, so leaving it out would keep the cyan halo around a
+     green icon. */
+  :global(.header-icon.icon-deployed) {
+    color: var(--accent-green);
+    filter: drop-shadow(0 0 4px var(--accent-green));
+  }
+
+  :global(.header-icon.icon-expiring) {
+    color: var(--accent-orange);
+    filter: drop-shadow(0 0 4px var(--accent-orange));
+  }
+
+  :global(.header-icon.icon-missing) {
+    color: var(--accent-purple);
+    filter: drop-shadow(0 0 4px var(--accent-purple));
   }
 
   .view-toggle {

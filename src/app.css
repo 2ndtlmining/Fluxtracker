@@ -27,6 +27,7 @@
   --accent-blue: #00d9ff;
   --accent-green: #00ff41;        /* Success/positive */
   --accent-yellow: #ffeb3b;       /* Warning */
+  --accent-orange: #f97316;       /* Expiring/time-limited */
   --accent-red: #ff4444;          /* Error/negative */
   --accent-purple: #bd93f9;       /* Special */
   
