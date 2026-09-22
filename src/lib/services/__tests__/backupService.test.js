@@ -123,6 +123,11 @@ describe('Backup Service', () => {
         });
 
         it('returns error when R2 is not configured', async () => {
+            // DB_TYPE is pinned because performBackup() short-circuits with "Backup
+            // disabled in SQLite mode" before it ever looks at the R2 settings. Left to the
+            // ambient environment this test passes on a developer machine and fails in CI,
+            // or vice versa, depending on whether a .env file happens to be present.
+            vi.stubEnv('DB_TYPE', 'supabase');
             clearR2Env();
             const { performBackup } = await import('../backupService.js');
 
@@ -470,6 +475,7 @@ describe('Backup Service', () => {
         });
 
         it('returns error when R2 is not configured', async () => {
+            vi.stubEnv('DB_TYPE', 'supabase');
             clearR2Env();
             const { restoreFromBackup } = await import('../backupService.js');
 

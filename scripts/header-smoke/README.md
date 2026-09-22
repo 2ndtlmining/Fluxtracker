@@ -94,6 +94,28 @@ node scripts/header-smoke/check-header.mjs    # terminal 3 — exits 0 when all 
 stub — the browser calls same-origin relative paths, exactly like real usage. Issue #125's
 CSP (`connect-src 'self'`) blocks a cross-origin `VITE_API_URL` override.
 
+### On a dev server that has never served the page
+
+`boot text appears at boot start` asserts `firstText < 1500ms`. A cold Vite dev server
+compiles each module on first request, and the boot animation cannot start until the client
+bundle is fetched, compiled and hydrated — a clean CI runner measured **2324ms** and failed
+that check for a delay that belongs entirely to the dev server and does not exist in the
+adapter-node build that ships. On a dev server you have already been using, it never comes
+up.
+
+`warm-dev-server.mjs` loads the page once and discards it, so the measured run measures the
+app. Restart the stub afterwards: the warm-up consumes its first carousel call, and the stub
+deliberately switches to a second fixture app after that call — which is exactly what the
+freshness checks look for.
+
+```bash
+node scripts/header-smoke/warm-dev-server.mjs   # after both servers are up
+# restart stub-api.mjs, then run check-header.mjs
+```
+
+Locally, `firstText` went 2324ms (cold) → 1054ms (warm) with all 29 checks passing.
+`.github/workflows/header-smoke.yml` does exactly this sequence.
+
 Env overrides: `BASE_URL`, `STUB_URL`, `BROWSER_PATH` (defaults to the first of
 Edge/Chrome found), `SAMPLE_MS`, `STUB_PORT`. Takes ~2 minutes (waits for the second
 30s header poll to serve the stub's updated fixtures, then for the rotation to reach
