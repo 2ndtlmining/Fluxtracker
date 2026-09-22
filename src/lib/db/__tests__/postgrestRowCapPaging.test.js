@@ -16,13 +16,16 @@ const HARD_CAP = 1000;
 const tables = {
     daily_snapshots: [],
     revenue_transactions: [],
-    repo_snapshots: []
+    repo_snapshots: [],
+    node_ip_classification: []
 };
 
 /** Every `.update()` the adapter issues, so the category tests can assert what was touched. */
 let updates = [];
 /** Distinct image list the get_distinct_repos RPC returns. */
 let distinctRepos = [];
+/** Rows each set-returning RPC serves, keyed by RPC name. */
+let rpcRows = {};
 
 vi.mock('../supabaseClient.js', () => {
     const from = (table) => {
@@ -31,6 +34,7 @@ vi.mock('../supabaseClient.js', () => {
             _update: null,
             _eqImage: null,
             _head: false,
+            _ordered: false,
             select: (_cols, opts) => {
                 if (opts?.head) chain._head = true;
                 return chain;
@@ -44,13 +48,20 @@ vi.mock('../supabaseClient.js', () => {
             is: () => chain,
             gte: () => chain,
             lte: () => chain,
-            order: () => chain,
+            order: () => {
+                chain._ordered = true;
+                return chain;
+            },
             limit: () => chain,
             update: (patch) => {
                 chain._update = patch;
                 return chain;
             },
             range: (fromIdx, toIdx) => {
+                // Offset paging with no ORDER BY can skip or repeat rows between pages (#313).
+                if (!chain._ordered) {
+                    return Promise.resolve({ data: null, error: { message: `unordered .range() on ${table}` } });
+                }
                 const all = chain._rows();
                 const width = Math.min(toIdx - fromIdx + 1, HARD_CAP);
                 return Promise.resolve({ data: all.slice(fromIdx, fromIdx + width), error: null });
@@ -71,11 +82,22 @@ vi.mock('../supabaseClient.js', () => {
         return chain;
     };
 
+    // RPC results are capped exactly like table reads -- this mock used to hand back the whole
+    // distinct-image list in one go, which is how #304 passed its own regression test.
     const rpc = (name) => {
-        if (name === 'get_distinct_repos') {
-            return Promise.resolve({ data: distinctRepos.map(image_name => ({ image_name })), error: null });
-        }
-        return Promise.resolve({ data: null, error: { message: `unmocked rpc ${name}` } });
+        const rows = name === 'get_distinct_repos'
+            ? distinctRepos.map(image_name => ({ image_name }))
+            : rpcRows[name];
+        const result = (data) => rows === undefined
+            ? { data: null, error: { message: `unmocked rpc ${name}` } }
+            : { data, error: null };
+        return {
+            range: (fromIdx, toIdx) => {
+                const width = Math.min(toIdx - fromIdx + 1, HARD_CAP);
+                return Promise.resolve(result((rows || []).slice(fromIdx, fromIdx + width)));
+            },
+            then: (resolve) => Promise.resolve(result((rows || []).slice(0, HARD_CAP))).then(resolve)
+        };
     };
 
     return { supabase: { from, rpc } };
@@ -93,8 +115,10 @@ beforeEach(() => {
     tables.daily_snapshots = [];
     tables.revenue_transactions = [];
     tables.repo_snapshots = [];
+    tables.node_ip_classification = [];
     updates = [];
     distinctRepos = [];
+    rpcRows = {};
 });
 
 describe('daily_snapshots reads page past the 1000-row cap (issue #217)', () => {
@@ -177,5 +201,80 @@ describe('repo category writes cover every distinct image (issue #222)', () => {
         const touched = new Set(updates.filter(u => u.imageName).map(u => u.imageName));
         expect(touched.size).toBe(1200);
         expect(count).toBe(1200);
+    });
+
+    it('recategorizeAllRepos never blanks the whole table first (issue #304)', async () => {
+        // The old code nulled every row, then restored what the capped RPC returned. Every
+        // write must now target one image -- a crash midway leaves no blank categories.
+        distinctRepos = [...images(3), 'nothing/matches-this'];
+
+        await adapter.recategorizeAllRepos();
+
+        expect(updates.every(u => u.imageName)).toBe(true);
+        const unmatched = updates.find(u => u.imageName === 'nothing/matches-this');
+        expect(unmatched.patch).toEqual({ category: null });
+    });
+
+    it('recategorizeAllRepos refuses to run on an empty image list', async () => {
+        distinctRepos = [];
+
+        await expect(adapter.recategorizeAllRepos()).rejects.toThrow(/no images/);
+        expect(updates).toHaveLength(0);
+    });
+});
+
+describe('set-returning RPCs page past the cap (issues #304, #306)', () => {
+    const days = (n) => Array.from({ length: n }, (_, i) => ({
+        date: `d-${String(i).padStart(4, '0')}`, daily_revenue: 1, daily_revenue_usd: 1
+    }));
+
+    it('getDistinctRepos returns every image, not the first 1000', async () => {
+        distinctRepos = Array.from({ length: 1420 }, (_, i) => `img-${i}`);
+
+        const repos = await adapter.getDistinctRepos();
+
+        expect(repos).toHaveLength(1420);
+        expect(repos).toContain('img-1419');
+    });
+
+    it('getDailyRevenueFromTransactions keeps the NEWEST days past 1000 (ascending RPC)', async () => {
+        rpcRows.get_daily_revenue = days(1200);
+
+        const rows = await adapter.getDailyRevenueFromTransactions(9999);
+
+        expect(rows).toHaveLength(1200);
+        expect(rows.at(-1).date).toBe('d-1199');
+    });
+
+    it('getDailyRevenueUSDFromTransactions keeps the newest days too', async () => {
+        rpcRows.get_daily_revenue_usd = days(1200);
+
+        const rows = await adapter.getDailyRevenueUSDFromTransactions(9999);
+
+        expect(rows).toHaveLength(1200);
+    });
+
+    it('getReposByCategory and getCategoryHistory page', async () => {
+        rpcRows.get_repos_by_category = days(1500);
+        rpcRows.get_category_history = days(1500);
+
+        expect(await adapter.getReposByCategory('gaming')).toHaveLength(1500);
+        expect(await adapter.getCategoryHistory('gaming', 1500)).toHaveLength(1500);
+    });
+});
+
+describe('paged reads carry a total order (issue #313)', () => {
+    it('getAllNodeIpClassifications pages with an ORDER BY', async () => {
+        tables.node_ip_classification = Array.from({ length: 2631 }, (_, i) => ({ ip: `ip-${i}`, org: 'x' }));
+
+        const rows = await adapter.getAllNodeIpClassifications();
+
+        expect(rows).toHaveLength(2631);
+    });
+
+    it('getRevenueForBlockRange pages with an ORDER BY', async () => {
+        tables.revenue_transactions = Array.from({ length: 2500 }, (_, i) => ({ id: i, amount: 2 }));
+
+        expect(await adapter.getRevenueForBlockRange(0, 1e9)).toBe(5000);
     });
 });

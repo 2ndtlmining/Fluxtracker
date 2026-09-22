@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-22** (against `main`, live network data, and a full run of the smoke harness)
+**Last reviewed: 2026-09-23** (full site review; issues #261–#331)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,62 +13,39 @@ rule links to an issue.
 
 ## Next up, in order
 
-Every open bug, data-quality and performance issue is now closed. What is left is feature
-work, so the order below is about value rather than urgency — nothing here is bleeding.
+A full review on 2026-09-23 (speed, robustness, polish, header, analytics) filed #261–#331.
+The owner asked for them to be worked in themed PRs, each merged, deployed to the owner's
+instance and verified there before the next one starts. The order is by need: silent data
+loss first, then the header work that has a date on it, then safety, speed, polish, and
+finally the new analysis features.
 
-### 1. #181 — Non-game deployments get their own intro
+| # | PR | Issues | Why here |
+|---|----|--------|----------|
+| 1 | Silent data loss sweep | #304 #306 #313 #305 #315 | Data is being dropped today |
+| 2 | Header foundation + side panel + block milestone | #271 #283 #285 | Block 3,000,000 lands ~2026-10-02 |
+| 3 | Reads that hide errors as zeros | #307 #319 | Stops caching zeros; stops the cards showing them |
+| 4 | Failover, health, container | #308 #310 #309 #316 #312 | Operational safety |
+| 5 | Backup coverage | #311 #314 | History that cannot be re-derived |
+| 6 | Server-side performance | #291 #292 #293 #295 #296 #301 | Memory growth, repeated MB downloads |
+| 7 | Transport / proxy | #300 #298 #302 #322 | Header-smoke gated |
+| 8 | Client load | #297 #299 #303 #294 | First paint |
+| 9 | Polish and accessibility | #320 #321 #323 #324–#331 | |
+| 10 | Header interaction | #282 (hover + click only) #284 #289 | |
+| 11 | Intros, batch 1 | #272 #273 #274 #275 | |
+| 12 | Expiring + non-game fallback | #182 (per-game outros) #181 | |
+| 13 | Intros, batch 2 | #276–#281 | |
+| 14 | Header extras | #286 #287 #288 #290 | |
+| 15 | Analytics quick wins | #261 #266 #267 | Data already stored |
+| 16 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
+| 17 | Built on #262 | #263 #264 #265 | |
+| 18 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
 
-The biggest remaining gap in the header, and the same shape as the four game intros that
-already exist. `introForSlot()` returns null when `resolveGameFromAppName()` does not match,
-so **26% of deployments get no intro at all** — 35 of the 133 in a measured 24 hours
-(`betpro-account`, `geap`, `teamspeak6`, `renderflow`, …). They fall straight through to the
-detail frame while every game gets an animation first.
-
-A Docker whale surfacing, with containers stacking one per instance, is the shape the issue
-proposes. Reuse the longship skeleton like Palworld did: two strips rotated at different
-periods, art overlaid onto a fixed-width canvas, sky furniture so no row is ever empty.
-
-**Before starting:** the harness's first fixture is deliberately a game with *no* art, to
-cover the controller fallback. A non-game intro changes what "no art" means for that fixture
-— check `stub-api.mjs`'s `INITIAL_DEPLOYED` still exercises the fallback it claims to.
-
-### 2. #182 — Expiring apps get their own intro
-
-The same gap on the other side: `introForSlot()` returns null for anything that is not a
-deployment, so expiring slots never get an intro at all. Of the five options in the issue,
-the **fuse** is the one worth building — it reads as time running out without implying
-failure, and it animates as a single travelling spark along a fixed-width strip, which is the
-cheapest possible length-preserving motion.
-
-Note the accent: expiring rows are `--accent-orange`, not the deployment green, so
-`expiringFrameKinds()` is the model rather than `palworldFrameKinds()`.
-
-### 3. #155 — KPI reports via API
-
-No dependencies. The KPI layer is already pure and well tested (`src/lib/kpi/`), and
-`/api/kpi/preview` already returns the full dataset — this is mostly about what a caller is
-allowed to ask for and how it is authenticated, which is the part worth thinking about first
-given the admin API has no auth today.
-
-### 4. #156 — Google Analytics 4
-
-Straightforward, but note the CSP: #131's incident was a hand-set header blocking SvelteKit's
-own inline script. GA4 needs `script-src` and `connect-src` entries in
-`svelte.config.js`'s `kit.csp`, never a header in `hooks.server.js`, and
-`scripts/header-smoke/` is the gate that proves hydration still works afterwards.
-
-### Ideas, not yet issues
-
-- **More per-game art.** After Palworld the top four are covered (93% of running game
-  instances). The next tier is a long tail — FiveM 12 instances, Project Zomboid 7, Rust 7,
-  Terraria 6, Enshrouded 5 — so the shared controller is doing proportionate work there.
-  Worth revisiting only if one of them grows.
-- **Tier-scaled intensity.** An ENTERPRISE deployment could run the same art with a brighter
-  accent or a longer dwell, conveying size without new art.
-- **Milestone frames.** When a game crosses a round number of instances, play the logo in that
-  game's accent with one line (`palworld · 250 instances`). Rare enough to feel like an event.
-
----
+**Decided with the owner (2026-09-23):**
+- #282 drops keyboard focus handling. Pause on hover and click-to-advance only.
+- The header may grow sideways. Keep the 34x6 art cell (so no existing art is redrawn) and
+  add a data panel beside it on wide screens, collapsing to today's box on mobile. Settle
+  this in PR 2 with a mockup, before any new art is drawn for it.
+- #155, #156 and the rest of the older features queue behind this list. #61 stays parked.
 
 ## Standing rules, each learned from an outage
 
