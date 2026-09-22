@@ -108,6 +108,37 @@ jobs:
           cat dev.log >&2
           exit 1
 
+      # A cold Vite dev server compiles each module on first request, and the boot
+      # animation cannot start until the client bundle is fetched, compiled and hydrated.
+      # That pushed firstText to 2324ms against the harness's `< 1500ms` assertion on the
+      # first CI run -- a delay belonging entirely to the dev server, absent from the
+      # adapter-node build that ships. Warming measures the app; raising the threshold
+      # would blind the check to the regression it exists to catch.
+      - name: Warm the dev server
+        run: node scripts/header-smoke/warm-dev-server.mjs
+
+      # The warm-up consumed the stub's first carousel call, and the stub deliberately
+      # switches to a second fixture app after that call -- which is exactly what the
+      # freshness checks look for ("picks up the updated deployed app on a later poll").
+      # Restarting it hands the harness the same first-call state a manual run gets; the
+      # README says to restart between runs for this reason.
+      - name: Restart stub API
+        run: |
+          kill "$(cat stub.pid)" 2>/dev/null || true
+          for _ in $(seq 1 15); do
+            curl -sf "$STUB_URL" >/dev/null || break
+            sleep 1
+          done
+          node scripts/header-smoke/stub-api.mjs > stub.log 2>&1 &
+          echo $! > stub.pid
+          for _ in $(seq 1 30); do
+            curl -sf "$STUB_URL" >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Stub API did not restart:" >&2
+          cat stub.log >&2
+          exit 1
+
       - name: Run header smoke
         run: node scripts/header-smoke/check-header.mjs
 
