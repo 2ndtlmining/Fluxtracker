@@ -37,6 +37,7 @@ export const {
     updateCurrentMetrics,
     // Daily snapshots
     createDailySnapshot,
+    updateSnapshotRevenue,
     getSnapshotByDate,
     setSnapshotWalletCount,
     setSnapshotGameColumns,
