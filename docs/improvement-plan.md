@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-22** (against `main` and against live network data)
+**Last reviewed: 2026-09-22** (against `main`, live network data, and a full run of the smoke harness)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,79 +13,60 @@ rule links to an issue.
 
 ## Next up, in order
 
-### 1. #246 — Static assets bypass compression (~495 KB per cold load)
+Every open bug, data-quality and performance issue is now closed. What is left is feature
+work, so the order below is about value rather than urgency — nothing here is bleeding.
 
-The one remaining performance gap, and a one-line fix. `adapter-node` serves `/_app/` through
-sirv, which runs **before** the `handle` hook where the runtime compression from #242/#243
-lives, so the client bundle and CSS go out uncompressed. Measured on a deployed instance: the
-74,612-byte CSS returns `content-encoding: none`, while the HTML (25.3 KB → 5.5 KB) and the
-API responses (93.4 KB → 22.2 KB) are compressed.
+### 1. #181 — Non-game deployments get their own intro
 
-`precompress: true` in `svelte.config.js` emits `.br`/`.gz` at build time and lets sirv serve
-them: better ratio than the runtime path (build-time brotli can afford quality 11) and zero
-per-request CPU. Repeat visits already hit `immutable` cache, so this is first-load only —
-which is the load that decides whether the dashboard feels fast.
+The biggest remaining gap in the header, and the same shape as the four game intros that
+already exist. `introForSlot()` returns null when `resolveGameFromAppName()` does not match,
+so **26% of deployments get no intro at all** — 35 of the 133 in a measured 24 hours
+(`betpro-account`, `geap`, `teamspeak6`, `renderflow`, …). They fall straight through to the
+detail frame while every game gets an animation first.
 
-### 2. #247 — `/api/admin/snapshot-status` always 500s
+A Docker whale surfacing, with containers stacking one per instance, is the shape the issue
+proposes. Reuse the longship skeleton like Palworld did: two strips rotated at different
+periods, art overlaid onto a fixed-width canvas, sky furniture so no row is ever empty.
 
-Two-line fix, and the endpoint is currently useless: `getSnapshotSystemStatus()` strips
-`repoRetryId` out of `state` but not `intervalId`, which holds a `setInterval` handle, so
-`res.json()` hits a circular structure. Strip it the same way and expose `isSchedulerRunning:
-!!intervalId`, matching what `revenueScheduler` already returns.
+**Before starting:** the harness's first fixture is deliberately a game with *no* art, to
+cover the controller fallback. A non-game intro changes what "no art" means for that fixture
+— check `stub-api.mjs`'s `INITIAL_DEPLOYED` still exercises the fallback it claims to.
 
-No test caught this because `intervalId` is null unless the scheduler actually started, which
-it never does in the suite. The test to add starts one.
+### 2. #182 — Expiring apps get their own intro
 
-### 3. #249 — Decentralization columns null on restart days
+The same gap on the other side: `introForSlot()` returns null for anything that is not a
+deployment, so expiring slots never get an intro at all. Of the five options in the issue,
+the **fuse** is the one worth building — it reads as time running out without implying
+failure, and it animates as a single travelling spark along a fixed-width strip, which is the
+cheapest possible length-preserving motion.
 
-Currently makes **every** KPI decentralization metric read "Insufficient data", in every
-timeframe, on an instance whose live card and chart are both fine. The snapshot writes those
-columns only when `classifiedCount > 0`, and that count comes from `getCachedNetworkNodeIps()`
-— an in-memory cache owned by `busiestNodeService` that is empty for the first minutes after a
-restart. A deploy shortly before the daily snapshot silently costs that whole day.
+Note the accent: expiring rows are `--accent-orange`, not the deployment green, so
+`expiringFrameKinds()` is the model rather than `palworldFrameKinds()`.
 
-Fix at the source: when the candidate set is empty, fetch it rather than proceeding with
-nothing — and log loudly, because today the only trace is a null column noticed weeks later in
-a report.
+### 3. #155 — KPI reports via API
 
-### 4. #248 — `daily_snapshots.daily_revenue` is ~0 for every completed day
+No dependencies. The KPI layer is already pure and well tested (`src/lib/kpi/`), and
+`/api/kpi/preview` already returns the full dataset — this is mostly about what a caller is
+allowed to ask for and how it is authenticated, which is the part worth thinking about first
+given the admin API has no auth today.
 
-110 of the last 120 rows are exactly 0 while the transaction table shows 5,000–21,000 FLUX for
-the same days. The snapshot is taken minutes after midnight UTC and records "revenue so far
-today", then is never revisited.
+### 4. #156 — Google Analytics 4
 
-Ranked below #249 because nothing user-facing reads it — the chart and the KPI reports both go
-to `revenue_transactions` — but it is published by `/api/history/snapshots*` and it is what a
-restore from R2 brings back. Fix is to backfill D-1's completed total when writing D's row,
-plus a one-off admin backfill for the existing history.
+Straightforward, but note the CSP: #131's incident was a hand-set header blocking SvelteKit's
+own inline script. GA4 needs `script-src` and `connect-src` entries in
+`svelte.config.js`'s `kit.csp`, never a header in `hooks.server.js`, and
+`scripts/header-smoke/` is the gate that proves hydration still works afterwards.
 
-### 5. #250 — Documentation gaps
+### Ideas, not yet issues
 
-This file was item 1 of that issue. Remaining: `/api/carousel/missing` missing from the
-README's Carousel table, the phantom deletion of
-`FluxTracker_Header_Terminal_Animation_Spec.md`, and the unmarked status on the shipped plans
-and specs under `docs/superpowers/`.
-
-### 6. Header animations — #181, #182, and Palworld
-
-Highest-value first, by live instance counts (Dragonwilds 258, **Palworld 227**, Valheim 106,
-Minecraft 59):
-
-- **Palworld has no art** despite being second by instances — every Palworld deployment plays
-  the shared controller. Art for it takes per-game coverage from 61% to 93% of game instances,
-  and costs one `GAME_INTROS` entry plus a formatter. Not yet an issue; file one when starting.
-- **#181, non-game deployments** — 26% of the last 24h (35 of 133) get *no* intro at all,
-  because `introForSlot()` returns null when `resolveGameFromAppName()` doesn't match.
-- **#182, expiring** — same gap on the other side; expiring slots never get an intro.
-
-Every one of these is one registry entry plus one formatter. Both motion techniques already in
-the repo are length-preserving by construction (rotate a fixed-width strip; overlay onto a
-`LOGO_WIDTH` canvas), which is what keeps the box from ever depending on content. Run
-`scripts/header-smoke/` before and after.
-
-### 7. #155 — KPI reports via API, #156 — Google Analytics 4
-
-Features, no dependencies on the above.
+- **More per-game art.** After Palworld the top four are covered (93% of running game
+  instances). The next tier is a long tail — FiveM 12 instances, Project Zomboid 7, Rust 7,
+  Terraria 6, Enshrouded 5 — so the shared controller is doing proportionate work there.
+  Worth revisiting only if one of them grows.
+- **Tier-scaled intensity.** An ENTERPRISE deployment could run the same art with a brighter
+  accent or a longer dwell, conveying size without new art.
+- **Milestone frames.** When a game crosses a round number of instances, play the logo in that
+  game's accent with one line (`palworld · 250 instances`). Rare enough to feel like an event.
 
 ---
 
@@ -108,6 +89,22 @@ Four separate incidents, same shape:
 Still worth auditing: every remaining un-paged `supabase.from(...).select()` that can exceed
 1000 rows, and `getTopReposByCategory`'s explicit `CATEGORY_FETCH_LIMIT = 200` — if a category
 ever exceeds it, grouping loses instances silently.
+
+### A fixture chosen for what it LACKS needs a note saying so
+
+The smoke harness used `palworld` as its first deployed fixture *because it had no art*, so
+every run also exercised the shared controller fallback. Nothing said so next to the fixture.
+Giving Palworld its own intro silently removed that coverage — the `gamepad: controller frame
+shown` check would have kept passing right until the fixture started rendering the new art,
+then failed for a reason nobody would connect to the change. The fixture is `enshrouded` now,
+with a comment saying it has to move again the next time a game gains art.
+
+### A cached read can make a successful write look like a no-op
+
+Reading back through `/api/history/snapshots*` immediately after the #248 repair showed the
+**pre-repair** values, because those endpoints sit behind `withDbFallback`'s cache. The write
+had worked. After any admin operation that rewrites data, verify against the database or wait
+out the TTL — a stale read is not evidence that nothing happened.
 
 ### "No console errors" is not verification
 
@@ -184,6 +181,14 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #259 | Palworld gets its own header intro; smoke harness gains a fourth game (per-game art now covers 93% of running game instances) |
+| #258 | Repair tolerance widened past float noise |
+| #257 | Repair the snapshot revenue already written wrong — 410 rows, 499k -> 1.84M FLUX (#248) |
+| #256 | Record the previous day's completed revenue with each snapshot (#248) |
+| #255 | Warm the node list before classifying, so restart days keep their data (#249) |
+| #254 | Stop serialising a timer handle into the snapshot status (#247) |
+| #253 | Precompress static assets — 495 KB -> 134 KB per cold load (#246) |
+| #252 | The backlog becomes an ordered queue; shipped plans marked as shipped (#250) |
 | #251 | Per-view carousel icon colours; `--accent-orange` finally declared |
 | #245 | One implementation per decentralization dimension, one classification read per snapshot cycle (#151) |
 | #244 | Test coverage for cloudService, revenueScheduler, serverHelpers, revenueReporting and the analytics comparison endpoint (#225) |
