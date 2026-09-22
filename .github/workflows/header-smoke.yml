@@ -1,0 +1,125 @@
+name: Header smoke
+
+# CLAUDE.md mandates this harness for any change to hooks.server.js, server.js, the CSP or
+# the security headers, and records why: skipping it shipped the #131 CSP that blocked
+# SvelteKit's inline hydration script and froze the whole production dashboard on
+# "Loading..." through two PRs, with zero console errors and zero failed requests. A rule
+# enforced only by memory is exactly the one that already failed.
+#
+# Gated by path rather than run on every PR because it costs ~8 minutes. If this is ever
+# made a required status check, note that a path-filtered workflow reports as *skipped*,
+# not passed, and GitHub will block PRs waiting for it — make the *job* conditional
+# instead, or leave it advisory.
+on:
+  pull_request:
+    paths:
+      - 'src/hooks.server.js'
+      - 'src/server.js'
+      - 'svelte.config.js'
+      - 'src/lib/components/TerminalHeaderAnimation.svelte'
+      - 'src/lib/utils/terminalAnimation.js'
+      - 'src/routes/api/core.js'
+      - 'scripts/header-smoke/**'
+      - '.github/workflows/header-smoke.yml'
+
+concurrency:
+  group: header-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      # One run covers one game: the component holds a single latestDeployedApp and the
+      # dashboard's poll interval is longer than the harness's budget. Separate matrix jobs
+      # rather than a loop, so each gets its own runner and its own port 3100 — the
+      # harness needs that port exclusively and a stale listener fakes a failure.
+      fail-fast: false
+      matrix:
+        game: [valheim, minecraft, dragonwilds]
+
+    env:
+      DEPLOYED_GAME: ${{ matrix.game }}
+      API_PORT: '3100'
+      # API_PORT, not VITE_API_URL: it points hooks.server.js's /api/* proxy at the stub so
+      # the browser keeps calling same-origin paths. The CSP's `connect-src 'self'` blocks
+      # a cross-origin override, and same-origin-via-proxy is the realistic request path.
+      BASE_URL: http://127.0.0.1:5199
+      STUB_URL: http://127.0.0.1:3100/api/header
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Install puppeteer-core
+        # --no-save, same as the README: it drives the browser already on the machine
+        # rather than downloading its own.
+        run: npm install --no-save puppeteer-core
+
+      - name: Locate Chrome
+        # The harness's built-in search only knows Windows paths, so Linux needs
+        # BROWSER_PATH set explicitly.
+        run: |
+          for candidate in \
+            "$CHROME_BIN" \
+            /usr/bin/google-chrome-stable \
+            /usr/bin/google-chrome \
+            /usr/bin/chromium-browser \
+            /usr/bin/chromium; do
+            if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+              echo "BROWSER_PATH=$candidate" >> "$GITHUB_ENV"
+              echo "Using $candidate"
+              exit 0
+            fi
+          done
+          echo "No Chrome or Chromium found on the runner." >&2
+          exit 1
+
+      - name: Start stub API
+        run: |
+          node scripts/header-smoke/stub-api.mjs > stub.log 2>&1 &
+          echo $! > stub.pid
+          for _ in $(seq 1 30); do
+            curl -sf "$STUB_URL" >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Stub API never came up:" >&2
+          cat stub.log >&2
+          exit 1
+
+      - name: Start dev server
+        run: |
+          npm run dev -- --port 5199 > dev.log 2>&1 &
+          echo $! > dev.pid
+          for _ in $(seq 1 60); do
+            curl -sf "$BASE_URL" >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Dev server never came up:" >&2
+          cat dev.log >&2
+          exit 1
+
+      - name: Run header smoke
+        run: node scripts/header-smoke/check-header.mjs
+
+      - name: Server logs
+        if: failure()
+        run: |
+          echo '--- stub.log ---'; cat stub.log || true
+          echo '--- dev.log ---';  cat dev.log  || true
+
+      - name: Stop servers
+        if: always()
+        run: |
+          for f in stub.pid dev.pid; do
+            [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true
+          done

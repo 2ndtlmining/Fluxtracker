@@ -1,0 +1,46 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A superseded run on the same branch has nothing left to tell us.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Pinned, not inherited. A clean checkout has no .env file, so database.js would
+      # fall through to its 'supabase' default and supabaseClient.js throws at import
+      # without SUPABASE_URL. SQLite is also what the tests that touch a real database
+      # already use, via their own temp files.
+      DB_TYPE: sqlite
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the deployed container. Node < 22 has no stable global WebSocket,
+          # which is why `ws` is a direct dependency (see CLAUDE.md) — testing on 24
+          # would not exercise that path.
+          node-version: '20'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # Catches what the unit tests cannot: a Svelte component that no longer compiles,
+      # a broken import in a route module, an adapter misconfiguration. Cheap (~10s) and
+      # it is the same command the Docker image runs.
+      - name: Build
+        run: npm run build
