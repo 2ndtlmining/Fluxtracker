@@ -14,6 +14,7 @@ import {
     fillSnapshotNullColumns,
     getRevenueForDateRange,
     createDecentralizationSnapshots,
+    updateSnapshotRevenue,
     createDecentralizationCountrySnapshots,
     createDecentralizationContinentSnapshots
 } from './database.js';
@@ -290,6 +291,49 @@ export function buildSnapshotData({
     };
 }
 
+/** Shift a YYYY-MM-DD string by n days in UTC -- local time would drift across a DST change. */
+function shiftUtcDate(dateStr, days) {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().split('T')[0];
+}
+
+/**
+ * Record the previous day's completed revenue (issue #248).
+ *
+ * Today's snapshot runs minutes after midnight UTC, so the daily_revenue it stores for TODAY
+ * is only what arrived in those first few minutes -- and it is never revisited, because
+ * shouldTakeSnapshot() refuses once today's row exists. Across 836 live rows, the 315 written
+ * that way held 15,375 FLUX between them against an actual 1,313,595.
+ *
+ * Yesterday, however, IS complete by now, so this is the moment its figure can be made true.
+ *
+ * Only ever an update: a day with no row at all is backfillRevenueSnapshots()'s job, and
+ * inserting a revenue-only row here would create a snapshot with every other column null.
+ * Best-effort, like every other write after the headline row -- a failure here must not cost
+ * the snapshot this cycle exists for.
+ */
+async function finalisePreviousDayRevenue(snapshotDate) {
+    const previousDate = shiftUtcDate(snapshotDate, -1);
+
+    try {
+        const existing = await getSnapshotByDate(previousDate);
+        if (!existing) return;
+
+        const finalRevenue = await getRevenueForDateRange(previousDate, previousDate);
+        const updated = await updateSnapshotRevenue(previousDate, finalRevenue);
+
+        if (updated) {
+            log.info(
+                { date: previousDate, revenue: finalRevenue },
+                `Finalised revenue for ${previousDate}: ${finalRevenue.toFixed(2)} FLUX`
+            );
+        }
+    } catch (error) {
+        log.warn(`Could not finalise revenue for ${previousDate}: ${error.message}`);
+    }
+}
+
 async function takeSnapshot() {
     log.info('[SNAPSHOT] Taking snapshot...');
     
@@ -368,6 +412,10 @@ async function takeSnapshot() {
         });
 
         await createDailySnapshot(snapshotData);
+
+        // Today's figure above is a partial by definition; yesterday's can now be made
+        // final (issue #248). After the headline write, never before it.
+        await finalisePreviousDayRevenue(snapshotDate);
 
         // Per-provider breakdown -- best-effort, same posture as the repo-snapshot write
         // immediately below: never blocks the headline daily_snapshots row.

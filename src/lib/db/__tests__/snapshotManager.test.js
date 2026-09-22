@@ -14,6 +14,7 @@ vi.mock('../database.js', () => ({
     createDecentralizationSnapshots: vi.fn(),
     createDecentralizationCountrySnapshots: vi.fn(),
     createDecentralizationContinentSnapshots: vi.fn(),
+    updateSnapshotRevenue: vi.fn(),
 }));
 
 vi.mock('../../services/decentralizationService.js', () => ({
@@ -60,6 +61,7 @@ import {
     createRepoSnapshots,
     getCurrentMetrics,
     getSnapshotByDate,
+    updateSnapshotRevenue,
     getRevenueForDateRange,
     createDecentralizationSnapshots,
     createDecentralizationCountrySnapshots,
@@ -176,6 +178,78 @@ describe('snapshotManager', () => {
             expect(state).toHaveProperty('repoRetryPending');
             // Internal timer handle should NOT be exposed
             expect(state).not.toHaveProperty('repoRetryId');
+        });
+    });
+
+    // ------------------------------------------
+    // 1a. Yesterday's revenue is finalised when today's row is written (issue #248)
+    //
+    // The snapshot for D runs minutes after midnight UTC, so the daily_revenue it records
+    // for D is only what arrived in those first few minutes -- effectively nothing, and
+    // never revisited, because shouldTakeSnapshot() refuses once D's row exists. Measured
+    // across 836 live rows, the 315 written this way held 15,375 FLUX against an actual
+    // 1,313,595. D-1 IS complete by then, so that is the row this corrects.
+    // ------------------------------------------
+    describe('finalising the previous day (issue #248)', () => {
+        beforeEach(() => {
+            getSnapshotByDate.mockImplementation(async (date) =>
+                date === '2026-03-18' ? { snapshot_date: '2026-03-18' } : null
+            );
+            getCurrentMetrics.mockResolvedValue({
+                last_update: Date.now(),
+                node_total: 12800,
+                total_apps: 4200,
+                total_cpu_cores: 30000,
+                total_ram_gb: 64,
+                total_storage_gb: 4,
+            });
+            getRevenueForDateRange.mockImplementation(async (from) =>
+                from === '2026-03-19' ? 12.5 : 9028.23
+            );
+            updateSnapshotRevenue.mockResolvedValue(true);
+        });
+
+        it('writes the completed total for yesterday', async () => {
+            await takeManualSnapshot();
+
+            expect(updateSnapshotRevenue).toHaveBeenCalledWith('2026-03-18', 9028.23);
+        });
+
+        it('still records today as the partial it legitimately is', async () => {
+            await takeManualSnapshot();
+
+            expect(createDailySnapshot).toHaveBeenCalledWith(
+                expect.objectContaining({ snapshot_date: '2026-03-19', daily_revenue: 12.5 })
+            );
+        });
+
+        it('leaves yesterday alone when it has no row to correct', async () => {
+            // Filling gaps belongs to the backfill, not here.
+            getSnapshotByDate.mockResolvedValue(null);
+
+            await takeManualSnapshot();
+
+            expect(updateSnapshotRevenue).not.toHaveBeenCalled();
+        });
+
+        it('still writes the row for today when finalising yesterday fails', async () => {
+            updateSnapshotRevenue.mockRejectedValue(new Error('supabase unreachable'));
+
+            await takeManualSnapshot();
+
+            expect(createDailySnapshot).toHaveBeenCalledTimes(1);
+        });
+
+        it('finalises after the row for today is written, not before', async () => {
+            // Today's row is what the whole cycle exists for; a correction to an older row
+            // must never be able to cost it.
+            const order = [];
+            createDailySnapshot.mockImplementation(async () => { order.push('today'); });
+            updateSnapshotRevenue.mockImplementation(async () => { order.push('yesterday'); return true; });
+
+            await takeManualSnapshot();
+
+            expect(order).toEqual(['today', 'yesterday']);
         });
     });
 

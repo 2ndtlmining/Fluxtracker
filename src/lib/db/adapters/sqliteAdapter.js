@@ -466,6 +466,24 @@ export async function updateCurrentMetrics(metrics) {
 // DAILY SNAPSHOTS OPERATIONS
 // ============================================
 
+/**
+ * Correct one day's recorded revenue, leaving the rest of its row untouched (issue #248).
+ *
+ * Deliberately narrow. createDailySnapshot() enumerates every column and nulls whatever the
+ * caller omits, so reusing it to fix one field would wipe that day's nodes, apps and
+ * utilization figures. And deliberately an UPDATE, not an upsert: filling a missing day is
+ * backfillRevenueSnapshots()'s job, while this only corrects a day already recorded.
+ *
+ * @returns {Promise<boolean>} true if a row existed for that date and was updated
+ */
+export async function updateSnapshotRevenue(snapshotDate, dailyRevenue) {
+    const result = getDb()
+        .prepare('UPDATE daily_snapshots SET daily_revenue = ? WHERE snapshot_date = ?')
+        .run(dailyRevenue, snapshotDate);
+
+    return result.changes > 0;
+}
+
 export async function createDailySnapshot(snapshot) {
     const row = {
         snapshot_date: snapshot.snapshot_date,
