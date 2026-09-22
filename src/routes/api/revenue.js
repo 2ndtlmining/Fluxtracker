@@ -15,9 +15,15 @@ import {
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { getToDateRanges, TIMEFRAMES } from '../../lib/kpi/periods.js';
 import { createLogger } from '../../lib/logger.js';
+import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 
 const log = createLogger('server');
 const router = express.Router();
+
+// /api/revenue/:period had no caching at all (issue #227), while every client polls all
+// five periods on load and again on DASHBOARD_REFRESH_MS. 60s is under that interval, so
+// a burst of viewers shares one set of reads without the numbers visibly lagging.
+const periodCache = createCache(60_000);
 
 // Largest page /api/transactions/paginated will serve. The CSV export pages at this size.
 //
@@ -69,15 +75,15 @@ export function resolveSourceAddresses(sourceParam) {
  * Periods: daily, weekly, monthly, quarterly, yearly
  */
 router.get('/revenue/:period', async (req, res) => {
-    try {
-        const period = req.params.period.toLowerCase();
-        const currentMetrics = await getCurrentMetrics();
-        const fluxPrice = currentMetrics?.flux_price_usd || 0;
+    const period = req.params.period.toLowerCase();
 
-        if (!TIMEFRAMES.includes(period)) {
-            return res.status(400).json({ error: 'Invalid period. Use: daily, weekly, monthly, quarterly, or yearly' });
-        }
+    // Validated before anything touches the database: an unknown period is the caller's
+    // mistake, not a failed read, and it should not cost a query.
+    if (!TIMEFRAMES.includes(period)) {
+        return res.status(400).json({ error: 'Invalid period. Use: daily, weekly, monthly, quarterly, or yearly' });
+    }
 
+    return withDbFallback(periodCache, `period:${period}`, res, async () => {
         // Boundaries come from periods.js, which is pure, UTC throughout and unit-tested
         // (issue #224). They were built here with local-time constructors and serialized
         // with toISOString(), so on a host outside UTC "this month" started on the last
@@ -91,34 +97,42 @@ router.get('/revenue/:period', async (req, res) => {
         const { start: currentStart, end: currentEnd } = current;
         const { start: previousStart, end: previousEnd } = previous;
 
-        const [currentRevenue, currentPayments, previousRevenue, previousPayments] = await Promise.all([
+        // All six reads together (issue #227). They were sequential, and the self-funded
+        // one used to page every matching row to compute a sum the database already
+        // computes -- so the slowest period served six round trips end to end.
+        const [
+            currentMetrics,
+            currentRevenue,
+            currentPayments,
+            previousRevenue,
+            previousPayments,
+            selfFunded
+        ] = await Promise.all([
+            getCurrentMetrics(),
             getRevenueForDateRange(currentStart, currentEnd),
             getPaymentCountForDateRange(currentStart, currentEnd),
             getRevenueForDateRange(previousStart, previousEnd),
-            getPaymentCountForDateRange(previousStart, previousEnd)
+            getPaymentCountForDateRange(previousStart, previousEnd),
+            // Self-funded share: revenue paid by Flux team addresses. Reported alongside
+            // the headline total, never subtracted from it -- the total stays primary.
+            getRevenueFromAddressesForDateRange(currentStart, currentEnd, FLUX_TEAM_ADDRESSES)
         ]);
 
-        // Calculate change percentage
+        const fluxPrice = currentMetrics?.flux_price_usd || 0;
+
         let changePercent = 0;
         let trend = 'neutral';
-
         if (previousRevenue > 0) {
             changePercent = ((currentRevenue - previousRevenue) / previousRevenue) * 100;
             trend = changePercent > 0 ? 'up' : changePercent < 0 ? 'down' : 'neutral';
         }
 
         const currentUsd = currentRevenue * fluxPrice;
-
-        // Self-funded share: revenue paid by Flux team addresses. Reported alongside the
-        // headline total, never subtracted from it — the total stays the primary number.
-        const selfFunded = await getRevenueFromAddressesForDateRange(
-            currentStart, currentEnd, FLUX_TEAM_ADDRESSES
-        );
         const selfFundedPercent = currentRevenue > 0
             ? (selfFunded.revenue / currentRevenue) * 100
             : 0;
 
-        res.json({
+        return {
             period: period,
             current: {
                 start: currentStart,
@@ -158,15 +172,8 @@ router.get('/revenue/:period', async (req, res) => {
                 percent: Math.round(selfFundedPercent * 10) / 10
             },
             timestamp: Date.now()
-        });
-
-    } catch (error) {
-        log.error({ err: error, period: req.params.period }, 'revenue endpoint error');
-        res.status(500).json({
-            error: 'Failed to fetch revenue',
-            details: error.message
-        });
-    }
+        };
+    });
 });
 
 // IMPORTANT: Specific routes MUST come BEFORE parameterized routes

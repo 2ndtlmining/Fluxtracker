@@ -28,24 +28,27 @@ const log = createLogger('server');
 
 const revenueCache = createCache(300_000); // 5 min
 
-// Enhanced endpoint with full snapshot data for charts
+// Enhanced endpoint with full snapshot data for charts.
+//
+// Cached like every other read here (issue #227). It was the one route in this file
+// without it, and it is also the heaviest: raw SELECT * rows with ~60 numeric columns, on
+// the order of 1 MB of JSON at the chart's "All" timeframe, re-read from the database for
+// every viewer on every chart load.
 router.get('/snapshots/full', async (req, res) => {
-    try {
-        const { limit, start_date, end_date } = req.query;
+    const { limit, start_date, end_date } = req.query;
+    const cacheKey = `full:${start_date || ''}:${end_date || ''}:${limit || 30}`;
 
-        // Get snapshots using existing function
+    return withDbFallback(revenueCache, cacheKey, res, async () => {
         const snapshots = (start_date && end_date)
             ? await getSnapshotsInRange(start_date, end_date)
             : await getLastNSnapshots(parseInt(limit) || 30);
 
         // Return FULL snapshot data (not summarized)
-        res.json({
+        return {
             count: snapshots.length,
             data: snapshots
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        };
+    });
 });
 
 // NEW: Endpoint to get daily revenue from transactions (not snapshots)

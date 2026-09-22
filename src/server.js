@@ -4,6 +4,7 @@ dotenv.config(); // fallback to .env
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import { CSP_DIRECTIVES } from './lib/security/contentSecurityPolicy.js';
 
 import { ensureInitialized } from './lib/db/database.js';
@@ -99,6 +100,15 @@ const corsOptions = {
 app.use(helmet({
     contentSecurityPolicy: { directives: CSP_DIRECTIVES }
 }));
+
+// gzip every response big enough to be worth it (issue #227).
+//
+// Before the routers, so it wraps all of them. The API's payloads are the shape that
+// compresses best -- arrays of flat objects repeating ~60 long column names per row.
+// /api/history/snapshots/full alone returns on the order of 1 MB of JSON at the chart's
+// "All" timeframe, and /api/decentralization/history returns thousands of
+// {date, org, count} rows; both come down 10-20x.
+app.use(compression());
 
 // Apply CORS middleware
 app.use(cors(corsOptions));
