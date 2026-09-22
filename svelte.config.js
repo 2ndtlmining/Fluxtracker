@@ -9,9 +9,21 @@ const config = {
 
 	kit: {
 		// Use Node adapter for production deployment
+		// `precompress` matters more than it looks (issue #246). adapter-node serves
+		// everything under /_app/ with its own sirv instance, and that runs BEFORE the
+		// handle hook in hooks.server.js -- so the runtime compression added in #242/#243
+		// never sees a single static asset. With it off, the whole client bundle went to
+		// the browser uncompressed: the 74,612-byte CSS came back with no content-encoding
+		// at all, and a cold load pulled ~495 KB of JS and CSS in the clear while the HTML
+		// and the API responses beside it were compressed.
+		//
+		// Turning it on emits .br and .gz next to every static asset at build time and
+		// configures sirv to serve them. Better ratio than the runtime path -- build-time
+		// brotli can afford quality 11, which is far too slow to do per request -- and no
+		// per-request CPU at all.
 		adapter: adapter({
 			out: 'build',
-			precompress: false,
+			precompress: true,
 			envPrefix: ''
 		}),
 
