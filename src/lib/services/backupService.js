@@ -1,7 +1,7 @@
 /**
  * BACKUP SERVICE — Cloudflare R2 backup/restore for critical tables
  *
- * Backs up daily_snapshots and repo_snapshots to R2.
+ * Backs up daily_snapshots, repo_snapshots, flux_price_history and game_snapshots to R2.
  * These tables contain irreplaceable point-in-time observations.
  *
  * Env vars (all optional — backup is a no-op without them):
@@ -20,9 +20,11 @@ import {
     exportAllDailySnapshots,
     exportAllRepoSnapshots,
     exportAllPriceHistory,
+    exportAllGameSnapshots,
     upsertDailySnapshots,
     upsertRepoSnapshots,
-    upsertPriceHistory
+    upsertPriceHistory,
+    upsertGameSnapshots
 } from '../db/database.js';
 import { BACKUP_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
@@ -177,6 +179,33 @@ export async function performBackup() {
             log.error({ err: error }, 'repo_snapshots failed after retries');
         }
 
+        // game_snapshots (issue #231). The per-game history the Gaming card's comparison
+        // arrows and the chart's per-game series both read, and the only record of the
+        // app-name counts -- the `gaming_*` columns are derived FROM it, not the reverse,
+        // so losing this table loses per-game history outright while the other three
+        // survive.
+        try {
+            log.info('exporting game_snapshots');
+            const gameRows = await exportAllGameSnapshots();
+            const gamePayload = JSON.stringify({
+                table: 'game_snapshots',
+                exportedAt: now,
+                rowCount: gameRows.length,
+                rows: gameRows
+            });
+            await withRetry(() => client.send(new PutObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${dateStr}/game_snapshots.json`,
+                Body: gamePayload,
+                ContentType: 'application/json'
+            })), 'game_snapshots upload');
+            tableCounts.game_snapshots = gameRows.length;
+            log.info({ rows: gameRows.length }, 'game_snapshots uploaded');
+        } catch (error) {
+            tableErrors.push(`game_snapshots: ${error.message}`);
+            log.error({ err: error }, 'game_snapshots failed after retries');
+        }
+
         // flux_price_history
         try {
             log.info('exporting flux_price_history');
@@ -303,6 +332,19 @@ export async function restoreFromBackup(date) {
             log.info('no price history backup found (skipping)');
         }
 
+        // Download game_snapshots (optional — backups taken before #231 have no such file)
+        let gameJson = null;
+        try {
+            log.info({ date }, 'downloading game_snapshots');
+            const gameObj = await client.send(new GetObjectCommand({
+                Bucket: bucket,
+                Key: `backups/${date}/game_snapshots.json`
+            }));
+            gameJson = JSON.parse(await gameObj.Body.transformToString());
+        } catch {
+            log.info('no game snapshot backup found (skipping)');
+        }
+
         // Upsert into DB
         log.info({ rowCount: dailyJson.rowCount }, 'upserting daily snapshots');
         const dailyCount = await upsertDailySnapshots(dailyJson.rows);
@@ -316,13 +358,20 @@ export async function restoreFromBackup(date) {
             priceCount = await upsertPriceHistory(priceJson.rows);
         }
 
+        let gameCount = 0;
+        if (gameJson) {
+            log.info({ rowCount: gameJson.rowCount }, 'upserting game snapshots');
+            gameCount = await upsertGameSnapshots(gameJson.rows);
+        }
+
         return {
             success: true,
             date,
             restored: {
                 daily_snapshots: dailyCount,
                 repo_snapshots: repoCount,
-                flux_price_history: priceCount
+                flux_price_history: priceCount,
+                game_snapshots: gameCount
             }
         };
 

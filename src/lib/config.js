@@ -416,6 +416,38 @@ export const WORDPRESS_CONFIG = {
 };
 
 // ============================================
+// GAMES WITH THEIR OWN STORED COLUMN (issue #231)
+// ============================================
+// The per-game `gaming_*` columns on daily_snapshots and current_metrics used to be driven
+// by GAMING_REPOS -- the list of games with a matchable Docker image. That structurally
+// excluded every game deployed with an enterprise-encrypted spec, which is most of the
+// biggest ones: RuneScape: Dragonwilds, the LARGEST game on the network at 249 instances,
+// had no column at all, and gaming_valheim stored 3 against a real 108.
+//
+// The columns now store the same app-name-aware count the Gaming card and game_snapshots
+// use, so every surface finally agrees. This list is what decides which games get one.
+//
+// It is deliberately a fixed list while game_snapshots stays open-ended: a brand-new
+// dedicated site appears in game_snapshots with no schema change, and only earns a column
+// here once someone adds it. The drift guard is trackedGames.test.js, which fails if a
+// game is added to either identification path without a column.
+//
+// dbKeys of existing games must never be renamed -- years of stored values live under them.
+export const TRACKED_GAMES = [
+    ...GAMING_REPOS.map(({ name, dbKey }) => ({ name, dbKey })),
+    // Dedicated-site games with no matchable image, so GAMING_REPOS has no entry for them.
+    { name: 'RuneScape: Dragonwilds', dbKey: 'gaming_dragonwilds' },
+    { name: 'FiveM', dbKey: 'gaming_fivem' },
+    { name: 'Project Zomboid', dbKey: 'gaming_project_zomboid' },
+    // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
+    // either explicit list, and still needs somewhere to be stored.
+    { name: 'Factorio', dbKey: 'gaming_factorio' }
+];
+
+/** Canonical game name -> its column. The map countGames() output is written through. */
+export const GAME_COLUMN_BY_NAME = new Map(TRACKED_GAMES.map(g => [g.name, g.dbKey]));
+
+// ============================================
 // CURRENT_METRICS COLUMNS
 // ============================================
 // The single source of truth for which columns updateCurrentMetrics() persists.
@@ -452,7 +484,9 @@ const FIXED_METRIC_COLUMNS = [
 
 export const METRIC_COLUMNS = [
     ...FIXED_METRIC_COLUMNS,
-    ...GAMING_REPOS.map(r => r.dbKey),
+    // TRACKED_GAMES, not GAMING_REPOS: the per-game columns follow the games we store,
+    // which is a superset of the games with a matchable image (issue #231).
+    ...TRACKED_GAMES.map(g => g.dbKey),
     ...CRYPTO_REPOS.map(r => r.dbKey)
 ];
 

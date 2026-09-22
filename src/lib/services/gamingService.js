@@ -1,8 +1,8 @@
 // flux-performance-dashboard/src/lib/services/gamingService.js
 
-import { GAMING_REPOS } from '../config.js';
+import { GAMING_REPOS, TRACKED_GAMES, GAME_COLUMN_BY_NAME } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus } from '../db/database.js';
-import { getRunningApps, countByCategory, countConfiguredRepos, countGames, countGamingInstances } from './runningAppsProvider.js';
+import { getRunningApps, countByCategory, countGames, countGamingInstances } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('gamingService');
@@ -20,7 +20,26 @@ export async function fetchGamingStats() {
 
         const runningApps = await getRunningApps();
 
-        const gameCounts = countConfiguredRepos(runningApps, GAMING_REPOS);
+        // Per-game columns take the app-name-aware breakdown (issue #231), the same
+        // countGames() output behind the Gaming card and game_snapshots -- so the stored
+        // history, the card and the chart finally report one number per game.
+        //
+        // They used to come from countConfiguredRepos(..., GAMING_REPOS), which counts by
+        // Docker image only. Enterprise-encrypted specs carry no image, so that stored 3
+        // for Valheim while 108 were running, and had nowhere at all to put Dragonwilds.
+        //
+        // A tracked game missing from a SUCCESSFUL breakdown really did run nothing, so it
+        // is written as 0, not null: this provider throws rather than returning an empty
+        // payload when globalappsspecifications is unavailable, so "absent" here cannot
+        // mean "not collected".
+        const breakdown = countGames(runningApps);
+        const gameCounts = Object.fromEntries(TRACKED_GAMES.map(g => [g.dbKey, 0]));
+        for (const [name, instances] of breakdown) {
+            const column = GAME_COLUMN_BY_NAME.get(name);
+            // A game with no column yet is not invented as a key -- it is already recorded
+            // in game_snapshots, which is open-ended by design.
+            if (column) gameCounts[column] = instances;
+        }
 
         // Image-based total (issue #106's rule). Kept as-is because daily_snapshots has
         // years of history counted this way -- switching the snapshotted column would put a
@@ -70,10 +89,12 @@ export async function fetchGamingStats() {
 export function formatGamingStats(gamingData) {
     return {
         total: gamingData.gaming_apps_total,
-        games: GAMING_REPOS.map(game => ({
+        // TRACKED_GAMES, so the games with no matchable image are not silently omitted
+        // from a list built out of the very columns they now populate (issue #231).
+        games: TRACKED_GAMES.map(game => ({
             name: game.name,
             count: gamingData[game.dbKey] || 0,
-            repo: game.imageMatch
+            repo: GAMING_REPOS.find(r => r.dbKey === game.dbKey)?.imageMatch ?? null
         }))
     };
 }

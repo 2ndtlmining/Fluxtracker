@@ -23,9 +23,11 @@ vi.mock('../../db/database.js', () => ({
     exportAllDailySnapshots: vi.fn(),
     exportAllRepoSnapshots: vi.fn(),
     exportAllPriceHistory: vi.fn(),
+    exportAllGameSnapshots: vi.fn(),
     upsertDailySnapshots: vi.fn(),
     upsertRepoSnapshots: vi.fn(),
     upsertPriceHistory: vi.fn(),
+    upsertGameSnapshots: vi.fn(),
 }));
 
 // ---- Imports (after mocks are declared) ----
@@ -34,9 +36,11 @@ import {
     exportAllDailySnapshots,
     exportAllRepoSnapshots,
     exportAllPriceHistory,
+    exportAllGameSnapshots,
     upsertDailySnapshots,
     upsertRepoSnapshots,
     upsertPriceHistory,
+    upsertGameSnapshots,
 } from '../../db/database.js';
 
 // We need to re-import the service fresh for each test group because the module
@@ -76,9 +80,14 @@ describe('Backup Service', () => {
         vi.mocked(exportAllDailySnapshots).mockReset();
         vi.mocked(exportAllRepoSnapshots).mockReset();
         vi.mocked(exportAllPriceHistory).mockReset();
+        vi.mocked(exportAllGameSnapshots).mockReset();
         vi.mocked(upsertDailySnapshots).mockReset();
         vi.mocked(upsertRepoSnapshots).mockReset();
         vi.mocked(upsertPriceHistory).mockReset();
+        vi.mocked(upsertGameSnapshots).mockReset();
+        // Defaulted, unlike the other three: every test predates game_snapshots being in
+        // the backup set, and without a default each would fail on an unrelated table.
+        vi.mocked(exportAllGameSnapshots).mockResolvedValue([]);
     });
 
     // ========================================
@@ -136,7 +145,7 @@ describe('Backup Service', () => {
             expect(result.error).toMatch(/not configured/i);
         });
 
-        it('exports all 3 tables and calls PutObjectCommand 3 times on success', async () => {
+        it('exports all 4 tables and calls PutObjectCommand 4 times on success', async () => {
             setR2Env();
             vi.stubEnv('DB_TYPE', 'supabase');
 
@@ -149,6 +158,11 @@ describe('Backup Service', () => {
             ]);
             vi.mocked(exportAllPriceHistory).mockResolvedValue([
                 { date: '2026-03-01', price_usd: 0.55 },
+            ]);
+            // game_snapshots joined the backup set in #231: it is the only record of the
+            // app-name per-game counts, and the gaming_* columns are derived FROM it.
+            vi.mocked(exportAllGameSnapshots).mockResolvedValue([
+                { snapshot_date: '2026-03-01', game_name: 'Valheim', instance_count: 108 },
             ]);
 
             // mockSend for PutObjectCommand uploads + ListObjectsV2Command for pruning
@@ -172,7 +186,7 @@ describe('Backup Service', () => {
             const putCalls = mockSend.mock.calls.filter(
                 ([cmd]) => cmd._type === 'PutObjectCommand'
             );
-            expect(putCalls.length).toBe(3);
+            expect(putCalls.length).toBe(4);
         });
 
         it('handles partial failure — one table throws, others succeed', async () => {
@@ -187,6 +201,11 @@ describe('Backup Service', () => {
             );
             vi.mocked(exportAllPriceHistory).mockResolvedValue([
                 { date: '2026-03-01', price_usd: 0.55 },
+            ]);
+            // game_snapshots joined the backup set in #231: it is the only record of the
+            // app-name per-game counts, and the gaming_* columns are derived FROM it.
+            vi.mocked(exportAllGameSnapshots).mockResolvedValue([
+                { snapshot_date: '2026-03-01', game_name: 'Valheim', instance_count: 108 },
             ]);
 
             mockSend.mockImplementation((cmd) => {

@@ -13,6 +13,7 @@ import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryServic
 import { reclassifyStoredDatacenterFlags } from '../../../lib/services/decentralizationService.js';
 import { backfillRevenueSnapshots } from '../../../lib/db/run-backfill.js';
 import { backfillLockedCollateral } from '../../../lib/db/collateralBackfill.js';
+import { repairGameColumns } from '../../../lib/db/gameColumnRepair.js';
 
 const log = createLogger('server');
 const router = express.Router();
@@ -137,6 +138,23 @@ router.post('/backfill', async (req, res) => {
             success: false,
             error: error.message
         });
+    }
+});
+
+// Admin: bring the per-game gaming_* columns onto the app-name definition (issue #231).
+//
+// Rewrites the days game_snapshots covers and NULLs the ones before it, which have no
+// app-name reading and never can. `?dryRun=1` reports the counts without writing -- worth
+// running first, since this rewrites history.
+router.post('/repair-game-columns', async (req, res) => {
+    const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true' || req.body?.dryRun === true;
+    try {
+        log.info({ dryRun }, 'per-game column repair triggered via API');
+        const result = await repairGameColumns({ dryRun });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        log.error({ err: error }, 'per-game column repair failed');
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

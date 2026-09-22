@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('supabaseAdapter');
@@ -211,7 +211,7 @@ export async function createDailySnapshot(snapshot) {
         // documented "adding a repo to config is enough" actually true.
         gaming_apps_total: snapshot.gaming_apps_total,
         gaming_instances_total: snapshot.gaming_instances_total,
-        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
+        ...Object.fromEntries(TRACKED_GAMES.map(g => [g.dbKey, snapshot[g.dbKey] ?? null])),
         ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
         crypto_nodes_total: snapshot.crypto_nodes_total,
         wordpress_count: snapshot.wordpress_count,
@@ -299,6 +299,40 @@ export async function setSnapshotWalletCount(date, uniqueWallets) {
  * would be restated blind. In practice this loops over the one or two columns a newly shipped
  * metric left behind.
  */
+/**
+ * Overwrite specific per-game columns on one day (issue #231).
+ *
+ * Deliberately not fillSnapshotNullColumns(): that only ever fills a NULL, which is right
+ * for the nightly top-up and wrong for this. The per-game columns changed meaning from an
+ * image-only count to an app-name one, so the repair has to replace stored non-zero
+ * readings -- gaming_valheim held 3 where 108 were running -- and has to be able to write
+ * NULL for days that predate game_snapshots and therefore have no app-name record at all.
+ *
+ * `null` means "no reading"; `0` means "this game genuinely ran nothing". Both are written
+ * as given. Columns the table does not have are skipped rather than failing the call, so a
+ * database that has not run schemaMigrator yet degrades instead of erroring.
+ *
+ * @param {string} date  snapshot_date, YYYY-MM-DD
+ * @param {Record<string, number|null>} values  column -> value
+ * @returns {Promise<boolean>} whether a row was written
+ */
+export async function setSnapshotGameColumns(date, values) {
+    const existing = await getSnapshotByDate(date);
+    if (!existing) return false;
+
+    const writable = Object.entries(values || {}).filter(([column]) => column in existing);
+    if (writable.length === 0) return false;
+
+    // One update for every column, not one per column: this runs across hundreds of days.
+    const { error } = await supabase
+        .from('daily_snapshots')
+        .update(Object.fromEntries(writable))
+        .eq('snapshot_date', date);
+
+    if (error) throw new Error(`setSnapshotGameColumns failed for ${date}: ${error.message}`);
+    return true;
+}
+
 export async function fillSnapshotNullColumns(date, columns) {
     const existing = await getSnapshotByDate(date);
     if (!existing) return [];
@@ -1780,6 +1814,53 @@ export async function exportAllRepoSnapshots() {
     }
 
     return rows;
+}
+
+/**
+ * Every game_snapshots row. Paged: PostgREST caps any response at db-max-rows (1000) and
+ * truncates silently, and this table grows by ~13 rows a day, so it passes the cap inside
+ * three months. A missing .range() here would quietly ship a partial backup.
+ */
+export async function exportAllGameSnapshots() {
+    const rows = [];
+    const PAGE_SIZE = 1000;
+    let offset = 0;
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('game_snapshots')
+            .select('*')
+            .order('snapshot_date', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`Export game_snapshots failed: ${error.message}`);
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
+export async function upsertGameSnapshots(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const CHUNK_SIZE = 500;
+    let total = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        const { error } = await supabase
+            .from('game_snapshots')
+            .upsert(chunk, { onConflict: 'snapshot_date,game_name' });
+
+        if (error) throw new Error(`Upsert game_snapshots chunk ${i} failed: ${error.message}`);
+        total += chunk.length;
+    }
+
+    return total;
 }
 
 export async function upsertDailySnapshots(rows) {
