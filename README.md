@@ -25,13 +25,13 @@ Real-time performance dashboard for the Flux decentralized cloud network. Tracks
 
 | Layer      | Technology                                           |
 |------------|------------------------------------------------------|
-| Frontend   | SvelteKit 5 (Svelte 5, Vite 6)                      |
-| Backend    | Express.js 4                                         |
+| Frontend   | SvelteKit 2 (Svelte 5, Vite 8)                       |
+| Backend    | Express.js 5                                         |
 | Database   | Supabase (PostgreSQL) or SQLite via `better-sqlite3`  |
 | Backup     | Cloudflare R2 via `@aws-sdk/client-s3`               |
 | Charts     | Chart.js 4                                           |
 | Icons      | Lucide Svelte + custom Simple Icons components       |
-| Runtime    | Node.js 20                                           |
+| Runtime    | Node.js 20.19+ / 22.12+                              |
 | Deployment | Docker (multi-stage Alpine), Flux Cloud              |
 
 ## Architecture
@@ -85,8 +85,10 @@ PRIMARY (local)                          DOCKER/FLUX INSTANCES
 
 ### Prerequisites
 
-- Node.js 20+
-- A Supabase project (self-hosted or Supabase Cloud)
+- Node.js **20.19+** or **22.12+** — Vite 8 requires `^20.19.0 || >=22.12.0`, so plain
+  Node 20.0-20.18 fails `npm run build`
+- A Supabase project (self-hosted or Supabase Cloud) — **only for the default Supabase
+  mode**. `DB_TYPE=sqlite` needs no external database at all (see Database Modes above).
 
 ### Environment Variables
 
@@ -109,6 +111,19 @@ Required for Supabase mode (`DB_TYPE=supabase` or unset):
 |-----------------------------|---------------------------------|
 | `SUPABASE_URL`              | Your Supabase project URL       |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
+| `SUPABASE_DB_URL`           | Direct `postgresql://` connection string. Only the startup schema migrator uses it, and only it can issue DDL -- the REST API cannot. Without it, a newly configured gaming/crypto column is never added and the failure is only a `console.warn`. |
+
+Optional -- ports, logging and process:
+
+| Variable         | Description                                                    | Default |
+|------------------|----------------------------------------------------------------|---------|
+| `PORT`           | Port the Express API listens on. **This, not `API_PORT`.**     | `3000`  |
+| `API_PORT`       | Where `start:all`, Docker and the SvelteKit `/api/*` proxy expect to find the API. Ignored by `npm run api`. | `3000` |
+| `FRONTEND_PORT`  | Port the built SvelteKit server listens on (`start:all`)        | `5173`  |
+| `HOST`           | Interface the frontend binds to                                 | `0.0.0.0` |
+| `ORIGIN`         | adapter-node's CSRF origin. **Anyone serving this on a real domain must set it** or form posts are rejected. | `http://localhost:${FRONTEND_PORT}` |
+| `LOG_LEVEL`      | `trace`/`debug`/`info`/`warn`/`error`/`fatal`                   | `info`  |
+| `LOG_FORMAT`     | `json` or `pretty`                                              | `json` in production, `pretty` otherwise |
 
 Optional -- Failover (auto-switch when primary DB is unreachable):
 
@@ -116,6 +131,12 @@ Optional -- Failover (auto-switch when primary DB is unreachable):
 |---------------------------|--------------------------------------|
 | `SUPABASE_FAILOVER_URL`  | Failover Supabase project URL        |
 | `SUPABASE_FAILOVER_KEY`  | Failover service role key            |
+
+Optional -- Historical prices:
+
+| Variable                 | Description                                                  |
+|--------------------------|--------------------------------------------------------------|
+| `CRYPTOCOMPARE_API_KEY`  | Third and last price-history source, tried only if set. Binance and CoinGecko need no key and cover almost everything; CryptoCompare returns HTTP 401 without one. |
 
 Optional -- Backup to Cloudflare R2 (primary instance, all 4 required):
 
@@ -168,11 +189,25 @@ file run manually:
 8. `008_decentralization_snapshots.sql` -- Table for daily datacenter/independent history
 9. `009_decentralization_country_continent.sql` -- Country/continent columns + snapshot tables
 10. `010_daily_revenue_from_addresses.sql` -- RPC functions behind the Team Funded chart
+11. `011_transactions_source_filter.sql` -- **Replaces** `get_transactions_paginated` with a
+    new signature taking `p_from_addresses`; this is what the TEAM/FIAT payer filter needs
+12. `012_gaming_instances_total.sql` -- `gaming_instances_total` column (app-name-aware total)
+13. `013_game_snapshots.sql` -- `game_snapshots` table: the per-game daily history
+14. `014_unique_wallets.sql` -- `unique_wallets` column
+15. `015_unique_app_owners.sql` -- `unique_app_owners` column
+16. `016_locked_collateral.sql` -- `locked_collateral*` columns
+
+Skipping 011-016 is not a partial degradation: a fresh project without them has no
+`game_snapshots` table, no payer filter, and none of the newer snapshot columns, so several
+shipping cards fail outright.
 
 The schema migrator (`src/lib/db/schemaMigrator.js`) also runs on startup to add any dynamic
 columns needed by the current config (e.g., new gaming or crypto repo columns) -- that part
-is automatic in both database modes. Only the files above (tables, indexes, RPC functions)
-need to be run by hand against Supabase.
+is automatic in SQLite mode. **Against hosted Supabase it needs `SUPABASE_DB_URL`** (a
+direct `postgresql://` connection string — the REST API cannot issue DDL). Without it the
+migrator falls back to a *local-dev* Postgres URL and the failure is swallowed as a
+`console.warn`, so a newly configured column silently never appears. Only the files above
+(tables, indexes, RPC functions) need to be run by hand against Supabase.
 
 ### Install and Run
 
@@ -200,6 +235,11 @@ API on port 3000, then the built SvelteKit server on 5173 once the API answers. 
 `API_PORT` / `FRONTEND_PORT`. Ctrl+C stops both, and if either process dies the other is
 stopped too — half the stack running is never useful.
 
+**`API_PORT` is read by `start:all`, the Docker image and the SvelteKit `/api/*` proxy — not
+by the Express server itself, which reads `PORT`.** `npm run api` alone therefore ignores
+`API_PORT`; use `PORT=3100 npm run api` for that, or `API_PORT=3100 npm run start:all` for
+the whole stack.
+
 Before printing its banner it makes one request to `/api/health/live` **through the frontend**,
 which is the same path the browser takes. Two healthy processes that cannot reach each other is
 exactly what a port mismatch looks like, and checking them separately misses it entirely.
@@ -221,7 +261,10 @@ npm run api      # Express API only
 
 ## Database
 
-Supabase (PostgreSQL). All database functions in `src/lib/db/database.js` are async. Deduplication is handled by `ON CONFLICT DO NOTHING` on upsert -- no in-memory txid sets needed.
+Supabase (PostgreSQL) by default, or SQLite via `better-sqlite3` when `DB_TYPE=sqlite` --
+see Database Modes above; the table list below describes both. All database functions in
+`src/lib/db/database.js` are async. Deduplication is handled by `ON CONFLICT DO NOTHING` on
+upsert -- no in-memory txid sets needed.
 
 ### Tables
 
@@ -238,10 +281,13 @@ Supabase (PostgreSQL). All database functions in `src/lib/db/database.js` are as
 | `decentralization_snapshots` | `id` (BIGSERIAL) | Daily node count per datacenter/org. Unique on `(snapshot_date, org)`. |
 | `decentralization_country_snapshots` | `id` (BIGSERIAL) | Daily node count per country. Unique on `(snapshot_date, country)`. |
 | `decentralization_continent_snapshots` | `id` (BIGSERIAL) | Daily node count per continent. Unique on `(snapshot_date, continent)`. |
+| `game_snapshots`       | `id` (BIGSERIAL) | Daily instance count per game, by canonical game name. Unique on `(snapshot_date, game_name)`. The authoritative per-game record: the `gaming_*` columns on `daily_snapshots` are derived from it. |
 
 ### RPC Functions
 
-Defined in `supabase/migrations/002_rpc_functions.sql`, with two more added later in `010_daily_revenue_from_addresses.sql`:
+Defined in `supabase/migrations/002_rpc_functions.sql`, with more added later in
+`006_update_usd_batch.sql`, `010_daily_revenue_from_addresses.sql` and
+`011_transactions_source_filter.sql`:
 
 | Function                         | Purpose                                          |
 |----------------------------------|--------------------------------------------------|
@@ -250,7 +296,8 @@ Defined in `supabase/migrations/002_rpc_functions.sql`, with two more added late
 | `get_daily_revenue_usd`          | Sum USD revenue by day with coverage stats       |
 | `get_daily_revenue_usd_in_range` | Sum USD revenue by day within a date range       |
 | `get_app_analytics`              | Revenue grouped by app_name, paginated + search  |
-| `get_transactions_paginated`     | Paginated transactions with multi-field search   |
+| `get_transactions_paginated`     | Paginated transactions with multi-field search. **Migration 011 replaces this with a new signature taking `p_from_addresses`** -- running 001-010 alone leaves the old one and the TEAM/FIAT payer filter cannot work. |
+| `update_transaction_usd_batch`   | Batched USD updates for the price backfill (migration 006) |
 | `get_top_repos_by_category`      | Top Docker images by category from latest snapshot |
 | `get_category_history`           | Aggregated daily totals for a category           |
 | `get_repos_by_category`          | Distinct base image names in a category          |
@@ -276,6 +323,7 @@ Base URL: `/api`
 | GET    | `/api/health/live` | Liveness only (process is running)    |
 | GET    | `/api/health/ready` | Readiness (DB reachable)             |
 | GET    | `/api/stats`    | Database row counts and last snapshot date |
+| GET    | `/api/header`   | Everything the terminal header renders in one call: network figures, block height, ArcaneOS codename, tracker stats, host location, DB status |
 
 ### Metrics
 
@@ -299,7 +347,7 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | Method | Endpoint                      | Description                                             |
 |--------|-------------------------------|---------------------------------------------------------|
 | GET    | `/api/transactions/summary`   | Total count and revenue for today, 7 days, and 30 days  |
-| GET    | `/api/transactions/paginated` | Paginated list with search (`?page=&limit=&search=&appName=`) |
+| GET    | `/api/transactions/paginated` | Paginated list with search (`?page=&limit=&search=&appName=&source=`). `source` filters to a payer group (`team`, `fiat`), comma-separated for several. Max `limit` is 1000 -- PostgREST's `db-max-rows`, not a choice. |
 | GET    | `/api/transactions/:date`     | Transactions for a specific date (YYYY-MM-DD)           |
 
 ### Analytics
@@ -308,6 +356,8 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 |--------|-----------------------------------|------------------------------------------------|
 | GET    | `/api/analytics/apps`             | Revenue grouped by app name, paginated         |
 | GET    | `/api/analytics/comparison/:days` | Period-over-period comparison for all metrics   |
+| GET    | `/api/games/live?limit=&days=`    | Per-game running instance counts, identified by app name as well as image -- what the Gaming card reads. Includes the previous reading per game for the comparison arrows. |
+| GET    | `/api/apps/deployment-fill?limit=` | How many ordered deployments are actually running, plus the per-app shortfall breakdown |
 
 ### History and Charts
 
@@ -323,6 +373,7 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | GET    | `/api/history/category/:category`       | Category history (aggregated daily totals)       |
 | GET    | `/api/history/category/:category/repos` | Repos belonging to a category                    |
 | GET    | `/api/history/revenue/team-funded/daily?start_date=&end_date=` | Daily FLUX + USD revenue from `FLUX_TEAM_ADDRESSES`, merged by date (Team Funded chart) |
+| GET    | `/api/history/games?days=`              | Per-game daily instance history from `game_snapshots`, plus the game list ordered by latest count (the chart's Gaming series) |
 
 Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 
@@ -370,7 +421,7 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | POST   | `/api/admin/backfill-app-names`       | Backfill app names from OP_RETURN data         |
 | POST   | `/api/admin/backfill-usd`             | Backfill USD amounts using price history       |
 | POST   | `/api/admin/sync-price-history`       | Force a gap-filling price history sync         |
-| POST   | `/api/admin/backfill`                 | Backfill daily snapshots (last 365 days)       |
+| POST   | `/api/admin/backfill`                 | Backfill revenue-only daily snapshots. Body `{ from?, to? }` as `YYYY-MM-DD`; defaults to the year ending yesterday (UTC). Writes `daily_revenue` only -- every other column stays NULL. |
 | POST   | `/api/admin/backfill-repo-categories` | Backfill NULL repo categories                  |
 | POST   | `/api/admin/recategorize-repos`       | Reset and re-apply all repo categories         |
 | POST   | `/api/admin/snapshot`                 | Trigger manual daily snapshot                  |
@@ -383,6 +434,9 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | POST   | `/api/admin/restore`                  | Restore from backup (`{ "date": "YYYY-MM-DD" }`) |
 | POST   | `/api/admin/failover`                 | Manually switch between primary/failover DB    |
 | GET    | `/api/admin/failover-status`          | Active instance and circuit breaker state      |
+| POST   | `/api/admin/backfill-collateral`      | Backfill `locked_collateral*` columns from node-tier history |
+| POST   | `/api/admin/reclassify-datacenters`   | Re-derive `is_datacenter` for every classified IP against the current `DATACENTER_ORG_KEYWORDS`. Needed after changing that list -- the flag is decided at classification time and never re-derived. Idempotent, no external lookups; returns `{checked, changed}`. |
+| POST   | `/api/admin/repair-game-columns`      | Bring the per-game `gaming_*` columns onto the app-name definition: rewrite the days `game_snapshots` covers, NULL the ones before it. `?dryRun=1` reports without writing. Idempotent. |
 
 ## App Categorisation
 
@@ -520,7 +574,7 @@ so expect a step in the trend line on the day a change lands.
 ## Tests
 
 ```bash
-npm test            # vitest — 590+ tests
+npm test            # vitest
 ```
 
 The pure logic is deliberately separated from the components so it is unit-testable: KPI period
@@ -940,15 +994,15 @@ The SvelteKit `hooks.server.js` proxy handles forwarding all `/api/*` requests t
 | `start:all`          | `node scripts/start-all.mjs`                   | Production API + frontend together   |
 | `test`               | `vitest run`                                   | Run tests                            |
 | `db:import-repo-json`| `node scripts/import-repo-json.mjs`            | Import repo snapshot data from JSON  |
+| `db:import-wallets`  | `node scripts/import-wallet-history.mjs`       | Import historical unique-wallet counts |
 
 ### Utility Scripts
 
 | Script                                | Description                                          |
 |---------------------------------------|------------------------------------------------------|
-| `scripts/migrate-sqlite-to-supabase.mjs` | One-time migration of data from SQLite DB to Supabase |
 | `scripts/import-repo-json.mjs`        | Import Docker repo snapshot data from a JSON file    |
+| `scripts/import-wallet-history.mjs`   | Import historical unique-wallet counts               |
 | `scripts/apply-rpc-to-cloud.mjs`      | Apply RPC functions to a remote Supabase instance via direct PG connection |
-| `scripts/apply-prices-from-csv.mjs`   | Import historical FLUX/USD price data from a CSV file |
 | `scripts/header-smoke/`               | Terminal header acceptance harness (headless Edge/Chrome; see its README) |
 
 ## Project Structure
@@ -1029,6 +1083,10 @@ supabase/
     008_decentralization_snapshots.sql      # Daily datacenter/independent history
     009_decentralization_country_continent.sql # Country/continent columns + snapshot tables
     010_daily_revenue_from_addresses.sql    # RPC functions behind the Team Funded chart
+    011_transactions_source_filter.sql      # Replaces get_transactions_paginated (payer filter)
+    012_gaming_instances_total.sql          # App-name-aware gaming total
+    013_game_snapshots.sql                  # Per-game daily history table
+    014-016                                 # unique_wallets, unique_app_owners, locked_collateral
 scripts/                       # Utility scripts
   header-smoke/                # Terminal header acceptance harness (headless browser)
 Dockerfile                     # Multi-stage production build
