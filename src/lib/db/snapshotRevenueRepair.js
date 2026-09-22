@@ -3,8 +3,19 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('snapshotRevenueRepair');
 
-/** Below this, a difference is float noise rather than a wrong figure. */
-const EPSILON = 0.01;
+/**
+ * Below this, a difference is float noise rather than a wrong figure.
+ *
+ * 0.01 was too tight. The first live run reported 357 days as "overstated" -- alarming until
+ * you look at them: 1090.41 stored vs 1090.37 computed, 41522.81 vs 41522.75. Differences of
+ * four to eight hundredths of a FLUX on totals in the tens of thousands, from summing float
+ * amounts in a different order than when the row was written. Nothing was wrong with those
+ * days, and the repair correctly left them alone -- it just called them something worrying.
+ *
+ * A whole FLUX is far below anything this repair exists to catch (its cases are 0 -> 12,515)
+ * and far above summation noise.
+ */
+const EPSILON = 1;
 
 /** How many corrected days to return for eyeballing a dry run. */
 const SAMPLE_SIZE = 10;

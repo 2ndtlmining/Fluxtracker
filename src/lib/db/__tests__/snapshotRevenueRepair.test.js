@@ -176,6 +176,28 @@ describe('repairSnapshotRevenue', () => {
         expect(outside.daily_revenue).toBe(0);
     });
 
+    it('treats a sub-FLUX difference as equal, not as a discrepancy', async () => {
+        // Summing float amounts in a different order than when the row was written moves a
+        // total by hundredths. The first live run called 357 such days "overstated", which
+        // reads as a data problem and is not one.
+        await seedSnapshot(shift(-3), 1090.41);
+        await seedTransactions(shift(-3), [1090.37]);
+
+        const result = await repairSnapshotRevenue();
+
+        expect(result.overstated).toBe(0);
+        expect(result.unchanged).toBe(1);
+    });
+
+    it('still catches a difference big enough to matter', async () => {
+        await seedSnapshot(shift(-3), 100);
+        await seedTransactions(shift(-3), [5058.47]);
+
+        const result = await repairSnapshotRevenue();
+
+        expect(result.changed).toBe(1);
+    });
+
     it('reports the totals so a dry run can be judged before committing to it', async () => {
         await seedSnapshot(shift(-3), 0);
         await seedSnapshot(shift(-2), 0);
