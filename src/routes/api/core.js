@@ -8,26 +8,31 @@ import {
     getDatabaseStats,
     getLastNSnapshots,
     getSyncStatus,
-    getTxidCount,
     isDbReady,
     probeDb
 } from '../../lib/db/database.js';
 
 import { getCircuitState } from '../../lib/db/circuitBreaker.js';
 import { getActiveInstanceName } from '../../lib/db/supabaseClient.js';
-import { API_ENDPOINTS, APP_VERSION } from '../../lib/config.js';
+import { APP_VERSION } from '../../lib/config.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getSnapshotSystemStatus } from '../../lib/db/snapshotManager.js';
 import { fetchCurrentBlockHeight, getLastGoodPrice } from '../../lib/services/revenueService.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getHostLocation } from '../../lib/services/hostLocationService.js';
+import { getArcaneCodename } from '../../lib/services/arcaneCodenameService.js';
 import { getPriceHistoryStatus } from '../../lib/services/priceHistoryService.js';
 import { getBackupStatus } from '../../lib/services/backupService.js';
 import { getKpiSchedulerState } from '../../lib/services/kpiScheduler.js';
 
 const router = express.Router();
 
-const headerCache = createCache(30_000); // 30s
+// Above Header.svelte's 30s poll, deliberately (issue #221). At exactly 30s the entry
+// expires just before the next poll arrives -- the timestamp is written AFTER the ~1.5-2s
+// of handler work -- so roughly every second poll missed and paid the full fan-out. 90s
+// means at most one miss per 90s however many people are watching, and the header's
+// freshest fields (block height, uptime) move on a slower scale than that anyway.
+const headerCache = createCache(90_000); // 90s
 
 // Liveness probe — always 200 if process is running (Docker HEALTHCHECK target)
 router.get('/health/live', (_req, res) => {
@@ -140,12 +145,14 @@ router.get('/health', async (req, res) => {
 // Consolidated header stats endpoint (replaces separate /api/health + /api/stats calls from header)
 router.get('/header', async (req, res) => {
     return withDbFallback(headerCache, 'header', res, async () => {
-        const [metrics, stats, lastSnapshots, syncStatus, txCount, snapshotStatus, dbReachable, decentralizationStats] = await Promise.all([
+        // getTxidCount() used to run here too (issue #221). It is the same exact count over
+        // revenue_transactions that getDatabaseStats() already performs -- two full counts
+        // of a 23k-row table per cache miss, for one number.
+        const [metrics, stats, lastSnapshots, syncStatus, snapshotStatus, dbReachable, decentralizationStats] = await Promise.all([
             getCurrentMetrics(),
             getDatabaseStats(),
             getLastNSnapshots(1),
             getSyncStatus('revenue'),
-            getTxidCount(),
             getSnapshotSystemStatus(),
             probeDb(),
             // Issue #120: header's live IPs counter. Rides getDecentralizationStats()'s own
@@ -153,19 +160,19 @@ router.get('/header', async (req, res) => {
             getDecentralizationStats().catch(() => null)
         ]);
 
-        // Fetch block height and ArcaneOS codename in parallel (external API calls)
+        // Block height and ArcaneOS codename in parallel (external API calls).
+        //
+        // The codename lookup used to sit inline here as a bare fetch of the whole
+        // network's fluxinfo document -- 3.76 MB, ~1.28s, parsed to pull one string that
+        // changes about monthly, on every cache miss (issue #221). It now has its own
+        // 6-hour cache with in-flight dedup, behind resilientFetch with a timeout and a
+        // breaker like every other outbound GET in this repo.
         let blockHeight = null;
         let arcaneOsCodename = null;
         try {
             const [bh, codename] = await Promise.all([
                 fetchCurrentBlockHeight().catch(() => null),
-                fetch(API_ENDPOINTS.FLUXINFO)
-                    .then(r => r.json())
-                    .then(data => {
-                        const node = data?.data?.find(n => n?.flux?.arcaneHumanVersion);
-                        return node?.flux?.arcaneHumanVersion || null;
-                    })
-                    .catch(() => null)
+                getArcaneCodename().catch(() => null)
             ]);
             blockHeight = bh;
             arcaneOsCodename = codename;
@@ -195,7 +202,7 @@ router.get('/header', async (req, res) => {
                 snapshots: stats?.snapshots || 0,
                 lastSnapshotDate: lastSnapshots?.[0]?.snapshot_date || null,
                 snapshotHealthy: snapshotStatus?.isHealthy ?? true,
-                transactions: txCount || 0,
+                transactions: stats?.transactions || 0,
                 lastSyncBlock: syncStatus?.last_sync_block || null
             },
             host: {
