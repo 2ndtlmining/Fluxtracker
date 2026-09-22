@@ -126,6 +126,8 @@ export const {
     getAllNodeIpClassifications,
     upsertNodeIpClassifications,
     // Decentralization snapshots (historical -- issue #108 Phase 3)
+    createDecentralizationDimensionSnapshots,
+    getDecentralizationDimensionSnapshotHistory,
     createDecentralizationSnapshots,
     getDecentralizationSnapshotHistory,
     // Decentralization country/continent snapshots (issue #138)
