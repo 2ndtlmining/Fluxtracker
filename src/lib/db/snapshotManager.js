@@ -55,19 +55,34 @@ let state = {
     repoRetryCount: 0,       // Limit retries
 };
 
+/**
+ * The scheduler state, minus its timer handles (issue #247).
+ *
+ * BOTH handles have to come out, not just repoRetryId. A Node Timeout is circular, so one
+ * reaching res.json() is a 500 -- which is exactly what /api/admin/snapshot-status returned
+ * on every running instance, because it serialises this whole object and intervalId was
+ * still in it. /api/health escaped only because it cherry-picks four fields by name.
+ *
+ * Each handle is replaced by the boolean a caller actually wants, matching the shape
+ * revenueScheduler.getRevenueSyncSchedulerStatus() already returns.
+ */
 export function getSnapshotState() {
-    const { repoRetryId, ...safeState } = state;
-    return { ...safeState, repoRetryPending: !!repoRetryId };
+    const { repoRetryId, intervalId, ...safeState } = state;
+    return {
+        ...safeState,
+        repoRetryPending: !!repoRetryId,
+        isSchedulerRunning: !!intervalId
+    };
 }
 
 export async function getSnapshotSystemStatus() {
     const today = new Date().toISOString().split('T')[0];
     const todaySnapshot = await getSnapshotByDate(today);
 
-    const { repoRetryId, ...safeState } = state;
     return {
         config: CONFIG,
-        state: { ...safeState, repoRetryPending: !!repoRetryId },
+        // One source of truth for what is safe to serialise -- see getSnapshotState().
+        state: getSnapshotState(),
         todaySnapshotExists: !!todaySnapshot,
         todaySnapshotDate: todaySnapshot?.snapshot_date || null,
         isHealthy: state.consecutiveFailures < 3
