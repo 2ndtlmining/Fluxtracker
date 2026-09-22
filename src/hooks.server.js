@@ -2,6 +2,7 @@
 // API Proxy - Routes /api/* requests to the Express backend.
 
 import { applySecurityHeaders, applyStaticSecurityHeaders } from './lib/security/contentSecurityPolicy.js';
+import { compressResponse } from './lib/utils/httpCompression.js';
 
 /**
  * Where the Express API is listening.
@@ -34,6 +35,12 @@ export async function handle({ event, resolve }) {
             const headers = new Headers(event.request.headers);
             headers.delete('host'); // Remove host header to avoid conflicts
             headers.delete('connection'); // Remove connection header
+
+            // Ask the API for an uncompressed body. Express runs compression(), but Node's
+            // fetch transparently decodes it again a few lines below, so gzipping over this
+            // loopback hop is CPU burnt at both ends for nothing. The body is compressed once,
+            // for the client that actually benefits, on the way back out (issue #242).
+            headers.set('accept-encoding', 'identity');
             
             // Make the request to the Express backend
             const response = await fetch(apiUrl, {
@@ -62,11 +69,14 @@ export async function handle({ event, resolve }) {
             // on the resolve() response below) -- this is JSON, not HTML, so there's no inline
             // script of its own for the header to block.
             applySecurityHeaders(responseHeaders);
-            return new Response(body, {
-                status: response.status,
-                statusText: response.statusText,
-                headers: responseHeaders
-            });
+            return await compressResponse(
+                new Response(body, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: responseHeaders
+                }),
+                event.request.headers.get('accept-encoding')
+            );
 
         } catch (error) {
             console.error('[API Proxy Error]', error.message);
@@ -94,7 +104,11 @@ export async function handle({ event, resolve }) {
     // headers are safe to add by hand.
     const response = await resolve(event);
     applyStaticSecurityHeaders(response.headers);
-    return response;
+
+    // adapter-node serves its own HTML/JS/CSS uncompressed (precompress is off, and it has no
+    // runtime gzip of its own), so this is the only place compression can happen without
+    // putting a reverse proxy in front of it.
+    return await compressResponse(response, event.request.headers.get('accept-encoding'));
 }
 
 /** @type {import('@sveltejs/kit').HandleServerError} */
