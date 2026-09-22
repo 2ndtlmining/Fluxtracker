@@ -21,7 +21,7 @@ let headerCalls = 0;
 const HEADER_DELAY_MS = Number(process.env.HEADER_DELAY_MS || 0);
 
 const INITIAL_DEPLOYED = {
-  name: 'palworld1789155733040',
+  name: 'enshrouded1789155733040',
   repo: 'itzg/minecraft-server:latest',
   instances: 3,
   cpu: 2,
@@ -40,7 +40,8 @@ const INITIAL_DEPLOYED = {
 const DEPLOYED_GAME_NAMES = {
   valheim: 'valheim1789155733041',
   minecraft: 'minecraftj1789155733041',
-  dragonwilds: 'dragonwilds1789155733041'
+  dragonwilds: 'dragonwilds1789155733041',
+  palworld: 'palworld1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
@@ -50,8 +51,12 @@ if (!DEPLOYED_GAME_NAME) {
 }
 
 const UPDATED_DEPLOYED = {
-  // A game with art of its own, where the FIRST fixture (palworld) is a game without any --
-  // so one run covers the per-game intro AND the shared controller fallback.
+  // A game with art of its own, where the FIRST fixture (enshrouded) is a game without
+  // any -- so one run covers the per-game intro AND the shared controller fallback.
+  //
+  // That first fixture used to be palworld, which had no art until it got its own intro.
+  // Whenever a game here gains art, this fixture has to move to one that still has none,
+  // or the controller fallback stops being covered at all.
   name: DEPLOYED_GAME_NAME,
   // repo no longer drives the icon row (issue #127 dropped the docker/git distinction
   // from it) -- kept as a realistic field on the stub payload, unused by this harness.

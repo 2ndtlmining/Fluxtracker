@@ -70,6 +70,12 @@ const GAME_ART_BY_NAME = {
   minecraft: {
     signature: /\[#\]\[#\]/,
     movingRows: rows => rows.filter(r => r.text.includes('[#]'))
+  },
+  // The Pal's face, and the two scrolling grass rows beneath it -- the longship's
+  // structure once more, with grass for water and a Pal for a hull.
+  palworld: {
+    signature: /(o.o)/,
+    movingRows: rows => rows.slice(-2).filter(r => /[.,^]{6}/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -77,7 +83,8 @@ const GAME_ART_BY_NAME = {
 const UPDATED_DEPLOYED_NAME = {
   valheim: 'valheim1789155733041',
   minecraft: 'minecraftj1789155733041',
-  dragonwilds: 'dragonwilds1789155733041'
+  dragonwilds: 'dragonwilds1789155733041',
+  palworld: 'palworld1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
@@ -160,7 +167,7 @@ const run = async () => {
   let sawGamepadPress = false;
   // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
   // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
-  // that game's art AND the controller fallback (the initial fixture is palworld, which
+  // that game's art AND the controller fallback (the initial fixture is enshrouded, which
   // has none). The three games need three runs -- see the note in stub-api.mjs.
   let sawGameArtFrame = false;
   const gameArtMovingRows = new Set();

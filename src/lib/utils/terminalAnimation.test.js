@@ -37,8 +37,11 @@ import {
   dragonFrameKinds,
   DRAGON_FRAME_COUNT,
   formatMinecraftFrame,
+  formatPalworldFrame,
+  palworldFrameKinds,
   minecraftFrameKinds,
   MINECRAFT_FRAME_COUNT,
+  PALWORLD_FRAME_COUNT,
   rotateStrip
 } from './terminalAnimation.js';
 
@@ -698,7 +701,8 @@ describe('formatValheimFrame (issue #180)', () => {
 
 describe.each([
   ['formatDragonFrame', formatDragonFrame, dragonFrameKinds, DRAGON_FRAME_COUNT],
-  ['formatMinecraftFrame', formatMinecraftFrame, minecraftFrameKinds, MINECRAFT_FRAME_COUNT]
+  ['formatMinecraftFrame', formatMinecraftFrame, minecraftFrameKinds, MINECRAFT_FRAME_COUNT],
+  ['formatPalworldFrame', formatPalworldFrame, palworldFrameKinds, PALWORLD_FRAME_COUNT]
 ])('%s (issue #199)', (_name, format, kinds, frameCount) => {
   it('runs the same number of frames as the longship, so every intro is the same length', () => {
     // Shared INTRO_STEP_MS: a different frame count would make one game's intro visibly
@@ -834,5 +838,79 @@ describe('formatMinecraftFrame specifics (issue #199)', () => {
     }
     expect(torchSteps.length).toBeGreaterThan(0);
     expect(Math.min(...torchSteps)).toBeGreaterThan(MINECRAFT_FRAME_COUNT / 2);
+  });
+});
+
+describe('formatPalworldFrame specifics', () => {
+  // Second by live instances and the last of the top four with no art of its own, so every
+  // Palworld deployment used to play the shared controller. The shared battery above covers
+  // the box invariants; these cover the art reading as what it is meant to be.
+
+  it('keeps the Pal intact: its face appears in every frame', () => {
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      expect(formatPalworldFrame(step).some(row => row.includes('(o.o)'))).toBe(true);
+    }
+  });
+
+  it('bobs the Pal between two rows and no further', () => {
+    const faceRows = new Set();
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      faceRows.add(formatPalworldFrame(step).findIndex(row => row.includes('(o.o)')));
+    }
+    expect([...faceRows].sort()).toEqual([2, 3]);
+  });
+
+  it('throws the sphere: it appears in every frame and moves every step', () => {
+    const columns = [];
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      const rows = formatPalworldFrame(step);
+      const row = rows.find(r => r.includes('(o)'));
+      expect(row, `no sphere at step ${step}`).toBeTruthy();
+      columns.push(row.indexOf('(o)'));
+    }
+    for (let i = 0; i < columns.length - 1; i++) {
+      expect(columns[i + 1], 'the sphere should keep travelling').toBeGreaterThan(columns[i]);
+    }
+  });
+
+  it('arcs the sphere rather than sliding it along one row', () => {
+    const rows = new Set();
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      rows.add(formatPalworldFrame(step).findIndex(r => r.includes('(o)')));
+    }
+    expect(rows.size).toBeGreaterThan(1);
+  });
+
+  it('never lets the sphere land ON the Pal', () => {
+    // Sharing a ROW is fine and happens -- the sphere passes beside the Pal at a different
+    // column, which is the throw. What would read as a rendering fault is the sphere
+    // overlapping the Pal's own columns, so that is what this asserts.
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      for (const row of formatPalworldFrame(step)) {
+        const sphere = row.indexOf('(o)');
+        if (sphere === -1) continue;
+
+        const pal = ['(o.o)', '(")_(")'].map(art => row.indexOf(art)).find(i => i !== -1);
+        if (pal === undefined) continue;
+
+        const sphereEnd = sphere + '(o)'.length - 1;
+        expect(sphereEnd, `step ${step}: the sphere overlapped the Pal`).toBeLessThan(pal);
+      }
+    }
+  });
+
+  it('the grass moves on every step, not just when the Pal bobs', () => {
+    for (let step = 0; step < PALWORLD_FRAME_COUNT - 1; step++) {
+      const [far, near] = formatPalworldFrame(step).slice(-2);
+      const [nextFar, nextNear] = formatPalworldFrame(step + 1).slice(-2);
+      expect(far !== nextFar || near !== nextNear).toBe(true);
+    }
+  });
+
+  it('the two grass rows are never in lockstep -- that is what reads as parallax', () => {
+    for (let step = 0; step < PALWORLD_FRAME_COUNT; step++) {
+      const [far, near] = formatPalworldFrame(step).slice(-2);
+      expect(far).not.toEqual(near);
+    }
   });
 });

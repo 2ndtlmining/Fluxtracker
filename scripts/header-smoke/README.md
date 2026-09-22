@@ -20,20 +20,20 @@ timing changes) are caught mechanically.
   holding onto whatever it first loaded
 - **Per-game intros** (issues #180, #199): the second deployed fixture is named after a
   game with art of its own, and the harness asserts that art appears and animates. Which
-  game is chosen by `DEPLOYED_GAME` (`valheim` default, `minecraft`, `dragonwilds`) and
+  game is chosen by `DEPLOYED_GAME` (`valheim` default, `minecraft`, `dragonwilds`, `palworld`) and
   **must be passed identically to the stub and the check** — the stub names the fixture
   from it and the check picks the art signature from it. One run covers one game: the
   component holds a single `latestDeployedApp` and the dashboard's 5-minute poll interval
-  is longer than the harness's 100s budget, so a full sweep is three runs:
+  is longer than the harness's 100s budget, so a full sweep is four runs:
 
   ```bash
-  for g in valheim minecraft dragonwilds; do
+  for g in valheim minecraft dragonwilds palworld; do
     DEPLOYED_GAME=$g node scripts/header-smoke/stub-api.mjs &   # restart between runs
     DEPLOYED_GAME=$g node scripts/header-smoke/check-header.mjs
   done
   ```
 
-  The first fixture (palworld) has no art of its own, so every run also covers the shared
+  The first fixture (enshrouded) has no art of its own, so every run also covers the shared
   controller fallback.
 - Build version renders `--accent-green`, codename `--accent-purple`
 - Mobile (375px): exactly 6 mobile rows, no wrapping
