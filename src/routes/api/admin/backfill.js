@@ -14,6 +14,7 @@ import { reclassifyStoredDatacenterFlags } from '../../../lib/services/decentral
 import { backfillRevenueSnapshots } from '../../../lib/db/run-backfill.js';
 import { backfillLockedCollateral } from '../../../lib/db/collateralBackfill.js';
 import { repairGameColumns } from '../../../lib/db/gameColumnRepair.js';
+import { repairSnapshotRevenue } from '../../../lib/db/snapshotRevenueRepair.js';
 
 const log = createLogger('server');
 const router = express.Router();
@@ -138,6 +139,31 @@ router.post('/backfill', async (req, res) => {
             success: false,
             error: error.message
         });
+    }
+});
+
+// Admin: correct daily_snapshots.daily_revenue for days already written (issue #248).
+//
+// The live snapshotter used to record revenue for TODAY minutes after midnight and never
+// revisit the row, so it stored a start-of-day partial. #256 fixed the forward path; this
+// repairs the history. Rewrites rows, so `?dryRun=1` first -- it reports the day count, the
+// totals before and after, and a sample of the corrections.
+//
+// Never touches today (still legitimately partial), never lowers a stored figure, and
+// refuses outright if the transaction table is empty. Body: { from?, to? } as YYYY-MM-DD.
+router.post('/repair-snapshot-revenue', async (req, res) => {
+    const dryRun = req.query.dryRun === '1' || req.query.dryRun === 'true' || req.body?.dryRun === true;
+    try {
+        log.info({ dryRun }, 'snapshot revenue repair triggered via API');
+        const result = await repairSnapshotRevenue({
+            dryRun,
+            from: req.body?.from,
+            to: req.body?.to
+        });
+        res.json({ success: true, ...result });
+    } catch (error) {
+        log.error({ err: error }, 'snapshot revenue repair failed');
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
