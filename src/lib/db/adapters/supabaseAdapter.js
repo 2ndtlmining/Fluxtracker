@@ -1,6 +1,7 @@
 import { supabase } from '../supabaseClient.js';
 import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
+import { resolveDimension } from '../../decentralizationDimensions.js';
 
 const log = createLogger('supabaseAdapter');
 
@@ -2076,42 +2077,64 @@ export async function getGameSnapshotHistory(startDate, endDate) {
     return rows;
 }
 
-export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+/**
+ * Write one dimension's breakdown for a date (issue #151).
+ *
+ * One implementation for datacenter, country and continent, which were three copies of this
+ * differing only in table and column names. Those names come from the dimension whitelist in
+ * decentralizationDimensions.js and never from a caller's string, so an unrecognised key
+ * throws rather than reaching a query.
+ */
+export async function createDecentralizationDimensionSnapshots(dimensionKey, snapshotDate, breakdown) {
     if (!breakdown || breakdown.length === 0) return 0;
 
-    const rows = breakdown.map(item => ({
-        snapshot_date: snapshotDate,
-        org: item.org,
-        node_count: item.count,
-        created_at: Date.now()
-    }));
+    const dimension = resolveDimension(dimensionKey);
+
+    const rows = breakdown.map(item => {
+        const row = {
+            snapshot_date: snapshotDate,
+            [dimension.nameColumn]: item[dimension.nameField],
+            node_count: item.count,
+            created_at: Date.now()
+        };
+        if (dimension.codeColumn) row[dimension.codeColumn] = item[dimension.codeField] ?? null;
+        return row;
+    });
 
     const { error } = await supabase
-        .from('decentralization_snapshots')
-        .upsert(rows, { onConflict: 'snapshot_date,org' });
+        .from(dimension.table)
+        .upsert(rows, { onConflict: dimension.conflict });
 
-    if (error) throw new Error(`Upsert decentralization_snapshots failed: ${error.message}`);
+    if (error) throw new Error(`Upsert ${dimension.table} failed: ${error.message}`);
     return rows.length;
 }
 
 /** Must page — see exportAllRepoSnapshots() for the identical pattern. A long date
  *  range times dozens of providers can exceed PostgREST's 1000-row cap. */
-export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+export async function getDecentralizationDimensionSnapshotHistory(dimensionKey, startDate, endDate) {
+    const dimension = resolveDimension(dimensionKey);
+    const columns = [
+        'snapshot_date',
+        dimension.nameColumn,
+        ...(dimension.codeColumn ? [dimension.codeColumn] : []),
+        'node_count'
+    ].join(', ');
+
     const rows = [];
     const PAGE_SIZE = 1000;
     let offset = 0;
 
     while (true) {
         const { data, error } = await supabase
-            .from('decentralization_snapshots')
-            .select('snapshot_date, org, node_count')
+            .from(dimension.table)
+            .select(columns)
             .gte('snapshot_date', startDate)
             .lte('snapshot_date', endDate)
             .order('snapshot_date', { ascending: true })
             .order('node_count', { ascending: false })
             .range(offset, offset + PAGE_SIZE - 1);
 
-        if (error) throw new Error(`Fetch decentralization_snapshots failed: ${error.message}`);
+        if (error) throw new Error(`Fetch ${dimension.table} failed: ${error.message}`);
         if (!data || data.length === 0) break;
 
         rows.push(...data);
@@ -2120,102 +2143,38 @@ export async function getDecentralizationSnapshotHistory(startDate, endDate) {
     }
 
     return rows;
+}
+
+export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+    return createDecentralizationDimensionSnapshots('datacenter', snapshotDate, breakdown);
+}
+
+export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+    return getDecentralizationDimensionSnapshotHistory('datacenter', startDate, endDate);
 }
 
 // ============================================
 // DECENTRALIZATION COUNTRY/CONTINENT SNAPSHOTS (issue #138)
 // ============================================
 
+// Country/continent are the same write and the same read as the datacenter dimension,
+// differing only in table and column names -- they are named entry points onto the
+// generic pair above (issue #151).
+
 export async function createDecentralizationCountrySnapshots(snapshotDate, breakdown) {
-    if (!breakdown || breakdown.length === 0) return 0;
-
-    const rows = breakdown.map(item => ({
-        snapshot_date: snapshotDate,
-        country: item.country,
-        country_code: item.countryCode ?? null,
-        node_count: item.count,
-        created_at: Date.now()
-    }));
-
-    const { error } = await supabase
-        .from('decentralization_country_snapshots')
-        .upsert(rows, { onConflict: 'snapshot_date,country' });
-
-    if (error) throw new Error(`Upsert decentralization_country_snapshots failed: ${error.message}`);
-    return rows.length;
+    return createDecentralizationDimensionSnapshots('country', snapshotDate, breakdown);
 }
 
-/** Must page — see getDecentralizationSnapshotHistory() for the identical pattern. */
 export async function getDecentralizationCountrySnapshotHistory(startDate, endDate) {
-    const rows = [];
-    const PAGE_SIZE = 1000;
-    let offset = 0;
-
-    while (true) {
-        const { data, error } = await supabase
-            .from('decentralization_country_snapshots')
-            .select('snapshot_date, country, country_code, node_count')
-            .gte('snapshot_date', startDate)
-            .lte('snapshot_date', endDate)
-            .order('snapshot_date', { ascending: true })
-            .order('node_count', { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1);
-
-        if (error) throw new Error(`Fetch decentralization_country_snapshots failed: ${error.message}`);
-        if (!data || data.length === 0) break;
-
-        rows.push(...data);
-        if (data.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-    }
-
-    return rows;
+    return getDecentralizationDimensionSnapshotHistory('country', startDate, endDate);
 }
 
 export async function createDecentralizationContinentSnapshots(snapshotDate, breakdown) {
-    if (!breakdown || breakdown.length === 0) return 0;
-
-    const rows = breakdown.map(item => ({
-        snapshot_date: snapshotDate,
-        continent: item.continent,
-        continent_code: item.continentCode ?? null,
-        node_count: item.count,
-        created_at: Date.now()
-    }));
-
-    const { error } = await supabase
-        .from('decentralization_continent_snapshots')
-        .upsert(rows, { onConflict: 'snapshot_date,continent' });
-
-    if (error) throw new Error(`Upsert decentralization_continent_snapshots failed: ${error.message}`);
-    return rows.length;
+    return createDecentralizationDimensionSnapshots('continent', snapshotDate, breakdown);
 }
 
-/** Must page — see getDecentralizationSnapshotHistory() for the identical pattern. */
 export async function getDecentralizationContinentSnapshotHistory(startDate, endDate) {
-    const rows = [];
-    const PAGE_SIZE = 1000;
-    let offset = 0;
-
-    while (true) {
-        const { data, error } = await supabase
-            .from('decentralization_continent_snapshots')
-            .select('snapshot_date, continent, continent_code, node_count')
-            .gte('snapshot_date', startDate)
-            .lte('snapshot_date', endDate)
-            .order('snapshot_date', { ascending: true })
-            .order('node_count', { ascending: false })
-            .range(offset, offset + PAGE_SIZE - 1);
-
-        if (error) throw new Error(`Fetch decentralization_continent_snapshots failed: ${error.message}`);
-        if (!data || data.length === 0) break;
-
-        rows.push(...data);
-        if (data.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-    }
-
-    return rows;
+    return getDecentralizationDimensionSnapshotHistory('continent', startDate, endDate);
 }
 
 export async function closeDatabase() {

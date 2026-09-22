@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
+import { resolveDimension } from '../../decentralizationDimensions.js';
 
 const log = createLogger('sqliteAdapter');
 
@@ -1968,24 +1969,49 @@ export async function upsertNodeIpClassifications(rows) {
 // DECENTRALIZATION SNAPSHOTS (historical per-provider breakdown, issue #108 Phase 3)
 // ============================================
 
-export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+/**
+ * Write one dimension's breakdown for a date (issue #151).
+ *
+ * One implementation for datacenter, country and continent, which were three copies of this
+ * differing only in table and column names. Those names come from the dimension whitelist in
+ * decentralizationDimensions.js and never from a caller's string: SQL identifiers cannot be
+ * bound as parameters, so an unrecognised key has to throw rather than reach a query.
+ */
+export async function createDecentralizationDimensionSnapshots(dimensionKey, snapshotDate, breakdown) {
     if (!breakdown || breakdown.length === 0) return 0;
 
+    const dimension = resolveDimension(dimensionKey);
+    const hasCode = Boolean(dimension.codeColumn);
+
+    const columns = [
+        'snapshot_date',
+        dimension.nameColumn,
+        ...(hasCode ? [dimension.codeColumn] : []),
+        'node_count',
+        'created_at'
+    ];
+    const updates = [
+        ...(hasCode ? [`${dimension.codeColumn} = @${dimension.codeColumn}`] : []),
+        'node_count = @node_count'
+    ];
+
     const stmt = getDb().prepare(`
-        INSERT INTO decentralization_snapshots (snapshot_date, org, node_count, created_at)
-        VALUES (@snapshot_date, @org, @node_count, @created_at)
-        ON CONFLICT(snapshot_date, org) DO UPDATE SET
-            node_count = @node_count
+        INSERT INTO ${dimension.table} (${columns.join(', ')})
+        VALUES (${columns.map(column => `@${column}`).join(', ')})
+        ON CONFLICT(snapshot_date, ${dimension.nameColumn}) DO UPDATE SET
+            ${updates.join(',\n            ')}
     `);
 
     const insertAll = getDb().transaction((items) => {
         for (const item of items) {
-            stmt.run({
+            const params = {
                 snapshot_date: snapshotDate,
-                org: item.org,
+                [dimension.nameColumn]: item[dimension.nameField],
                 node_count: item.count,
                 created_at: Date.now()
-            });
+            };
+            if (hasCode) params[dimension.codeColumn] = item[dimension.codeField] ?? null;
+            stmt.run(params);
         }
     });
 
@@ -1995,13 +2021,29 @@ export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
 
 /** Inclusive date range, ordered by date then node_count desc -- backs the CSV export
  *  and the KPI top-3-for-period computation. */
-export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+export async function getDecentralizationDimensionSnapshotHistory(dimensionKey, startDate, endDate) {
+    const dimension = resolveDimension(dimensionKey);
+    const columns = [
+        'snapshot_date',
+        dimension.nameColumn,
+        ...(dimension.codeColumn ? [dimension.codeColumn] : []),
+        'node_count'
+    ];
+
     return getDb().prepare(`
-        SELECT snapshot_date, org, node_count
-        FROM decentralization_snapshots
+        SELECT ${columns.join(', ')}
+        FROM ${dimension.table}
         WHERE snapshot_date >= ? AND snapshot_date <= ?
         ORDER BY snapshot_date ASC, node_count DESC
     `).all(startDate, endDate);
+}
+
+export async function createDecentralizationSnapshots(snapshotDate, breakdown) {
+    return createDecentralizationDimensionSnapshots('datacenter', snapshotDate, breakdown);
+}
+
+export async function getDecentralizationSnapshotHistory(startDate, endDate) {
+    return getDecentralizationDimensionSnapshotHistory('datacenter', startDate, endDate);
 }
 
 // ============================================
@@ -2064,74 +2106,22 @@ export async function getGameSnapshotHistory(startDate, endDate) {
 // DECENTRALIZATION COUNTRY/CONTINENT SNAPSHOTS (issue #138)
 // ============================================
 
+// Country/continent are the same write and the same read as the datacenter dimension,
+// differing only in table and column names -- they are named entry points onto the
+// generic pair above (issue #151).
+
 export async function createDecentralizationCountrySnapshots(snapshotDate, breakdown) {
-    if (!breakdown || breakdown.length === 0) return 0;
-
-    const stmt = getDb().prepare(`
-        INSERT INTO decentralization_country_snapshots (snapshot_date, country, country_code, node_count, created_at)
-        VALUES (@snapshot_date, @country, @country_code, @node_count, @created_at)
-        ON CONFLICT(snapshot_date, country) DO UPDATE SET
-            country_code = @country_code,
-            node_count = @node_count
-    `);
-
-    const insertAll = getDb().transaction((items) => {
-        for (const item of items) {
-            stmt.run({
-                snapshot_date: snapshotDate,
-                country: item.country,
-                country_code: item.countryCode ?? null,
-                node_count: item.count,
-                created_at: Date.now()
-            });
-        }
-    });
-
-    insertAll(breakdown);
-    return breakdown.length;
+    return createDecentralizationDimensionSnapshots('country', snapshotDate, breakdown);
 }
 
 export async function getDecentralizationCountrySnapshotHistory(startDate, endDate) {
-    return getDb().prepare(`
-        SELECT snapshot_date, country, country_code, node_count
-        FROM decentralization_country_snapshots
-        WHERE snapshot_date >= ? AND snapshot_date <= ?
-        ORDER BY snapshot_date ASC, node_count DESC
-    `).all(startDate, endDate);
+    return getDecentralizationDimensionSnapshotHistory('country', startDate, endDate);
 }
 
 export async function createDecentralizationContinentSnapshots(snapshotDate, breakdown) {
-    if (!breakdown || breakdown.length === 0) return 0;
-
-    const stmt = getDb().prepare(`
-        INSERT INTO decentralization_continent_snapshots (snapshot_date, continent, continent_code, node_count, created_at)
-        VALUES (@snapshot_date, @continent, @continent_code, @node_count, @created_at)
-        ON CONFLICT(snapshot_date, continent) DO UPDATE SET
-            continent_code = @continent_code,
-            node_count = @node_count
-    `);
-
-    const insertAll = getDb().transaction((items) => {
-        for (const item of items) {
-            stmt.run({
-                snapshot_date: snapshotDate,
-                continent: item.continent,
-                continent_code: item.continentCode ?? null,
-                node_count: item.count,
-                created_at: Date.now()
-            });
-        }
-    });
-
-    insertAll(breakdown);
-    return breakdown.length;
+    return createDecentralizationDimensionSnapshots('continent', snapshotDate, breakdown);
 }
 
 export async function getDecentralizationContinentSnapshotHistory(startDate, endDate) {
-    return getDb().prepare(`
-        SELECT snapshot_date, continent, continent_code, node_count
-        FROM decentralization_continent_snapshots
-        WHERE snapshot_date >= ? AND snapshot_date <= ?
-        ORDER BY snapshot_date ASC, node_count DESC
-    `).all(startDate, endDate);
+    return getDecentralizationDimensionSnapshotHistory('continent', startDate, endDate);
 }

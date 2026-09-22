@@ -21,6 +21,7 @@ import { getLatestRepoCounts } from '../services/cloudService.js';
 import { getLiveGameBreakdown } from '../services/gamingService.js';
 import {
     getDecentralizationStats,
+    loadClassificationContext,
     getFullDatacenterBreakdown,
     getFullCountryBreakdown,
     getFullContinentBreakdown
@@ -292,11 +293,23 @@ async function takeSnapshot() {
         
         log.info(`Revenue for ${snapshotDate}: ${actualRevenue.toFixed(2)} FLUX`);
 
+        // One read of node_ip_classification for all four consumers below (issue #151).
+        // Each of them used to fetch and filter the table for itself, so a single snapshot
+        // cycle paginated the whole table up to four times for identical data. A failure
+        // here is not fatal: each consumer still falls back to loading it on its own, and
+        // its own try/catch still keeps a failure off the headline row.
+        let classificationContext = null;
+        try {
+            classificationContext = await loadClassificationContext();
+        } catch (error) {
+            log.warn(`Decentralization classifications unavailable for this snapshot: ${error.message}`);
+        }
+
         let decentralization = null;
         let decentralizationBreakdown = [];
         try {
-            decentralization = await getDecentralizationStats();
-            decentralizationBreakdown = await getFullDatacenterBreakdown();
+            decentralization = await getDecentralizationStats(classificationContext);
+            decentralizationBreakdown = await getFullDatacenterBreakdown(classificationContext);
         } catch (error) {
             log.warn(`Decentralization data unavailable for this snapshot: ${error.message}`);
         }
@@ -306,13 +319,13 @@ async function takeSnapshot() {
         // above, which is pre-existing and left as-is) -- and never blocks the headline row.
         let decentralizationCountryBreakdown = [];
         try {
-            decentralizationCountryBreakdown = await getFullCountryBreakdown();
+            decentralizationCountryBreakdown = await getFullCountryBreakdown(classificationContext);
         } catch (error) {
             log.warn(`Decentralization country breakdown unavailable for this snapshot: ${error.message}`);
         }
         let decentralizationContinentBreakdown = [];
         try {
-            decentralizationContinentBreakdown = await getFullContinentBreakdown();
+            decentralizationContinentBreakdown = await getFullContinentBreakdown(classificationContext);
         } catch (error) {
             log.warn(`Decentralization continent breakdown unavailable for this snapshot: ${error.message}`);
         }

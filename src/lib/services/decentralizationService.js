@@ -15,6 +15,7 @@ import { resilientFetch } from './resilientFetch.js';
 import { getBusiestNode, getCachedNetworkNodeIps } from './busiestNodeService.js';
 import { getAllNodeIpClassifications, upsertNodeIpClassifications } from '../db/database.js';
 import { DECENTRALIZATION_CONFIG, DATACENTER_ORG_KEYWORDS } from '../config.js';
+import { BREAKDOWN_DIMENSIONS } from '../decentralizationDimensions.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('decentralizationService');
@@ -139,23 +140,75 @@ function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
 }
 
 /**
+ * The candidate IPs and their classifications, fetched once (issue #151).
+ *
+ * Every breakdown needs the same two things, and each getFull*Breakdown() used to fetch them
+ * for itself -- so one snapshot cycle paginated the whole node_ip_classification table up to
+ * four times. Callers that need more than one breakdown load this once and pass it in; the
+ * getters still load it themselves when called alone, so nothing else had to change.
+ */
+export async function loadClassificationContext() {
+    const candidateIps = getCachedNetworkNodeIps();
+    const candidateSet = new Set(candidateIps);
+    const allClassifications = await getAllNodeIpClassifications();
+
+    return {
+        candidateIps,
+        allClassifications,
+        relevant: allClassifications.filter(row => candidateSet.has(row.ip))
+    };
+}
+
+/**
+ * Group classified nodes by one named dimension (country, continent, ...).
+ *
+ * Pure, and the single implementation behind what used to be two identical functions
+ * differing only in field name. A row with no value for the dimension groups under the
+ * sentinel rather than being dropped, so the counts still sum to the classified total; its
+ * code is deliberately null, since '(unknown)' has no ISO code.
+ */
+function computeNamedBreakdown(relevant, { nameField, codeField, sentinel }) {
+    const counts = new Map();
+
+    for (const row of relevant) {
+        const value = row[nameField];
+        const key = value || sentinel;
+        const code = value ? (row[codeField] || null) : null;
+        const existing = counts.get(key);
+        if (existing) {
+            existing.count++;
+        } else {
+            counts.set(key, { code, count: 1 });
+        }
+    }
+
+    return [...counts.entries()].map(([name, { code, count }]) => ({
+        [nameField]: name,
+        [codeField]: code,
+        count
+    }));
+}
+
+/**
  * Every distinct datacenter org's count, uncapped (unlike topDatacenters, which caps at
  * 3 for the live card), plus the non-datacenter classified count under the reserved
  * '(independent)' sentinel org. Used only by the daily snapshot collector -- the live
  * card's getDecentralizationStats() is unaffected by this function.
+ *
+ * Not a plain group-by like the named dimensions above: rows split on isDatacenter first,
+ * and the whole non-datacenter side collapses into one bucket.
+ *
+ * @param {object} [context] a context from loadClassificationContext(); loaded here if omitted
  */
-export async function getFullDatacenterBreakdown() {
-    const candidateIps = getCachedNetworkNodeIps();
-    const candidateSet = new Set(candidateIps);
-    const allClassifications = await getAllNodeIpClassifications();
-    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
+export async function getFullDatacenterBreakdown(context) {
+    const { relevant } = context ?? await loadClassificationContext();
 
     const counts = new Map();
     let independentCount = 0;
 
     for (const row of relevant) {
         if (row.isDatacenter) {
-            const key = row.org || 'Unknown';
+            const key = row.org || BREAKDOWN_DIMENSIONS.datacenter.sentinel;
             counts.set(key, (counts.get(key) || 0) + 1);
         } else {
             independentCount++;
@@ -168,54 +221,23 @@ export async function getFullDatacenterBreakdown() {
 }
 
 /**
- * Every distinct country's classified-node count, uncapped -- issue #138, mirrors
- * getFullDatacenterBreakdown() exactly but grouped by country instead of org. Used only by
- * the daily snapshot collector. A missing/null country (classification pending, or both
- * providers omitted it) groups under the reserved '(unknown)' sentinel rather than being
- * dropped, same pattern as getFullDatacenterBreakdown()'s 'Unknown'/'(independent)'.
+ * Every distinct country's classified-node count, uncapped -- issue #138.
+ * @param {object} [context] a context from loadClassificationContext(); loaded here if omitted
  */
-export async function getFullCountryBreakdown() {
-    const candidateIps = getCachedNetworkNodeIps();
-    const candidateSet = new Set(candidateIps);
-    const allClassifications = await getAllNodeIpClassifications();
-    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
-
-    const counts = new Map(); // country -> { countryCode, count }
-    for (const row of relevant) {
-        const key = row.country || '(unknown)';
-        const code = row.country ? (row.countryCode || null) : null;
-        const existing = counts.get(key);
-        if (existing) {
-            existing.count++;
-        } else {
-            counts.set(key, { countryCode: code, count: 1 });
-        }
-    }
-
-    return [...counts.entries()].map(([country, { countryCode, count }]) => ({ country, countryCode, count }));
+export async function getFullCountryBreakdown(context) {
+    const { relevant } = context ?? await loadClassificationContext();
+    return computeNamedBreakdown(relevant, BREAKDOWN_DIMENSIONS.country);
 }
 
-/** Every distinct continent's classified-node count, uncapped -- issue #138, same shape as getFullCountryBreakdown(). */
-export async function getFullContinentBreakdown() {
-    const candidateIps = getCachedNetworkNodeIps();
-    const candidateSet = new Set(candidateIps);
-    const allClassifications = await getAllNodeIpClassifications();
-    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
-
-    const counts = new Map(); // continent -> { continentCode, count }
-    for (const row of relevant) {
-        const key = row.continent || '(unknown)';
-        const code = row.continent ? (row.continentCode || null) : null;
-        const existing = counts.get(key);
-        if (existing) {
-            existing.count++;
-        } else {
-            counts.set(key, { continentCode: code, count: 1 });
-        }
-    }
-
-    return [...counts.entries()].map(([continent, { continentCode, count }]) => ({ continent, continentCode, count }));
+/**
+ * Every distinct continent's classified-node count, uncapped -- issue #138.
+ * @param {object} [context] a context from loadClassificationContext(); loaded here if omitted
+ */
+export async function getFullContinentBreakdown(context) {
+    const { relevant } = context ?? await loadClassificationContext();
+    return computeNamedBreakdown(relevant, BREAKDOWN_DIMENSIONS.continent);
 }
+
 
 /** Recomputes and caches the stats snapshot from an in-memory classification list. */
 function computeAndCacheStats(allClassifications, candidateIps) {
@@ -351,11 +373,10 @@ export async function reclassifyStoredDatacenterFlags() {
  * The current decentralization stats, computed on demand if the scheduler hasn't run yet
  * (cold start) rather than returning nothing.
  */
-export async function getDecentralizationStats() {
+export async function getDecentralizationStats(context) {
     if (statsCache) return statsCache;
 
-    const candidateIps = getCachedNetworkNodeIps();
-    const allClassifications = await getAllNodeIpClassifications();
+    const { allClassifications, candidateIps } = context ?? await loadClassificationContext();
     return computeAndCacheStats(allClassifications, candidateIps);
 }
 
