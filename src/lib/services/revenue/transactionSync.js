@@ -485,6 +485,10 @@ export async function progressiveSync() {
         await ensurePermanentMessagesCache();
 
         let pendingPayments = [];   // buffer between DB flushes
+        // Failed txids whose payments are in pendingPayments. Resolved only AFTER the write
+        // lands (issue #315): resolving first meant a failed final write lost the recovered
+        // payments for good -- the txid read as done, and it sits outside the rescan overlap.
+        let pendingResolves = [];
         let totalNewPayments = 0;
         const DB_FLUSH_SIZE = REVENUE_SYNC.DB_FLUSH_SIZE;
         let syncAborted = false;
@@ -492,16 +496,19 @@ export async function progressiveSync() {
 
         // Helper: flush pending payments to DB so they become visible immediately
         async function flushPending() {
-            if (pendingPayments.length === 0) return;
-            const writeOk = await insertTransactionsBatch(pendingPayments);
-            if (writeOk === false) {
-                log.error('Database write error -- aborting sync to avoid data loss');
-                syncAborted = true;
-                return;
+            if (pendingPayments.length > 0) {
+                const writeOk = await insertTransactionsBatch(pendingPayments);
+                if (writeOk === false) {
+                    log.error('Database write error -- aborting sync to avoid data loss');
+                    syncAborted = true;
+                    return; // pendingResolves stay unresolved, so the next pass retries them
+                }
+                totalNewPayments += pendingPayments.length;
+                log.info({ flushed: pendingPayments.length, totalSoFar: totalNewPayments }, 'Flushed %d payments to DB (total so far: %d)', pendingPayments.length, totalNewPayments);
+                pendingPayments = [];
             }
-            totalNewPayments += pendingPayments.length;
-            log.info({ flushed: pendingPayments.length, totalSoFar: totalNewPayments }, 'Flushed %d payments to DB (total so far: %d)', pendingPayments.length, totalNewPayments);
-            pendingPayments = [];
+            for (const txid of pendingResolves) await resolveFailedTxid(txid);
+            pendingResolves = [];
         }
 
         // 6. Process each tracked address
@@ -559,8 +566,8 @@ export async function progressiveSync() {
                     const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                     pendingPayments.push(...payments);
 
-                    // Mark as resolved if it was previously failed
-                    await resolveFailedTxid(txid);
+                    // Mark as resolved if it was previously failed -- once flushed (#315)
+                    pendingResolves.push(txid);
 
                     if (payments.length > 0) {
                         log.info({ txid: txid.substring(0, 10), amount: payments[0].amount.toFixed(4), appName }, 'Payment in %s: %s FLUX%s', txid.substring(0, 10), payments[0].amount.toFixed(4), appName ? ` (${appName})` : '');
@@ -614,7 +621,7 @@ export async function progressiveSync() {
 
                         const payments = processTransaction(tx, TARGET_ADDRESSES, fluxPrice, appName, appType, priceMap);
                         pendingPayments.push(...payments);
-                        await resolveFailedTxid(txid);
+                        pendingResolves.push(txid); // resolved once flushed (#315)
 
                         if (payments.length > 0) {
                             recovered++;

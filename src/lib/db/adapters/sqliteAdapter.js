@@ -1650,17 +1650,12 @@ export async function getTopReposByCategory(category, limit = 3) {
 
         if (!dateRow || !dateRow.d) return { date: null, repos: [] };
 
+        // One row per FULL image name, tag included -- see the Supabase adapter (issue #305).
         const repos = getDb().prepare(`
-            SELECT
-                CASE WHEN INSTR(image_name, ':') > 0
-                     THEN SUBSTR(image_name, 1, INSTR(image_name, ':') - 1)
-                     ELSE image_name
-                END AS image_name,
-                SUM(instance_count) AS instance_count
+            SELECT image_name, instance_count
             FROM repo_snapshots
             WHERE category = ? AND snapshot_date = ?
-            GROUP BY 1
-            ORDER BY instance_count DESC
+            ORDER BY instance_count DESC, image_name ASC
             LIMIT ?
         `).all(category, dateRow.d, limit);
 
@@ -1755,22 +1750,18 @@ export async function recategorizeAllRepos() {
     try {
         const d = getDb();
 
-        // Reset all categories
-        d.prepare('UPDATE repo_snapshots SET category = NULL').run();
-
-        // Get all distinct images
         const rows = d.prepare('SELECT DISTINCT image_name FROM repo_snapshots').all();
 
+        // Every image gets its category in one update, null included -- no global reset
+        // first (issues #222/#304), and the whole pass is one transaction.
         const stmt = d.prepare('UPDATE repo_snapshots SET category = ? WHERE image_name = ?');
         const counts = {};
 
         const updateAll = d.transaction((images) => {
             for (const row of images) {
                 const cat = categorizeImage(row.image_name);
-                if (cat) {
-                    stmt.run(cat, row.image_name);
-                    counts[cat] = (counts[cat] || 0) + 1;
-                }
+                stmt.run(cat, row.image_name);
+                if (cat) counts[cat] = (counts[cat] || 0) + 1;
             }
         });
 

@@ -853,6 +853,7 @@ export async function getRevenueForBlockRange(startBlock, endBlock) {
             .select('amount')
             .gte('block_height', startBlock)
             .lte('block_height', endBlock)
+            .order('id', { ascending: true }) // offset paging needs a total order (#313)
             .range(offset, offset + pageSize - 1);
 
         if (error) {
@@ -1012,16 +1013,17 @@ export async function getDailyRevenueFromTransactions(days = 30) {
     cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
-    const { data, error } = await supabase.rpc('get_daily_revenue', {
-        start_date: startDate
-    });
-
-    if (error) {
+    // Paged (issue #306): one row per day, ORDER BY date ASC -- past 1000 days an unpaged
+    // call silently drops the NEWEST days, which is exactly what the "All" chart shows.
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue', { start_date: startDate });
+    } catch (error) {
         log.error(`getDailyRevenueFromTransactions error: ${error.message}`);
         return [];
     }
-    log.info(`Retrieved daily revenue for ${(data || []).length} days from transactions`);
-    return data || [];
+    log.info(`Retrieved daily revenue for ${data.length} days from transactions`);
+    return data;
 }
 
 export async function getDailyRevenueInRange(startDate, endDate) {
@@ -1044,16 +1046,17 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
     cutoff.setDate(cutoff.getDate() - (days - 1));
     const startDate = cutoff.toISOString().split('T')[0];
 
-    const { data, error } = await supabase.rpc('get_daily_revenue_usd', {
-        start_date: startDate
-    });
-
-    if (error) {
+    // Paged (issue #306): one row per day, ORDER BY date ASC -- past 1000 days an unpaged
+    // call silently drops the NEWEST days, which is exactly what the "All" chart shows.
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_usd', { start_date: startDate });
+    } catch (error) {
         log.error(`getDailyRevenueUSDFromTransactions error: ${error.message}`);
         return [];
     }
-    log.info(`Retrieved daily USD revenue for ${(data || []).length} days from transactions`);
-    return data || [];
+    log.info(`Retrieved daily USD revenue for ${data.length} days from transactions`);
+    return data;
 }
 
 export async function getDailyRevenueUSDInRange(startDate, endDate) {
@@ -1418,6 +1421,7 @@ export async function getTransactionsWithNullUsd(limit = 1000, offset = 0) {
         .select('txid, amount, date, timestamp')
         .is('amount_usd', null)
         .order('block_height', { ascending: false })
+        .order('id', { ascending: true }) // tiebreak: block_height is not unique (#313)
         .range(offset, offset + limit - 1);
 
     if (error) {
@@ -1600,14 +1604,17 @@ export async function getRepoHistory(imageName, limit = 90) {
 }
 
 export async function getDistinctRepos() {
-    const { data, error } = await supabase.rpc('get_distinct_repos');
-
-    if (error) {
+    // Paged (issue #304): there are well over 1000 distinct images, and an unpaged RPC stops
+    // at db-max-rows silently -- recategorize then left every image past the cap uncategorized.
+    let data;
+    try {
+        data = await pagedRpc('get_distinct_repos');
+    } catch (error) {
         log.error(`getDistinctRepos error: ${error.message}`);
         return [];
     }
 
-    return (data || []).map(r => r.image_name);
+    return data.map(r => r.image_name);
 }
 
 export async function getLatestRepoSnapshot() {
@@ -1638,30 +1645,45 @@ export async function getLatestRepoSnapshot() {
 // CATEGORY-BASED REPO QUERIES
 // ============================================
 
+/**
+ * Latest day's rows for a category, one per FULL image name (tag included), biggest first.
+ *
+ * Deliberately not the get_top_repos_by_category RPC: that strips the tag before grouping,
+ * and the route re-validates each row with categorizeImage() -- which decides some images
+ * BY their tag (`ethereum/client-go:stable` is crypto, `ethereum/client-go` is nothing). So
+ * the tagless row failed re-validation and dropped out of the card (issue #305). Tags are
+ * merged by the caller's groupReposByCanonicalName(), after validation.
+ */
 export async function getTopReposByCategory(category, limit = 3) {
-    const { data, error } = await supabase.rpc('get_top_repos_by_category', {
-        cat: category,
-        lim: limit
-    });
+    const { data: dateRow, error: dateError } = await supabase
+        .from('repo_snapshots')
+        .select('snapshot_date')
+        .eq('category', category)
+        .order('snapshot_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (dateError) {
+        log.error(`getTopReposByCategory error: ${dateError.message}`);
+        return { date: null, repos: [] };
+    }
+    if (!dateRow) return { date: null, repos: [] };
+
+    const { data, error } = await supabase
+        .from('repo_snapshots')
+        .select('image_name, instance_count')
+        .eq('category', category)
+        .eq('snapshot_date', dateRow.snapshot_date)
+        .order('instance_count', { ascending: false })
+        .order('image_name', { ascending: true })
+        .limit(limit);
 
     if (error) {
         log.error(`getTopReposByCategory error: ${error.message}`);
         return { date: null, repos: [] };
     }
 
-    // Get the latest date for this category
-    const { data: dateRow } = await supabase
-        .from('repo_snapshots')
-        .select('snapshot_date')
-        .eq('category', category)
-        .order('snapshot_date', { ascending: false })
-        .limit(1)
-        .single();
-
-    return {
-        date: dateRow?.snapshot_date || null,
-        repos: data || []
-    };
+    return { date: dateRow.snapshot_date, repos: data || [] };
 }
 
 export async function getCategoryTotal(category, date) {
@@ -1679,28 +1701,25 @@ export async function getCategoryTotal(category, date) {
 }
 
 export async function getCategoryHistory(category, limit = 90) {
-    const { data, error } = await supabase.rpc('get_category_history', {
-        cat: category,
-        lim: limit
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_category_history', { cat: category, lim: limit });
+    } catch (error) {
         log.error(`getCategoryHistory error: ${error.message}`);
         return [];
     }
-    return data || [];
+    return data;
 }
 
 export async function getReposByCategory(category) {
-    const { data, error } = await supabase.rpc('get_repos_by_category', {
-        cat: category
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_repos_by_category', { cat: category });
+    } catch (error) {
         log.error(`getReposByCategory error: ${error.message}`);
         return [];
     }
-    return data || [];
+    return data;
 }
 
 /**
@@ -1742,27 +1761,27 @@ export async function backfillRepoCategories() {
 }
 
 export async function recategorizeAllRepos() {
-    // Reset all categories to NULL
-    await supabase
-        .from('repo_snapshots')
-        .update({ category: null })
-        .neq('id', 0); // update all
-
-    // Distinct images via the RPC, not a row scan — see backfillRepoCategories(). Scanning
-    // rows here was worse than lossy: every category was nulled above, then only the images
-    // that happened to appear in the first 1000 rows got one back (issue #222).
+    // Distinct images via the (paged) RPC, not a row scan — see backfillRepoCategories().
+    //
+    // Each image is set to its category in ONE update, null included for an image that no
+    // longer matches. This used to null every row first and then restore only the images the
+    // RPC returned -- and the RPC was capped at 1000, so every image past the cap stayed NULL
+    // for good (issues #222, #304). With no global reset, a run that dies midway leaves each
+    // row either old-correct or new-correct, never blank.
     const uniqueImages = await getDistinctRepos();
+    if (uniqueImages.length === 0) {
+        throw new Error('recategorizeAllRepos: no images returned — refusing to run');
+    }
     const counts = {};
 
     for (const imageName of uniqueImages) {
         const cat = categorizeImage(imageName);
-        if (cat) {
-            await supabase
-                .from('repo_snapshots')
-                .update({ category: cat })
-                .eq('image_name', imageName);
-            counts[cat] = (counts[cat] || 0) + 1;
-        }
+        const { error } = await supabase
+            .from('repo_snapshots')
+            .update({ category: cat })
+            .eq('image_name', imageName);
+        if (error) throw new Error(`recategorize ${imageName} failed: ${error.message}`);
+        if (cat) counts[cat] = (counts[cat] || 0) + 1;
     }
 
     log.info({ counts }, `Re-categorized ${uniqueImages.length} images`);
@@ -1850,6 +1869,7 @@ export async function exportAllRepoSnapshots() {
             .from('repo_snapshots')
             .select('*')
             .order('snapshot_date', { ascending: true })
+            .order('image_name', { ascending: true }) // tiebreak (#313)
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Export repo_snapshots failed: ${error.message}`);
@@ -1878,6 +1898,7 @@ export async function exportAllGameSnapshots() {
             .from('game_snapshots')
             .select('*')
             .order('snapshot_date', { ascending: true })
+            .order('game_name', { ascending: true }) // tiebreak (#313)
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Export game_snapshots failed: ${error.message}`);
@@ -1962,6 +1983,9 @@ export async function getAllNodeIpClassifications() {
             // these rows straight back through upsertNodeIpClassifications(), which sets
             // every column, so dropping asn here would null it on every re-flagged row.
             .select('ip, asn, org, is_datacenter, classified_at, country, country_code, continent, continent_code')
+            // Offset paging with no ORDER BY can skip or repeat rows while the decentralization
+            // scheduler upserts into this table (issue #313).
+            .order('ip', { ascending: true })
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch node_ip_classification failed: ${error.message}`);
@@ -2085,6 +2109,7 @@ export async function getGameSnapshotHistory(startDate, endDate) {
             .lte('snapshot_date', endDate)
             .order('snapshot_date', { ascending: true })
             .order('instance_count', { ascending: false })
+            .order('game_name', { ascending: true }) // tiebreak (#313)
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch game_snapshots failed: ${error.message}`);
@@ -2153,6 +2178,7 @@ export async function getDecentralizationDimensionSnapshotHistory(dimensionKey, 
             .lte('snapshot_date', endDate)
             .order('snapshot_date', { ascending: true })
             .order('node_count', { ascending: false })
+            .order(dimension.nameColumn, { ascending: true }) // tiebreak (#313)
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) throw new Error(`Fetch ${dimension.table} failed: ${error.message}`);
