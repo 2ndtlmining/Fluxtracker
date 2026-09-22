@@ -51,6 +51,8 @@ import {
     getSnapshotSystemStatus,
     takeManualSnapshot,
     takeRepoSnapshot,
+    startSnapshotChecker,
+    stopSnapshotChecker,
 } from '../snapshotManager.js';
 
 import {
@@ -174,6 +176,67 @@ describe('snapshotManager', () => {
             expect(state).toHaveProperty('repoRetryPending');
             // Internal timer handle should NOT be exposed
             expect(state).not.toHaveProperty('repoRetryId');
+        });
+    });
+
+    // ------------------------------------------
+    // 1b. No timer handle survives into a response (issue #247)
+    //
+    // A Node Timeout is circular, so one reaching res.json() is a 500. That is what
+    // /api/admin/snapshot-status did on every running instance: it serialises the whole
+    // status object, and `intervalId` was never stripped the way `repoRetryId` was.
+    // /api/health escaped only because it cherry-picks four fields by name.
+    //
+    // These tests start the real checker, because with it stopped `intervalId` is null
+    // and the bug is invisible -- which is exactly why the suite missed it.
+    // ------------------------------------------
+    describe('serialising the status while the scheduler runs (issue #247)', () => {
+        beforeEach(() => {
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(null);
+        });
+
+        afterEach(() => {
+            stopSnapshotChecker();
+        });
+
+        // Asserted as an absent property rather than "JSON.stringify throws": whether a
+        // Timeout is circular depends on the timers list it lands in, and under vitest's
+        // fake timers it is not a real Timeout at all. The property is the deterministic
+        // signal; the 500 is its consequence.
+        it('does not leak the interval handle into the status', async () => {
+            startSnapshotChecker();
+
+            const status = await getSnapshotSystemStatus();
+
+            expect(status.state).not.toHaveProperty('intervalId');
+        });
+
+        it('reports that the scheduler is running, as a boolean', async () => {
+            startSnapshotChecker();
+
+            const status = await getSnapshotSystemStatus();
+
+            expect(status.state.isSchedulerRunning).toBe(true);
+        });
+
+        it('reports it as false once stopped', async () => {
+            startSnapshotChecker();
+            stopSnapshotChecker();
+
+            const status = await getSnapshotSystemStatus();
+
+            expect(status.state.isSchedulerRunning).toBe(false);
+        });
+
+        it('getSnapshotState() is serialisable too, for the same reason', () => {
+            startSnapshotChecker();
+
+            const state = getSnapshotState();
+
+            expect(() => JSON.stringify(state)).not.toThrow();
+            expect(state).not.toHaveProperty('intervalId');
+            expect(state.isSchedulerRunning).toBe(true);
         });
     });
 
