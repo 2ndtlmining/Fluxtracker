@@ -719,19 +719,52 @@ export async function getTransactionsByBlockRange(startBlock, endBlock) {
     return rows;
 }
 
-export async function getRevenueForDateRange(startDate, endDate) {
-    // Use existing RPC function for server-side aggregation (avoids 1000-row limit)
-    const { data, error } = await supabase.rpc('get_daily_revenue_in_range', {
-        p_start: startDate,
-        p_end: endDate
-    });
+/**
+ * Call a set-returning RPC and read every row (issue #227).
+ *
+ * PostgREST's db-max-rows cap applies to rpc() exactly as it does to a table read, and
+ * truncates just as silently -- #232 swept that out of the table reads and missed these
+ * because they are RPC calls, not selects. Each of these returns one row per day, so at
+ * 836 days of history they were roughly 160 days from quietly dropping their oldest data,
+ * with no error anywhere.
+ *
+ * Throws on error rather than deciding per-caller; the callers keep their own logging and
+ * their own choice of throw-vs-empty.
+ */
+async function pagedRpc(name, params) {
+    const PAGE_SIZE = 1000;
+    const rows = [];
+    let offset = 0;
 
-    if (error) {
+    while (true) {
+        const { data, error } = await supabase
+            .rpc(name, params)
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        rows.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+}
+
+export async function getRevenueForDateRange(startDate, endDate) {
+    // Server-side aggregation, PAGED (issue #227). The RPC returns one row per day, and
+    // an RPC response is capped at db-max-rows and truncated silently exactly like a
+    // select -- so past 1000 days this would have quietly under-reported the headline
+    // revenue figure that the dashboard, the KPI report and every snapshot read from.
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
+    } catch (error) {
         log.error(`getRevenueForDateRange error: ${error.message}`);
         throw new Error(`getRevenueForDateRange failed: ${error.message}`);
     }
-    // Sum the daily totals
-    return (data || []).reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
+    return data.reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
 }
 
 /**
@@ -744,34 +777,32 @@ export async function getRevenueForDateRange(startDate, endDate) {
 export async function getRevenueFromAddressesForDateRange(startDate, endDate, addresses) {
     if (!addresses || addresses.length === 0) return { revenue: 0, payments: 0 };
 
-    const PAGE_SIZE = 1000;
-    let offset = 0;
-    let revenue = 0;
-    let payments = 0;
+    // Two round trips with bounded results, whatever the range (issue #227). This used to
+    // page every matching row back to Node to add them up -- ceil(N/1000) sequential
+    // requests with every row transferred, on an endpoint polled by every open tab -- when
+    // migration 010 already ships an RPC that does the SUM server-side and returns one row
+    // per day. The payment count comes from a head request, which transfers no rows at all.
+    try {
+        const [daily, { count, error: countError }] = await Promise.all([
+            pagedRpc('get_daily_revenue_from_addresses_in_range', {
+                p_start: startDate, p_end: endDate, p_addresses: addresses
+            }),
+            supabase
+                .from('revenue_transactions')
+                .select('*', { count: 'exact', head: true })
+                .gte('date', startDate)
+                .lte('date', endDate)
+                .in('from_address', addresses)
+        ]);
 
-    while (true) {
-        const { data, error } = await supabase
-            .from('revenue_transactions')
-            .select('amount')
-            .gte('date', startDate)
-            .lte('date', endDate)
-            .in('from_address', addresses)
-            .range(offset, offset + PAGE_SIZE - 1);
+        if (countError) throw countError;
 
-        if (error) {
-            log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
-            throw new Error(`getRevenueFromAddressesForDateRange failed: ${error.message}`);
-        }
-        if (!data || data.length === 0) break;
-
-        for (const row of data) revenue += row.amount || 0;
-        payments += data.length;
-
-        if (data.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
+        const revenue = daily.reduce((sum, row) => sum + (row.daily_revenue || 0), 0);
+        return { revenue, payments: count || 0 };
+    } catch (error) {
+        log.error(`getRevenueFromAddressesForDateRange error: ${error.message}`);
+        throw new Error(`getRevenueFromAddressesForDateRange failed: ${error.message}`);
     }
-
-    return { revenue, payments };
 }
 
 export async function getPaymentCountForDateRange(startDate, endDate) {
@@ -972,17 +1003,15 @@ export async function getDailyRevenueFromTransactions(days = 30) {
 }
 
 export async function getDailyRevenueInRange(startDate, endDate) {
-    const { data, error } = await supabase.rpc('get_daily_revenue_in_range', {
-        p_start: startDate,
-        p_end: endDate
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
+    } catch (error) {
         log.error(`getDailyRevenueInRange error: ${error.message}`);
         return [];
     }
-    log.info(`Retrieved daily revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
-    return data || [];
+    log.info(`Retrieved daily revenue for ${data.length} days from transactions (${startDate} to ${endDate})`);
+    return data;
 }
 
 export async function getDailyRevenueUSDFromTransactions(days = 30) {
@@ -1006,17 +1035,15 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
 }
 
 export async function getDailyRevenueUSDInRange(startDate, endDate) {
-    const { data, error } = await supabase.rpc('get_daily_revenue_usd_in_range', {
-        p_start: startDate,
-        p_end: endDate
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_usd_in_range', { p_start: startDate, p_end: endDate });
+    } catch (error) {
         log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
         throw new Error(`getDailyRevenueUSDInRange failed: ${error.message}`);
     }
-    log.info(`Retrieved daily USD revenue for ${(data || []).length} days from transactions (${startDate} to ${endDate})`);
-    return data || [];
+    log.info(`Retrieved daily USD revenue for ${data.length} days from transactions (${startDate} to ${endDate})`);
+    return data;
 }
 
 // Team Funded historical trend (issue #146). A per-day GROUP BY needs to run server-side,
@@ -1026,35 +1053,33 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
 export async function getDailyRevenueFromAddressesInRange(startDate, endDate, addresses) {
     if (!addresses || addresses.length === 0) return [];
 
-    const { data, error } = await supabase.rpc('get_daily_revenue_from_addresses_in_range', {
-        p_start: startDate,
-        p_end: endDate,
-        p_addresses: addresses
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_from_addresses_in_range', {
+            p_start: startDate, p_end: endDate, p_addresses: addresses
+        });
+    } catch (error) {
         log.error(`getDailyRevenueFromAddressesInRange error: ${error.message}`);
         throw new Error(`getDailyRevenueFromAddressesInRange failed: ${error.message}`);
     }
-    log.info(`Retrieved daily revenue from ${addresses.length} addresses for ${(data || []).length} days (${startDate} to ${endDate})`);
-    return data || [];
+    log.info(`Retrieved daily revenue from ${addresses.length} addresses for ${data.length} days (${startDate} to ${endDate})`);
+    return data;
 }
 
 export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate, addresses) {
     if (!addresses || addresses.length === 0) return [];
 
-    const { data, error } = await supabase.rpc('get_daily_revenue_usd_from_addresses_in_range', {
-        p_start: startDate,
-        p_end: endDate,
-        p_addresses: addresses
-    });
-
-    if (error) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_usd_from_addresses_in_range', {
+            p_start: startDate, p_end: endDate, p_addresses: addresses
+        });
+    } catch (error) {
         log.error(`getDailyRevenueUSDFromAddressesInRange error: ${error.message}`);
         throw new Error(`getDailyRevenueUSDFromAddressesInRange failed: ${error.message}`);
     }
-    log.info(`Retrieved daily USD revenue from ${addresses.length} addresses for ${(data || []).length} days (${startDate} to ${endDate})`);
-    return data || [];
+    log.info(`Retrieved daily USD revenue from ${addresses.length} addresses for ${data.length} days (${startDate} to ${endDate})`);
+    return data;
 }
 
 export async function deleteOldTransactions(daysToKeep = 365) {
