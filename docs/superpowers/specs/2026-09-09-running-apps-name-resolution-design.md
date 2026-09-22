@@ -1,5 +1,7 @@
 # Design: Recover categorization after FluxOS v8.18 running-apps API change
 
+> **Status: shipped**. Design record for the FluxOS v8.18 running-apps change.
+
 ## Problem
 
 Issue #106: `stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image` — the endpoint

@@ -1,5 +1,7 @@
 # Design: Decentralization historical snapshots (issue #108, Phase 3)
 
+> **Status: shipped** (issue #108 Phase 3). Design record; the dimension registry it describes now lives in `src/lib/decentralizationDimensions.js` (#151).
+
 ## Source
 
 User request following the live Decentralization metric (issue #108,

@@ -1,152 +1,201 @@
-# Fluxtracker Improvement Plan
+# Fluxtracker — What's Next
 
-Standing backlog of known issues and code-quality work. Add to it as things surface; move
-items to **Done** with the PR number rather than deleting them, so the reasoning survives.
+**Last reviewed: 2026-09-22** (against `main` and against live network data)
 
-Last reviewed: 2026-08-21
+GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
+worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
 
-Every item below is tracked as a GitHub issue — this file is the reasoning, the issues are the queue.
-
----
-
-## Open GitHub issues — triage
-
-Each verified against the code and against live network data on 2026-08-21.
-
-| # | Title | Label | Notes |
-|---|---|---|---|
-| 61 | Enable email delivery for KPI reports | `enhancement` `kpi` | Needs SMTP creds, `nodemailer` + `exceljs`, 5 env vars. No separate app required |
-| 62 | KPI revenue split by app category | `enhancement` `kpi` | Depends on #38. Categories must reconcile to the headline Flux figure |
-| 63 | Scheduled KPI reports | `enhancement` `kpi` | `node-cron` already a dependency; needs a stored destination list |
-| 64 | Backfill app-count columns | `enhancement` `data-quality` | The single thing blocking Quarterly Applications. `repo_snapshots` may allow reconstruction |
-| 65 | Single retry helper across services | `tech-debt` | Four different retry policies now; supersedes the code-quality half of #52 |
-| 38 | `app_category` column on revenue transactions | — | Precondition for #62. Cheap now that categorisation is unified |
-| 55 | External API fetches not circuit-broken | `enhancement` | The breaker only wraps the DB |
-| 52 | Inconsistent retry logic | `bug` | See #65 |
-| 49 | Spacing between gaming/crypto boxes | — | Re-check; the `min-width: 0` fix may already have resolved it |
-
-**Closed as fixed** (verified on `main`): #39 FluxOS codename, #47 Flux DNS as game, #48 Monthly = Daily,
-#50 config intervals, #51 service isolation, #53 Refresh button, #54 LIVE badge.
-
----|---|---|---|
-| 38 | `app_category` column on revenue transactions | Real. Much cheaper now that categorisation is unified in `categorizeImage()` — the sync can call it directly and store the result | **P1** |
-| 49 | Spacing between gaming/crypto boxes | Real, cosmetic. Same grid family as the label overflow; re-check now that `min-width: 0` is in place | **P2** |
-| 52 | Inconsistent retry logic across services | Real. See "One retry helper" below | **P2** |
-| 55 | External API fetches not protected by the circuit breaker | Real. The breaker only wraps the DB | **P2** |
-| 39 | FluxOS version codename in header | **Already implemented** — `/api/header` returns `arcaneOsCodename` and `Header.svelte` renders it | Close |
-| 47 | Flux DNS counted as a game | **Not reproducible** — `wirewrex/flux-dns-fdm` matches no gaming keyword and is absent from the live gaming list. Covered by a regression test | Close |
-| 48 | Performance Overview: Monthly = Daily | **UI symptom already fixed** — the revenue card reads `/api/revenue/:period`, which returns correct per-period totals. The stale single-day comparison in `/api/analytics/comparison/:days` was fixed separately | Close |
-| 50 | Refresh intervals don't match config | **Fixed** — `servicesScheduler.js` derives its interval from config | Done |
-| 51 | One failing service aborts the rest of the cycle | **Fixed** — each step is isolated | Done |
-| 53 | Refresh button updates the DB but not the cards | **Fixed** — shared `refreshSignal` store | Done |
-| 54 | "LIVE" badge hardcoded | **Fixed** — bound to the API's `cacheAge` | Done |
+The previous version of this file carried its own triage table that went a month stale and
+listed eight closed issues as open. That table is gone. Anything here that is not a standing
+rule links to an issue.
 
 ---
 
-## Recurring failure mode: silent caps
+## Next up, in order
 
-Three separate outages traced to the same shape — **a bound that returns success**:
+### 1. #246 — Static assets bypass compression (~495 KB per cold load)
 
-1. `exportAllPriceHistory()` had no `.range()`, so PostgREST silently truncated the R2 backup
-   at 1000 rows. The Flux instance bootstrapped from a price history that ended before its
-   first transaction.
+The one remaining performance gap, and a one-line fix. `adapter-node` serves `/_app/` through
+sirv, which runs **before** the `handle` hook where the runtime compression from #242/#243
+lives, so the client bundle and CSS go out uncompressed. Measured on a deployed instance: the
+74,612-byte CSS returns `content-encoding: none`, while the HTML (25.3 KB → 5.5 KB) and the
+API responses (93.4 KB → 22.2 KB) are compressed.
+
+`precompress: true` in `svelte.config.js` emits `.br`/`.gz` at build time and lets sirv serve
+them: better ratio than the runtime path (build-time brotli can afford quality 11) and zero
+per-request CPU. Repeat visits already hit `immutable` cache, so this is first-load only —
+which is the load that decides whether the dashboard feels fast.
+
+### 2. #247 — `/api/admin/snapshot-status` always 500s
+
+Two-line fix, and the endpoint is currently useless: `getSnapshotSystemStatus()` strips
+`repoRetryId` out of `state` but not `intervalId`, which holds a `setInterval` handle, so
+`res.json()` hits a circular structure. Strip it the same way and expose `isSchedulerRunning:
+!!intervalId`, matching what `revenueScheduler` already returns.
+
+No test caught this because `intervalId` is null unless the scheduler actually started, which
+it never does in the suite. The test to add starts one.
+
+### 3. #249 — Decentralization columns null on restart days
+
+Currently makes **every** KPI decentralization metric read "Insufficient data", in every
+timeframe, on an instance whose live card and chart are both fine. The snapshot writes those
+columns only when `classifiedCount > 0`, and that count comes from `getCachedNetworkNodeIps()`
+— an in-memory cache owned by `busiestNodeService` that is empty for the first minutes after a
+restart. A deploy shortly before the daily snapshot silently costs that whole day.
+
+Fix at the source: when the candidate set is empty, fetch it rather than proceeding with
+nothing — and log loudly, because today the only trace is a null column noticed weeks later in
+a report.
+
+### 4. #248 — `daily_snapshots.daily_revenue` is ~0 for every completed day
+
+110 of the last 120 rows are exactly 0 while the transaction table shows 5,000–21,000 FLUX for
+the same days. The snapshot is taken minutes after midnight UTC and records "revenue so far
+today", then is never revisited.
+
+Ranked below #249 because nothing user-facing reads it — the chart and the KPI reports both go
+to `revenue_transactions` — but it is published by `/api/history/snapshots*` and it is what a
+restore from R2 brings back. Fix is to backfill D-1's completed total when writing D's row,
+plus a one-off admin backfill for the existing history.
+
+### 5. #250 — Documentation gaps
+
+This file was item 1 of that issue. Remaining: `/api/carousel/missing` missing from the
+README's Carousel table, the phantom deletion of
+`FluxTracker_Header_Terminal_Animation_Spec.md`, and the unmarked status on the shipped plans
+and specs under `docs/superpowers/`.
+
+### 6. Header animations — #181, #182, and Palworld
+
+Highest-value first, by live instance counts (Dragonwilds 258, **Palworld 227**, Valheim 106,
+Minecraft 59):
+
+- **Palworld has no art** despite being second by instances — every Palworld deployment plays
+  the shared controller. Art for it takes per-game coverage from 61% to 93% of game instances,
+  and costs one `GAME_INTROS` entry plus a formatter. Not yet an issue; file one when starting.
+- **#181, non-game deployments** — 26% of the last 24h (35 of 133) get *no* intro at all,
+  because `introForSlot()` returns null when `resolveGameFromAppName()` doesn't match.
+- **#182, expiring** — same gap on the other side; expiring slots never get an intro.
+
+Every one of these is one registry entry plus one formatter. Both motion techniques already in
+the repo are length-preserving by construction (rotate a fixed-width strip; overlay onto a
+`LOGO_WIDTH` canvas), which is what keeps the box from ever depending on content. Run
+`scripts/header-smoke/` before and after.
+
+### 7. #155 — KPI reports via API, #156 — Google Analytics 4
+
+Features, no dependencies on the above.
+
+---
+
+## Standing rules, each learned from an outage
+
+### A bound that returns success is a bug
+
+Four separate incidents, same shape:
+
+1. `exportAllPriceHistory()` had no `.range()`, so PostgREST truncated the R2 backup at 1000
+   rows. A fresh instance bootstrapped from a price history that ended before its first
+   transaction.
 2. `getPricesForDateRange()` had the same gap, capping the in-memory price map at 1000 days.
-3. The CSV export requested all ~21,000 transactions in one call; the server clamped the page
-   size to 1000 and returned a truncated file that looked complete.
+3. The CSV export asked for ~21,000 transactions in one call; the server clamped the page size
+   to 1000 and returned a truncated file that looked complete.
+4. #227 found three more un-paged selects.
 
-**Standing rule:** any query or fetch with a limit either pages to completion, or logs what it
-dropped. A limit that can be hit silently is a bug, not a safeguard.
+**Rule:** any query or fetch with a limit either pages to completion or logs what it dropped.
 
-Places still worth auditing against this rule:
-- Every remaining un-paged `supabase.from(...).select()` that can exceed 1000 rows.
-- `getTopReposByCategory` is called with an explicit large limit (`CATEGORY_FETCH_LIMIT = 200`);
-  if a category ever exceeds that, grouping loses instances. Consider making it page.
+Still worth auditing: every remaining un-paged `supabase.from(...).select()` that can exceed
+1000 rows, and `getTopReposByCategory`'s explicit `CATEGORY_FETCH_LIMIT = 200` — if a category
+ever exceeds it, grouping loses instances silently.
 
----
+### "No console errors" is not verification
 
-## Code quality
+A CSP that blocked SvelteKit's hydration script froze the entire production dashboard on
+"Loading..." — zero console errors, zero failed requests — and survived two PRs because
+verification checked for the absence of red text instead of the presence of the feature. Wait
+for real data to resolve, click something, confirm a value changed. See CLAUDE.md.
 
-### One retry helper (#52)
-`gamingService` had a bespoke 3×/10s loop, `cloudService` has `retryApiCall` (2×/1s),
-`backupService` has `withRetry`, `runningAppsProvider` has its own. Extract one helper —
-`backupService.js`'s version is the best starting point — and use it everywhere.
+### `min-width: 0` or `text-overflow: ellipsis` does nothing
 
-### Circuit breaker only wraps the DB (#55)
-`circuitBreaker.js` guards Supabase calls. External APIs (`stats.runonflux.io`, CoinGecko,
-Binance, the Flux daemon) have no breaker, so an outage there means every cycle pays full
-timeouts. `runningAppsProvider` now at least collapses four of those calls into one.
+A grid/flex item that never shrinks cannot ellipsis. `NodeCard`, `AppInstancesCard` and
+`DecentralizationCard` have it; `StatCard` and `CloudCard` do not — worth checking whether
+they need it before the next long label arrives.
 
-### `console.log` in services
-Issue #36 introduced pino, but several services still use `console.log`/`console.error`, so
-their output isn't structured or filterable. `cloudService.js` and `wordpressService.js` are
-the remaining offenders after this round.
+### Secure-context APIs need a fallback
 
-### `getDisplayName()` fallback is lossy
-The suffix-stripping fallback produced "Minecraft Server Website" and "Rust Game".
-`CANONICAL_NAME_OVERRIDES` + `getCanonicalName()` is the intended path; keep it populated as
-new images appear rather than relying on the fallback.
-
-### Clipboard and other secure-context APIs
-`navigator.clipboard` is undefined outside a secure context, and the dashboard is regularly
-served over plain http from an IP or Flux node URL. The donate button called it directly and
-threw before copying anything, logging only to the console. Any browser API gated on
-`window.isSecureContext` needs a fallback plus visible feedback — silent failure in the UI is
-the same class of bug as a silent cap in a query.
-
-### `min-width: 0` discipline
-A long unbreakable label overflowed the gaming card because the grid item never shrank —
-`text-overflow: ellipsis` cannot work without it. Worth auditing the other card components
-(`StatCard`, `NodeCard`, `CloudCard`, `AppsCard`) for the same pattern.
+`navigator.clipboard` is undefined over plain http from an IP, which is exactly how this
+dashboard is often served. Anything gated on `window.isSecureContext` needs a fallback plus
+visible feedback; a silent UI failure is the same class of bug as a silent cap in a query.
 
 ### `current_metrics` is a single-row read-modify-write
-`updateCurrentMetrics()` reads the row, merges, and writes it back. Two services writing
-concurrently would lose one set of columns, which is why the service cycle is deliberately
-sequential. If cycles ever need to run in parallel, switch to per-column updates first.
+
+`updateCurrentMetrics()` reads, merges and writes the whole row, which is why the service cycle
+is deliberately sequential. Parallel cycles would clobber each other's columns — switch to
+per-column updates first if that ever changes.
 
 ### Inclusive date ranges
-`getDailyRevenue*FromTransactions(days)` used `date >= today - days`, returning `days + 1`
-rows. Fixed, but the pattern is easy to reintroduce — an inclusive range covering N days
-starts at `today - (N - 1)`.
+
+An inclusive range covering N days starts at `today - (N - 1)`. `>= today - days` returns
+N+1 rows. Fixed once already; easy to reintroduce.
 
 ---
 
-## Operational
+## Operational review, every few months
 
-### Category config needs periodic review
-`GAMING_REPOS`, `CRYPTO_REPOS` and `CATEGORY_CONFIG.keywords` are hand-maintained. The Flux
-team ships new games regularly — Windrose, Rust, Terraria and ARK were all live on the
-network before being tracked. Re-run the live comparison every few months:
+### Category config drifts as Flux ships games
+
+`GAMING_REPOS`, `CRYPTO_REPOS` and `CATEGORY_CONFIG.keywords` are hand-maintained, and Windrose,
+Rust, Terraria and ARK were all live on the network before being tracked. Re-run:
 
 ```bash
 curl -s "https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Image" \
   | jq -r '.data[].apps.runningapps[]?.Image' | sort | uniq -c | sort -rn | head -60
 ```
 
-Anything with meaningful instance counts that lands in "Other" is a candidate.
+Anything with meaningful instance counts landing in "Other" is a candidate.
 
 ### Fiat gateway addresses
-`FLUX_FIAT_ADDRESSES` drives the Fiat revenue metric and the FIAT badge. It is a list, and
-everything downstream takes the whole array, so adding a gateway is a one-line config change.
-The failure mode is silent: an unlisted gateway makes the Fiat figure *under-report* rather than
-error. Re-check against a known fiat purchase whenever the number looks off.
+
+`FLUX_FIAT_ADDRESSES` drives the Fiat revenue metric and the FIAT badge. Adding a gateway is a
+one-line config change; the failure mode is silent **under-reporting**, not an error. Re-check
+against a known fiat purchase whenever the number looks off.
 
 ### Companion websites
-`runonflux/*-server-website` images are excluded via `CATEGORY_EXCLUDE`. If the Flux team
-introduces a different naming convention for these, the exclusion needs updating or the
-game totals inflate again.
+
+`runonflux/*-server-website` images are excluded via `CATEGORY_EXCLUDE`. A new naming
+convention for these inflates the game totals again.
 
 ---
 
-## Done
+## Settled — do not re-raise
 
-- **PR #56** — Historical USD revenue: replaced the dead CryptoCompare source with a keyless
-  Binance → CoinGecko chain, made `syncPriceHistory()` gap-aware, added `.range()` paging to
-  three truncating Supabase queries, fixed backfill paging, added price-history health.
-- **Follow-up round** — Donate button copy fallback for insecure contexts, host geolocation in
-  the header (`hostLocationService.js`), self-funded revenue share on the revenue card, and
-  read-time category re-validation so config changes take effect without an admin call.
-- **Earlier round** — Category accuracy and data alignment: unified category counting through
-  `categorizeImage()`, canonical-name grouping, companion-website exclusion, shared
-  running-apps fetch, per-service isolation (#51), config-driven intervals (#50), shared
-  refresh signal (#53), freshness-bound LIVE badge (#54), CSV export paging, card overflow,
-  inclusive-range off-by-one.
+- **Admin API has no authentication.** Assessed 2026-09-21 and accepted as the deployment's
+  risk profile.
+- **#61, KPI email delivery.** Parked deliberately: "we will not do that any time soon."
+- **`ws` as a direct dependency.** It looks unused in `src/`; `@supabase/realtime-js` needs it
+  on Node < 22 and hoisting proved unreliable. See CLAUDE.md before "tidying" it.
+
+---
+
+## Recently shipped
+
+Newest first. Kept short — `git log` is the full record.
+
+| PR | What |
+|----|------|
+| #251 | Per-view carousel icon colours; `--accent-orange` finally declared |
+| #245 | One implementation per decentralization dimension, one classification read per snapshot cycle (#151) |
+| #244 | Test coverage for cloudService, revenueScheduler, serverHelpers, revenueReporting and the analytics comparison endpoint (#225) |
+| #243 | Compression that actually reaches the browser (#242) |
+| #241 | Response compression + revenue sum via RPC (#227) |
+| #240 | README brought back in line with the code (#226) |
+| #239 | Per-game columns store the app-name count (#231) |
+| #238 | Stop re-downloading 3.8 MB per `/api/header` miss (#221) |
+| #237 | CI: tests on every PR, header-smoke on a path gate (#223) |
+
+Earlier rounds: keyless Binance → CoinGecko price chain with gap-aware sync (#56), unified
+category counting through `categorizeImage()`, canonical-name grouping, companion-website
+exclusion, shared running-apps fetch, per-service isolation (#51), config-driven intervals
+(#50), shared refresh signal (#53), freshness-bound LIVE badge (#54), one resilient fetch
+helper with a per-endpoint breaker (#52/#55).

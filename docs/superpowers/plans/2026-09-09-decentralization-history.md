@@ -1,5 +1,7 @@
 # Decentralization Historical Snapshots Implementation Plan
 
+> **Status: shipped** (issue #108 Phase 3, PRs #145/#147; refactored by #245). Kept for the reasoning, not as outstanding work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Snapshot the Decentralization metric (issue #108) daily — per-provider breakdown plus headline %/counts — graph it historically, export it to CSV, wire it into the `vs D/W/M/Q/Y` comparison toggle, and add it to the KPI report across all five timeframes.
