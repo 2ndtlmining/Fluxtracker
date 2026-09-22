@@ -148,7 +148,9 @@ export async function migrateSchema(config, ctx) {
         }
 
         const allRepoKeys = [
-            ...extractRepoKeys(config.GAMING_REPOS || []),
+            // TRACKED_GAMES is a superset of GAMING_REPOS: the games stored per-game
+            // include dedicated-site ones with no matchable image (issue #231).
+            ...extractRepoKeys(config.TRACKED_GAMES || config.GAMING_REPOS || []),
             ...extractRepoKeys(config.CRYPTO_REPOS || []),
             ...extractRepoKeys(config.OTHER_REPOS || [])
         ];
@@ -235,7 +237,7 @@ export async function detectMissingColumns(config, ctx) {
     }
 
     const allRepoKeys = [
-        ...extractRepoKeys(config.GAMING_REPOS || []),
+        ...extractRepoKeys(config.TRACKED_GAMES || config.GAMING_REPOS || []),
         ...extractRepoKeys(config.CRYPTO_REPOS || []),
         ...extractRepoKeys(config.OTHER_REPOS || [])
     ];

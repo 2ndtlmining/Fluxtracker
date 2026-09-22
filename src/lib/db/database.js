@@ -39,6 +39,7 @@ export const {
     createDailySnapshot,
     getSnapshotByDate,
     setSnapshotWalletCount,
+    setSnapshotGameColumns,
     fillSnapshotNullColumns,
     getLastNSnapshots,
     getSnapshotsInRange,
@@ -117,6 +118,8 @@ export const {
     upsertPriceHistory,
     exportAllDailySnapshots,
     exportAllRepoSnapshots,
+    exportAllGameSnapshots,
+    upsertGameSnapshots,
     upsertDailySnapshots,
     upsertRepoSnapshots,
     // Node IP classification (issue #108)

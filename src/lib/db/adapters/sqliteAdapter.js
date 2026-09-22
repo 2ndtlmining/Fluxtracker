@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { categorizeImage, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 
 const log = createLogger('sqliteAdapter');
@@ -493,7 +493,7 @@ export async function createDailySnapshot(snapshot) {
         // documented "adding a repo to config is enough" actually true.
         gaming_apps_total: snapshot.gaming_apps_total ?? null,
         gaming_instances_total: snapshot.gaming_instances_total ?? null,
-        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
+        ...Object.fromEntries(TRACKED_GAMES.map(g => [g.dbKey, snapshot[g.dbKey] ?? null])),
         ...Object.fromEntries(CRYPTO_REPOS.map(r => [r.dbKey, snapshot[r.dbKey] ?? null])),
         crypto_nodes_total: snapshot.crypto_nodes_total ?? null,
         wordpress_count: snapshot.wordpress_count ?? null,
@@ -604,6 +604,41 @@ export async function fillSnapshotNullColumns(date, columns) {
 
     if (filled.length > 0) log.info(`Filled NULL snapshot columns for ${date}: ${filled.join(', ')}`);
     return filled;
+}
+
+/**
+ * Overwrite specific per-game columns on one day (issue #231).
+ *
+ * Deliberately not fillSnapshotNullColumns(): that only ever fills a NULL, which is right
+ * for the nightly top-up and wrong for this. The per-game columns changed meaning from an
+ * image-only count to an app-name one, so the repair has to replace stored non-zero
+ * readings -- gaming_valheim held 3 where 108 were running -- and has to be able to write
+ * NULL for days that predate game_snapshots and therefore have no app-name record at all.
+ *
+ * `null` means "no reading"; `0` means "this game genuinely ran nothing". Both are written
+ * as given. Columns the table does not have are skipped rather than failing the call, so a
+ * database that has not run schemaMigrator yet degrades instead of erroring.
+ *
+ * @param {string} date  snapshot_date, YYYY-MM-DD
+ * @param {Record<string, number|null>} values  column -> value
+ * @returns {Promise<boolean>} whether a row was written
+ */
+export async function setSnapshotGameColumns(date, values) {
+    const existing = await getSnapshotByDate(date);
+    if (!existing) return false;
+
+    const writable = Object.entries(values || {}).filter(([column]) => column in existing);
+    if (writable.length === 0) return false;
+
+    const assignments = writable.map(([column]) => `${column} = @${column}`).join(', ');
+    const params = Object.fromEntries(writable);
+    params.snapshot_date = date;
+
+    getDb()
+        .prepare(`UPDATE daily_snapshots SET ${assignments} WHERE snapshot_date = @snapshot_date`)
+        .run(params);
+
+    return true;
 }
 
 export async function getSnapshotByDate(date) {
@@ -1799,6 +1834,39 @@ export async function upsertDailySnapshots(rows) {
             const params = { ...row };
             delete params.id; // let SQLite auto-increment
             stmt.run(params);
+        }
+    });
+
+    insertAll(rows);
+    return rows.length;
+}
+
+export async function exportAllGameSnapshots() {
+    try {
+        return getDb().prepare('SELECT * FROM game_snapshots ORDER BY snapshot_date ASC').all();
+    } catch (error) {
+        throw new Error(`Export game_snapshots failed: ${error.message}`);
+    }
+}
+
+export async function upsertGameSnapshots(rows) {
+    if (!rows || rows.length === 0) return 0;
+
+    const stmt = getDb().prepare(`
+        INSERT INTO game_snapshots (snapshot_date, game_name, instance_count, created_at)
+        VALUES (@snapshot_date, @game_name, @instance_count, @created_at)
+        ON CONFLICT(snapshot_date, game_name) DO UPDATE SET
+            instance_count = @instance_count
+    `);
+
+    const insertAll = getDb().transaction((items) => {
+        for (const row of items) {
+            stmt.run({
+                snapshot_date: row.snapshot_date,
+                game_name: row.game_name,
+                instance_count: row.instance_count,
+                created_at: row.created_at || Date.now()
+            });
         }
     });
 

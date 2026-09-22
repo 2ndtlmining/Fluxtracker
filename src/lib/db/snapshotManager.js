@@ -28,7 +28,7 @@ import {
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
-import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, GAMING_REPOS, CRYPTO_REPOS } from '../config.js';
+import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('snapshotManager');
@@ -219,7 +219,7 @@ export function buildSnapshotData({
         //
         // `|| 0` matches what the five hardcoded gaming columns always did, so existing
         // history keeps its semantics; only the missing columns change behaviour.
-        ...Object.fromEntries(GAMING_REPOS.map(r => [r.dbKey, currentMetrics[r.dbKey] || 0])),
+        ...Object.fromEntries(TRACKED_GAMES.map(g => [g.dbKey, currentMetrics[g.dbKey] || 0])),
         gaming_apps_total: currentMetrics.gaming_apps_total || 0,
         // Same-method history for the Gaming card's comparison arrows (issue #163).
         // gaming_apps_total above stays image-only so the existing trend line does not
