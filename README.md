@@ -399,6 +399,7 @@ Query parameters for history endpoints: `limit`, `start_date`, `end_date`
 | GET    | `/api/carousel/stats`    | Cached carousel statistics |
 | GET    | `/api/carousel/deployed` | Recently deployed apps     |
 | GET    | `/api/carousel/expiring` | Apps expiring soon         |
+| GET    | `/api/carousel/missing`  | Apps running fewer instances than they ordered. An empty response here is good news, not a failure |
 | GET    | `/api/busiest-node`      | The network's busiest node (most running instances), its resolved app names, and CPU/RAM/SSD used vs. its own benchmarked capacity (issue #108) |
 | GET    | `/api/apps/activity`     | 24h deployed/expiring counts (the same data behind the KPI daily report's Flux Cloud section) |
 
@@ -1026,6 +1027,7 @@ src/
   lib/
     serverHelpers.js            # Shared route helpers: withDbFallback, createCache, calculateChange
     config.js                   # All configuration (addresses, intervals, categories, API URLs)
+    decentralizationDimensions.js # One entry per breakdown dimension: group-by field, sentinel, table, columns
     components/                # Svelte components (StatCard, Chart, RevenueTransactions, KpiModal, TerminalHeaderAnimation, etc.)
     kpi/
       periods.js               # KPI period arithmetic (pure, unit-tested)
@@ -1089,10 +1091,20 @@ supabase/
     014-016                                 # unique_wallets, unique_app_owners, locked_collateral
 scripts/                       # Utility scripts
   header-smoke/                # Terminal header acceptance harness (headless browser)
+docs/
+  improvement-plan.md          # What's next, in order, and the standing rules behind it
+  superpowers/                 # Design records and implementation plans for shipped work
 Dockerfile                     # Multi-stage production build
 startup.sh                     # Container entrypoint (starts both servers)
 .env.example                   # Environment variable template
 ```
+
+## What's Next
+
+[`docs/improvement-plan.md`](docs/improvement-plan.md) holds the ordered backlog — what to pick
+up next and why — alongside the standing rules each learned from a specific outage (silent
+query caps, what counts as verification, `min-width: 0`, secure-context APIs). GitHub issues
+are the queue; that file is the order and the reasoning.
 
 ## License
 

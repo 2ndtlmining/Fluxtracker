@@ -1,5 +1,7 @@
 # Terminal Header Boot/Sync Animation Implementation Plan
 
+> **Status: shipped** (issues #98 / #104). Kept for the reasoning, not as outstanding work. The live contract is the Terminal Header section of CLAUDE.md; the regression harness is `scripts/header-smoke/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the header's static `FLUX / TRACKER` title with a terminal boot sequence (real `/api/header` data) that resolves into a persistent ASCII `FLUX` logo, plus a short "sync" animation when a new block is detected after boot — on both desktop and mobile, matching the existing terminal/cyan theme.

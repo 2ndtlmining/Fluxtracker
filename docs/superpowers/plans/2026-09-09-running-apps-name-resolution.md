@@ -1,5 +1,7 @@
 # Running-Apps Name Resolution Implementation Plan
 
+> **Status: shipped** (FluxOS v8.18 recovery). Kept for the reasoning, not as outstanding work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Recover app-census and categorization data (Total Apps, category cards, `repo_snapshots`, Top Repos carousel) after FluxOS v8.18 removed `Image` from the running-apps API, by resolving each running container's Docker name back to its app spec's `repotag` via `globalappsspecifications`.

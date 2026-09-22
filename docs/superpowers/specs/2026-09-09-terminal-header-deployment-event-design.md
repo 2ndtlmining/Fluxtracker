@@ -1,5 +1,7 @@
 # Design: Terminal header deployment event (issues #98 + #104 Phase 1)
 
+> **Status: shipped** (issues #98 + #104 Phase 1; per-game art followed in #180/#199). Design record.
+
 ## Revision 2 — reconciled with issue #98
 
 The first version of this document designed a 5-stage reveal sequence
