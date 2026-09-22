@@ -346,6 +346,211 @@ router.get('/categories/nodes', async (req, res) => {
 // This version TRANSFORMS getCurrentMetrics() to match the structure your frontend expects
 // Replace the endpoint starting at line ~547 in server.js with this code
 
+/**
+ * Shift a YYYY-MM-DD date string by n days, in UTC.
+ *
+ * UTC on purpose: a local-time Date would shift by 23 or 25 hours across a DST boundary and
+ * land on the wrong day for half the year.
+ */
+function shiftDays(dateStr, n) {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().split('T')[0];
+}
+
+/**
+ * The two windows a "vs N days" comparison covers, plus the single past date the snapshot
+ * comparison reads. Exported so the arithmetic can be tested without standing up Express
+ * (same reason history.js exports shapeGameHistory).
+ *
+ * Revenue is a flow, so "vs 30 days" has to mean the last 30 days against the 30 before
+ * that. Comparing today against the one day 30 days ago made every period report today's
+ * number, which is what issue #48 reported -- and the page still renders perfectly either
+ * way, which is how it shipped.
+ */
+export function comparisonWindows(today, days) {
+    const currentStart = shiftDays(today, -(days - 1));
+    const previousEnd = shiftDays(currentStart, -1);
+    const previousStart = shiftDays(previousEnd, -(days - 1));
+    return {
+        currentStart,
+        currentEnd: today,
+        previousStart,
+        previousEnd,
+        targetDate: shiftDays(today, -days)
+    };
+}
+
+/**
+ * Flatten the current_metrics row into the nested shape the frontend expects. Exported for
+ * the same reason as comparisonWindows: it is a pure transform, and a column renamed out
+ * from under it reads as a zeroed metric rather than an error.
+ */
+export function shapeCurrentMetrics(rawCurrent) {
+    return {
+        nodes: {
+            total: rawCurrent.node_total,
+            cumulus: rawCurrent.node_cumulus,
+            nimbus: rawCurrent.node_nimbus,
+            stratus: rawCurrent.node_stratus
+        },
+        apps: {
+            total: rawCurrent.total_apps,
+            gitapps: rawCurrent.gitapps_count || 0,
+            dockerapps: rawCurrent.dockerapps_count || 0
+        },
+        gaming: {
+            total: rawCurrent.gaming_apps_total,
+            minecraft: rawCurrent.gaming_minecraft,
+            palworld: rawCurrent.gaming_palworld,
+            enshrouded: rawCurrent.gaming_enshrouded
+        },
+        crypto: {
+            total: rawCurrent.crypto_nodes_total,
+            presearch: rawCurrent.crypto_presearch,
+            kaspa: rawCurrent.crypto_kaspa,
+            alephium: rawCurrent.crypto_alephium
+        },
+        cloud: {
+            cpu: { utilization: rawCurrent.cpu_utilization_percent },
+            ram: { utilization: rawCurrent.ram_utilization_percent },
+            storage: { utilization: rawCurrent.storage_utilization_percent }
+        },
+        wordpress: {
+            count: rawCurrent.wordpress_count
+        }
+    };
+}
+
+/** Direction of a raw difference, matching calculateChange's vocabulary. */
+const trendOf = (difference) => (difference > 0 ? 'up' : difference < 0 ? 'down' : 'neutral');
+
+/** A total's percentage change plus the per-member differences underneath it. */
+function breakdown(currentTotal, pastTotal, members) {
+    const section = {
+        ...calculateChange(currentTotal || 0, pastTotal),
+        difference: (currentTotal || 0) - (pastTotal || 0)
+    };
+    for (const [name, [currentValue, pastValue]] of Object.entries(members)) {
+        const difference = (currentValue || 0) - (pastValue || 0);
+        section[`${name}Change`] = difference;
+        section[`${name}Trend`] = trendOf(difference);
+    }
+    return section;
+}
+
+/**
+ * Assemble the comparison response. Pure: every live read is resolved by the caller and
+ * passed in, so a section whose source failed arrives as null and is simply left out --
+ * which is what keeps one failing live read from 500-ing the whole response (issue #138).
+ */
+export function buildComparisonResponse({
+    days,
+    windows,
+    current,
+    pastSnapshot,
+    currentRevenue,
+    previousRevenue,
+    decentralization = null,
+    activity = null
+}) {
+    const { currentStart, currentEnd: today, previousStart, previousEnd, targetDate } = windows;
+
+    // A previous period with no revenue is not a -100% drop, it is an absent baseline; say so
+    // rather than rendering a percentage computed from nothing.
+    const revenueComparison = previousRevenue > 0
+        ? calculateChange(currentRevenue, previousRevenue)
+        : { change: 0, trend: 'neutral', note: `No revenue data for ${previousStart}..${previousEnd}` };
+
+    revenueComparison.current = currentRevenue;
+    revenueComparison.previous = previousRevenue;
+    revenueComparison.currentRange = { start: currentStart, end: today };
+    revenueComparison.previousRange = { start: previousStart, end: previousEnd };
+
+    const response = {
+        period: days,
+        currentDate: today,
+        comparisonDate: targetDate,
+        changes: { revenue: revenueComparison }
+    };
+
+    if (!pastSnapshot) {
+        response.partialData = true;
+        response.message = `Snapshot data not available for ${targetDate}, but revenue comparison is available from transaction history.`;
+
+        // Git/Docker still compare against 0 so the split renders on a day with no snapshot.
+        response.changes.apps = {
+            change: 0,
+            difference: 0,
+            trend: 'neutral',
+            gitChange: current.apps?.gitapps || 0,
+            gitTrend: (current.apps?.gitapps || 0) > 0 ? 'up' : 'neutral',
+            dockerChange: current.apps?.dockerapps || 0,
+            dockerTrend: (current.apps?.dockerapps || 0) > 0 ? 'up' : 'neutral'
+        };
+
+        return response;
+    }
+
+    response.changes.nodes = breakdown(current.nodes?.total, pastSnapshot.node_total, {
+        cumulus: [current.nodes?.cumulus, pastSnapshot.node_cumulus],
+        nimbus: [current.nodes?.nimbus, pastSnapshot.node_nimbus],
+        stratus: [current.nodes?.stratus, pastSnapshot.node_stratus]
+    });
+
+    response.changes.apps = breakdown(current.apps?.total, pastSnapshot.total_apps, {
+        git: [current.apps?.gitapps, pastSnapshot.gitapps_count],
+        docker: [current.apps?.dockerapps, pastSnapshot.dockerapps_count]
+    });
+
+    response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
+    response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
+    response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
+
+    // Decentralization (issue #108 Phase 3): "current" comes from decentralizationService
+    // rather than current_metrics, since that is where the always-fresh reading lives --
+    // the same reasoning /api/decentralization already uses.
+    if (decentralization) {
+        response.changes.decentralization = calculateChange(
+            decentralization.datacenterPercent ?? 0,
+            pastSnapshot.decentralization_datacenter_percent
+        );
+    }
+
+    // Apps deployed/expiring read live from carouselService for the same reason. An
+    // uncached live read (`cached: false`) counts as 0 rather than blocking the section,
+    // matching the `?? 0` fallback above.
+    if (activity) {
+        response.changes.appsDeployed = calculateChange(
+            activity.deployedToday.cached ? activity.deployedToday.apps.length : 0,
+            pastSnapshot.apps_deployed_today
+        );
+        response.changes.appsExpiring = calculateChange(
+            activity.expiring24h.cached ? activity.expiring24h.apps.length : 0,
+            pastSnapshot.apps_expiring_today
+        );
+    }
+
+    response.changes.gaming = breakdown(current.gaming?.total, pastSnapshot.gaming_apps_total, {
+        minecraft: [current.gaming?.minecraft, pastSnapshot.gaming_minecraft],
+        palworld: [current.gaming?.palworld, pastSnapshot.gaming_palworld],
+        enshrouded: [current.gaming?.enshrouded, pastSnapshot.gaming_enshrouded]
+    });
+
+    response.changes.crypto = breakdown(current.crypto?.total, pastSnapshot.crypto_nodes_total, {
+        presearch: [current.crypto?.presearch, pastSnapshot.crypto_presearch],
+        kaspa: [current.crypto?.kaspa, pastSnapshot.crypto_kaspa],
+        alephium: [current.crypto?.alephium, pastSnapshot.crypto_alephium]
+    });
+
+    response.changes.wordpress = {
+        ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
+        difference: (current.wordpress?.count || 0) - (pastSnapshot.wordpress_count || 0)
+    };
+
+    return response;
+}
+
 router.get('/analytics/comparison/:days', async (req, res) => {
     try {
         const days = parseInt(req.params.days);
@@ -359,228 +564,51 @@ router.get('/analytics/comparison/:days', async (req, res) => {
             return res.status(404).json({ error: 'No current metrics found' });
         }
 
-        // CRITICAL: Transform raw database columns into nested structure
-        // This matches the shape the pre-snapshotManager endpoint returned
-        const current = {
-            nodes: {
-                total: rawCurrent.node_total,
-                cumulus: rawCurrent.node_cumulus,
-                nimbus: rawCurrent.node_nimbus,
-                stratus: rawCurrent.node_stratus
-            },
-            apps: {
-                total: rawCurrent.total_apps,
-                gitapps: rawCurrent.gitapps_count || 0,
-                dockerapps: rawCurrent.dockerapps_count || 0
-            },
-            gaming: {
-                total: rawCurrent.gaming_apps_total,
-                minecraft: rawCurrent.gaming_minecraft,
-                palworld: rawCurrent.gaming_palworld,
-                enshrouded: rawCurrent.gaming_enshrouded
-            },
-            crypto: {
-                total: rawCurrent.crypto_nodes_total,
-                presearch: rawCurrent.crypto_presearch,
-                kaspa: rawCurrent.crypto_kaspa,
-                alephium: rawCurrent.crypto_alephium
-            },
-            cloud: {
-                cpu: { utilization: rawCurrent.cpu_utilization_percent },
-                ram: { utilization: rawCurrent.ram_utilization_percent },
-                storage: { utilization: rawCurrent.storage_utilization_percent }
-            },
-            wordpress: {
-                count: rawCurrent.wordpress_count
-            }
-        };
+        const current = shapeCurrentMetrics(rawCurrent);
 
-        // Get dates for comparison
         const today = new Date().toISOString().split('T')[0];
-        const targetDate = new Date();
-        targetDate.setDate(targetDate.getDate() - days);
-        const targetDateStr = targetDate.toISOString().split('T')[0];
+        const windows = comparisonWindows(today, days);
 
-        log.info({ today, targetDate: targetDateStr, days }, 'comparison request');
+        log.info({ today, targetDate: windows.targetDate, days }, 'comparison request');
 
-        // REVENUE: compare period totals, not single days.
-        // Revenue is a flow, so "vs 30 days" has to mean the last 30 days against the 30
-        // before that. Comparing today against the one day 30 days ago made every period
-        // report today's number, which is what issue #48 reported.
-        const shiftDays = (dateStr, n) => {
-            const d = new Date(`${dateStr}T00:00:00Z`);
-            d.setUTCDate(d.getUTCDate() + n);
-            return d.toISOString().split('T')[0];
-        };
+        const currentRevenue = await getRevenueForDateRange(windows.currentStart, windows.currentEnd);
+        const previousRevenue = await getRevenueForDateRange(windows.previousStart, windows.previousEnd);
 
-        const currentStart = shiftDays(today, -(days - 1));
-        const previousEnd = shiftDays(currentStart, -1);
-        const previousStart = shiftDays(previousEnd, -(days - 1));
-
-        const currentRevenue = await getRevenueForDateRange(currentStart, today);
-        const comparisonRevenue = await getRevenueForDateRange(previousStart, previousEnd);
-
-        let revenueComparison;
-        if (comparisonRevenue > 0) {
-            revenueComparison = calculateChange(currentRevenue, comparisonRevenue);
-        } else {
-            revenueComparison = {
-                change: 0,
-                trend: 'neutral',
-                note: `No revenue data for ${previousStart}..${previousEnd}`
-            };
+        const pastSnapshot = await getSnapshotByDate(windows.targetDate);
+        if (!pastSnapshot) {
+            log.warn({ targetDate: windows.targetDate, days }, 'no snapshot found for comparison');
+            log.info('revenue comparison still available using transaction data');
         }
 
-        revenueComparison.current = currentRevenue;
-        revenueComparison.previous = comparisonRevenue;
-        revenueComparison.currentRange = { start: currentStart, end: today };
-        revenueComparison.previousRange = { start: previousStart, end: previousEnd };
-
-        // For other metrics, we need snapshot data
-        const pastSnapshot = await getSnapshotByDate(targetDateStr);
-
-        // Build response
-        const response = {
-            period: days,
-            currentDate: today,
-            comparisonDate: targetDateStr,
-            changes: {
-                revenue: revenueComparison
-            }
-        };
-
-        // Add other metrics only if snapshot exists
+        // Each live read is isolated: this endpoint's revenue/nodes/gaming/crypto sections
+        // have nothing to do with decentralization or the carousel, so a failure there must
+        // not 500 the whole comparison response -- it did exactly that before issue #138.
+        let decentralization = null;
+        let activity = null;
         if (pastSnapshot) {
-            log.info({ targetDate: targetDateStr }, 'found snapshot for comparison');
-
-            // Node comparisons with individual breakdowns
-            const nodeChange = calculateChange(current.nodes?.total || 0, pastSnapshot.node_total);
-            const cumulusChange = (current.nodes?.cumulus || 0) - (pastSnapshot.node_cumulus || 0);
-            const nimbusChange = (current.nodes?.nimbus || 0) - (pastSnapshot.node_nimbus || 0);
-            const stratusChange = (current.nodes?.stratus || 0) - (pastSnapshot.node_stratus || 0);
-
-            response.changes.nodes = {
-                ...nodeChange,
-                difference: (current.nodes?.total || 0) - (pastSnapshot.node_total || 0),
-                cumulusChange: cumulusChange,
-                cumulusTrend: cumulusChange > 0 ? 'up' : cumulusChange < 0 ? 'down' : 'neutral',
-                nimbusChange: nimbusChange,
-                nimbusTrend: nimbusChange > 0 ? 'up' : nimbusChange < 0 ? 'down' : 'neutral',
-                stratusChange: stratusChange,
-                stratusTrend: stratusChange > 0 ? 'up' : stratusChange < 0 ? 'down' : 'neutral'
-            };
-
-            response.changes.apps = {
-                ...calculateChange(current.apps?.total || 0, pastSnapshot.total_apps),
-                difference: (current.apps?.total || 0) - (pastSnapshot.total_apps || 0),
-                gitChange: (current.apps?.gitapps || 0) - (pastSnapshot.gitapps_count || 0),
-                gitTrend: (current.apps?.gitapps || 0) > (pastSnapshot.gitapps_count || 0) ? 'up' :
-                         (current.apps?.gitapps || 0) < (pastSnapshot.gitapps_count || 0) ? 'down' : 'neutral',
-                dockerChange: (current.apps?.dockerapps || 0) - (pastSnapshot.dockerapps_count || 0),
-                dockerTrend: (current.apps?.dockerapps || 0) > (pastSnapshot.dockerapps_count || 0) ? 'up' :
-                            (current.apps?.dockerapps || 0) < (pastSnapshot.dockerapps_count || 0) ? 'down' : 'neutral'
-            };
-
-            // CLOUD COMPARISONS - Now using transformed data
-            response.changes.cpu = calculateChange(current.cloud?.cpu?.utilization || 0, pastSnapshot.cpu_utilization_percent);
-            response.changes.ram = calculateChange(current.cloud?.ram?.utilization || 0, pastSnapshot.ram_utilization_percent);
-            response.changes.storage = calculateChange(current.cloud?.storage?.utilization || 0, pastSnapshot.storage_utilization_percent);
-
-            // Decentralization (issue #108 Phase 3): "current" reads live from
-            // decentralizationService rather than rawCurrent/current_metrics, since that's
-            // where the always-fresh reading actually lives -- same reasoning /api/decentralization
-            // already uses. Isolated in its own try/catch: this endpoint's revenue/nodes/
-            // gaming/crypto sections have nothing to do with decentralization, so a failure
-            // here (e.g. a DB schema not yet migrated to a newer decentralizationService
-            // column) must not 500 the whole comparison response -- it did exactly that
-            // before this fix, reported live after issue #138 shipped.
             try {
-                const liveDecentralization = await getDecentralizationStats();
-                response.changes.decentralization = calculateChange(
-                    liveDecentralization.datacenterPercent ?? 0,
-                    pastSnapshot.decentralization_datacenter_percent
-                );
+                decentralization = await getDecentralizationStats();
             } catch (error) {
                 log.warn({ err: error }, 'decentralization comparison unavailable, continuing without it');
             }
 
-            // Apps deployed/expiring (item 3 of the decentralization follow-ups): "current"
-            // reads live from carouselService, same reasoning as decentralization above --
-            // an uncached live read (`cached: false`) is treated as 0 for the comparison
-            // rather than blocking the rest of the response, matching liveDecentralization's
-            // `?? 0` fallback just above. Isolated in its own try/catch for the same reason
-            // as the decentralization block above -- a live-read failure here shouldn't cost
-            // the rest of the comparison response either.
             try {
-                const liveActivity = await getFluxCloudActivity();
-                response.changes.appsDeployed = calculateChange(
-                    liveActivity.deployedToday.cached ? liveActivity.deployedToday.apps.length : 0,
-                    pastSnapshot.apps_deployed_today
-                );
-                response.changes.appsExpiring = calculateChange(
-                    liveActivity.expiring24h.cached ? liveActivity.expiring24h.apps.length : 0,
-                    pastSnapshot.apps_expiring_today
-                );
+                activity = await getFluxCloudActivity();
             } catch (error) {
                 log.warn({ err: error }, 'apps deployed/expiring comparison unavailable, continuing without it');
             }
-
-            // Gaming comparisons with individual breakdowns
-            response.changes.gaming = {
-                ...calculateChange(current.gaming?.total || 0, pastSnapshot.gaming_apps_total),
-                difference: (current.gaming?.total || 0) - (pastSnapshot.gaming_apps_total || 0),
-                minecraftChange: (current.gaming?.minecraft || 0) - (pastSnapshot.gaming_minecraft || 0),
-                minecraftTrend: (current.gaming?.minecraft || 0) > (pastSnapshot.gaming_minecraft || 0) ? 'up' :
-                               (current.gaming?.minecraft || 0) < (pastSnapshot.gaming_minecraft || 0) ? 'down' : 'neutral',
-                palworldChange: (current.gaming?.palworld || 0) - (pastSnapshot.gaming_palworld || 0),
-                palworldTrend: (current.gaming?.palworld || 0) > (pastSnapshot.gaming_palworld || 0) ? 'up' :
-                              (current.gaming?.palworld || 0) < (pastSnapshot.gaming_palworld || 0) ? 'down' : 'neutral',
-                enshroudedChange: (current.gaming?.enshrouded || 0) - (pastSnapshot.gaming_enshrouded || 0),
-                enshroudedTrend: (current.gaming?.enshrouded || 0) > (pastSnapshot.gaming_enshrouded || 0) ? 'up' :
-                                (current.gaming?.enshrouded || 0) < (pastSnapshot.gaming_enshrouded || 0) ? 'down' : 'neutral'
-            };
-
-            // Crypto comparisons with individual breakdowns
-            response.changes.crypto = {
-                ...calculateChange(current.crypto?.total || 0, pastSnapshot.crypto_nodes_total),
-                difference: (current.crypto?.total || 0) - (pastSnapshot.crypto_nodes_total || 0),
-                presearchChange: (current.crypto?.presearch || 0) - (pastSnapshot.crypto_presearch || 0),
-                presearchTrend: (current.crypto?.presearch || 0) > (pastSnapshot.crypto_presearch || 0) ? 'up' :
-                               (current.crypto?.presearch || 0) < (pastSnapshot.crypto_presearch || 0) ? 'down' : 'neutral',
-                kaspaChange: (current.crypto?.kaspa || 0) - (pastSnapshot.crypto_kaspa || 0),
-                kaspaTrend: (current.crypto?.kaspa || 0) > (pastSnapshot.crypto_kaspa || 0) ? 'up' :
-                           (current.crypto?.kaspa || 0) < (pastSnapshot.crypto_kaspa || 0) ? 'down' : 'neutral',
-                alephiumChange: (current.crypto?.alephium || 0) - (pastSnapshot.crypto_alephium || 0),
-                alephiumTrend: (current.crypto?.alephium || 0) > (pastSnapshot.crypto_alephium || 0) ? 'up' :
-                              (current.crypto?.alephium || 0) < (pastSnapshot.crypto_alephium || 0) ? 'down' : 'neutral'
-            };
-
-            response.changes.wordpress = {
-                ...calculateChange(current.wordpress?.count || 0, pastSnapshot.wordpress_count),
-                difference: (current.wordpress?.count || 0) - (pastSnapshot.wordpress_count || 0)
-            };
-
-        } else {
-            log.warn({ targetDate: targetDateStr, days }, 'no snapshot found for comparison');
-            log.info('revenue comparison still available using transaction data');
-
-            response.partialData = true;
-            response.message = `Snapshot data not available for ${targetDateStr}, but revenue comparison is available from transaction history.`;
-
-            // Calculate Git/Docker comparison even without past snapshot (compare against 0)
-            response.changes.apps = {
-                change: 0,
-                difference: 0,
-                trend: 'neutral',
-                gitChange: current.apps?.gitapps || 0,
-                gitTrend: (current.apps?.gitapps || 0) > 0 ? 'up' : 'neutral',
-                dockerChange: current.apps?.dockerapps || 0,
-                dockerTrend: (current.apps?.dockerapps || 0) > 0 ? 'up' : 'neutral'
-            };
-
         }
 
-        res.json(response);
+        res.json(buildComparisonResponse({
+            days,
+            windows,
+            current,
+            pastSnapshot,
+            currentRevenue,
+            previousRevenue,
+            decentralization,
+            activity
+        }));
 
     } catch (error) {
         log.error({ err: error }, 'comparison endpoint error');
