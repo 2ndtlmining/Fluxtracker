@@ -148,9 +148,35 @@ function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
  * getters still load it themselves when called alone, so nothing else had to change.
  */
 export async function loadClassificationContext() {
+    // Warm the node list first (issue #249). getCachedNetworkNodeIps() returns [] until
+    // busiestNodeService's first successful fetch and deliberately never triggers one, so
+    // on a freshly restarted process this used to read an empty candidate set: nothing
+    // "relevant", classifiedCount 0, and a daily snapshot whose decentralization columns
+    // were all null. One null day disqualifies the KPI metric for every window containing
+    // it, so a deploy shortly before the snapshot silently cost a whole day.
+    //
+    // Cheap: getBusiestNode() is TTL-cached, so this is a no-op whenever anything else has
+    // fetched recently. Same call runDecentralizationCycle() already makes for the same
+    // reason.
+    try {
+        await getBusiestNode();
+    } catch (error) {
+        log.warn('Could not warm the network node list: %s', error.message);
+    }
+
     const candidateIps = getCachedNetworkNodeIps();
     const candidateSet = new Set(candidateIps);
     const allClassifications = await getAllNodeIpClassifications();
+
+    if (candidateIps.length === 0) {
+        // Loud on purpose. Everything downstream degrades to null rather than failing, so
+        // without this the only trace is a null column noticed weeks later in a report.
+        log.warn(
+            { storedClassifications: allClassifications.length },
+            'No candidate node IPs available -- every breakdown will be empty and the ' +
+            'snapshot will record null decentralization columns for this run'
+        );
+    }
 
     return {
         candidateIps,
