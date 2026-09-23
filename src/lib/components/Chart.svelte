@@ -887,7 +887,7 @@
             ticks: {
               color: '#8b92b0',
               font: {
-                family: "'Courier New', monospace",
+                family: "'JetBrains Mono', monospace",
                 size: 10
               },
               maxRotation: 45,
@@ -903,7 +903,7 @@
             ticks: {
               color: '#8b92b0',
               font: {
-                family: "'Courier New', monospace",
+                family: "'JetBrains Mono', monospace",
                 size: 11
               },
               callback: function(value) {
@@ -1350,7 +1350,7 @@
   .chart-subtitle {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .chart-controls {
@@ -1381,7 +1381,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1407,7 +1407,7 @@
     padding: var(--spacing-xs) var(--spacing-md);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -1452,7 +1452,7 @@
     padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s ease;
   }
@@ -1513,7 +1513,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-sm);
     font-size: 0.75rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     cursor: pointer;
@@ -1566,7 +1566,7 @@
     background: none;
     border: none;
     color: var(--text-white);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     text-align: left;
     cursor: pointer;
@@ -1612,7 +1612,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: calc(var(--radius-sm) - 2px);
     font-size: 0.75rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;

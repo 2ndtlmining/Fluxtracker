@@ -1,4 +1,5 @@
 <script>
+  import { pollWhileVisible } from '$lib/utils/pollWhileVisible.js';
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
@@ -47,8 +48,8 @@
     API_URL = getApiUrl();
     await fetchCarouselStats();
 
-    // Match the backend refresh cadence instead of a fixed hour
-    interval = setInterval(fetchCarouselStats, CAROUSEL_CONFIG.updateInterval);
+    // Match the backend refresh cadence instead of a fixed hour; idle in a hidden tab (#298)
+    interval = pollWhileVisible(fetchCarouselStats, CAROUSEL_CONFIG.updateInterval);
     mounted = true;
   });
 
@@ -60,7 +61,7 @@
   }
 
   onDestroy(() => {
-    if (interval) clearInterval(interval);
+    interval?.();
   });
 
   async function fetchCarouselStats() {

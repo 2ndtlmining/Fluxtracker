@@ -330,7 +330,7 @@
     padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     transition: all 0.2s ease;
   }
 
@@ -353,7 +353,7 @@
   .transaction-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
   }
 
@@ -387,7 +387,7 @@
   }
 
   .txid-col {
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .txid-link {
@@ -485,7 +485,7 @@
     gap: var(--spacing-md);
     padding-top: var(--spacing-md);
     border-top: 1px solid var(--border-color);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 0.875rem;
     flex-wrap: wrap;
   }
@@ -507,7 +507,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s ease;
     min-width: 32px;
@@ -535,7 +535,7 @@
   .apps-count {
     font-size: 0.75rem;
     color: var(--text-muted);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     white-space: nowrap;
   }
   .apps-grid {
@@ -564,7 +564,7 @@
     font-weight: 700;
     color: var(--accent-cyan);
     margin-bottom: var(--spacing-sm);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     word-break: break-word;
   }
   .app-card-stats { display: flex; flex-direction: column; gap: 0.4rem; }
@@ -573,7 +573,7 @@
     justify-content: space-between;
     align-items: center;
     font-size: 0.8rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
   .app-stat-label { color: var(--text-muted); }
   .app-stat-value { color: var(--text-white); font-weight: 600; }
@@ -583,7 +583,7 @@
     justify-content: space-between;
     font-size: 0.72rem;
     color: var(--text-dim);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     margin-top: 0.25rem;
     padding-top: 0.25rem;
     border-top: 1px solid var(--border-color);
@@ -622,7 +622,7 @@
     font-size: 1.25rem;
     color: var(--accent-cyan);
     margin: 0;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
   .modal-close {
     background: none;
@@ -645,12 +645,12 @@
     border-radius: var(--radius-sm);
   }
   .summary-stat { display: flex; flex-direction: column; gap: 0.25rem; }
-  .summary-label { font-size: 0.72rem; color: var(--text-muted); font-family: 'Courier New', monospace; }
+  .summary-label { font-size: 0.72rem; color: var(--text-muted); font-family: var(--font-mono); }
   .summary-value {
     font-size: 1.1rem;
     font-weight: 700;
     color: var(--text-white);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
   .summary-value.green { color: var(--accent-green); }
   .modal-section-title {
