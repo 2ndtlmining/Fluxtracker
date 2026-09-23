@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-23** (full site review; issues #261–#331)
+**Last reviewed: 2026-09-23, end of day** (v1.09; review PRs 1-8 shipped)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,41 +13,61 @@ rule links to an issue.
 
 ## Next up, in order
 
-A full review on 2026-09-23 (speed, robustness, polish, header, analytics) filed #261–#331.
-The owner asked for them to be worked in themed PRs, each merged, deployed to the owner's
-instance and verified there before the next one starts. The order is by need: silent data
-loss first, then the header work that has a date on it, then safety, speed, polish, and
-finally the new analysis features.
+**Status at end of 2026-09-23 (v1.09):** PRs 1-8 of the review plan are merged, deployed to the
+owner's instance and verified there. 31 issues closed. What is left is polish, the header work,
+and the analytics features.
 
-| # | PR | Issues | Why here |
-|---|----|--------|----------|
-| 1 | Silent data loss sweep | #304 #306 #313 #305 #315 | Data is being dropped today |
-| 2 | Header foundation + side panel + block milestone | #271 #283 #285 | Block 3,000,000 lands ~2026-10-02 |
-| 3 | Reads that hide errors as zeros | #307 #319 | Stops caching zeros; stops the cards showing them |
-| 4 | Failover, health, container | #308 #310 #309 #316 #312 | Operational safety |
-| 5 | Backup coverage | #311 #314 | History that cannot be re-derived |
-| 6 | Server-side performance | #291 #292 #293 #295 #296 #301 | Memory growth, repeated MB downloads |
-| 7 | Transport / proxy | #300 #298 #302 #322 | Header-smoke gated |
-| 8 | Client load | #297 #299 #303 #294 | First paint |
-| 9 | Polish and accessibility | #320 #321 #323 #324–#331 | |
-| 10 | Header interaction | #282 (hover + click only) #284 #289 | |
-| 11 | Intros, batch 1 | #272 #273 #274 #275 | |
-| 12 | Expiring + non-game fallback | #182 (per-game outros) #181 | |
-| 13 | Intros, batch 2 | #276–#281 | |
-| 14 | Header extras | #286 #287 #288 #290 | |
+**How we work:** one themed PR at a time. The owner merges and deploys to their local instance;
+Claude verifies it there (health, the behaviour the PR changed, a headless-browser load with
+no NEW console errors) and goes straight on to the next PR. A version-bump PR closes each
+working day, so a version change on production confirms that day's work landed.
+
+### Tomorrow, in this order
+
+| # | PR | Issues | Notes |
+|---|----|--------|-------|
+| 9 | Polish and accessibility | #320 #321 #323 #324 #325 #326 #327 #328 #329 #330 #331 | Also fix the two pre-existing console errors seen on every live check: the inline `style=""` attributes in `RevenueAppAnalytics.svelte` that the CSP blocks, and (cosmetic, http-only) the COOP header warning |
+| 10 | Header interaction + the wider desktop header | #282 (hover + click only, NO keyboard focus) #284 #289 | The side panel beside the 34x6 art cell is APPROVED -- build it here. Also fix: encrypted game apps have no RES line, which leaves an empty row in deployed/expiring frames |
+| 11 | Intros, batch 1 | #272 #273 #274 #275 | Move the harness's `INITIAL_DEPLOYED` fixture first if any of these gives it art |
+| 12 | Expiring + non-game fallback | #182 (per-game outros first, fuse as fallback) #181 | See the refinement comments on both issues |
+| 13 | Intros, batch 2 | #276 #277 #278 #279 #280 #281 | |
+| 14 | Header extras | #286 #287 #288 #290, and the rest of #285 | #285 needs the owner's decision first (below) |
 | 15 | Analytics quick wins | #261 #266 #267 | Data already stored |
 | 16 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
 | 17 | Built on #262 | #263 #264 #265 | |
 | 18 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
+| -- | Version bump | -- | Last PR of each working day |
+
+### Waiting on the owner
+
+- **#285 block milestones:** 3,000,000 is only a round number. Keep it, only every 1,000,000,
+  switch to network milestones ("Palworld - 250 servers"), or drop it? The 3M countdown starts
+  showing around 2026-10-01 unless changed.
+- **Server-local edit:** the deploy box had an uncommitted change to `src/lib/db/supabaseClient.js`,
+  saved to `~/supabaseClient.local.diff` before the reset. Paste it so it can be built in
+  properly if it was deliberate.
 
 **Decided with the owner (2026-09-23):**
 - #282 drops keyboard focus handling. Pause on hover and click-to-advance only.
-- The header may grow sideways. Keep the 34x6 art cell (so no existing art is redrawn) and
-  add a data panel beside it on wide screens, collapsing to today's box on mobile. Settle
-  this in PR 2 with a mockup, before any new art is drawn for it.
+- The header grows sideways on desktop: keep the 34x6 art cell (no existing art is redrawn)
+  and add a live data panel beside it; mobile keeps today's single box.
 - #155, #156 and the rest of the older features queue behind this list. #61 stays parked.
 
 ## Standing rules, each learned from an outage
+
+### A test double looser than the real server hides the bug
+
+#304 passed its own regression test: the mock capped table reads at 1000 rows but returned
+RPC results whole, so a capped `get_distinct_repos` looked fine. The paging mock now caps RPCs
+too and rejects any `.range()` without an `.order()`. When a bug is a server limit, the mock
+has to enforce that limit everywhere the server does.
+
+### Node's fetch changes conditional requests
+
+A request carrying `If-None-Match` gets `Cache-Control: no-cache` added by Node's `fetch`
+(the fetch spec), and Express never answers 304 to that -- which is why revalidation never
+worked through the SvelteKit proxy (#300). The proxy sets its own `Cache-Control` on
+conditional requests; keep it.
 
 ### A bound that returns success is a bug
 
@@ -158,6 +178,14 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #340 | Lazy chart (page chunk 112 -> 45 KB gzip), server-rendered hero cards, chart data cache, index-ordered and totally ordered transaction paging (#297 #299 #303 #294) |
+| #339 | Revalidation that works through the proxy (304s), idle hidden tabs, self-hosted font, one font everywhere (#300 #298 #302 #322) |
+| #338 | Bounded caches (1 GB -> 72 MB under a key flood), narrow benchmark fetches, one app-specs cache, cached comparison (#291 #292 #293 #295 #296 #301) |
+| #337 | Every history table backed up; per-table bootstrap; datacenter flags derived on read (#311 #314) |
+| #336 | Failover never flips back; honest /api/health; container exits with its processes; npm ci; a failed sync no longer forces a full-chain rescan (#308 #309 #310 #312 #316 #335) |
+| #334 | A failed read is an error, not a zero -- adapters and cards (#307 #319) |
+| #333 | Header rotates the whole day, resolves service intros, block milestones (#271 #283 #285 part) |
+| #332 | Five silent data-loss paths (#304 #305 #306 #313 #315) |
 | #259 | Palworld gets its own header intro; smoke harness gains a fourth game (per-game art now covers 93% of running game instances) |
 | #258 | Repair tolerance widened past float noise |
 | #257 | Repair the snapshot revenue already written wrong — 410 rows, 499k -> 1.84M FLUX (#248) |
