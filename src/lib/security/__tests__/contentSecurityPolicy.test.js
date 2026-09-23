@@ -5,6 +5,7 @@ import {
     toKebabDirectives,
     applySecurityHeaders,
     applyStaticSecurityHeaders,
+    isTrustworthyOrigin,
     STATIC_SECURITY_HEADERS
 } from '../contentSecurityPolicy.js';
 
@@ -76,5 +77,25 @@ describe('applyStaticSecurityHeaders', () => {
         const headers = new Headers({ 'Content-Security-Policy': "default-src 'self' 'nonce-abc123'" });
         applyStaticSecurityHeaders(headers);
         expect(headers.get('Content-Security-Policy')).toBe("default-src 'self' 'nonce-abc123'");
+    });
+});
+
+describe('Cross-Origin-Opener-Policy on untrustworthy origins', () => {
+    it('is left out when the origin is not trustworthy, and every other header still set', () => {
+        const headers = new Headers();
+        applyStaticSecurityHeaders(headers, { trustworthyOrigin: false });
+        expect(headers.get('Cross-Origin-Opener-Policy')).toBeNull();
+        expect(headers.get('X-Frame-Options')).toBe(STATIC_SECURITY_HEADERS['X-Frame-Options']);
+        expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('classifies https, a TLS proxy and loopback as trustworthy, and a LAN IP over http as not', () => {
+        const none = new Headers();
+        expect(isTrustworthyOrigin(new URL('https://example.com/'), none)).toBe(true);
+        expect(isTrustworthyOrigin(new URL('http://example.com/'), new Headers({ 'x-forwarded-proto': 'https' }))).toBe(true);
+        expect(isTrustworthyOrigin(new URL('http://localhost:5173/'), none)).toBe(true);
+        expect(isTrustworthyOrigin(new URL('http://127.0.0.1:5173/'), none)).toBe(true);
+        expect(isTrustworthyOrigin(new URL('http://10.0.0.5:5173/'), none)).toBe(false);
+        expect(isTrustworthyOrigin(new URL('http://example.com/'), new Headers({ 'x-forwarded-proto': 'http' }))).toBe(false);
     });
 });

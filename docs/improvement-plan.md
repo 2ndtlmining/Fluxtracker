@@ -113,8 +113,8 @@ for real data to resolve, click something, confirm a value changed. See CLAUDE.m
 ### `min-width: 0` or `text-overflow: ellipsis` does nothing
 
 A grid/flex item that never shrinks cannot ellipsis. `NodeCard`, `AppInstancesCard` and
-`DecentralizationCard` have it; `StatCard` and `CloudCard` do not — worth checking whether
-they need it before the next long label arrives.
+`DecentralizationCard` have it; `CloudCard` does not, but was tested with long injected values
+at 820px and wraps inside its column (#331). `StatCard` was dead code and is gone.
 
 ### Secure-context APIs need a fallback
 

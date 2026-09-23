@@ -2,7 +2,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { loadChartJs } from '$lib/utils/loadChartJs.js';
-import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl } from '$lib/config.js';
+  import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
 
@@ -84,12 +85,23 @@ import { getApiUrl } from '$lib/config.js';
   // Locked collateral runs to ~90M FLUX (issue #210), and cumulative revenue is in the
   // millions too. `toFixed(0)` on those produces a nine-character axis label that crowds
   // the plot area, so the axis compacts and the tooltip keeps the exact figure.
-  function formatFluxAxis(value) {
-    const abs = Math.abs(value);
-    if (abs >= 1_000_000) return (value / 1_000_000).toFixed(1) + 'M FLUX';
-    if (abs >= 10_000) return (value / 1_000).toFixed(0) + 'k FLUX';
-    return value.toFixed(0) + ' FLUX';
+  //
+  // Both go through the shared formatters (issue #323): upper-case K/M like the cards, and
+  // thousands separators on USD and counts, which the tooltip and axis used to lack.
+  function formatChartValue(value, format, { axis = false } = {}) {
+    if (format === 'flux') {
+      return (axis ? formatCount(value, { compact: true }) : formatCount(value)) + ' FLUX';
+    }
+    if (format === 'usd') {
+      return axis ? '$' + formatCount(value, { compact: true }) : formatUsd(value, { compact: false });
+    }
+    if (format === 'percent') return formatNumber(value, 2) + '%';
+    return axis ? formatCount(value, { compact: true }) : formatCount(value);
   }
+
+  // prefers-reduced-motion (issue #324): Chart.js animates every redraw by default.
+  const prefersReducedMotion = () =>
+    typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
   // Category definitions
   let categories = {
@@ -245,6 +257,22 @@ import { getApiUrl } from '$lib/config.js';
     ];
     selectedMetric = entityValueType === 'qty' ? 'entity_qty' : 'entity_percent';
   }
+
+  // Text alternative for the canvas (issue #326): what is plotted, over which range, and
+  // where it ends.
+  $: chartAriaLabel = (() => {
+    const metric = availableMetrics.find(m => m.id === selectedMetric);
+    const range = timeframes.find(t => t.id === selectedTimeframe)?.label ?? selectedTimeframe;
+    const points = chartData.data.length;
+    const parts = [
+      `${categories[selectedCategory]?.label ?? 'Chart'}: ${metric?.label ?? ''}`,
+      `${range}, ${selectedAggregation}`
+    ];
+    if (points > 0) {
+      parts.push(`latest ${formatChartValue(chartData.data[points - 1], metric?.format)} on ${chartData.labels[points - 1]}`);
+    }
+    return parts.join('. ');
+  })();
 
   // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
   let lastMetric = selectedMetric;
@@ -866,6 +894,7 @@ import { getApiUrl } from '$lib/config.js';
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: prefersReducedMotion() ? false : undefined,
         interaction: {
           intersect: false,
           mode: 'index'
@@ -886,18 +915,8 @@ import { getApiUrl } from '$lib/config.js';
               title: (items) => {
                 return items[0].label;
               },
-              label: (context) => {
-                const value = context.parsed.y;
-                if (metric.format === 'flux') {
-                  // Tooltips keep full precision -- the axis is where compaction belongs.
-                  return Math.round(value).toLocaleString() + ' FLUX';
-                } else if (metric.format === 'usd') {
-                  return '$' + value.toFixed(2);
-                } else if (metric.format === 'percent') {
-                  return value.toFixed(2) + '%';
-                }
-                return Math.round(value);
-              }
+              // Tooltips keep full precision -- the axis is where compaction belongs.
+              label: (context) => formatChartValue(context.parsed.y, metric.format)
             }
           }
         },
@@ -929,16 +948,7 @@ import { getApiUrl } from '$lib/config.js';
                 family: "'JetBrains Mono', monospace",
                 size: 11
               },
-              callback: function(value) {
-                if (metric.format === 'flux') {
-                  return formatFluxAxis(value);
-                } else if (metric.format === 'usd') {
-                  return '$' + value.toFixed(0);
-                } else if (metric.format === 'percent') {
-                  return value.toFixed(2) + '%';
-                }
-                return Math.round(value);
-              }
+              callback: (value) => formatChartValue(value, metric.format, { axis: true })
             }
           }
         }
@@ -1215,13 +1225,18 @@ import { getApiUrl } from '$lib/config.js';
         {#if selectedEntity}
           <div class="control-group value-type-toggle">
             <button
+              type="button"
               class="value-type-btn"
               class:active={entityValueType === 'qty'}
+              aria-pressed={entityValueType === 'qty'}
               on:click={() => handleEntityValueTypeChange('qty')}
             >Qty</button>
             <button
+              type="button"
               class="value-type-btn"
               class:active={entityValueType === 'percent'}
+              aria-pressed={entityValueType === 'percent'}
+              aria-label="Percent"
               on:click={() => handleEntityValueTypeChange('percent')}
             >%</button>
           </div>
@@ -1257,15 +1272,17 @@ import { getApiUrl } from '$lib/config.js';
   </div>
 
   <!-- Category Pills -->
-  <div class="category-pills">
+  <div class="category-pills" role="group" aria-label="Chart category">
     {#each Object.entries(categories) as [id, category]}
       <button
+        type="button"
         class="category-pill"
         class:active={selectedCategory === id}
+        aria-pressed={selectedCategory === id}
         on:click={() => handleCategoryChange(id)}
         use:cssomStyle={{ '--category-color': category.color }}
       >
-        <span class="category-icon">
+        <span class="category-icon" aria-hidden="true">
           {#if id === 'revenue'}
             <DollarSign size={16} strokeWidth={2} />
           {:else if id === 'nodes'}
@@ -1290,11 +1307,13 @@ import { getApiUrl } from '$lib/config.js';
   <!-- Decentralization view toggle (issue #138): Overview is the existing headline
        %/count metrics; the other three switch to the entity-search trend above. -->
   {#if selectedCategory === 'decentralization'}
-    <div class="decentralization-view-toggle">
+    <div class="decentralization-view-toggle" role="group" aria-label="Decentralization view">
       {#each DECENTRALIZATION_VIEWS as view}
         <button
+          type="button"
           class="view-toggle-btn"
           class:active={decentralizationView === view.id}
+          aria-pressed={decentralizationView === view.id}
           on:click={() => handleDecentralizationViewChange(view.id)}
         >{view.label}</button>
       {/each}
@@ -1333,12 +1352,23 @@ import { getApiUrl } from '$lib/config.js';
         {/if}
       </div>
     {:else}
-      <canvas bind:this={chartCanvas}></canvas>
+      <!-- A canvas is invisible to screen readers (issue #326): the wrapper names what it
+           plots and the latest value. (role="img" goes on the wrapper -- Svelte's a11y check
+           rejects it on <canvas> itself.) -->
+      <div class="chart-canvas" role="img" aria-label={chartAriaLabel}>
+        <canvas bind:this={chartCanvas} aria-hidden="true"></canvas>
+      </div>
     {/if}
   </div>
 </div>
 
 <style>
+  .chart-canvas {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
   .chart-container {
     background: var(--bg-secondary);
     padding: var(--spacing-lg);

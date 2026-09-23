@@ -1,6 +1,7 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
   import { Cloud } from 'lucide-svelte';
+  import { formatNumber } from '$lib/utils/format.js';
   
   export let cpu = { total: 0, used: 0, utilization: 0 };
   export let ram = { total: 0, used: 0, utilization: 0 };
@@ -18,16 +19,10 @@
   export let ramComparison = null;
   export let storageComparison = null;
   
-  // Format numbers
-  function formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString();
-  }
-  
-  function formatDecimal(num) {
-    if (!num) return '0.00';
-    return num.toFixed(2);
-  }
+  // Fixed en-US formatting (issue #323). formatNumber used bare toLocaleString(), so a de-DE
+  // visitor saw "1.234,568" for CPU next to "2345.67" for RAM in the same card.
+  const formatWhole = (n) => formatNumber(n, 0);
+  const formatDecimal = (n) => formatNumber(n, 2);
   
   // Determine demand level based on CPU utilization
   $: demandLevel = getDemandLevel(cpu.utilization);
@@ -76,7 +71,7 @@
           <div class="metric-label">CPU <span class="unit">(cores)</span></div>
           <div class="metric-value cyan">{formatDecimal(cpu.utilization)}%</div>
         </div>
-        <div class="metric-detail">{formatNumber(cpu.used)} / {formatNumber(cpu.total)}</div>
+        <div class="metric-detail">{formatWhole(cpu.used)} / {formatWhole(cpu.total)}</div>
         
         <!-- CPU Comparison -->
         {#if cpuComparison && cpuComparison.change !== undefined}
@@ -118,7 +113,7 @@
           <div class="metric-label">Storage <span class="unit">(TB)</span></div>
           <div class="metric-value cyan">{formatDecimal(storage.utilization)}%</div>
         </div>
-        <div class="metric-detail">{formatNumber(storage.used)} / {formatNumber(storage.total)}</div>
+        <div class="metric-detail">{formatWhole(storage.used)} / {formatWhole(storage.total)}</div>
         
         <!-- Storage Comparison -->
         {#if storageComparison && storageComparison.change !== undefined}

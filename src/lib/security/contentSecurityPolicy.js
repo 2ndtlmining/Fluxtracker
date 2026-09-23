@@ -81,9 +81,32 @@ export const STATIC_SECURITY_HEADERS = {
     'X-DNS-Prefetch-Control': 'off'
 };
 
-/** Sets only the static (non-CSP) hardening headers on a fetch Response's headers in place. */
-export function applyStaticSecurityHeaders(headers) {
+/**
+ * Browsers ignore Cross-Origin-Opener-Policy on an untrustworthy origin (plain http from a LAN
+ * IP or a Flux node URL) and log a console error for it on every page load. Sending it only
+ * where it takes effect removes that noise without weakening anything: on those origins it
+ * was never applied.
+ */
+const TRUSTWORTHY_ONLY_HEADERS = new Set(['Cross-Origin-Opener-Policy']);
+
+/**
+ * Whether the browser will treat the page's origin as potentially trustworthy: https (directly,
+ * or behind a TLS-terminating proxy that says so in X-Forwarded-Proto) or a loopback host.
+ */
+export function isTrustworthyOrigin(url, requestHeaders) {
+    if (url.protocol === 'https:') return true;
+    const forwarded = requestHeaders?.get?.('x-forwarded-proto') || '';
+    if (forwarded.split(',')[0].trim().toLowerCase() === 'https') return true;
+    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.hostname.endsWith('.localhost');
+}
+
+/**
+ * Sets only the static (non-CSP) hardening headers on a fetch Response's headers in place.
+ * `trustworthyOrigin: false` leaves out the headers browsers ignore on plain-http origins.
+ */
+export function applyStaticSecurityHeaders(headers, { trustworthyOrigin = true } = {}) {
     for (const [name, value] of Object.entries(STATIC_SECURITY_HEADERS)) {
+        if (!trustworthyOrigin && TRUSTWORTHY_ONLY_HEADERS.has(name)) continue;
         headers.set(name, value);
     }
     return headers;

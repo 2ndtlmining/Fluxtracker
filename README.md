@@ -1067,7 +1067,7 @@ src/
     serverHelpers.js            # Shared route helpers: withDbFallback, createCache, calculateChange
     config.js                   # All configuration (addresses, intervals, categories, API URLs)
     decentralizationDimensions.js # One entry per breakdown dimension: group-by field, sentinel, table, columns
-    components/                # Svelte components (StatCard, Chart, RevenueTransactions, KpiModal, TerminalHeaderAnimation, etc.)
+    components/                # Svelte components (RevenueCard, NodeCard, CloudCard, Chart, RevenueTransactions, KpiModal, TerminalHeaderAnimation, etc.)
     kpi/
       periods.js               # KPI period arithmetic (pure, unit-tested)
       metrics.js               # KPI metric definitions, aggregation, formatting

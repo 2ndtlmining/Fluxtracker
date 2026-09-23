@@ -4,7 +4,7 @@
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
-  import { TrendingUp, Package, Hourglass, TriangleAlert } from 'lucide-svelte';
+  import { TrendingUp, Package, Hourglass, TriangleAlert, Pause, Play } from 'lucide-svelte';
 
   let API_URL = '';
   let stats = [];
@@ -37,8 +37,20 @@
   const SECONDS_PER_ITEM = 5;
   const MOBILE_SECONDS_PER_ITEM = 3.5;
 
-  // Duplicate the array for seamless infinite scroll
+  // Duplicate the array for seamless infinite scroll. The second half is a visual copy
+  // only -- it is aria-hidden so screen readers hear each item once (issue #324).
   $: duplicatedStats = [...stats, ...stats];
+
+  // Explicit pause (issue #324, WCAG 2.2.2). Hover and keyboard focus pause it too, but touch
+  // users have neither, and the ticker otherwise moves forever.
+  let paused = false;
+
+  const TABS = [
+    { mode: 'deployed', label: 'Latest Deployed Apps' },
+    { mode: 'expiring', label: 'Expiring Soon' },
+    { mode: 'missing', label: 'Missing Deployments' },
+    { mode: 'network', label: 'Top Network Stats' }
+  ];
 
   // Dynamic duration based on item count for consistent visual speed
   $: scrollDuration = stats.length > 0 ? stats.length * SECONDS_PER_ITEM : 90;
@@ -159,38 +171,32 @@
         <TrendingUp size={20} class="header-icon" />
       {/if}
 
-      <!-- Toggle buttons -->
-      <div class="view-toggle">
-        <button
-          class="toggle-btn"
-          class:active={viewMode === 'deployed'}
-          on:click={() => toggleViewMode('deployed')}
-        >
-          Latest Deployed Apps
-        </button>
-        <button
-          class="toggle-btn"
-          class:active={viewMode === 'expiring'}
-          on:click={() => toggleViewMode('expiring')}
-        >
-          Expiring Soon
-        </button>
-        <button
-          class="toggle-btn"
-          class:active={viewMode === 'missing'}
-          on:click={() => toggleViewMode('missing')}
-        >
-          Missing Deployments
-        </button>
-        <button
-          class="toggle-btn"
-          class:active={viewMode === 'network'}
-          on:click={() => toggleViewMode('network')}
-        >
-          Top Network Stats
-        </button>
+      <!-- One scrollable row on narrow screens (issue #329) -- the four tabs used to stack
+           into a ~200px column above a one-line ticker. -->
+      <div class="view-toggle" role="group" aria-label="Ticker view">
+        {#each TABS as tab (tab.mode)}
+          <button
+            type="button"
+            class="toggle-btn"
+            class:active={viewMode === tab.mode}
+            aria-pressed={viewMode === tab.mode}
+            on:click={() => toggleViewMode(tab.mode)}
+          >
+            {tab.label}
+          </button>
+        {/each}
       </div>
     </div>
+    <button
+      type="button"
+      class="pause-btn"
+      aria-pressed={paused}
+      aria-label={paused ? 'Resume ticker' : 'Pause ticker'}
+      title={paused ? 'Resume ticker' : 'Pause ticker'}
+      on:click={() => (paused = !paused)}
+    >
+      {#if paused}<Play size={14} />{:else}<Pause size={14} />{/if}
+    </button>
     <div class="live-indicator" class:stale={!isFresh} title="Data age: {formatAge(cacheAge)}">
       <span class="live-dot"></span>
       {#if isFresh}
@@ -205,6 +211,7 @@
        blocks inline style attributes, so these scroll durations never reached the CSS. -->
   <div
     class="carousel-track-container"
+    class:paused
     use:cssomStyle={{ '--scroll-duration': `${scrollDuration}s`, '--mobile-scroll-duration': `${mobileScrollDuration}s` }}
   >
     {#if loading}
@@ -220,7 +227,7 @@
       {#key viewMode}
       <div class="carousel-track">
         {#each duplicatedStats as stat, index (index)}
-          <div class="carousel-item">
+          <div class="carousel-item" aria-hidden={index >= stats.length ? 'true' : undefined}>
             {#if stat.rank}
               <span class="item-rank">#{stat.rank}</span>
             {/if}
@@ -464,9 +471,61 @@
     white-space: nowrap;
   }
 
-  /* Pause animation on hover */
-  .carousel-track-container:hover .carousel-track {
+  /* Pause on hover, on keyboard focus inside the track, or on the explicit button (#324) */
+  .carousel-track-container:hover .carousel-track,
+  .carousel-track-container:focus-within .carousel-track,
+  .carousel-track-container.paused .carousel-track {
     animation-play-state: paused;
+  }
+
+  .pause-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin-right: var(--spacing-sm);
+    /* app.css's global button padding (0.5rem 1rem) left a 28px button no room for its icon */
+    padding: 0;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .pause-btn:hover,
+  .pause-btn:focus-visible,
+  .pause-btn[aria-pressed='true'] {
+    color: var(--accent-cyan);
+    border-color: var(--accent-cyan);
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+  }
+
+  /* Reduced motion (issue #324): no marquee at all. The track becomes a row the reader
+     scrolls themselves, the visual duplicate is dropped and the pause button has nothing to
+     pause. */
+  @media (prefers-reduced-motion: reduce) {
+    .carousel-track {
+      animation: none;
+    }
+
+    .carousel-track-container {
+      overflow-x: auto;
+    }
+
+    .carousel-item[aria-hidden='true'],
+    .pause-btn {
+      display: none;
+    }
+
+    .live-dot,
+    .loading-spinner {
+      animation: none;
+    }
   }
 
   @keyframes scroll {
@@ -582,9 +641,22 @@
 
   /* Responsive */
   @media (max-width: 768px) {
+    .header-content {
+      min-width: 0;
+    }
+
     .view-toggle {
-      flex-direction: column;
       gap: 0.25rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+      min-width: 0;
+      /* Fade the clipped edge so the row reads as scrollable, not cut off */
+      mask-image: linear-gradient(to right, #000 80%, transparent);
+      -webkit-mask-image: linear-gradient(to right, #000 80%, transparent);
+    }
+
+    .view-toggle::-webkit-scrollbar {
+      display: none;
     }
 
     .toggle-btn {
