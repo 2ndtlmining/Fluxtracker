@@ -42,7 +42,8 @@
     minecraftFrameKinds,
     MINECRAFT_FRAME_COUNT,
     markPaused,
-    formatSidePanel
+    formatDeploymentFrameWide,
+    formatExpiringFrameWide
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -153,6 +154,12 @@
   let currentSlot = null;
   // The last slot that played an intro -- clicking the logo replays it (issue #282).
   let lastIntroSlot = null;
+  // True once the current slot's detail frame is fully on screen (not mid-intro or wipe).
+  let detailShown = false;
+  // Desktop gets one wide detail frame with everything about the app (issue #345); narrower
+  // screens keep the 34-column frame. Tracked live, so resizing across it switches over.
+  const WIDE_QUERY = '(min-width: 1280px)';
+  let wide = false;
 
   // Hover pause (issue #282). Only the move to the NEXT slot waits: an intro or a wipe that
   // is already running finishes, then the frame holds for as long as the pointer stays.
@@ -446,6 +453,7 @@
    */
   function presentSlot(slot) {
     currentSlot = slot;
+    detailShown = false;
     const next = framesForSlot(slot);
     const intro = introForSlot(slot);
     if (intro) lastIntroSlot = slot;
@@ -480,6 +488,7 @@
       frameLines = next.lines;
       frameKinds = next.kinds;
       currentAriaLabel = next.ariaLabel;
+      detailShown = true;
       scheduleNextRotationStep();
     });
   }
@@ -488,14 +497,19 @@
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
     }
+    const extras = { introKey: resolveIntroKey(slot.data), payment: payments[slot.data?.name] };
     if (slot.kind === 'expiring') {
       // Reduced motion stays plain text (essentials only, per its existing design
       // intent) -- the orange accent is an animation-adjacent flourish, not information.
-      const lines = reducedMotion ? formatExpiringReducedMotionLines(slot.data) : formatExpiringFrame(slot.data);
+      const lines = reducedMotion
+        ? formatExpiringReducedMotionLines(slot.data)
+        : wide ? formatExpiringFrameWide(slot.data, extras) : formatExpiringFrame(slot.data);
       const kinds = reducedMotion ? textKinds() : expiringFrameKinds();
       return { lines, kinds, ariaLabel: `Expiring soon: ${slot.data.name}` };
     }
-    const lines = reducedMotion ? formatDeploymentReducedMotionLines(slot.data) : formatDeploymentFrame(slot.data, slot.rank);
+    const lines = reducedMotion
+      ? formatDeploymentReducedMotionLines(slot.data)
+      : wide ? formatDeploymentFrameWide(slot.data, slot.rank, extras) : formatDeploymentFrame(slot.data, slot.rank);
     const kinds = reducedMotion ? textKinds() : deploymentFrameKinds();
     return { lines, kinds, ariaLabel: `Latest deployment: ${slot.data.name}` };
   }
@@ -587,38 +601,15 @@
     presentSlot(slot);
   }
 
-  /** The side panel's "next up" row: go straight to the next app. */
-  function advanceNow() {
-    if (state !== 'ready') return;
-    restartChain();
-    advanceRotation({ appsOnly: true });
-  }
-
-  // What comes after the current slot, for the panel. pickNextDeployed() is pure, so the
-  // preview is the app advanceRotation() will claim next, as long as the data is unchanged.
-  // The arguments are the state it depends on, listed so the panel re-derives when any of
-  // them changes.
-  function previewNext(slotIndex, recent, expiring, deployed, latest) {
-    const slots = idleSlots();
-    for (let k = 1; k <= slots.length; k++) {
-      const slot = slots[(slotIndex + k) % slots.length];
-      if (slot.kind === 'expiring' && expiring) return { kind: 'expiring', app: expiring };
-      if (slot.kind === 'deployed') {
-        const choice = pickNextDeployed(deployedList(), recent, resolveIntroKey);
-        if (choice) return { kind: 'deployed', app: choice.app };
-      }
-    }
-    return null;
-  }
-
-  // What was paid for the app on screen (issue #345: the panel shows what the box cannot,
-  // rather than repeating it). One small search per app name, cached for PAYMENT_TTL_MS so
-  // the rotation's repeat visits cost nothing. Keyed by name, so a slow answer for an app
-  // that has already left the screen lands in the cache and never on the wrong app.
+  // Payments (issue #345). The wide frame shows what was paid for the app on screen: one
+  // small search per app name, cached for PAYMENT_TTL_MS so the rotation's repeat visits cost
+  // nothing, and fetched one slot ahead so the figure is usually there when the frame is.
+  // Keyed by name, so a slow answer for an app that has left the screen only fills the cache.
   const PAYMENT_TTL_MS = 5 * 60 * 1000;
   let payments = {}; // name -> { status, amount?, usd?, date?, total?, at }
 
   async function loadPayment(name) {
+    if (!name) return;
     const cached = payments[name];
     if (cached && (cached.status === 'loading' || Date.now() - cached.at < PAYMENT_TTL_MS)) return;
     payments = { ...payments, [name]: { status: 'loading', at: Date.now() } };
@@ -639,23 +630,29 @@
     payments = { ...payments, [name]: { ...result, at: Date.now() } };
   }
 
-  $: slotAppName = (currentSlot?.kind === 'deployed' || currentSlot?.kind === 'expiring') ? currentSlot.data?.name : null;
-  $: if (slotAppName) loadPayment(slotAppName);
+  /** The app the rotation will show next -- pickNextDeployed() is pure, so this is the same
+   *  app advanceRotation() will claim, as long as the data is unchanged. */
+  function nextAppName() {
+    const slots = idleSlots();
+    for (let k = 1; k <= slots.length; k++) {
+      const slot = slots[(rotationIndex + k) % slots.length];
+      if (slot.kind === 'expiring' && slot.data) return slot.data.name;
+      if (slot.kind === 'deployed') return pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey)?.app?.name;
+    }
+    return null;
+  }
 
-  $: panelRows = formatSidePanel({
-    kind: state === 'ready' ? currentSlot?.kind ?? 'logo' : null,
-    app: currentSlot?.data,
-    introKey: currentSlot?.data ? resolveIntroKey(currentSlot.data) : null,
-    payment: slotAppName ? payments[slotAppName] : null,
-    next: state === 'ready'
-      ? previewNext(rotationIndex, recentDeployed, latestExpiringApp, deployedApps, latestDeployedApp)
-      : null,
-    blockHeight,
-    totalNodes,
-    totalApps,
-    deployedCount: (deployedApps?.length || (latestDeployedApp ? 1 : 0)) || null,
-    newest: latestDeployedApp
-  });
+  $: slotAppName = (currentSlot?.kind === 'deployed' || currentSlot?.kind === 'expiring') ? currentSlot.data?.name : null;
+  $: if (slotAppName) {
+    loadPayment(slotAppName);
+    loadPayment(nextAppName());
+  }
+
+  // A payment that lands while its app's detail frame is on screen redraws that frame, so
+  // "checking…" turns into the figure without waiting for the next visit.
+  $: if (detailShown && wide && !reducedMotion && slotAppName && payments[slotAppName]) {
+    frameLines = framesForSlot(currentSlot).lines;
+  }
 
   $: displayLines = paused && state === 'ready' ? markPaused(frameLines) : frameLines;
   $: isAppSlot = currentSlot?.kind === 'deployed' || currentSlot?.kind === 'expiring';
@@ -695,6 +692,7 @@
           frameLines = next.lines;
           frameKinds = next.kinds;
           currentAriaLabel = next.ariaLabel;
+          detailShown = true;
           scheduleNextRotationStep();
         });
       }, INTRO_STEP_MS, { paced: true });
@@ -705,12 +703,19 @@
     runReveal(frameLines, frameKinds, intro.format(0, ctx), intro.kinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
   }
 
+  let wideQuery;
+  const onWideChange = event => { wide = event.matches; };
+
   onMount(() => {
     reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    wideQuery = window.matchMedia(WIDE_QUERY);
+    wide = wideQuery.matches;
+    wideQuery.addEventListener('change', onWideChange);
     startBoot();
   });
 
   onDestroy(() => {
+    wideQuery?.removeEventListener('change', onWideChange);
     timeouts.forEach(clearTimeout);
     if (bootTimeoutId) clearTimeout(bootTimeoutId);
     cancelRafLoop();
@@ -718,7 +723,7 @@
 </script>
 
 <!-- Hover pauses, click acts (issue #282). Pointer only, by the owner's decision: no tabindex
-     or key handling on the box. The panel's "next up" is a real button. -->
+     or key handling on the box. -->
 <div
   class="terminal-row"
   class:ready={state === 'ready'}
@@ -737,21 +742,6 @@
     title={state === 'ready' ? boxLabel : undefined}
     on:click={handleBoxClick}
   >{#each displayLines as line, i}<span class="row-{frameKinds[i]}">{line + '\n'}</span>{/each}</pre>
-
-  <!-- Desktop side panel (approved 2026-09-23): the facts of whatever the box shows, readable
-       while the art plays. Hidden below 1280px, where the box stays on its own. -->
-  <div class="side-panel" use:cssomStyle={{ '--box-rows': BOOT_LINE_COUNT }}>
-    {#each panelRows as row}
-      {#if row.role === 'next'}
-        <button type="button" class="panel-row panel-next" on:click={advanceNow} title="Show it now">{row.text}</button>
-      {:else}
-        <div class="panel-row panel-{row.role}">
-          <span class="panel-text">{row.text}</span>
-          {#if row.aside}<span class="panel-aside">{row.aside}</span>{/if}
-        </div>
-      {/if}
-    {/each}
-  </div>
 </div>
 
 <style>
@@ -785,94 +775,11 @@
     cursor: pointer;
   }
 
-  /* Side panel: the same row grid as the box, so its six rows line up with the art's and
-     the header height cannot change. */
-  .side-panel {
-    display: none;
-    flex-direction: column;
-    /* Shrinks (rows ellipsise) rather than push the header's never-wrapping stats column off
-       the page -- at 1280px a fixed 19rem overflowed the viewport by 26px. */
-    width: 19rem;
-    flex-shrink: 1;
-    min-width: 12rem;
-    height: calc(var(--box-rows, 6) * var(--box-row, 0.95rem));
-    padding-left: var(--spacing-md);
-    border-left: 1px solid var(--border-color);
-    font-size: 0.7rem;
-    line-height: var(--box-row, 0.95rem);
-    visibility: hidden;
-  }
-
-  .terminal-row.ready .side-panel {
-    visibility: visible;
-  }
-
-  .panel-row {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--spacing-sm);
-    height: var(--box-row, 0.95rem);
-    min-width: 0;
-    white-space: nowrap;
-    color: var(--text-dim);
-  }
-
-  .panel-text {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .panel-title {
-    color: var(--text-primary);
-    letter-spacing: 1px;
-  }
-
-  .panel-aside {
-    flex-shrink: 0;
-    color: var(--accent-green);
-  }
-
-  .panel-name {
-    color: var(--text-white);
-  }
-
-  .panel-foot {
-    color: var(--text-muted);
-  }
-
-  /* A real button that looks like a row. app.css styles every <button> (padding, border,
-     upper-case, cyan fill and lift on hover), so each of those is reset here. */
-  .panel-next {
-    display: block;
-    width: 100%;
-    padding: 0;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    font: inherit;
-    line-height: var(--box-row, 0.95rem);
-    letter-spacing: 0;
-    text-transform: none;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: var(--accent-cyan);
-    cursor: pointer;
-  }
-
-  .panel-next:hover,
-  .panel-next:focus-visible {
-    background: transparent;
-    box-shadow: none;
-    transform: none;
-    color: var(--text-white);
-    text-decoration: underline;
-  }
-
+  /* Desktop reserves the wide frame's width (issue #345) so the header does not shift
+     sideways each time the rotation moves between the logo and an app. */
   @media (min-width: 1280px) {
-    .side-panel {
-      display: flex;
+    .terminal-box {
+      min-width: 76ch;
     }
   }
 

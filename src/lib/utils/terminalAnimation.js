@@ -902,39 +902,51 @@ export const PAUSED_MARKER = '[ paused ]';
 
 export function markPaused(lines) {
   if (!Array.isArray(lines) || lines.length === 0) return lines;
-  const last = String(lines.at(-1)).padEnd(LOGO_WIDTH).slice(0, LOGO_WIDTH - PAUSED_MARKER.length);
+  const width = Math.max(LOGO_WIDTH, ...lines.map(line => String(line).length));
+  const last = String(lines.at(-1)).padEnd(width).slice(0, width - PAUSED_MARKER.length);
   return [...lines.slice(0, -1), last + PAUSED_MARKER];
 }
 
 // ---------------------------------------------------------------------------------------
-// Desktop side panel (approved 2026-09-23, reworked for issue #345). The art box keeps its
-// 34x6 cell and this panel sits beside it. It must never repeat the box: the box already
-// shows an app's name, age/expiry, instances, resources and its place in the day, so for an
-// app the panel carries what the box cannot fit -- what kind of app it is, its image, and
-// what was paid for it. Exactly BOOT_LINE_COUNT rows, every one real data or an honest
-// dash, never an empty row.
+// Wide detail frames (desktop, issue #345). One frame about one app, using the whole width:
+// the narrow frame's NAME / AGO-or-EXPIRE / INST / RES on the left, and on the right what it
+// has no room for -- what the app is (game and which one, or service), its image, and what
+// was paid for it and when. No second panel repeating the same app, and nothing that is not
+// about the app on screen. Mobile keeps the narrow frame.
 
+const WIDE_GAP = 2;
+const WIDE_RIGHT_WIDTH = 40;
+export const WIDE_WIDTH = LOGO_WIDTH + WIDE_GAP + WIDE_RIGHT_WIDTH;
 const DASH = '—';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-function countLabel(value, noun) {
-  if (!Number.isFinite(value) || value <= 0) return null;
-  return `${value.toLocaleString('en-US')} ${noun}`;
+function formatWideField(label, value) {
+  const prefix = `${label.padEnd(6)} `;
+  return prefix + truncateForBox(String(value), WIDE_RIGHT_WIDTH - prefix.length);
 }
 
-/** 'game:Valheim' -> 'game · Valheim', 'service:wordpress' -> 'service · wordpress'. */
-function kindLine(app, introKey) {
-  const [family, name] = typeof introKey === 'string' && introKey.includes(':')
-    ? introKey.split(/:(.*)/s)
-    : ['app', null];
-  const parts = [name ? `${family} · ${name}` : family];
-  if (app?.isEnterprise) parts.push('enterprise');
-  return parts.join(' · ');
+/** A bookend row across the full wide frame, label centred: `>>>> NEW APP DEPLOYED <<<<`. */
+function wideBookend(label, left, right) {
+  const text = ` ${label} `;
+  const leftCount = Math.floor((WIDE_WIDTH - text.length) / 2);
+  return left.repeat(leftCount) + text + right.repeat(WIDE_WIDTH - text.length - leftCount);
 }
 
-function imageLine(app) {
-  if (app?.repo) return app.repo;
-  return app?.isEnterprise ? 'image private (enterprise spec)' : `image ${DASH}`;
+/** 'game:Valheim' -> ['GAME', 'Valheim']; 'service:wordpress' -> ['SERVICE', 'wordpress']. */
+function typeField(introKey) {
+  if (typeof introKey === 'string' && introKey.includes(':')) {
+    const [family, name] = introKey.split(/:(.*)/s);
+    if (family === 'game') return ['GAME', name];
+    if (family === 'service') return ['SERVICE', name];
+  }
+  return ['TYPE', 'app'];
+}
+
+// ':latest' is the default tag and says nothing; dropping it keeps a typical repotag inside
+// the column instead of cutting its name short.
+function imageValue(app) {
+  if (app?.repo) return app.repo.replace(/:latest$/, '');
+  return app?.isEnterprise ? 'private (enterprise)' : DASH;
 }
 
 /** '2026-09-16' -> 'Sep 16'. */
@@ -944,66 +956,52 @@ function shortDate(isoDate) {
 }
 
 /**
+ * The PAID and ON values. A deployment only has a payment row after the next revenue sync,
+ * so "not synced yet" is a real state, not a failure -- and nothing here ever shows a zero.
+ *
  * @param {{status: 'loading'|'none'|'ok'|'error', amount?: number, usd?: number,
  *          date?: string, total?: number}|null|undefined} payment
  */
-function paymentLine(payment) {
-  if (!payment || payment.status === 'loading') return 'payment: checking…';
-  if (payment.status === 'error') return `payment: ${DASH}`;
-  // A deployment only has a payment row after the next revenue sync.
-  if (payment.status === 'none') return 'no payment synced yet';
+function paymentValues(payment) {
+  if (!payment || payment.status === 'loading') return ['checking…', 'checking…'];
+  if (payment.status === 'error') return [DASH, DASH];
+  if (payment.status === 'none') return ['not synced yet', DASH];
   const flux = `${formatNumber(payment.amount, 2)} FLUX`;
-  const date = shortDate(payment.date);
-  if (payment.total > 1) {
-    return [`${payment.total} payments`, `last ${flux}`, date].filter(Boolean).join(' · ');
-  }
-  const usd = Number.isFinite(payment.usd) ? `$${formatNumber(payment.usd, 2)}` : null;
-  return ['paid ' + flux, usd, date].filter(Boolean).join(' · ');
+  const usd = Number.isFinite(payment.usd) ? ` · $${formatNumber(payment.usd, 2)}` : '';
+  const date = shortDate(payment.date) ?? DASH;
+  return [flux + usd, payment.total > 1 ? `${date} (last of ${payment.total})` : date];
+}
+
+function wideMiddle(leftLines, app, extras) {
+  const [typeLabel, typeValue] = typeField(extras?.introKey);
+  const [paid, on] = paymentValues(extras?.payment);
+  const right = [
+    formatWideField(typeLabel, typeValue),
+    formatWideField('IMAGE', imageValue(app)),
+    formatWideField('PAID', paid),
+    formatWideField('ON', on)
+  ];
+  const left = padLines(leftLines, BOOT_LINE_COUNT - 2);
+  return left.map((line, i) => String(line).padEnd(LOGO_WIDTH + WIDE_GAP) + right[i]);
 }
 
 /**
- * The panel's rows for the current slot.
- *
- * @param {{
- *   kind: 'logo'|'deployed'|'expiring'|null,
- *   app?: object, introKey?: string|null, payment?: object|null,
- *   next?: {kind: 'deployed'|'expiring', app: object}|null,
- *   blockHeight?: number|null, totalNodes?: number, totalApps?: number,
- *   deployedCount?: number, newest?: object|null
- * }} view
- * @returns {{text: string, role: 'title'|'name'|'text'|'next'|'foot'}[]}
+ * Desktop deployed frame: the narrow frame's rows plus type, image and payment.
+ * @param {{introKey?: string|null, payment?: object|null}} extras
  */
-export function formatSidePanel(view = {}) {
-  const { kind, app, introKey, payment, next, blockHeight, totalNodes, totalApps, deployedCount, newest } = view;
-
-  const nextRow = next?.app?.name
-    ? { text: `next up: ${next.app.name}`, role: 'next' }
-    : { text: `next up: ${DASH}`, role: 'text' };
-
-  const footParts = [];
-  if (Number.isFinite(blockHeight)) footParts.push(`block ${blockHeight.toLocaleString('en-US')}`);
-  const nodes = countLabel(totalNodes, 'nodes');
-  if (nodes) footParts.push(nodes);
-  const foot = { text: footParts.length ? footParts.join(' · ') : DASH, role: 'foot' };
-
-  if ((kind === 'deployed' || kind === 'expiring') && app) {
-    return [
-      { text: kind === 'deployed' ? 'NOW PLAYING' : 'EXPIRING SOON', role: 'title' },
-      { text: kindLine(app, introKey), role: 'name' },
-      { text: imageLine(app), role: 'text' },
-      { text: paymentLine(payment), role: 'text' },
-      nextRow,
-      foot
-    ];
-  }
-
-  const network = [countLabel(totalNodes, 'nodes'), countLabel(totalApps, 'apps')].filter(Boolean);
+export function formatDeploymentFrameWide(deployment, rank = null, extras = {}) {
+  const narrow = formatDeploymentFrame(deployment, rank);
+  const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total) && rank.total >= 1;
   return [
-    { text: 'FLUX NETWORK', role: 'title' },
-    { text: network.length ? network.join(' · ') : DASH, role: 'text' },
-    { text: Number.isFinite(deployedCount) ? `${deployedCount.toLocaleString('en-US')} deployed in 24h` : `deployed in 24h: ${DASH}`, role: 'text' },
-    { text: newest?.name ? `newest: ${newest.name}` : `newest: ${DASH}`, role: 'text' },
-    nextRow,
-    foot
+    wideBookend('NEW APP DEPLOYED', '>', '<'),
+    ...wideMiddle(narrow.slice(1, -1).filter(line => line.trim()), deployment, extras),
+    wideBookend(ranked ? `#${rank.position} OF ${rank.total} IN 24H` : 'NEW APP DEPLOYED', '>', '<')
   ];
+}
+
+/** Desktop expiring frame: the narrow frame's rows plus type, image and payment. */
+export function formatExpiringFrameWide(app, extras = {}) {
+  const narrow = formatExpiringFrame(app);
+  const bookend = wideBookend('EXPIRING', '<', '>');
+  return [bookend, ...wideMiddle(narrow.slice(1, -1).filter(line => line.trim()), app, extras), bookend];
 }

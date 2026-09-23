@@ -62,20 +62,19 @@ node scripts/header-smoke/check-boot-race.mjs                  # terminal 3
 between runs. Unset (the default) it changes nothing, and `check-header.mjs` above runs
 exactly as before. Takes ~70s.
 
-## Interaction check (PR 10: #282, #284, side panel)
+## Interaction check (#282, #284, #345)
 
 `check-interaction.mjs` covers what the header does when someone uses it:
 
-- **Side panel:** on desktop it sits beside the box with six non-empty rows, at exactly the
-  box's height. On mobile it is hidden.
+- **Wide frame (#345):** on desktop, an app frame is one wide frame about that app. The type,
+  image and payment sit beside the name, expiry, instances and resources, and nothing
+  unrelated (block height, node count) appears. Mobile keeps the narrow frame.
 - **Hover:** hovering holds the frame past a full 8s hold and shows `[ paused ]`. Leaving
   resumes the rotation.
 - **App click (#284):** clicking an app frame puts that app's name in the transaction search
   and scrolls the section into view.
-- **Logo click:** clicking the logo replays the last intro.
-- **Rapid clicks:** after 20 rapid clicks on the panel's "next up", the next frame holds a
-  full dwell. That proves a click restarts the rotation chain instead of starting a second
-  one. With the restart sabotaged, it fails ("replaced after 4582ms").
+- **Logo click:** clicking the logo replays the last intro. The frame after it holds a full
+  dwell, which proves a click restarts the rotation chain instead of starting a second one.
 
 ```bash
 node scripts/header-smoke/stub-api.mjs                 # terminal 1
