@@ -103,6 +103,12 @@ describe('wide detail frames (issue #345)', () => {
     expect(formatExpiringFrameWide(enshrouded, { payment: { status: 'error' } }).join('\n')).toMatch(/PAID\s+—/);
   });
 
+  it('a full timestamped app name fits (the narrow frame cuts it)', () => {
+    const zomboid = { ...open, name: 'projectzomboid1789155733041' };
+    expect(formatDeploymentFrameWide(zomboid, null, {})[1]).toContain('projectzomboid1789155733041');
+    expect(formatDeploymentFrame(zomboid)[1]).not.toContain('projectzomboid1789155733041');
+  });
+
   it('pausing a wide frame keeps its width', () => {
     const marked = markPaused(formatExpiringFrameWide(enshrouded, { payment: paid }));
     expect(marked.at(-1)).toHaveLength(WIDE_WIDTH);

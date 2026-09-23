@@ -45,7 +45,7 @@ jobs:
       # harness needs that port exclusively and a stale listener fakes a failure.
       fail-fast: false
       matrix:
-        game: [valheim, minecraft, dragonwilds, palworld]
+        game: [valheim, minecraft, dragonwilds, palworld, zomboid]
 
     env:
       DEPLOYED_GAME: ${{ matrix.game }}

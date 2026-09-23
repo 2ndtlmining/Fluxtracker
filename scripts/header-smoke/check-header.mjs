@@ -76,6 +76,12 @@ const GAME_ART_BY_NAME = {
   palworld: {
     signature: /(o.o)/,
     movingRows: rows => rows.slice(-2).filter(r => /[.,^]{6}/.test(r.text))
+  },
+  // Issue #273: the boarded house, and the zombie's head moving along the row beside it --
+  // its column changes every step until it reaches the boards.
+  zomboid: {
+    signature: /\|=\|=\|=\|/,
+    movingRows: rows => rows.filter(r => r.text.includes('_o_'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -84,7 +90,8 @@ const UPDATED_DEPLOYED_NAME = {
   valheim: 'valheim1789155733041',
   minecraft: 'minecraftj1789155733041',
   dragonwilds: 'dragonwilds1789155733041',
-  palworld: 'palworld1789155733041'
+  palworld: 'palworld1789155733041',
+  zomboid: 'projectzomboid1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
