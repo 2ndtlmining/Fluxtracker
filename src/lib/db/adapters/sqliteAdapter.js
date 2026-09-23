@@ -140,6 +140,7 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_timestamp ON revenue_transactions(timestamp)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_usd_null ON revenue_transactions(txid) WHERE amount_usd IS NULL`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_app_name ON revenue_transactions(app_name)`);
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_block_height_ts_id_desc ON revenue_transactions(block_height DESC, timestamp DESC, id DESC)`); // #294
 
     d.exec(`
         CREATE TABLE IF NOT EXISTS failed_txids (
@@ -1000,7 +1001,7 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
         params.off = offset;
         const rows = getDb().prepare(`
             SELECT * FROM revenue_transactions ${whereStr}
-            ORDER BY block_height DESC, timestamp DESC
+            ORDER BY block_height DESC, timestamp DESC, id DESC -- total order: offset paging (#294)
             LIMIT @lim OFFSET @off
         `).all(params);
 

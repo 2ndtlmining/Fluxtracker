@@ -1,8 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
-  import Chart from 'chart.js/auto';
-  import { getApiUrl } from '$lib/config.js';
+  import { loadChartJs } from '$lib/utils/loadChartJs.js';
+import { getApiUrl } from '$lib/config.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
 
@@ -20,6 +20,9 @@
   // State
   let chartCanvas;
   let chartInstance = null;
+  // Chart.js arrives on demand (issue #297): it was ~59% of the single page chunk and sat on
+  // the critical path of first paint. Null until loaded; rendering waits for it.
+  let ChartJS = null;
   let loading = true;
   let error = null;
 
@@ -55,6 +58,12 @@
   // counts plus the network-wide total in a single response, so switching game in the
   // metric dropdown is a client-side re-derive with no network round trip.
   let gameHistory = null; // raw /api/history/games response, cached per timeframe
+
+  // /api/history/snapshots/full backs every snapshot category (nodes, cloud, apps, ...), and
+  // each category click used to download it again -- up to ~0.8 MB raw at "All" (issue #303).
+  // Kept per limit for a few minutes, so moving between those categories is a re-derive.
+  const SNAPSHOT_CACHE_MS = 5 * 60 * 1000;
+  let snapshotCache = null; // { limit, rows, at }
 
   // The metric list and the per-day series both live in $lib/utils/gameSeries.js -- the
   // gap-vs-zero rule they implement is the point of the feature and is unit-tested there.
@@ -278,7 +287,7 @@
   }
 
   // When canvas becomes available and we have data, render the chart
-  $: if (chartCanvas && chartData.labels.length > 0 && !loading) {
+  $: if (chartCanvas && ChartJS && chartData.labels.length > 0 && !loading) {
     console.log('🎨 Canvas ready and data available - rendering initial chart');
     renderChart();
   }
@@ -307,6 +316,14 @@
     // Get API URL in browser context
     API_URL = getApiUrl();
 
+    // The library download and the data fetch run in parallel; whichever finishes last
+    // triggers the first render through the reactive block above.
+    loadChartJs()
+      .then(lib => { ChartJS = lib; })
+      .catch(err => {
+        console.error('Could not load the chart library:', err);
+        error = 'Chart library failed to load';
+      });
     await fetchAllData();
   });
 
@@ -467,23 +484,30 @@
           };
         });
       } else {
-        // For other categories, use snapshot data
-        console.log('📊 Fetching from snapshots');
-        const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}`);
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        // Handle response format
-        if (Array.isArray(result)) {
-          allSnapshots = result;
-        } else if (result.data && Array.isArray(result.data)) {
-          allSnapshots = result.data;
+        // For other categories, use snapshot data -- from the cache when this timeframe's
+        // rows are already here (issue #303).
+        const cached = snapshotCache && snapshotCache.limit === limitParam
+          && Date.now() - snapshotCache.at < SNAPSHOT_CACHE_MS;
+        if (cached) {
+          allSnapshots = snapshotCache.rows;
         } else {
-          allSnapshots = [];
+          const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}`);
+
+          if (!response.ok) {
+            throw new Error(`API error: ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          // Handle response format
+          if (Array.isArray(result)) {
+            allSnapshots = result;
+          } else if (result.data && Array.isArray(result.data)) {
+            allSnapshots = result.data;
+          } else {
+            allSnapshots = [];
+          }
+          snapshotCache = { limit: limitParam, rows: allSnapshots, at: Date.now() };
         }
       }
 
@@ -791,9 +815,8 @@
   }
 
   function renderChart() {
-    if (!chartCanvas) {
-      console.warn('⚠️ Canvas not ready yet');
-      return;
+    if (!chartCanvas || !ChartJS) {
+      return; // re-run by the reactive block once both exist
     }
 
     // Destroy existing chart
@@ -818,7 +841,7 @@
     gradient.addColorStop(1, category.color.replace('rgb', 'rgba').replace(')', ', 0.05)'));
 
     // Create chart
-    chartInstance = new Chart(chartCanvas, {
+    chartInstance = new ChartJS(chartCanvas, {
       type: 'line',
       data: {
         labels: chartData.labels,

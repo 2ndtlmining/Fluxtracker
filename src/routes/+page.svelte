@@ -17,19 +17,24 @@
   import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
   import AppInstancesCard from '$lib/components/AppInstancesCard.svelte';
   
+  // Hero-card data rendered on the server (issue #299) -- see +page.server.js. Either field is
+  // null when the API did not answer inside the SSR budget; the client fetch in onMount then
+  // fills it exactly as before.
+  export let data = {};
+
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
   let API_URL = '';
   
-  // Data from API
-  let metrics = null;
+  // Data from API (seeded from the server-rendered load when it answered in time)
+  let metrics = data?.metrics ?? null;
   let comparisonCache = {}; // Cache for comparison data by period
-  let loading = true;
+  let loading = !data?.metrics;
   let comparisonLoading = false; // Separate loading state for comparison
   let interval;
   // Revenue data for current period
-  let revenueData = null;
-  let revenuePeriodLoaded = null; // which period revenueData belongs to
+  let revenueData = data?.revenue ?? null;
+  let revenuePeriodLoaded = data?.revenue ? 'D' : null; // which period revenueData belongs to
 
   // Load health for the hero cards (issue #319). A failed fetch used to leave `metrics`/
   // `revenueData` unchanged or fill them with an error body, and the cards' `|| 0`
@@ -38,10 +43,10 @@
   // 503-with-cached-data answer (a real reading, but not a current one).
   let metricsFailed = false;
   let metricsStale = false;
-  let metricsUpdatedAt = null;
+  let metricsUpdatedAt = data?.metrics ? data.renderedAt : null;
   let revenueFailed = false;
   let revenueStale = false;
-  let revenueUpdatedAt = null;
+  let revenueUpdatedAt = data?.revenue ? data.renderedAt : null;
 
   $: metricsUnavailable = !loading && !metrics && metricsFailed;
   $: metricsStaleSince = metrics && (metricsFailed || metricsStale) ? metricsUpdatedAt : null;
@@ -205,13 +210,17 @@
 });
 
 async function refreshAll() {
-  await fetchMetrics();
-  await fetchRevenue(comparisonPeriod);
+  // Independent requests, in parallel (issue #299) -- these were six sequential awaits,
+  // each a remote round trip in Supabase mode.
   comparisonCache = {};                      // period comparisons are cached by period
-  await fetchComparison(comparisonPeriod);
-  await fetchAppsActivity();
-  await fetchGaming();
-  await fetchDeploymentFill();
+  await Promise.all([
+    fetchMetrics(),
+    fetchRevenue(comparisonPeriod),
+    fetchComparison(comparisonPeriod),
+    fetchAppsActivity(),
+    fetchGaming(),
+    fetchDeploymentFill()
+  ]);
 }
 
 async function fetchBusiestNode() {
@@ -364,7 +373,12 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     fetchRevenue(comparisonPeriod);
   }
   
-  async function fetchComparison(period) {
+  // One retry for a comparison that failed with 503: right after a server restart there is
+  // no cached comparison yet and the first request can miss, which left the card's deltas
+  // blank until the next 5-minute refresh (seen on a live deploy).
+  const COMPARISON_RETRY_MS = 5000;
+
+  async function fetchComparison(period, isRetry = false) {
     // If we already have this data cached, don't fetch again
   if (comparisonCache[period]) {
     console.log(`Using cached comparison for ${period}`);
@@ -381,6 +395,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       const response = await fetch(`${API_URL}/api/analytics/comparison/${days}`);
       
       if (!response.ok) {
+        if (response.status === 503 && !isRetry) {
+          setTimeout(() => fetchComparison(period, true), COMPARISON_RETRY_MS);
+        }
         // Try to get the error message from the response
         try {
           const errorData = await response.json();
