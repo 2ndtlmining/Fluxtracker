@@ -27,9 +27,6 @@ export const ROW_KIND_LOGO = 'logo';
 // ROW_KIND_TEXT -- only the icon rows carry the accent.
 export const ROW_KIND_EXPIRING = 'expiring';
 export const ROW_KIND_DEPLOYED = 'deployed';
-// Block-height milestone frames (issue #285): gold, so an event reads differently from both
-// a deployment (green) and an expiry (orange).
-export const ROW_KIND_MILESTONE = 'milestone';
 
 /**
  * Choose a visually reasonable starting block for the boot counter animation —
@@ -804,79 +801,6 @@ export function formatDeployedCounterLine(rank) {
   if (label.length > LOGO_WIDTH - 2) return DEPLOYED_ICON_LINE;
   const left = Math.floor((LOGO_WIDTH - label.length) / 2);
   return '>'.repeat(left) + label + '<'.repeat(LOGO_WIDTH - label.length - left);
-}
-
-// ---------------------------------------------------------------------------------------
-// Block milestone frames (issue #285). A countdown the day before a round block height and
-// a celebration the day after. Every row is real data or sky furniture, so no row is ever
-// empty, and every row is exactly LOGO_WIDTH wide.
-
-const MILESTONE_SKY_TOP = waveStrip('*  .   +    .  ');
-const MILESTONE_SKY_BOTTOM = waveStrip('.   *     +  .   ');
-const MILESTONE_BAR_WIDTH = LOGO_WIDTH - 6; // "  [" + bar + "]  "
-export const MILESTONE_FRAME_COUNT = 8;
-
-function centerInBox(text) {
-  const clipped = truncateForBox(text, LOGO_WIDTH);
-  const left = Math.floor((LOGO_WIDTH - clipped.length) / 2);
-  return (' '.repeat(left) + clipped).padEnd(LOGO_WIDTH);
-}
-
-/** 3000000 -> "3M", 3100000 -> "3.1M". */
-function formatMillions(blocks) {
-  return `${Number((blocks / 1_000_000).toFixed(2))}M`;
-}
-
-/**
- * One frame of a milestone slot.
- * @param {{phase: string, target: number, blocksToGo?: number, blocksPast?: number}} milestone
- *   from blockMilestone()
- * @param {number} step animation step; the sky twinkles and the bar's spark travels
- * @param {number} windowBlocks the countdown window, for the progress bar
- */
-export function formatMilestoneFrame(milestone, step = 0, windowBlocks = 2880) {
-  const target = milestone.target.toLocaleString('en-US');
-  const skyTop = rotateStrip(MILESTONE_SKY_TOP, step);
-  const skyBottom = rotateStrip(MILESTONE_SKY_BOTTOM, -step);
-
-  if (milestone.phase === 'countdown') {
-    const toGo = Math.max(0, milestone.blocksToGo);
-    const done = Math.round(MILESTONE_BAR_WIDTH * Math.min(1, Math.max(0, 1 - toGo / windowBlocks)));
-    const bar = '#'.repeat(done) + '.'.repeat(MILESTONE_BAR_WIDTH - done);
-    return [
-      skyTop,
-      centerInBox(`>>> BLOCK ${target} <<<`),
-      centerInBox(`arriving in ~${formatBlocksAsTime(toGo)}`),
-      `  [${bar}]  `,
-      centerInBox(`${toGo.toLocaleString('en-US')} blocks to go`),
-      skyBottom
-    ];
-  }
-
-  const spark = (step * 4) % MILESTONE_BAR_WIDTH; // travels the whole bar over one sequence
-  const rule = '='.repeat(spark) + '*' + '='.repeat(MILESTONE_BAR_WIDTH - spark - 1);
-  return [
-    skyTop,
-    centerInBox(`BLOCK ${target} REACHED`),
-    `  [${rule}]  `,
-    centerInBox(`the flux chain passed ${formatMillions(milestone.target)}`),
-    centerInBox(`now at ${(milestone.target + milestone.blocksPast).toLocaleString('en-US')}`),
-    skyBottom
-  ];
-}
-
-/** Every milestone row is gold -- the whole frame is the event. */
-export function milestoneFrameKinds() {
-  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_MILESTONE);
-}
-
-/** Reduced-motion milestone: the same facts, plain text, no sky. */
-export function formatMilestoneReducedMotionLines(milestone) {
-  const target = milestone.target.toLocaleString('en-US');
-  const lines = milestone.phase === 'countdown'
-    ? ['  BLOCK MILESTONE', `  ${target}`, `  in ~${formatBlocksAsTime(Math.max(0, milestone.blocksToGo))}`]
-    : ['  BLOCK MILESTONE', `  ${target} reached`, `  now at ${(milestone.target + milestone.blocksPast).toLocaleString('en-US')}`];
-  return padLines(lines, BOOT_LINE_COUNT);
 }
 
 /**

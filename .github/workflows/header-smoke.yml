@@ -43,16 +43,9 @@ jobs:
       fail-fast: false
       matrix:
         game: [valheim, minecraft, dragonwilds, palworld]
-        # Issue #285: the valheim job also sits inside a block-milestone window (1,000
-        # blocks before 300,000) and asserts the gold milestone frame.
-        include:
-          - game: valheim
-            block_height: '299000'
 
     env:
       DEPLOYED_GAME: ${{ matrix.game }}
-      BLOCK_HEIGHT: ${{ matrix.block_height }}
-      EXPECT_MILESTONE: ${{ matrix.block_height }}
       API_PORT: '3100'
       # API_PORT, not VITE_API_URL: it points hooks.server.js's /api/* proxy at the stub so
       # the browser keeps calling same-origin paths. The CSP's `connect-src 'self'` blocks

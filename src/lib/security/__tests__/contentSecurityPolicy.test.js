@@ -98,4 +98,12 @@ describe('Cross-Origin-Opener-Policy on untrustworthy origins', () => {
         expect(isTrustworthyOrigin(new URL('http://10.0.0.5:5173/'), none)).toBe(false);
         expect(isTrustworthyOrigin(new URL('http://example.com/'), new Headers({ 'x-forwarded-proto': 'http' }))).toBe(false);
     });
+
+    it('judges by the Host header, not the ORIGIN-derived url (adapter-node defaults ORIGIN to localhost)', () => {
+        const originUrl = new URL('http://localhost:5173/');
+        expect(isTrustworthyOrigin(originUrl, new Headers({ host: '10.0.0.5:5173' }))).toBe(false);
+        expect(isTrustworthyOrigin(originUrl, new Headers({ host: 'localhost:5173' }))).toBe(true);
+        expect(isTrustworthyOrigin(originUrl, new Headers({ host: '[::1]:5173' }))).toBe(true);
+        expect(isTrustworthyOrigin(new URL('https://example.com/'), new Headers({ host: '10.0.0.5' }))).toBe(true);
+    });
 });

@@ -10,8 +10,7 @@
 // "don't use cached info" requirement).
 import http from 'node:http';
 
-// BLOCK_HEIGHT lets a run sit inside a block-milestone window (issue #285): 299000 is 1000
-// blocks before 300,000, inside the one-day countdown. Unset, it is the old fixed value.
+// BLOCK_HEIGHT overrides the reported chain height. Unset, it is the old fixed value.
 let blockHeight = Number(process.env.BLOCK_HEIGHT) || 294912;
 let deployedCalls = 0;
 let expiringCalls = 0;

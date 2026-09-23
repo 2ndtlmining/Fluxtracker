@@ -22,16 +22,15 @@ Claude verifies it there (health, the behaviour the PR changed, a headless-brows
 no NEW console errors) and goes straight on to the next PR. A version-bump PR closes each
 working day, so a version change on production confirms that day's work landed.
 
-### Tomorrow, in this order
+### Next, in this order
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 9 | Polish and accessibility | #320 #321 #323 #324 #325 #326 #327 #328 #329 #330 #331 | Also fix the two pre-existing console errors seen on every live check: the inline `style=""` attributes in `RevenueAppAnalytics.svelte` that the CSP blocks, and (cosmetic, http-only) the COOP header warning |
 | 10 | Header interaction + the wider desktop header | #282 (hover + click only, NO keyboard focus) #284 #289 | The side panel beside the 34x6 art cell is APPROVED -- build it here. Also fix: encrypted game apps have no RES line, which leaves an empty row in deployed/expiring frames |
 | 11 | Intros, batch 1 | #272 #273 #274 #275 | Move the harness's `INITIAL_DEPLOYED` fixture first if any of these gives it art |
 | 12 | Expiring + non-game fallback | #182 (per-game outros first, fuse as fallback) #181 | See the refinement comments on both issues |
 | 13 | Intros, batch 2 | #276 #277 #278 #279 #280 #281 | |
-| 14 | Header extras | #286 #287 #288 #290, and the rest of #285 | #285 needs the owner's decision first (below) |
+| 14 | Header extras | #286 #287 #288 #290 | |
 | 15 | Analytics quick wins | #261 #266 #267 | Data already stored |
 | 16 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
 | 17 | Built on #262 | #263 #264 #265 | |
@@ -40,12 +39,13 @@ working day, so a version change on production confirms that day's work landed.
 
 ### Waiting on the owner
 
-- **#285 block milestones:** 3,000,000 is only a round number. Keep it, only every 1,000,000,
-  switch to network milestones ("Palworld - 250 servers"), or drop it? The 3M countdown starts
-  showing around 2026-10-01 unless changed.
 - **Server-local edit:** the deploy box had an uncommitted change to `src/lib/db/supabaseClient.js`,
   saved to `~/supabaseClient.local.diff` before the reset. Paste it so it can be built in
   properly if it was deliberate.
+
+**Decided with the owner (2026-09-24):**
+- #285 block milestones: dropped. Tracking arbitrary round block heights is not wanted; the
+  milestone frame shipped in #333 was removed and the issue closed.
 
 **Decided with the owner (2026-09-23):**
 - #282 drops keyboard focus handling. Pause on hover and click-to-advance only.
@@ -178,6 +178,7 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #342 | Polish and accessibility: page title/OG tags, one number formatter, carousel pause + reduced motion, contrast, aria states, period control, layout fixes (#320 #321 #323-#331) |
 | #340 | Lazy chart (page chunk 112 -> 45 KB gzip), server-rendered hero cards, chart data cache, index-ordered and totally ordered transaction paging (#297 #299 #303 #294) |
 | #339 | Revalidation that works through the proxy (304s), idle hidden tabs, self-hosted font, one font everywhere (#300 #298 #302 #322) |
 | #338 | Bounded caches (1 GB -> 72 MB under a key flood), narrow benchmark fetches, one app-specs cache, cached comparison (#291 #292 #293 #295 #296 #301) |
