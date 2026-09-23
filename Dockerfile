@@ -15,14 +15,21 @@ WORKDIR /app
 # Copy package files first for better Docker layer caching
 COPY package*.json ./
 
-# Install all dependencies (includes better-sqlite3 native compilation)
-RUN npm install --legacy-peer-deps
+# Install exactly what the lockfile pins (issue #312). `npm install` re-resolved every ^range
+# on each build -- and .dockerignore excluded the lockfile, so it had nothing to pin to -- so
+# an unchanged commit could ship a dependency tree CI never tested. `npm ci` fails instead of
+# drifting. Includes better-sqlite3's native compilation.
+RUN npm ci
 
 # Copy source code
 COPY . .
 
 # Build the SvelteKit frontend for production
 RUN npm run build
+
+# Runtime needs production dependencies only (vite, vitest, svelte-check stay behind).
+# `ws` is a direct dependency on purpose and survives this -- see CLAUDE.md.
+RUN npm prune --omit=dev
 
 # ========================================
 # Stage 2: Runtime
@@ -79,9 +86,11 @@ ENV ORIGIN=http://localhost:5173
 EXPOSE 3000
 EXPOSE 5173
 
-# Liveness check — only verifies process is running, not DB connectivity
+# Liveness check -- both processes, not DB connectivity (issue #309). The probe goes through
+# the FRONTEND's /api proxy, so it only passes when the SvelteKit server is up AND can reach
+# the API. It used to probe the API alone, so a dead frontend still reported healthy.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health/live || exit 1
+    CMD wget --no-verbose --tries=1 --spider "http://localhost:${FRONTEND_PORT:-5173}/api/health/live" || exit 1
 
 # Start both services using the startup script
 CMD ["/app/startup.sh"]

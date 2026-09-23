@@ -77,16 +77,36 @@ export function getSnapshotState() {
 }
 
 export async function getSnapshotSystemStatus() {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
     const todaySnapshot = await getSnapshotByDate(today);
 
+    // Healthy means a snapshot is actually current, not only that recent attempts did not
+    // throw (issue #310): today's row exists, or it is still early enough in the UTC day for
+    // today's to be pending and yesterday's is in place. `consecutiveFailures` alone read
+    // healthy after every restart, when it is 0 whatever the table holds.
+    let current = !!todaySnapshot;
+    if (!current) {
+        const minutesIntoDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+        const pendingWindow = CONFIG.GRACE_PERIOD_MINUTES + (2 * CONFIG.CHECK_INTERVAL_MS) / 60000;
+        if (minutesIntoDay <= pendingWindow) {
+            const yesterday = new Date(now.getTime() - 86400000).toISOString().split('T')[0];
+            current = !!(await getSnapshotByDate(yesterday));
+        }
+    }
+
+    const safeState = getSnapshotState();
     return {
         config: CONFIG,
         // One source of truth for what is safe to serialise -- see getSnapshotState().
-        state: getSnapshotState(),
+        state: {
+            ...safeState,
+            // After a restart the in-memory value is null; today's row says when it last worked.
+            lastSuccess: safeState.lastSuccess ?? todaySnapshot?.timestamp ?? null
+        },
         todaySnapshotExists: !!todaySnapshot,
         todaySnapshotDate: todaySnapshot?.snapshot_date || null,
-        isHealthy: state.consecutiveFailures < 3
+        isHealthy: state.consecutiveFailures < 3 && current
     };
 }
 

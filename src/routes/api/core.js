@@ -13,8 +13,10 @@ import {
 } from '../../lib/db/database.js';
 
 import { getCircuitState } from '../../lib/db/circuitBreaker.js';
-import { getActiveInstanceName } from '../../lib/db/supabaseClient.js';
-import { APP_VERSION } from '../../lib/config.js';
+import { getActiveInstanceName, getActiveInstanceSince } from '../../lib/db/supabaseClient.js';
+import { APP_VERSION, SYNC_INTERVALS } from '../../lib/config.js';
+import { summarizeHealth } from '../../lib/healthSummary.js';
+import { getRevenueSyncSchedulerStatus } from '../../lib/services/revenueScheduler.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getSnapshotSystemStatus } from '../../lib/db/snapshotManager.js';
 import { fetchCurrentBlockHeight, getLastGoodPrice } from '../../lib/services/revenueService.js';
@@ -114,20 +116,55 @@ router.get('/health', async (req, res) => {
         walletsInfo = { error: 'Unable to get unique wallet status' };
     }
 
-    res.json({
-        status: reachable ? 'ok' : 'degraded',
+    // Revenue sync: the scheduler's in-memory lastRun, or -- after a restart, before its
+    // first pass -- the stored receipt, but only if that receipt recorded a completion.
+    let revenueSyncInfo;
+    try {
+        const scheduler = getRevenueSyncSchedulerStatus();
+        const receipt = reachable ? await getSyncStatus('revenue') : null;
+        const receiptMs = receipt?.status === 'completed' ? Number(receipt.last_sync) || null : null;
+        revenueSyncInfo = {
+            lastCompleted: Math.max(scheduler.lastRun ?? 0, receiptMs ?? 0) || null,
+            consecutiveFailures: scheduler.consecutiveFailures
+        };
+    } catch {
+        revenueSyncInfo = { lastCompleted: null, consecutiveFailures: 0, error: 'Unable to get revenue sync status' };
+    }
+
+    const activeInstance = getActiveInstanceName();
+    const summary = summarizeHealth({
+        dbReachable: reachable,
+        activeInstance,
+        backup: { enabled: backupStatus.enabled, isHealthy: backupStatus.isHealthy, partial: backupStatus.partial },
+        snapshot: { healthy: snapshotInfo.healthy },
+        priceHistory: { healthy: priceHistoryInfo.healthy },
+        revenueSync: {
+            lastSyncMs: revenueSyncInfo.lastCompleted,
+            intervalMs: SYNC_INTERVALS.REVENUE,
+            consecutiveFailures: revenueSyncInfo.consecutiveFailures
+        }
+    });
+
+    // Overall verdict folds every sub-check in (issue #310): 503 only when the database is
+    // down; `degraded` + `problems` otherwise. See healthSummary.js for why degraded is a 200.
+    res.status(summary.httpStatus).json({
+        status: summary.status,
+        problems: summary.problems,
         timestamp: Date.now(),
         uptime: process.uptime(),
         db: {
             status: reachable ? 'connected' : 'unreachable',
             circuit: circuit.state,
-            activeInstance: getActiveInstanceName()
+            activeInstance,
+            activeSince: getActiveInstanceSince()
         },
+        revenueSync: revenueSyncInfo,
         snapshot: snapshotInfo,
         backup: {
             enabled: backupStatus.enabled,
             healthy: backupStatus.isHealthy,
             lastBackup: backupStatus.lastBackup,
+            partial: backupStatus.partial,
             ageHours: backupStatus.ageHours
         },
         priceHistory: priceHistoryInfo,

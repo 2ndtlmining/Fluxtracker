@@ -77,6 +77,7 @@ function getS3Client() {
 let isRunning = false;
 let lastBackup = null;
 let lastBackupDate = null;
+let lastBackupPartial = false; // at least one table failed in the last backup (issue #310)
 let lastError = null;
 let consecutiveFailures = 0;
 
@@ -101,6 +102,7 @@ export function getBackupStatus() {
         lastError,
         consecutiveFailures,
         isHealthy: !enabled || (lastBackup !== null && ageMs < 48 * 60 * 60 * 1000),
+        partial: lastBackupPartial,
         ageHours
     };
 }
@@ -237,6 +239,7 @@ export async function performBackup() {
         if (anySuccess) {
             lastBackup = Date.now();
             lastBackupDate = dateStr;
+            lastBackupPartial = tableErrors.length > 0;
             lastError = tableErrors.length > 0 ? tableErrors.join('; ') : null;
             consecutiveFailures = 0;
         } else {
@@ -259,6 +262,43 @@ export async function performBackup() {
         return { success: false, error: error.message };
     } finally {
         isRunning = false;
+    }
+}
+
+/** Tables every complete backup holds -- a folder missing any of them is partial. */
+export const BACKUP_TABLES = ['daily_snapshots', 'repo_snapshots', 'game_snapshots', 'flux_price_history'];
+
+/**
+ * Recover the last backup's time from R2 at startup (issue #310).
+ *
+ * lastBackup lives in memory and a backup only runs after the next daily snapshot, so every
+ * restart reported `backup.healthy: false` until the following midnight -- a false alarm on
+ * each deploy. This reads the newest backup folder instead: its newest object's LastModified
+ * is when it ran, and a folder missing a table is marked partial. Never throws.
+ */
+export async function seedBackupStatusFromStore() {
+    if (!isBackupEnabled() || lastBackup !== null) return;
+    try {
+        const listing = await listBackups();
+        const newest = listing.success ? listing.dates?.[0] : null;
+        if (!newest) return;
+
+        const client = getS3Client();
+        const response = await client.send(new ListObjectsV2Command({
+            Bucket: getConfig().bucket,
+            Prefix: `backups/${newest}/`
+        }));
+        const objects = response.Contents || [];
+        const times = objects.map(o => new Date(o.LastModified).getTime()).filter(Number.isFinite);
+        if (times.length === 0) return;
+
+        const present = new Set(objects.map(o => o.Key.split('/').pop().replace(/\.json$/, '')));
+        lastBackup = Math.max(...times);
+        lastBackupDate = newest;
+        lastBackupPartial = BACKUP_TABLES.some(t => !present.has(t));
+        log.info({ date: newest, partial: lastBackupPartial }, 'backup status seeded from R2');
+    } catch (error) {
+        log.warn({ err: error }, 'could not seed backup status from R2');
     }
 }
 

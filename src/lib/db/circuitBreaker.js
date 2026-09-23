@@ -4,7 +4,7 @@
 // States: CLOSED (normal) → OPEN (tripped) → HALF_OPEN (probing)
 // In SQLite mode the DB is local — circuit breaker is always CLOSED.
 
-import { switchToFailover, hasFailover } from './supabaseClient.js';
+import { switchTo, hasFailover, getActiveInstanceName } from './supabaseClient.js';
 import { CIRCUIT_BREAKER_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
 
@@ -50,14 +50,19 @@ export function recordFailure() {
     lastFailureTime = Date.now();
 
     if (state === 'HALF_OPEN' || failureCount >= FAILURE_THRESHOLD) {
-        const wasAlreadyOpen = state === 'OPEN';
+        // Only a CLOSED -> OPEN trip is a new outage. A failed HALF_OPEN probe is the same
+        // outage continuing, and used to count as a "first" trip too: with the old toggle
+        // that sent traffic from the failover straight back to the dead primary on every
+        // cooldown (issue #308).
+        const wasClosed = state === 'CLOSED';
         state = 'OPEN';
         log.info(`[CIRCUIT-BREAKER] Circuit breaker -> OPEN (${failureCount} consecutive failures)`);
 
-        // Auto-failover on FIRST transition to OPEN only
-        if (!wasAlreadyOpen && hasFailover()) {
-            const result = switchToFailover();
-            if (result.success) {
+        // Automatic failover only ever moves primary -> failover. Going back is a manual
+        // decision (POST /api/admin/failover) because data written meanwhile needs reconciling.
+        if (wasClosed && hasFailover() && getActiveInstanceName() === 'primary') {
+            const result = switchTo('failover');
+            if (result.success && result.changed) {
                 log.info(`[AUTO-FAILOVER] Switched ${result.previous} -> ${result.active}`);
             }
         }
