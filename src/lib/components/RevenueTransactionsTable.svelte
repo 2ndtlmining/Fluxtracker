@@ -1,5 +1,6 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import { appFocus } from '$lib/stores/appFocus.js';
   import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
   import { serialiseSources, toggleSource as nextSources } from '$lib/utils/transactionSources.js';
 
@@ -62,12 +63,32 @@
   $: offset = (currentPage - 1) * perPage;
   $: pageRange = getPageRange(currentPage, totalPages);
 
+  // Header click-through (issue #284): search for the clicked app, from page 1, with no
+  // payer filter narrowing it. `focusedApp` remembers the name so an empty result can say
+  // "not synced yet" -- a deployment only has a payment row after the next revenue sync.
+  let focusedApp = null;
+  let lastFocusAt = 0;
+  let unsubscribeFocus;
+
   onMount(() => {
     // Get API URL in browser context
     API_URL = getApiUrl();
 
     fetchTransactions();
+
+    unsubscribeFocus = appFocus.subscribe(focus => {
+      if (!focus || focus.at === lastFocusAt) return;
+      lastFocusAt = focus.at;
+      clearTimeout(searchTimeout);
+      focusedApp = focus.name;
+      searchQuery = focus.name;
+      activeSources = new Set();
+      currentPage = 1;
+      fetchTransactions(activeSources);
+    });
   });
+
+  onDestroy(() => unsubscribeFocus?.());
 
   async function fetchTransactions(sources = activeSources) {
     loading = true;
@@ -116,6 +137,7 @@
 
   function handleSearch(event) {
     searchQuery = event.target.value;
+    focusedApp = null;
 
     // Debounce search
     clearTimeout(searchTimeout);
@@ -381,6 +403,11 @@
         <button type="button" class="retry-button" on:click={clearSources}>
           Clear filter
         </button>
+      {:else if focusedApp && searchQuery === focusedApp}
+        <!-- From a header click (#284): a fresh deployment has no payment row until the next
+             revenue sync, which is not the same thing as "no transactions". -->
+        <p>No payment for {focusedApp} synced yet</p>
+        <p class="empty-hint">A new deployment's payment appears here after the next revenue sync.</p>
       {:else}
         <p>No transactions found</p>
       {/if}
@@ -778,6 +805,11 @@
     min-height: 400px;
     color: var(--text-muted);
     gap: var(--spacing-md);
+  }
+
+  .empty-hint {
+    font-size: 0.75rem;
+    color: var(--text-dim);
   }
 
   .loading-spinner {

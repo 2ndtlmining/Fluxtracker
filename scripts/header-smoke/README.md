@@ -62,6 +62,29 @@ node scripts/header-smoke/check-boot-race.mjs                  # terminal 3
 between runs. Unset (the default) it changes nothing, and `check-header.mjs` above runs
 exactly as before. Takes ~70s.
 
+## Interaction check (PR 10: #282, #284, side panel)
+
+`check-interaction.mjs` covers what the header does when someone uses it:
+
+- **Side panel:** on desktop it sits beside the box with six non-empty rows, at exactly the
+  box's height. On mobile it is hidden.
+- **Hover:** hovering holds the frame past a full 8s hold and shows `[ paused ]`. Leaving
+  resumes the rotation.
+- **App click (#284):** clicking an app frame puts that app's name in the transaction search
+  and scrolls the section into view.
+- **Logo click:** clicking the logo replays the last intro.
+- **Rapid clicks:** after 20 rapid clicks on the panel's "next up", the next frame holds a
+  full dwell. That proves a click restarts the rotation chain instead of starting a second
+  one. With the restart sabotaged, it fails ("replaced after 4582ms").
+
+```bash
+node scripts/header-smoke/stub-api.mjs                 # terminal 1
+API_PORT=3100 npm run dev -- --port 5199               # terminal 2
+node scripts/header-smoke/check-interaction.mjs        # terminal 3
+```
+
+Takes ~90s. CI runs it in the valheim job.
+
 ## Reduced-motion check (issue #194)
 
 `check-reduced-motion.mjs` is a third run that covers the one visitor the other two never
@@ -72,8 +95,12 @@ clamp *every* delay to 30ms under that preference, including `ROTATE_HOLD_MS` an
 reports the preference as fingerprinting protection whatever the OS setting is, which is why
 it read as a Brave-only bug.
 
-It asserts the box repaints at most 40 times in 30s and that the boot never falls back to
-`> telemetry unavailable` while the stub is answering.
+It asserts:
+
+- the box repaints at most 40 times in 30s
+- the boot never falls back to `> telemetry unavailable` while the stub is answering
+- (issue #289) a game deployment shows its art as a still poster, and every rotation frame,
+  the poster included, holds a full 8s
 
 ```bash
 node scripts/header-smoke/stub-api.mjs              # terminal 1

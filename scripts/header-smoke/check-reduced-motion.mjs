@@ -40,6 +40,11 @@ const RUN_MS = Number(process.env.RUN_MS || 30000);
 // to be tight to be decisive.
 const MAX_FRAME_CHANGES = Number(process.env.MAX_FRAME_CHANGES || 40);
 
+// Issue #289: once the rotation starts, every frame -- the poster of a game's art
+// included -- holds for a full ROTATE_HOLD_MS (8s). The tolerance covers sampling only.
+const ROTATE_HOLD_MS = 8000;
+const HOLD_TOLERANCE_MS = 500;
+
 const BROWSER_CANDIDATES = [
   process.env.BROWSER_PATH,
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -82,6 +87,8 @@ const run = async () => {
   const changes = [];          // { t, sig } — one entry per repaint of the box
   let sawTelemetryUnavailable = null;
   let sawLogo = false;
+  let firstLogoAt = null;
+  let sawPoster = false;
 
   while (Date.now() - t0 < RUN_MS) {
     const frame = await page.evaluate(() => {
@@ -91,7 +98,11 @@ const run = async () => {
       return {
         sig: rows.map(s => `${s.className}:${s.textContent.replace(/\n/g, '')}`).join('|'),
         text: rows.map(s => s.textContent.replace(/\n/g, '')).join(' '),
-        isLogo: rows.length > 0 && rows.every(s => s.className.includes('row-logo'))
+        isLogo: rows.length > 0 && rows.every(s => s.className.includes('row-logo')),
+        // A poster is intro art shown still (#289): every row in the art's accent, and none
+        // of the detail frame's labelled rows.
+        isPoster: rows.length > 0 && rows.every(s => s.className.includes('row-deployed'))
+          && !rows.some(s => /\b(NAME|INST|AGO)\b/.test(s.textContent))
       };
     });
 
@@ -101,7 +112,11 @@ const run = async () => {
         changes.push({ t, sig: frame.sig });
         last = frame.sig;
       }
-      if (frame.isLogo) sawLogo = true;
+      if (frame.isLogo) {
+        sawLogo = true;
+        firstLogoAt ??= t;
+      }
+      if (frame.isPoster) sawPoster = true;
       if (sawTelemetryUnavailable === null && /telemetry unavailable/i.test(frame.text)) {
         sawTelemetryUnavailable = t;
       }
@@ -114,10 +129,19 @@ const run = async () => {
 
   const perSecond = (changes.length / (RUN_MS / 1000)).toFixed(1);
 
+  // Gaps between consecutive repaints after the rotation began.
+  const rotation = changes.filter(c => firstLogoAt !== null && c.t >= firstLogoAt);
+  const gaps = rotation.slice(1).map((c, i) => c.t - rotation[i].t);
+  const shortestGap = gaps.length ? Math.min(...gaps) : null;
+  console.log(`rotation gaps (ms): ${gaps.join(', ') || 'none'}`);
+
   const results = [
     [`rotation is readable: <= ${MAX_FRAME_CHANGES} box repaints in ${RUN_MS / 1000}s`, changes.length <= MAX_FRAME_CHANGES],
     ['boot waited for telemetry: no "telemetry unavailable" against a live stub', sawTelemetryUnavailable === null],
-    ['sanity: the logo was reached at all', sawLogo]
+    ['sanity: the logo was reached at all', sawLogo],
+    ['#289: a game deployment shows its art as a still poster', sawPoster],
+    [`#289: every rotation frame holds >= ${ROTATE_HOLD_MS - HOLD_TOLERANCE_MS}ms (one change per hold)`,
+      gaps.length >= 2 && shortestGap >= ROTATE_HOLD_MS - HOLD_TOLERANCE_MS]
   ];
 
   console.log(`\nbox repaints: ${changes.length} in ${RUN_MS / 1000}s (${perSecond}/s)`);

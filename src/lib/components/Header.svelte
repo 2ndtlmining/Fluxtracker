@@ -335,6 +335,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    min-width: 0; /* lets the terminal's side panel shrink instead of overflowing */
   }
 
   .build-info {

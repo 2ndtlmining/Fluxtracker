@@ -1,5 +1,7 @@
 <script>
+  import { onDestroy } from 'svelte';
   import { Download } from 'lucide-svelte';
+  import { appFocus } from '$lib/stores/appFocus.js';
   import RevenueTransactionsTable from '$lib/components/RevenueTransactionsTable.svelte';
   import RevenueAppAnalytics from '$lib/components/RevenueAppAnalytics.svelte';
 
@@ -26,6 +28,20 @@
 
   let tableComponent;
 
+  // Header click-through (issue #284): the table does the search; this switches to it if
+  // App Analytics is showing and brings the section on screen.
+  let logElement;
+  let lastFocusAt = 0;
+  const unsubscribeFocus = appFocus.subscribe(focus => {
+    if (!focus || focus.at === lastFocusAt) return;
+    lastFocusAt = focus.at;
+    switchView('transactions');
+    const smooth = typeof window !== 'undefined'
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    logElement?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto', block: 'start' });
+  });
+  onDestroy(unsubscribeFocus);
+
   function switchView(mode_) {
     viewMode = mode_;
     if (mode_ === 'apps') {
@@ -34,7 +50,7 @@
   }
 </script>
 
-<div class="transaction-log terminal-border">
+<div class="transaction-log terminal-border" bind:this={logElement}>
   <!-- Header -->
   <div class="log-header">
     <div class="header-left">
