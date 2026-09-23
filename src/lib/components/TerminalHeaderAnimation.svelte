@@ -512,7 +512,7 @@
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
     }
-    const extras = { introKey: resolveIntroKey(slot.data), payment: payments[slot.data?.name] };
+    const extras = { introKey: resolveIntroKey(slot.data), payment: payments[slot.data?.name], nowMs: Date.now() };
     if (slot.kind === 'expiring') {
       // Reduced motion stays plain text (essentials only, per its existing design
       // intent) -- the orange accent is an animation-adjacent flourish, not information.

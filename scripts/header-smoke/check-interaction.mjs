@@ -115,8 +115,8 @@ const run = async () => {
     // ---- wide detail frame (issue #345): one frame, everything about one app ----
     const wideFrame = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
     const wideRows = wideFrame.text.split('\n');
-    check('desktop: app frame is one wide frame with type, image and payment rows',
-      /\b(GAME|SERVICE|TYPE)\b/.test(wideRows[1]) && /\bIMAGE\b/.test(wideRows[2]) && /\bPAID\b/.test(wideRows[3]) && /\bON\b/.test(wideRows[4]),
+    check('desktop: app frame is one wide frame with type, image, payment and term rows',
+      /\b(GAME|SERVICE|TYPE)\b/.test(wideRows[1]) && /\bIMAGE\b/.test(wideRows[2]) && /\bPAID\b/.test(wideRows[3]) && /\bTERM\b/.test(wideRows[4]),
       JSON.stringify(wideRows));
     check('desktop: nothing that is not about the app (no block height, node count, next up)',
       !/block|nodes|next up/i.test(wideFrame.text));

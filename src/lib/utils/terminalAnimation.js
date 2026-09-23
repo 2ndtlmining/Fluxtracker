@@ -963,30 +963,64 @@ function shortDate(isoDate) {
 }
 
 /**
- * The PAID and ON values. A deployment only has a payment row after the next revenue sync,
- * so "not synced yet" is a real state, not a failure -- and nothing here ever shows a zero.
+ * The PAID value: FLUX, USD and the date on one row. A deployment only has a payment row
+ * after the next revenue sync, so "not synced yet" is a real state, not a failure -- and
+ * nothing here ever shows a zero.
  *
  * @param {{status: 'loading'|'none'|'ok'|'error', amount?: number, usd?: number,
- *          date?: string, total?: number}|null|undefined} payment
+ *          date?: string}|null|undefined} payment
  */
-function paymentValues(payment) {
-  if (!payment || payment.status === 'loading') return ['checking…', 'checking…'];
-  if (payment.status === 'error') return [DASH, DASH];
-  if (payment.status === 'none') return ['not synced yet', DASH];
-  const flux = `${formatNumber(payment.amount, 2)} FLUX`;
-  const usd = Number.isFinite(payment.usd) ? ` · $${formatNumber(payment.usd, 2)}` : '';
-  const date = shortDate(payment.date) ?? DASH;
-  return [flux + usd, payment.total > 1 ? `${date} (last of ${payment.total})` : date];
+function paymentValue(payment) {
+  if (!payment || payment.status === 'loading') return 'checking…';
+  if (payment.status === 'error') return DASH;
+  if (payment.status === 'none') return 'not synced yet';
+  return [
+    `${formatNumber(payment.amount, 2)} FLUX`,
+    Number.isFinite(payment.usd) ? `$${formatNumber(payment.usd, 2)}` : null,
+    shortDate(payment.date)
+  ].filter(Boolean).join(' · ');
 }
 
-function wideMiddle(leftLines, app, extras) {
+// The standard subscription lengths people pick, in blocks (30s blocks, 2,880 a day).
+// Measured on the live registry 2026-09-24: 88000 x489, 20160 x159, 1056000 x113,
+// 528000 x31, 264000 x26 -- everything else is a renewal-adjusted odd length.
+const STANDARD_TERMS = [
+  [20160, '1 week'],
+  [88000, '1 month'],
+  [264000, '3 months'],
+  [528000, '6 months'],
+  [1056000, '1 year']
+];
+
+/** 88000 -> '1 month'; within 2% of a standard length reads as it; else '~38 days'. */
+export function formatTerm(expireBlocks) {
+  if (!Number.isFinite(expireBlocks) || expireBlocks <= 0) return null;
+  const standard = STANDARD_TERMS.find(([blocks]) => Math.abs(expireBlocks - blocks) <= blocks * 0.02);
+  if (standard) return standard[1];
+  const days = Math.round(expireBlocks / 2880);
+  return days >= 1 ? `~${days} day${days === 1 ? '' : 's'}` : `~${formatBlocksAsTime(expireBlocks)}`;
+}
+
+/**
+ * The TERM value. Deployed: the length and the day it ends ("1 month · ends Oct 24"), which
+ * is what says whether this is a trial week or a year's commitment. Expiring: the length
+ * alone -- the EXPIRE row beside it already says when.
+ */
+function termValue(app, { withEnd, nowMs }) {
+  const term = formatTerm(app?.expireBlocks);
+  if (!term) return DASH;
+  if (!withEnd || !Number.isFinite(app?.blocksUntilExpiry) || !Number.isFinite(nowMs)) return term;
+  const end = new Date(nowMs + app.blocksUntilExpiry * 30 * 1000);
+  return `${term} · ends ${MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}`;
+}
+
+function wideMiddle(leftLines, app, extras, { withEnd }) {
   const [typeLabel, typeValue] = typeField(extras?.introKey);
-  const [paid, on] = paymentValues(extras?.payment);
   const right = [
     formatWideField(typeLabel, typeValue),
     formatWideField('IMAGE', imageValue(app)),
-    formatWideField('PAID', paid),
-    formatWideField('ON', on)
+    formatWideField('PAID', paymentValue(extras?.payment)),
+    formatWideField('TERM', termValue(app, { withEnd, nowMs: extras?.nowMs }))
   ];
   const left = padLines(leftLines, BOOT_LINE_COUNT - 2);
   return left.map((line, i) => String(line).padEnd(WIDE_LEFT_WIDTH + WIDE_GAP) + right[i]);
@@ -994,13 +1028,13 @@ function wideMiddle(leftLines, app, extras) {
 
 /**
  * Desktop deployed frame: the narrow frame's rows plus type, image and payment.
- * @param {{introKey?: string|null, payment?: object|null}} extras
+ * @param {{introKey?: string|null, payment?: object|null, nowMs?: number}} extras  nowMs dates the TERM end
  */
 export function formatDeploymentFrameWide(deployment, rank = null, extras = {}) {
   const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total) && rank.total >= 1;
   return [
     wideBookend('NEW APP DEPLOYED', '>', '<'),
-    ...wideMiddle(deploymentDetailLines(deployment, WIDE_LEFT_WIDTH), deployment, extras),
+    ...wideMiddle(deploymentDetailLines(deployment, WIDE_LEFT_WIDTH), deployment, extras, { withEnd: true }),
     wideBookend(ranked ? `#${rank.position} OF ${rank.total} IN 24H` : 'NEW APP DEPLOYED', '>', '<')
   ];
 }
@@ -1008,5 +1042,5 @@ export function formatDeploymentFrameWide(deployment, rank = null, extras = {}) 
 /** Desktop expiring frame: the narrow frame's rows plus type, image and payment. */
 export function formatExpiringFrameWide(app, extras = {}) {
   const bookend = wideBookend('EXPIRING', '<', '>');
-  return [bookend, ...wideMiddle(expiringDetailLines(app, WIDE_LEFT_WIDTH), app, extras), bookend];
+  return [bookend, ...wideMiddle(expiringDetailLines(app, WIDE_LEFT_WIDTH), app, extras, { withEnd: false }), bookend];
 }

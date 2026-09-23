@@ -24,7 +24,7 @@ const BLOCK_HEIGHT = 300000;
 const REGISTRY = [
     { name: 'aaa-oldest', height: 299000, instances: 1, cpu: 1, ram: 1024, hdd: 10 },
     { name: 'mid-app', height: 299500, instances: 1, cpu: 1, ram: 1024, hdd: 10 },
-    { name: 'zzz-newest', height: 299900, instances: 1, cpu: 1, ram: 1024, hdd: 10 },
+    { name: 'zzz-newest', height: 299900, instances: 1, cpu: 1, ram: 1024, hdd: 10, expire: 88000 },
     // Same blockAge as another entry, to verify the name tiebreaker.
     { name: 'zeta-tie', height: 299500, instances: 1, cpu: 1, ram: 1024, hdd: 10 }
 ];
@@ -61,5 +61,21 @@ describe('fetchLatestDeployedApps rank order (issue #140)', () => {
         const tied = deployed.filter(a => a.blockAge === 500); // mid-app and zeta-tie
 
         expect(tied.map(a => a.name)).toEqual(['mid-app', 'zeta-tie']);
+    });
+});
+
+describe('fetchLatestDeployedApps subscription term (header TERM row)', () => {
+    it('carries the spec expire and the blocks left until it runs out', async () => {
+        const deployed = await fetchLatestDeployedApps();
+        const newest = deployed.find(a => a.name === 'zzz-newest');
+        expect(newest.expireBlocks).toBe(88000);
+        expect(newest.blocksUntilExpiry).toBe(299900 + 88000 - BLOCK_HEIGHT);
+    });
+
+    it('is null, not a guessed default, when the spec has no expire', async () => {
+        const deployed = await fetchLatestDeployedApps();
+        const old = deployed.find(a => a.name === 'aaa-oldest');
+        expect(old.expireBlocks).toBeNull();
+        expect(old.blocksUntilExpiry).toBeNull();
     });
 });
