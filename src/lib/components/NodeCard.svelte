@@ -1,6 +1,7 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
   import { Server } from 'lucide-svelte';
+  import { formatCount } from '$lib/utils/format.js';
   
   export let cumulus = { count: 0 };
   export let nimbus = { count: 0 };
@@ -27,11 +28,8 @@
   export let stratusComparison = null;
   export let totalComparison = null;
   
-  // Format numbers
-  function formatNumber(num) {
-    if (!num) return '0';
-    return num.toLocaleString();
-  }
+  // Fixed en-US grouping (issue #323): bare toLocaleString() followed the visitor's locale.
+  const formatNumber = (n) => formatCount(n);
 </script>
 
 <div class="node-card terminal-border" class:loading>

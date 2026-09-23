@@ -1,7 +1,7 @@
 // src/hooks.server.js
 // API Proxy - Routes /api/* requests to the Express backend.
 
-import { applySecurityHeaders, applyStaticSecurityHeaders } from './lib/security/contentSecurityPolicy.js';
+import { applySecurityHeaders, applyStaticSecurityHeaders, isTrustworthyOrigin } from './lib/security/contentSecurityPolicy.js';
 import { compressResponse } from './lib/utils/httpCompression.js';
 
 /**
@@ -142,7 +142,9 @@ export async function handle({ event, resolve }) {
     // here too; see the incident note in contentSecurityPolicy.js. Only the non-CSP hardening
     // headers are safe to add by hand.
     const response = await resolve(event);
-    applyStaticSecurityHeaders(response.headers);
+    applyStaticSecurityHeaders(response.headers, {
+        trustworthyOrigin: isTrustworthyOrigin(event.url, event.request.headers)
+    });
 
     // adapter-node serves its own HTML/JS/CSS uncompressed (precompress is off, and it has no
     // runtime gzip of its own), so this is the only place compression can happen without

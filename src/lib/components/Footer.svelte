@@ -4,6 +4,7 @@
   import { triggerRefresh } from '$lib/stores/refresh.js';
   import KpiModal from './KpiModal.svelte';
   import { Heart, FileBarChart } from 'lucide-svelte';
+  import { formatCount } from '$lib/utils/format.js';
 
   let showKpiModal = false;
 
@@ -126,18 +127,24 @@
     nextSyncText = `${min}:${sec.toString().padStart(2, '0')}`;
   }
 
+  // Commas, like the transaction table's BLOCK column (issue #323) -- this used spaces.
   function formatBlock(num) {
     if (num === null || num === undefined) return '---';
-    return num.toLocaleString('en-US').replace(/,/g, ' ');
+    return formatCount(num);
   }
 
-  function getSyncDotColor() {
-    if (syncStatus === 'error') return 'red';
-    if (isSyncing) return 'yellow';
-    if (lastSyncBlock !== null && currentBlock !== null && currentBlock - lastSyncBlock <= 50) return 'green';
-    if (lastSyncBlock !== null) return 'yellow';
-    return 'yellow';
-  }
+  // The dot's colour AND its words (issue #330): colour alone told nothing to a screen
+  // reader or a colour-blind reader, and there was no tooltip either.
+  const SYNC_BEHIND_OK = 50;
+  $: syncDot = syncStatus === 'error'
+    ? { color: 'red', text: 'Sync error — the API is unreachable or the last sync failed' }
+    : isSyncing
+      ? { color: 'yellow', text: 'Syncing now' }
+      : lastSyncBlock !== null && currentBlock !== null && currentBlock - lastSyncBlock <= SYNC_BEHIND_OK
+        ? { color: 'green', text: `Synced — within ${SYNC_BEHIND_OK} blocks of the chain tip` }
+        : lastSyncBlock !== null
+          ? { color: 'yellow', text: `Behind — more than ${SYNC_BEHIND_OK} blocks from the chain tip` }
+          : { color: 'yellow', text: 'Sync status not known yet' };
 
   // Copy state drives the button label so the user gets confirmation
   let copyState = 'idle';   // 'idle' | 'copied' | 'error'
@@ -188,7 +195,7 @@
   <div class="footer-content">
     <!-- Left: Synced Block + Next Sync -->
     <div class="footer-left">
-      <span class="status-dot {getSyncDotColor()}"></span>
+      <span class="status-dot {syncDot.color}" role="img" aria-label={syncDot.text} title={syncDot.text}></span>
       <span class="footer-stat">
         Synced: <span class="footer-value">{formatBlock(lastSyncBlock)}</span>
         {#if currentBlock}
@@ -205,7 +212,7 @@
     <!-- Center: Transaction Count & Donation -->
     <div class="footer-center">
       <span class="footer-stat">
-        <span class="footer-value cyan">{totalTransactions.toLocaleString('en-US').replace(/,/g, ' ')}</span> transactions
+        <span class="footer-value cyan">{formatCount(totalTransactions)}</span> transactions
       </span>
       <span class="footer-divider">|</span>
       <button
@@ -237,11 +244,18 @@ ${DONATION_ADDRESSES[0]}`}
         <FileBarChart size={14} strokeWidth={2} />
         <span>KPI</span>
       </button>
-      <button class="footer-btn" on:click={handleRefresh} disabled={isRefreshing}>
+      <!-- "Sync now", not "Refresh [F5]" (issue #330): F5 was never bound and reloads the
+           page, while this runs the backend collection cycle and then re-reads every card. -->
+      <button
+        class="footer-btn"
+        on:click={handleRefresh}
+        disabled={isRefreshing}
+        title="Run the data collection cycle now, then refresh every card"
+      >
         {#if isRefreshing}
-          <span class="spinner">⟳</span> Running...
+          <span class="spinner" aria-hidden="true">⟳</span> Syncing...
         {:else}
-          Refresh <span class="text-cyan">[F5]</span>
+          Sync now
         {/if}
       </button>
     </div>
@@ -292,6 +306,7 @@ ${DONATION_ADDRESSES[0]}`}
   .footer-stat {
     color: var(--text-dim);
     font-weight: 500;
+    white-space: nowrap; /* "0 transactions" wrapped onto two lines at ~1000px (issue #328) */
   }
 
   .footer-value {
@@ -448,10 +463,19 @@ ${DONATION_ADDRESSES[0]}`}
     50% { opacity: 0.5; }
   }
 
-  /* Responsive */
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot,
+    .spinner {
+      animation: none;
+    }
+  }
+
+  /* Responsive. On phones the footer is three rows (~93px, 11% of a 390px-wide screen), so it
+     stops being sticky there and sits at the end of the page instead (issue #329). */
   @media (max-width: 768px) {
     .footer {
       padding: var(--spacing-sm) var(--spacing-md);
+      position: static;
     }
 
     .footer-content {

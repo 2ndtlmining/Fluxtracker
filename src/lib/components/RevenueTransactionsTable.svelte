@@ -103,7 +103,8 @@
 
       transactions = result.transactions || [];
       totalTransactions = result.total || 0;
-      totalPages = Math.ceil(totalTransactions / perPage);
+      // Never 0: "Page 1/0" read as broken when a search or filter matched nothing (#321).
+      totalPages = Math.max(1, Math.ceil(totalTransactions / perPage));
 
       loading = false;
     } catch (err) {
@@ -145,7 +146,7 @@
   }
 
   function changePerPage(event) {
-    perPage = parseInt(event.target.value);
+    perPage = Number(event.target.value);
     currentPage = 1;
     fetchTransactions();
   }
@@ -355,7 +356,7 @@
 <!-- Table Section -->
 <div class="table-section">
   <div class="table-header">
-    TRANSACTION <span class="log-count">LOG ({perPage} ENTRIES)</span>:
+    TRANSACTION LOG:
   </div>
 
   {#if loading}
@@ -503,7 +504,11 @@
 <!-- Navigation -->
 <div class="navigation-section">
   <div class="nav-info">
-    [{offset + 1}-{Math.min(offset + perPage, totalTransactions)}] of {totalTransactions.toLocaleString()} entries
+    {#if totalTransactions > 0}
+      [{offset + 1}-{Math.min(offset + perPage, totalTransactions)}] of {totalTransactions.toLocaleString('en-US')} entries
+    {:else}
+      0 entries
+    {/if}
   </div>
 
   <div class="pagination">
@@ -542,10 +547,10 @@
   <div class="per-page-selector">
     <label for="per-page">per-page:</label>
     <select id="per-page" bind:value={perPage} on:change={changePerPage} disabled={loading}>
-      <option value="25">25</option>
-      <option value="50">50</option>
-      <option value="100">100</option>
-      <option value="200">200</option>
+      <option value={25}>25</option>
+      <option value={50}>50</option>
+      <option value={100}>100</option>
+      <option value={200}>200</option>
     </select>
   </div>
 </div>
@@ -635,10 +640,6 @@
     letter-spacing: 0.5px;
     margin-bottom: var(--spacing-sm);
     font-family: var(--font-mono);
-  }
-
-  .log-count {
-    color: var(--accent-cyan);
   }
 
   .table-wrapper {

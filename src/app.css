@@ -30,6 +30,9 @@
 }
 
 :root {
+  /* Dark-only UI: native scrollbars, <select> popups and form controls follow it (issue #320) */
+  color-scheme: dark;
+
   /* The one monospace stack (issue #322). Chart, App Analytics and the transaction table
      hard-coded 'Courier New', so the lower half of the page was a different, thinner font. */
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
@@ -43,7 +46,10 @@
   /* Text Colors */
   --text-primary: #00ffff;        /* Cyan - main glow */
   --text-secondary: #00d9ff;      /* Light cyan */
-  --text-muted: #6b7a99;          /* Muted blue-gray */
+  /* Muted blue-gray. Was #6b7a99, which measured 4.03-4.46:1 on the card backgrounds and
+     failed WCAG AA for the small uppercase labels it colours (issue #325). This is >=4.8:1 on
+     every --bg-* above while staying visibly darker than --text-dim. */
+  --text-muted: #7a87a6;
   --text-white: #e6edf3;          /* Off-white */
   --text-dim: #8892b0;            /* Dim gray-blue */
   

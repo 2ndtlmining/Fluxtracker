@@ -1,5 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
+  import { page } from '$app/stores';
   import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG, DECENTRALIZATION_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { fetchJson } from '$lib/utils/fetchJson.js';
@@ -21,6 +22,10 @@
   // null when the API did not answer inside the SSR budget; the client fetch in onMount then
   // fills it exactly as before.
   export let data = {};
+
+  const SITE_TITLE = 'Fluxtracker — Flux network revenue & usage';
+  const SITE_DESCRIPTION = 'Live revenue, node counts, cloud resources and app deployments '
+    + 'across the Flux decentralized cloud, with daily history.';
 
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
@@ -279,11 +284,12 @@ async function fetchDeploymentFill() {
 }
 
 async function fetchGaming() {
+  const period = comparisonPeriod;
   try {
-    const response = await fetch(`${API_URL}/api/games/live?limit=3&days=${comparisonDays(comparisonPeriod)}`);
+    const response = await fetch(`${API_URL}/api/games/live?limit=3&days=${comparisonDays(period)}`);
     const data = await response.json();
 
-    if (data && !data.error) {
+    if (data && !data.error && period === comparisonPeriod) {
       gamingData = data;
     }
   } catch (error) {
@@ -329,6 +335,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     
     const periodName = periodMap[period] || 'daily';
     const data = await fetchJson(`${API_URL}/api/revenue/${periodName}`);
+    // A slower response for a period the user has already moved away from must not
+    // overwrite the selected period's figures (the period buttons no longer lock).
+    if (period !== comparisonPeriod) return;
 
     revenueData = data;
     revenuePeriodLoaded = period;
@@ -337,6 +346,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     if (!revenueStale) revenueUpdatedAt = Date.now();
   } catch (error) {
     console.error(`Error fetching ${period} revenue:`, error);
+    if (period !== comparisonPeriod) return;
     revenueFailed = true;
     // Never show another period's figures under this period's label: after a failed
     // period switch there is nothing honest to show, so the card says so.
@@ -453,25 +463,22 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     }
   }
   
-  // Toggle comparison period
-  async function togglePeriod() {
-    const currentIndex = periods.findIndex(p => p.key === comparisonPeriod);
-    const nextIndex = (currentIndex + 1) % periods.length;
-    const nextPeriod = periods[nextIndex].key;
-    
+  // Select a comparison period (issue #327). Was a single "vs D" button that cycled
+  // D -> W -> M -> Q -> Y and was disabled during every fetch, so fast clicks were dropped and
+  // the other options were invisible. Every period is now its own button; a click during a
+  // fetch still lands, and a late response for a period no longer selected is ignored by the
+  // cards because revenuePeriodLoaded/comparisonCache are keyed by period.
+  async function selectPeriod(nextPeriod) {
+    if (nextPeriod === comparisonPeriod) return;
     comparisonPeriod = nextPeriod;
-    
-    // Fetch revenue for the new period
-    await fetchRevenue(nextPeriod);
-    
-    // Fetch comparison if not cached
-    if (!comparisonCache[nextPeriod]) {
-      await fetchComparison(nextPeriod);
-    }
 
-    // Gaming arrows compare against a different window per period, so they have to be
-    // re-fetched too -- otherwise the card would show a daily delta under a "Y" label.
-    await fetchGaming();
+    await Promise.all([
+      fetchRevenue(nextPeriod),
+      comparisonCache[nextPeriod] ? null : fetchComparison(nextPeriod),
+      // Gaming arrows compare against a different window per period, so they have to be
+      // re-fetched too -- otherwise the card would show a daily delta under a "Y" label.
+      fetchGaming()
+    ]);
   }
   
   // Helper to get trend from comparison data
@@ -485,6 +492,21 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
 
 </script>
 
+<!-- Title, description and link-unfurl tags (issue #320). og:image must be absolute for most
+     scrapers, and the host differs per deployment, so it is built from the request origin. -->
+<svelte:head>
+  <title>{SITE_TITLE}</title>
+  <meta name="description" content={SITE_DESCRIPTION} />
+  <meta name="theme-color" content="#0a0e1a" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={SITE_TITLE} />
+  <meta property="og:description" content={SITE_DESCRIPTION} />
+  <meta property="og:image" content={`${$page.url.origin}/favicon.png`} />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content={SITE_TITLE} />
+  <meta name="twitter:description" content={SITE_DESCRIPTION} />
+</svelte:head>
+
 <div class="dashboard">
   <Header />
   
@@ -495,19 +517,21 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     <!-- Title with Comparison Toggle -->
     <div class="page-header">
       <h2 class="page-title">Performance Overview</h2>
-      <button 
-        class="period-toggle" 
-        class:loading={comparisonLoading}
-        on:click={togglePeriod} 
-        title="Toggle comparison period"
-        disabled={comparisonLoading}
-      >
-        <span class="toggle-label">vs</span>
-        <span class="toggle-value">{comparisonPeriod}</span>
+      <div class="period-control" role="group" aria-label="Compare against the previous period">
+        <span class="period-label">Compare vs previous</span>
+        {#each periods as p (p.key)}
+          <button
+            type="button"
+            class="period-option"
+            class:active={comparisonPeriod === p.key}
+            aria-pressed={comparisonPeriod === p.key}
+            on:click={() => selectPeriod(p.key)}
+          >{p.label.toLowerCase()}</button>
+        {/each}
         {#if comparisonLoading}
-          <span class="loading-spinner">⟳</span>
+          <span class="loading-spinner" aria-hidden="true">⟳</span>
         {/if}
-      </button>
+      </div>
     </div>
     
     <!-- Hero Stats Grid (3 cards) -->
@@ -647,48 +671,48 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     margin: 0;
   }
   
-  .period-toggle {
+  .period-control {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    padding: 0.5rem 0.75rem;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    border-radius: var(--radius-sm);
-    font-family: 'JetBrains Mono', monospace;
-    position: relative;
+    flex-wrap: wrap;
+    gap: 0.25rem;
   }
-  
-  .period-toggle:hover:not(:disabled) {
-    border-color: var(--accent-cyan);
-    box-shadow: 0 0 10px var(--border-glow);
-    transform: translateY(-1px);
-  }
-  
-  .period-toggle:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  
-  .period-toggle.loading .toggle-value {
-    opacity: 0.5;
-  }
-  
-  .toggle-label {
+
+  .period-label {
     font-size: 0.75rem;
     color: var(--text-muted);
     text-transform: lowercase;
+    margin-right: 0.25rem;
   }
-  
-  .toggle-value {
-    font-size: 0.875rem;
+
+  .period-option {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-dim);
+    padding: 0.375rem 0.625rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+  }
+
+  /* Overrides app.css's global button:hover (cyan fill + lift), which would put white text
+     on a cyan block here */
+  .period-option:hover,
+  .period-option:focus-visible {
+    border-color: var(--accent-cyan);
+    color: var(--text-white);
+    background: var(--bg-secondary);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .period-option.active {
+    border-color: var(--accent-cyan);
     color: var(--text-primary);
     font-weight: 700;
-    text-shadow: var(--glow-cyan);
-    min-width: 1.25rem;
-    text-align: center;
+    box-shadow: 0 0 10px var(--border-glow);
   }
   
   .loading-spinner {
@@ -726,10 +750,16 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     margin-bottom: var(--spacing-xl);
   }
   
-  /* Responsive */
-  @media (max-width: 1200px) {
+  /* Responsive. Three hero cards stay three-across down to 960px; below that the grid is
+     two-wide and the third card spans the row instead of sitting alone on half of it
+     (issue #328). */
+  @media (max-width: 960px) {
     .stats-grid {
       grid-template-columns: repeat(2, 1fr);
+    }
+
+    .stats-grid > :global(:nth-child(3):last-child) {
+      grid-column: 1 / -1;
     }
   }
   
@@ -754,7 +784,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       font-size: 1.25rem;
     }
     
-    .period-toggle {
+    .period-control {
       align-self: flex-start;
     }
   }

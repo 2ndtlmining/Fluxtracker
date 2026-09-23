@@ -440,6 +440,12 @@
     50% { opacity: 0.5; }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .status-dot {
+      animation: none;
+    }
+  }
+
   /* Responsive */
   @media (max-width: 1024px) {
     .header-content {

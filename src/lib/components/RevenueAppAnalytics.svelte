@@ -215,7 +215,9 @@
       <h4 class="modal-section-title">Transaction History</h4>
 
       {#if appTxnsLoading}
-        <div class="loading-overlay" style="min-height:200px">
+        <!-- Classes, not style="" attributes: the CSP refuses inline style attributes and logged
+             a violation for each of these on every page load. -->
+        <div class="loading-overlay modal-loading">
           <div class="loading-spinner"></div>
         </div>
       {:else}
@@ -259,7 +261,7 @@
         </div>
 
         {#if appTxnsTotalPages > 1}
-          <div class="navigation-section" style="padding-top: var(--spacing-sm)">
+          <div class="navigation-section modal-navigation">
             <div class="nav-info">{appTxnsPage}/{appTxnsTotalPages}</div>
             <div class="pagination">
               <button class="page-btn" on:click={appTxnsPrevPage} disabled={appTxnsPage === 1}>‹</button>
@@ -688,5 +690,15 @@
     .apps-grid { grid-template-columns: 1fr; }
     .modal-summary { grid-template-columns: 1fr; }
     .apps-search-section { flex-direction: column; align-items: stretch; }
+  }
+
+  /* Two classes deep so they beat .loading-overlay / .navigation-section, including the
+     responsive override, the way the inline styles they replace did. */
+  .loading-overlay.modal-loading {
+    min-height: 200px;
+  }
+
+  .navigation-section.modal-navigation {
+    padding-top: var(--spacing-sm);
   }
 </style>

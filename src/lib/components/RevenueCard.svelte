@@ -1,6 +1,7 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
   import { DollarSign } from 'lucide-svelte';
+  import { formatCount, formatFlux, formatUsd } from '$lib/utils/format.js';
   
   export let payments = { count: 0 };
   export let usd = { amount: 0 };
@@ -32,62 +33,9 @@
   const periodWords = { D: 'day', W: 'week', M: 'month', Q: 'quarter', Y: 'year' };
   $: periodWord = periodWords[period] || 'day';
   
-  /**
-   * Format payment counts
-   */
-  function formatPaymentCount(num) {
-    if (!num) return '0';
-    
-    const absNum = Math.abs(num);
-    
-    if (absNum >= 1000000) {
-      return (num / 1000000).toFixed(2).replace(/\.00$/, '') + 'M';
-    } else if (absNum >= 10000) {
-      return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
-    } else if (absNum >= 1000) {
-      return Math.round(num).toLocaleString();
-    } else {
-      return Math.round(num).toString();
-    }
-  }
-  
-  /**
-   * Format USD amounts
-   */
-  function formatUsd(num) {
-    if (!num) return '$0.00';
-    
-    const absNum = Math.abs(num);
-    
-    if (absNum >= 1000000) {
-      return '$' + (num / 1000000).toFixed(2) + 'M';
-    } else if (absNum >= 10000) {
-      return '$' + (num / 1000).toFixed(2) + 'K';
-    } else if (absNum >= 1000) {
-      return '$' + num.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    } else {
-      return '$' + num.toFixed(2);
-    }
-  }
-  
-  /**
-   * Format FLUX amounts
-   */
-  function formatFlux(num) {
-    if (!num) return '0.00';
-    
-    const absNum = Math.abs(num);
-    
-    if (absNum >= 1000000) {
-      return (num / 1000000).toFixed(2) + 'M';
-    } else if (absNum >= 10000) {
-      return (num / 1000).toFixed(2) + 'K';
-    } else if (absNum >= 1000) {
-      return num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    } else {
-      return num.toFixed(2);
-    }
-  }
+  // One formatter set for the whole dashboard (issue #323) -- USD and FLUX used to differ
+  // between 1k and 10k ("$1,234" beside "1,234.56").
+  const formatPaymentCount = (n) => formatCount(n, { compact: true });
 </script>
 
 <div class="revenue-card terminal-border" class:loading>
