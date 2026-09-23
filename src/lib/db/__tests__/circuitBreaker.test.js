@@ -2,10 +2,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock supabaseClient.js to avoid heavy side effects (Supabase client creation).
 // The path matches the import in circuitBreaker.js: './supabaseClient.js'
-vi.mock('../supabaseClient.js', () => ({
-    switchToFailover: vi.fn(() => ({ success: true, previous: 'primary', active: 'failover' })),
-    hasFailover: vi.fn(() => true)
-}));
+// `active` mirrors the real client: switchTo() changes it, getActiveInstanceName() reads it.
+vi.mock('../supabaseClient.js', () => {
+    const client = {
+        active: 'primary',
+        switchTo: vi.fn(target => {
+            const previous = client.active;
+            client.active = target;
+            return { success: true, previous, active: target, changed: previous !== target };
+        }),
+        getActiveInstanceName: vi.fn(() => client.active),
+        hasFailover: vi.fn(() => true)
+    };
+    return { ...client, __client: client };
+});
 
 /**
  * Helper: dynamically import a fresh circuitBreaker module.
@@ -16,8 +26,9 @@ async function loadFreshModule() {
     vi.resetModules();
     const cb = await import('../circuitBreaker.js');
     const client = await import('../supabaseClient.js');
-    // Clear accumulated mock calls from previous tests
-    client.switchToFailover.mockClear();
+    // Clear accumulated mock calls and state from previous tests
+    client.__client.active = 'primary';
+    client.switchTo.mockClear();
     client.hasFailover.mockClear();
     return { cb, client };
 }
@@ -110,24 +121,37 @@ describe('circuitBreaker', () => {
     });
 
     // ── Test 6 ──────────────────────────────────────────────────────────
-    it('auto-failover fires once on first OPEN, not on subsequent OPEN transitions', async () => {
+    it('auto-failover fires once, primary -> failover, and never flips back (issue #308)', async () => {
         const { cb, client } = await loadFreshModule();
 
-        // First trip: should trigger switchToFailover
+        // First trip: primary -> failover
         tripBreaker(cb);
-        expect(client.switchToFailover).toHaveBeenCalledTimes(1);
+        expect(client.switchTo).toHaveBeenCalledTimes(1);
+        expect(client.switchTo).toHaveBeenCalledWith('failover');
+        expect(client.__client.active).toBe('failover');
 
-        // Record more failures while already OPEN — should NOT call switchToFailover again
+        // More failures while already OPEN: nothing
         cb.recordFailure();
         cb.recordFailure();
-        expect(client.switchToFailover).toHaveBeenCalledTimes(1);
+        expect(client.switchTo).toHaveBeenCalledTimes(1);
 
-        // Transition OPEN -> HALF_OPEN -> OPEN again
+        // A failed HALF_OPEN probe is the same outage, not a new one. The old code treated
+        // it as a fresh trip and toggled the failover straight back to the dead primary.
         vi.advanceTimersByTime(60_001);
         cb.shouldAllowRequest(); // HALF_OPEN
         cb.recordFailure();      // back to OPEN
-        // This is a NEW transition to OPEN (from HALF_OPEN), so failover fires again
-        expect(client.switchToFailover).toHaveBeenCalledTimes(2);
+        expect(client.switchTo).toHaveBeenCalledTimes(1);
+        expect(client.__client.active).toBe('failover');
+    });
+
+    it('a new outage while already on the failover does not switch back to the primary', async () => {
+        const { cb, client } = await loadFreshModule();
+        client.__client.active = 'failover';
+
+        tripBreaker(cb); // CLOSED -> OPEN while on the failover
+
+        expect(client.switchTo).not.toHaveBeenCalled();
+        expect(client.__client.active).toBe('failover');
     });
 
     // ── Test 7 ──────────────────────────────────────────────────────────

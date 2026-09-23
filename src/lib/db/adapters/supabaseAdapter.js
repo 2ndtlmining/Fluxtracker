@@ -1256,15 +1256,22 @@ export async function updateSyncStatus(syncType, status, errorMessage = null, la
     // kpi_daily/kpi_weekly receipts) do not exist until first written — a plain
     // .update() with .eq() on a missing row matches 0 rows and silently no-ops,
     // breaking dedupe forever. sync_type is UNIQUE in the schema, so onConflict works.
+    //
+    // last_sync_block is only written when a block is given (issue #335). The failure paths
+    // pass null, and writing it nulled the revenue cursor -- which makes the next pass rescan
+    // the whole chain from block 1. An upsert leaves columns absent from the payload alone
+    // on conflict; resetRevenueSyncBlock() is the one deliberate way to clear it.
+    const row = {
+        sync_type: syncType,
+        last_sync: Date.now(),
+        status,
+        error_message: errorMessage
+    };
+    if (lastBlock !== null && lastBlock !== undefined) row.last_sync_block = lastBlock;
+
     const { error } = await supabase
         .from('sync_status')
-        .upsert({
-            sync_type: syncType,
-            last_sync: Date.now(),
-            last_sync_block: lastBlock,
-            status,
-            error_message: errorMessage
-        }, { onConflict: 'sync_type' });
+        .upsert(row, { onConflict: 'sync_type' });
 
     if (error) {
         log.error(`updateSyncStatus error: ${error.message}`);

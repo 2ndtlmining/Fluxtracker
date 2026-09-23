@@ -131,6 +131,7 @@ Optional -- Failover (auto-switch when primary DB is unreachable):
 |---------------------------|--------------------------------------|
 | `SUPABASE_FAILOVER_URL`  | Failover Supabase project URL        |
 | `SUPABASE_FAILOVER_KEY`  | Failover service role key            |
+| `FAILOVER_STATE_FILE`    | Where the live instance is remembered across restarts (default `data/supabase-active.json`) |
 
 Optional -- Historical prices:
 
@@ -604,9 +605,17 @@ The `daily_snapshots`, `repo_snapshots` and `flux_price_history` tables contain 
 If a failover Supabase instance is configured (`SUPABASE_FAILOVER_URL` + `SUPABASE_FAILOVER_KEY`):
 
 - The circuit breaker monitors consecutive DB failures (threshold: 5)
-- On the first transition to OPEN state, the app automatically switches to the failover instance
+- On a CLOSED -> OPEN trip **while on the primary**, the app switches to the failover instance.
+  Automatic failover only ever goes primary -> failover: a failed probe or a new outage while
+  on the failover never switches back
+- The live instance is remembered in `FAILOVER_STATE_FILE`, so a restart during a failover
+  resumes on the failover (and says so in the log) instead of silently returning to the primary
+- **Switching back is manual** (`POST /api/admin/failover`). Anything written while on the
+  failover -- snapshots, transactions, receipts -- is only on the failover and has to be
+  reconciled into the primary first
+- `/api/health` reports `status: "degraded"` with the problem "running on the failover database"
+  for as long as the failover is live
 - All existing `supabase.from(...)` calls route transparently through a Proxy
-- Manual toggle: `POST /api/admin/failover`
 - Status: `GET /api/admin/failover-status`
 
 ### Circuit Breakers
@@ -623,14 +632,27 @@ Two independent breakers protect the app from hammering an unreachable dependenc
 
 ### Health Endpoint
 
-`GET /api/health` returns combined status:
+`GET /api/health` returns one overall verdict built from every sub-check:
+
+- `ok` -- nothing is wrong (HTTP 200)
+- `degraded` -- the database answers but something else is wrong; `problems` lists what: a stale
+  or partial backup, a failing or overdue daily snapshot, stale price history, a revenue sync
+  that has stalled (3 missed intervals) or failed 3 times running, or the failover being live
+  (HTTP 200 -- the dashboard is still serving)
+- `down` -- the database is unreachable (HTTP 503)
+
+Backup and snapshot state survive restarts: the last backup time is read back from R2 at boot,
+and the snapshot check looks at the table, so a deploy no longer reports a false stale backup
+until the next midnight.
 
 ```json
 {
   "status": "ok",
-  "db": { "status": "connected", "circuit": "CLOSED", "activeInstance": "primary" },
+  "problems": [],
+  "db": { "status": "connected", "circuit": "CLOSED", "activeInstance": "primary", "activeSince": 1790120000000 },
+  "revenueSync": { "lastCompleted": 1790127389663, "consecutiveFailures": 0 },
   "snapshot": { "healthy": true, "todaySnapshotExists": true },
-  "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "ageHours": 2.1 },
+  "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "partial": false, "ageHours": 2.1 },
   "priceHistory": { "days": 1720, "oldest": "2021-12-10", "newest": "2026-08-20", "healthy": true },
   "kpiScheduler": { "configured": true, "schedule": ["daily"], "hourUtc": 2, "lastRuns": { "daily": { "at": "2026-09-06T02:00:14.512Z", "ok": true } } }
 }

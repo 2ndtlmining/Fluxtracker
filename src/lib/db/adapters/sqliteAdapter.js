@@ -1364,7 +1364,8 @@ export async function updateSyncStatus(syncType, status, errorMessage = null, la
              VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(sync_type) DO UPDATE SET
                 last_sync = excluded.last_sync,
-                last_sync_block = excluded.last_sync_block,
+                -- a null block keeps the stored cursor (issue #335); see the Supabase adapter
+                last_sync_block = COALESCE(excluded.last_sync_block, sync_status.last_sync_block),
                 status = excluded.status,
                 error_message = excluded.error_message`
         ).run(syncType, Date.now(), lastBlock, status, errorMessage);

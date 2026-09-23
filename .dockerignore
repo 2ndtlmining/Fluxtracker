@@ -1,7 +1,6 @@
-# Dependencies
+# Dependencies (package-lock.json is deliberately NOT ignored -- `npm ci` needs it, #312)
 node_modules
 npm-debug.log
-package-lock.json
 
 # Build outputs
 build

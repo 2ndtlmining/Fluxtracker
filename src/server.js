@@ -20,6 +20,7 @@ import { startRevenueSync, stopRevenueSync } from './lib/services/revenueSchedul
 
 // Import revenue service for the daily failed-txid cleanup
 import { clearPermanentlyFailedTxids } from './lib/services/revenueService.js';
+import { seedBackupStatusFromStore } from './lib/services/backupService.js';
 
 // Import testAllServices scheduler wiring
 import {
@@ -208,14 +209,27 @@ function startSchedulers() {
         log.error({ err: error }, 'could not initialize decentralization scheduler');
     }
 
-    // Run failed txid cleanup daily
-    setInterval(async () => {
+    // Failed-txid cleanup: shortly after boot, then daily (issue #316). A bare 24h interval
+    // with no first run never fired on an instance that restarts more than once a day.
+    const cleanFailedTxids = async () => {
         try {
             const cleared = await clearPermanentlyFailedTxids();
             if (cleared > 0) log.info({ cleared }, 'cleared permanently failed txids');
-        } catch {}
-    }, 24 * 60 * 60 * 1000);
+        } catch (error) {
+            log.warn({ err: error }, 'failed-txid cleanup failed');
+        }
+    };
+    if (!failedTxidCleanup.interval) {
+        failedTxidCleanup.firstRun = setTimeout(cleanFailedTxids, 2 * 60 * 1000);
+        failedTxidCleanup.interval = setInterval(cleanFailedTxids, 24 * 60 * 60 * 1000);
+    }
+
+    // Recover the last backup's time from R2 so health does not report every restart as a
+    // stale backup until the next midnight (issue #310).
+    seedBackupStatusFromStore();
 }
+
+const failedTxidCleanup = { firstRun: null, interval: null };
 
 app.listen(PORT, '0.0.0.0', async () => {
     log.info({ port: PORT, host: '0.0.0.0' }, 'Flux Dashboard API started');
@@ -274,8 +288,22 @@ function shutdownGracefully(signal) {
     stopSnapshotChecker();
     stopKpiScheduler();
     stopDecentralizationUpdates();
+    clearTimeout(failedTxidCleanup.firstRun);
+    clearInterval(failedTxidCleanup.interval);
     process.exit(0);
 }
+
+// Crash loudly and structured (issue #309). Node already exits on both of these; the handlers
+// only make sure the reason reaches the log first, so a restart is explainable. startup.sh
+// now takes the whole container down when either process exits, so the orchestrator restarts it.
+process.on('unhandledRejection', (reason) => {
+    log.fatal({ err: reason }, 'unhandled promise rejection -- exiting');
+    process.exit(1);
+});
+process.on('uncaughtException', (error) => {
+    log.fatal({ err: error }, 'uncaught exception -- exiting');
+    process.exit(1);
+});
 
 process.on('SIGTERM', () => shutdownGracefully('SIGTERM'));
 process.on('SIGINT', () => shutdownGracefully('SIGINT'));
