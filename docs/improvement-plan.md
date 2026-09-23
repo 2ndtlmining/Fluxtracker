@@ -28,11 +28,12 @@ working day, so a version change on production confirms that day's work landed.
 |---|----|--------|-------|
 | 12 | Expiring + non-game fallback | #182 (per-game outros first, fuse as fallback) #181 | See the refinement comments on both issues |
 | 13 | Intros, batch 2 | #276 #277 #278 #279 #280 #281 | |
-| 14 | Header extras | #286 #287 #288 #290 | |
-| 15 | Analytics quick wins | #261 #266 #267 | Data already stored |
-| 16 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
-| 17 | Built on #262 | #263 #264 #265 | |
-| 18 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
+| 14 | Header extras | #286 #287 #288 #290 | One wide frame per app -- no side panels (decided on #345) |
+| 15 | Utilization Projection | #347 | Owner's new feature: CPU use if apps are not renewed, from `globalappsspecifications` (already cached). After the header work, by the owner's call |
+| 16 | Analytics quick wins | #261 #266 #267 | Data already stored |
+| 17 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
+| 18 | Built on #262 | #263 #264 #265 | |
+| 19 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
 | -- | Version bump | -- | Last PR of each working day |
 
 ### Waiting on the owner
@@ -42,6 +43,11 @@ working day, so a version change on production confirms that day's work landed.
   properly if it was deliberate.
 
 **Decided with the owner (2026-09-24):**
+- #345: the header shows ONE wide frame per app on desktop -- name, age/expiry, instances,
+  resources, game/service, image, what was paid (FLUX, USD, date) and the subscription term
+  with its end date. No side panel, and no network stats (block height, node count) beside
+  an app's details. Mobile keeps the 34-column frame.
+- #347 Utilization Projection is queued straight after the header work (PR 15).
 - #285 block milestones: dropped. Tracking arbitrary round block heights is not wanted; the
   milestone frame shipped in #333 was removed and the issue closed.
 
@@ -176,6 +182,8 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #349 | Header TERM row: subscription length (1 week ... 1 year) and end date |
+| #348 | Intros for Git (Orbit), Project Zomboid, Folding@home, crypto nodes (#272-#275) |
 | #346 | One wide header frame per app (type, image, payment); SvelteKit announcer CSP (#345) |
 | #344 | Header hover pause, click-through to the table, reduced-motion poster, enterprise RES (#282 #284 #289) |
 | #343 | COOP judged by the request Host; block milestones removed (#285 dropped) |
