@@ -26,7 +26,8 @@ const REGISTRY = [
     { name: 'app-noexpire', height: 294800, instances: 1, cpu: 1, ram: 512, hdd: 5 },
     // Registered 218 blocks ago -> deployed today AND expiring within the day
     { name: 'app-expiring', height: 294700, expire: 300, instances: 1 },
-    // No name: unusable, dropped by the KPI layer's dedupe
+    // No name: unusable. appSpecsCache (the one owner of the registry since #293) never
+    // indexes a nameless spec, so it no longer reaches these lists at all.
     { height: 294000, expire: 2000, instances: 1 }
 ];
 
@@ -37,7 +38,7 @@ beforeEach(() => {
             return { data: { data: BLOCK_HEIGHT } };
         }
         if (String(url).includes('globalappsspecifications')) {
-            return { data: { data: REGISTRY } };
+            return { data: { status: 'success', data: REGISTRY } }; // appSpecsCache checks status (#293)
         }
         throw new Error(`unexpected axios call: ${url}`);
     });
@@ -61,16 +62,14 @@ describe('getFluxCloudSnapshot', () => {
         expect(snapshot.appsDeployedToday.cached).toBe(true);
         // Registered within 2880 blocks, sorted most-recently-deployed first (issue #140 --
         // rank order has to agree with the header's own blockAge-based spotlight, not
-        // alphabetical). app-active and the nameless spec share the same blockAge (918), so
-        // the name tiebreaker decides between them; '' sorts before 'app-active'.
+        // alphabetical).
         expect(snapshot.appsDeployedToday.apps.map(a => a.name)).toEqual([
-            'app-noexpire', 'app-expiring', undefined, 'app-active'
+            'app-noexpire', 'app-expiring', 'app-active'
         ]);
         expect(snapshot.appsExpiring24h.cached).toBe(true);
         // Expiring within 2880 blocks; app-old's expiry is already past, app-active's
-        // is too far out, app-noexpire has none. The nameless spec is expiring too —
-        // raw registry behaviour; the KPI layer's dedupe drops nameless entries.
-        expect(snapshot.appsExpiring24h.apps.map(a => a.name)).toEqual(['app-expiring', undefined]);
+        // is too far out, app-noexpire has none.
+        expect(snapshot.appsExpiring24h.apps.map(a => a.name)).toEqual(['app-expiring']);
     });
 });
 

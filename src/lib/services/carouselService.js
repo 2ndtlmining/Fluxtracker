@@ -2,6 +2,7 @@
 
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { ensureGlobalSpecsCache, getAllAppSpecs } from './appSpecsCache.js';
 import { getRunningApps, computeDeploymentFill } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
@@ -79,13 +80,22 @@ async function getSharedFluxApiData() {
     if (fluxApiInFlight) return fluxApiInFlight;
 
     fluxApiInFlight = (async () => {
-        const [blockHeightBody, appsBody] = await Promise.all([
+        // The app specs come from appSpecsCache, the one owner of globalappsspecifications
+        // (issue #293). This used to download its own ~2.3 MB copy on a 5-minute TTL beside
+        // appSpecsCache's 1-hour one -- two parsed copies that could disagree by an hour.
+        // Asking for data no older than the carousel's own refresh keeps "deployed in the
+        // last 24h" as fresh as before.
+        const [blockHeightBody] = await Promise.all([
             resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000, breakerKey: 'flux-blockheight' }),
-            resilientFetch(`${API_ENDPOINTS.APPS}/globalappsspecifications`, { timeout: 15000, breakerKey: 'global-apps-specs' })
+            ensureGlobalSpecsCache({ maxAgeMs: CAROUSEL_CONFIG.updateInterval })
         ]);
+        const appsData = getAllAppSpecs();
+        // Never cache "no apps": the specs fetch failed with nothing ever loaded, and an empty
+        // list would overwrite the carousel's last good deployed/expiring data.
+        if (appsData.length === 0) throw new Error('app specs unavailable');
         cachedFluxApiData = {
             currentBlockHeight: blockHeightBody?.data || 0,
-            appsData: appsBody?.data || []
+            appsData
         };
         lastFluxApiCacheTime = Date.now();
         return cachedFluxApiData;
@@ -269,9 +279,9 @@ const BENCHMARK_CATEGORIES = [
 
 async function fetchTopBenchmarks() {
     try {
-        const body = await resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARKS, {
+        const body = await resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARK_TOP, {
             timeout: 15000,
-            breakerKey: 'node-benchmarks',
+            breakerKey: 'node-benchmarks-top',
             validate: d => d?.status === 'success' && Array.isArray(d.data)
         });
 

@@ -20,7 +20,7 @@ import {
 } from '../../lib/db/database.js';
 
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES } from '../../lib/config.js';
-import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
+import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
 const router = express.Router();
@@ -35,13 +35,14 @@ const revenueCache = createCache(300_000); // 5 min
 // the order of 1 MB of JSON at the chart's "All" timeframe, re-read from the database for
 // every viewer on every chart load.
 router.get('/snapshots/full', async (req, res) => {
-    const { limit, start_date, end_date } = req.query;
-    const cacheKey = `full:${start_date || ''}:${end_date || ''}:${limit || 30}`;
+    const q = parseRangeQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+    const cacheKey = `full:${q.key}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
-        const snapshots = (start_date && end_date)
-            ? await getSnapshotsInRange(start_date, end_date)
-            : await getLastNSnapshots(parseInt(limit) || 30);
+        const snapshots = q.start
+            ? await getSnapshotsInRange(q.start, q.end)
+            : await getLastNSnapshots(q.limit);
 
         // Return FULL snapshot data (not summarized)
         return {
@@ -53,26 +54,28 @@ router.get('/snapshots/full', async (req, res) => {
 
 // NEW: Endpoint to get daily revenue from transactions (not snapshots)
 router.get('/revenue/daily', async (req, res) => {
-    const { limit, start_date, end_date } = req.query;
-    const cacheKey = `daily:${start_date || ''}:${end_date || ''}:${limit || 30}`;
+    const q = parseRangeQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+    const cacheKey = `daily:${q.key}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
-        const revenueData = (start_date && end_date)
-            ? await getDailyRevenueInRange(start_date, end_date)
-            : await getDailyRevenueFromTransactions(parseInt(limit) || 30);
+        const revenueData = q.start
+            ? await getDailyRevenueInRange(q.start, q.end)
+            : await getDailyRevenueFromTransactions(q.limit);
         return { count: revenueData.length, data: revenueData };
     });
 });
 
 // Endpoint to get daily revenue in USD from transactions
 router.get('/revenue/daily-usd', async (req, res) => {
-    const { limit, start_date, end_date } = req.query;
-    const cacheKey = `daily-usd:${start_date || ''}:${end_date || ''}:${limit || 30}`;
+    const q = parseRangeQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+    const cacheKey = `daily-usd:${q.key}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
-        const revenueData = (start_date && end_date)
-            ? await getDailyRevenueUSDInRange(start_date, end_date)
-            : await getDailyRevenueUSDFromTransactions(parseInt(limit) || 30);
+        const revenueData = q.start
+            ? await getDailyRevenueUSDInRange(q.start, q.end)
+            : await getDailyRevenueUSDFromTransactions(q.limit);
         return { count: revenueData.length, data: revenueData };
     });
 });
@@ -84,6 +87,9 @@ router.get('/revenue/team-funded/daily', async (req, res) => {
     const { start_date, end_date } = req.query;
     if (!start_date || !end_date) {
         return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
     }
 
     const cacheKey = `team-funded:${start_date}:${end_date}`;
@@ -114,13 +120,14 @@ router.get('/revenue/team-funded/daily', async (req, res) => {
 
 // Historical snapshots
 router.get('/snapshots', async (req, res) => {
-    const { limit, start_date, end_date } = req.query;
-    const cacheKey = `snapshots:${start_date || ''}:${end_date || ''}:${limit || 30}`;
+    const q = parseRangeQuery(req.query);
+    if (q.error) return res.status(400).json({ error: q.error });
+    const cacheKey = `snapshots:${q.key}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
-        const snapshots = (start_date && end_date)
-            ? await getSnapshotsInRange(start_date, end_date)
-            : await getLastNSnapshots(parseInt(limit) || 30);
+        const snapshots = q.start
+            ? await getSnapshotsInRange(q.start, q.end)
+            : await getLastNSnapshots(q.limit);
 
         return {
             count: snapshots.length,

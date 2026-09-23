@@ -187,7 +187,7 @@ router.get('/header', async (req, res) => {
         // of a 23k-row table per cache miss, for one number.
         const [metrics, stats, lastSnapshots, syncStatus, snapshotStatus, dbReachable, decentralizationStats] = await Promise.all([
             getCurrentMetrics(),
-            getDatabaseStats(),
+            getDatabaseStats({ lean: true }), // only snapshots + transactions are shown (#301)
             getLastNSnapshots(1),
             getSyncStatus('revenue'),
             getSnapshotSystemStatus(),

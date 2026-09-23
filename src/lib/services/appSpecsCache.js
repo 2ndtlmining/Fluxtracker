@@ -88,12 +88,23 @@ async function fetchGlobalSpecs() {
     }
 }
 
-/** Refreshes the cache if stale or empty. No-op otherwise. */
-export async function ensureGlobalSpecsCache() {
+let inFlight = null;
+
+/**
+ * Refreshes the cache if older than `maxAgeMs` (default: the 1-hour TTL) or empty. No-op
+ * otherwise.
+ *
+ * Concurrent callers share one fetch (issue #293): at startup runningAppsProvider,
+ * busiestNodeService, transactionSync and appOwnerService all found it cold at once and each
+ * downloaded the ~2.3 MB payload -- three downloads in 1.5 s were measured.
+ */
+export async function ensureGlobalSpecsCache({ maxAgeMs = globalSpecsCache.TTL } = {}) {
     const age = Date.now() - globalSpecsCache.lastFetched;
-    if (age > globalSpecsCache.TTL || globalSpecsCache.specByName.size === 0) {
-        await fetchGlobalSpecs();
+    if (age <= maxAgeMs && globalSpecsCache.specByName.size > 0) return;
+    if (!inFlight) {
+        inFlight = fetchGlobalSpecs().finally(() => { inFlight = null; });
     }
+    await inFlight;
 }
 
 export function getAppSpecByName(name) {

@@ -1506,7 +1506,19 @@ export async function getPriceHistoryCount() {
 // UTILITY FUNCTIONS
 // ============================================
 
-export async function getDatabaseStats() {
+/**
+ * Row counts. `{ lean: true }` counts only daily_snapshots and revenue_transactions -- all the
+ * header shows (issue #301). The full set adds an exact count of repo_snapshots (~200k rows)
+ * and a COUNT(DISTINCT image_name), which /api/header paid on every cache miss for nothing.
+ */
+export async function getDatabaseStats({ lean = false } = {}) {
+    if (lean) {
+        const [snapshots, transactions] = await Promise.all([
+            supabase.from('daily_snapshots').select('*', { count: 'exact', head: true }),
+            supabase.from('revenue_transactions').select('*', { count: 'exact', head: true })
+        ]);
+        return { snapshots: snapshots.count || 0, transactions: transactions.count || 0 };
+    }
     const [snapshots, transactions, priceHistory, repoSnapshots, distinctRepos] = await Promise.all([
         supabase.from('daily_snapshots').select('*', { count: 'exact', head: true }),
         supabase.from('revenue_transactions').select('*', { count: 'exact', head: true }),

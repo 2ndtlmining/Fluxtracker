@@ -149,6 +149,11 @@ export const API_ENDPOINTS = {
     //cloud stats
     API_FLUX_NETWORK_UTILISATION: 'https://stats.runonflux.io/fluxinfo?projection=apps.resources',
     API_NODE_BENCHMARKS: 'https://stats.runonflux.io/fluxinfo?projection=benchmark',
+    // Narrow projections of the same document (issue #292). The full `benchmark` projection
+    // is ~4.2 MB; cloudService sums three fields (~0.36 MB) and the carousel reads nine
+    // (~1.4 MB). Each consumer asks only for what it reads.
+    API_NODE_BENCHMARK_CAPACITY: 'https://stats.runonflux.io/fluxinfo?projection=benchmark.bench.cores,benchmark.bench.ram,benchmark.bench.ssd',
+    API_NODE_BENCHMARK_TOP: 'https://stats.runonflux.io/fluxinfo?projection=benchmark.status.benchmarking,benchmark.bench.ipaddress,benchmark.bench.cores,benchmark.bench.ram,benchmark.bench.ssd,benchmark.bench.ddwrite,benchmark.bench.eps,benchmark.bench.download_speed,benchmark.bench.upload_speed',
     API_NODE_GEOLOCATION: 'https://stats.runonflux.io/fluxinfo?projection=geolocation',
 
     // Busiest Node card (issue #108): one combined projection so per-node app names,

@@ -2,7 +2,7 @@
 
 import { GAMING_REPOS, TRACKED_GAMES, GAME_COLUMN_BY_NAME } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus } from '../db/database.js';
-import { getRunningApps, countByCategory, countGames, countGamingInstances } from './runningAppsProvider.js';
+import { getRunningApps, countByCategory, countGames, countGamingInstances, READ_PATH_TTL_MS } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('gamingService');
@@ -109,7 +109,9 @@ export function formatGamingStats(gamingData) {
  * @param {number} limit how many games to return; 0 for all
  */
 export async function getLiveGameBreakdown(limit = 0) {
-    const runningApps = await getRunningApps();
+    // Viewer read path and the snapshot (issue #296): accept the cycle's copy rather than
+    // paying the upstream fetch whenever it is more than a minute old.
+    const runningApps = await getRunningApps({ ttlMs: READ_PATH_TTL_MS });
     const games = [...countGames(runningApps)].map(([name, instances]) => ({ name, instances }));
 
     return {

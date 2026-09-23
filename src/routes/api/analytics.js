@@ -20,7 +20,7 @@ import {
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
-import { getRunningApps, computeDeploymentFill } from '../../lib/services/runningAppsProvider.js';
+import { getRunningApps, computeDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -35,6 +35,9 @@ const categoryCache = createCache(300_000);   // 5 min
 // a stale copy of data the provider has already refreshed.
 const gamesCache = createCache(60_000);       // 60s
 const fillCache = createCache(60_000);        // 60s -- issue #200
+// Comparison (issue #295). The page asks for D on load, prefetches W and M, and refetches on
+// every refresh -- and each call ran six reads. 60s means a viewer's burst is one run.
+const comparisonCache = createCache(60_000);
 
 // repo_snapshots stores one row per Docker image, but a game usually ships as several
 // images (Minecraft Java + Bedrock, three Valheim images, two Rust images). Users think
@@ -96,8 +99,8 @@ router.get('/metrics/current', async (req, res) => {
 // Top repos for a category (used by CategoryCard)
 router.get('/metrics/category/:category/top', async (req, res) => {
     const { category } = req.params;
-    const limit = parseInt(req.query.limit) || 3;
-    const days = parseInt(req.query.days) || 7;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 3, 1), 50);
+    const days = Math.min(Math.max(parseInt(req.query.days) || 7, 1), 365);
 
     if (!CATEGORY_CONFIG[category]) {
         return res.status(400).json({ error: `Unknown category: ${category}` });
@@ -232,7 +235,7 @@ router.get('/apps/deployment-fill', async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 0, 0), 100);
 
     return withDbFallback(fillCache, `fill:${limit}`, res, async () => {
-        const apps = await getRunningApps();
+        const apps = await getRunningApps({ ttlMs: READ_PATH_TTL_MS });
         const fill = computeDeploymentFill(apps.deploymentCounts);
 
         // null means the specs cache was empty -- a failed fetch, not a network that ordered
@@ -267,8 +270,9 @@ router.get('/apps/deployment-fill', async (req, res) => {
 router.get('/analytics/apps', async (req, res) => {
     const page = Math.max(parseInt(req.query.page) || 1, 1);
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 50, 1), 200);
-    const search = req.query.search || '';
-    const cacheKey = `apps:${page}:${limit}:${search}`;
+    // Trimmed and bounded: every debounced keystroke is its own cache key (issue #291).
+    const search = String(req.query.search || '').trim().slice(0, 100);
+    const cacheKey = `apps:${page}:${limit}:${search.toLowerCase()}`;
 
     return withDbFallback(analyticsCache, cacheKey, res, async () => {
         const result = await getAppAnalytics(page, limit, search);
@@ -551,72 +555,67 @@ export function buildComparisonResponse({
     return response;
 }
 
+/** Longest comparison window accepted -- ten years is past any real history (issue #295). */
+export const MAX_COMPARISON_DAYS = 3650;
+
 router.get('/analytics/comparison/:days', async (req, res) => {
-    try {
-        const days = parseInt(req.params.days);
+    const days = parseInt(req.params.days, 10);
 
-        if (isNaN(days) || days < 1) {
-            return res.status(400).json({ error: 'Invalid days parameter' });
-        }
+    // Bounded (issue #295): 100000000 used to reach Date arithmetic and 500 with
+    // "Invalid time value".
+    if (!Number.isFinite(days) || days < 1 || days > MAX_COMPARISON_DAYS) {
+        return res.status(400).json({ error: `days must be between 1 and ${MAX_COMPARISON_DAYS}` });
+    }
 
-        const rawCurrent = await getCurrentMetrics();
-        if (!rawCurrent) {
-            return res.status(404).json({ error: 'No current metrics found' });
-        }
-
-        const current = shapeCurrentMetrics(rawCurrent);
-
+    // Cached and behind withDbFallback like every other read (issue #295): a DB blip now
+    // serves the last good comparison (503 + _stale) instead of a bare 500 that left the
+    // card broken until the next poll.
+    return withDbFallback(comparisonCache, `comparison:${days}`, res, async () => {
         const today = new Date().toISOString().split('T')[0];
         const windows = comparisonWindows(today, days);
 
-        log.info({ today, targetDate: windows.targetDate, days }, 'comparison request');
+        // Independent reads, in parallel (they were six sequential awaits).
+        const [rawCurrent, currentRevenue, previousRevenue, pastSnapshot] = await Promise.all([
+            getCurrentMetrics(),
+            getRevenueForDateRange(windows.currentStart, windows.currentEnd),
+            getRevenueForDateRange(windows.previousStart, windows.previousEnd),
+            getSnapshotByDate(windows.targetDate)
+        ]);
 
-        const currentRevenue = await getRevenueForDateRange(windows.currentStart, windows.currentEnd);
-        const previousRevenue = await getRevenueForDateRange(windows.previousStart, windows.previousEnd);
-
-        const pastSnapshot = await getSnapshotByDate(windows.targetDate);
+        if (!rawCurrent) {
+            throw Object.assign(new Error('No current metrics found'), { httpStatus: 404 });
+        }
         if (!pastSnapshot) {
-            log.warn({ targetDate: windows.targetDate, days }, 'no snapshot found for comparison');
-            log.info('revenue comparison still available using transaction data');
+            log.warn({ targetDate: windows.targetDate, days }, 'no snapshot found for comparison -- revenue comparison only');
         }
 
         // Each live read is isolated: this endpoint's revenue/nodes/gaming/crypto sections
         // have nothing to do with decentralization or the carousel, so a failure there must
-        // not 500 the whole comparison response -- it did exactly that before issue #138.
-        let decentralization = null;
-        let activity = null;
-        if (pastSnapshot) {
-            try {
-                decentralization = await getDecentralizationStats();
-            } catch (error) {
-                log.warn({ err: error }, 'decentralization comparison unavailable, continuing without it');
-            }
+        // not fail the whole comparison response -- it did exactly that before issue #138.
+        const [decentralization, activity] = pastSnapshot
+            ? await Promise.all([
+                getDecentralizationStats().catch(error => {
+                    log.warn({ err: error }, 'decentralization comparison unavailable, continuing without it');
+                    return null;
+                }),
+                getFluxCloudActivity().catch(error => {
+                    log.warn({ err: error }, 'apps deployed/expiring comparison unavailable, continuing without it');
+                    return null;
+                })
+            ])
+            : [null, null];
 
-            try {
-                activity = await getFluxCloudActivity();
-            } catch (error) {
-                log.warn({ err: error }, 'apps deployed/expiring comparison unavailable, continuing without it');
-            }
-        }
-
-        res.json(buildComparisonResponse({
+        return buildComparisonResponse({
             days,
             windows,
-            current,
+            current: shapeCurrentMetrics(rawCurrent),
             pastSnapshot,
             currentRevenue,
             previousRevenue,
             decentralization,
             activity
-        }));
-
-    } catch (error) {
-        log.error({ err: error }, 'comparison endpoint error');
-        res.status(500).json({
-            error: 'Internal server error',
-            details: error.message
         });
-    }
+    });
 });
 
 export default router;

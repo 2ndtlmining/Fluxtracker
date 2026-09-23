@@ -74,7 +74,7 @@ export async function fetchCloudStats() {
                 resilientFetch(API_ENDPOINTS.API_FLUX_NETWORK_UTILISATION, {
                     timeout: 15000, retries: MAX_RETRIES, delayMs: RETRY_DELAY, breakerKey: 'cloud-utilisation'
                 }),
-                resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARKS, {
+                resilientFetch(API_ENDPOINTS.API_NODE_BENCHMARK_CAPACITY, {
                     timeout: 15000, retries: MAX_RETRIES, delayMs: RETRY_DELAY, breakerKey: 'node-benchmarks'
                 })
             ]);
