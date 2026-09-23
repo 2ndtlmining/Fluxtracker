@@ -593,7 +593,12 @@ export async function progressiveSync() {
         // 6b. Retry previously failed txids from the DB.
         //     This catches txids that were missed when the sync cursor advanced past their block range.
         if (!syncAborted) {
-            const failedList = await getUnresolvedFailedTxids(200);
+            // The retry pass is best-effort: a failed read of the retry list (#307: reads now
+            // throw) skips it for this pass instead of failing a sync whose main work is done.
+            const failedList = await getUnresolvedFailedTxids(200).catch(error => {
+                log.warn({ err: error }, 'Could not read failed txids -- skipping the retry pass');
+                return [];
+            });
             if (failedList.length > 0) {
                 log.info({ count: failedList.length }, 'Retrying %d previously failed txids', failedList.length);
                 let recovered = 0;
@@ -671,10 +676,12 @@ export async function progressiveSync() {
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        const totalTxCount = await getTxidCount();
+        // Informational only -- the sync's writes and cursor are already done. Since #307 a
+        // failed read throws, and a log line must not turn a completed sync into a failed one.
+        const totalTxCount = await getTxidCount().catch(() => null);
         log.info({ duration, newPayments: totalNewPayments, total: totalTxCount }, 'Block-range sync complete: duration=%ss, new payments=%d, total=%d', duration, totalNewPayments, totalTxCount);
 
-        const failedStats = await getFailedTxStats();
+        const failedStats = await getFailedTxStats().catch(() => ({ totalFailed: null }));
         if (failedStats.totalFailed > 0) {
             log.info({ failedTxids: failedStats.totalFailed }, 'Failed txids: %d (will retry)', failedStats.totalFailed);
         }
@@ -809,7 +816,7 @@ export async function initialSync() {
             }
         }
 
-        const totalInDb = await getTxidCount();
+        const totalInDb = await getTxidCount().catch(() => null); // informational (#307)
         log.info({ totalImported, iterations, totalInDb }, 'Initial sync complete: imported=%d, iterations=%d, total in DB=%d', totalImported, iterations, totalInDb);
 
         setRevenueSyncRunning(false);

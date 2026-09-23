@@ -5,6 +5,17 @@ import { resolveDimension } from '../../decentralizationDimensions.js';
 
 const log = createLogger('supabaseAdapter');
 
+/**
+ * A read that failed must THROW, never return 0/[]/null (issue #307). A swallowed error looked
+ * like a successful empty read: dbCallTracker counted it as a DB success, withDbFallback cached
+ * the zeros as fresh for its whole TTL (overwriting the good stale entry), and the circuit
+ * breaker never tripped -- so an outage rendered as real zeros instead of a 503 with stale data.
+ */
+function readFailed(fn, error) {
+    log.error(`${fn} error: ${error.message}`);
+    return new Error(`${fn} failed: ${error.message}`);
+}
+
 // ============================================
 // INITIALIZATION
 // ============================================
@@ -146,11 +157,12 @@ export async function getCurrentMetrics() {
         .from('current_metrics')
         .select('*')
         .eq('id', 1)
-        .single();
+        // maybeSingle: a missing row is "no metrics yet" (null), not an error -- .single()
+        // reports it as PGRST116, which would now throw on a fresh database (#307).
+        .maybeSingle();
 
     if (error) {
-        log.error(`getCurrentMetrics error: ${error.message}`);
-        return null;
+        throw readFailed('getCurrentMetrics', error);
     }
     return data;
 }
@@ -414,8 +426,7 @@ export async function getLastNSnapshots(n = 30) {
             .range(offset, offset + take - 1);
 
         if (error) {
-            log.error(`getLastNSnapshots error: ${error.message}`);
-            return rows;
+            throw readFailed('getLastNSnapshots', error);
         }
         if (!data || data.length === 0) break;
 
@@ -487,8 +498,7 @@ export async function getAllSnapshots() {
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) {
-            log.error(`getAllSnapshots error: ${error.message}`);
-            return rows;
+            throw readFailed('getAllSnapshots', error);
         }
         if (!data || data.length === 0) break;
 
@@ -641,8 +651,7 @@ export async function getTxidsWithoutAppName(limit = 500, recentDays = null) {
 
     const { data, error } = await query;
     if (error) {
-        log.error(`getTxidsWithoutAppName error: ${error.message}`);
-        return [];
+        throw readFailed('getTxidsWithoutAppName', error);
     }
     return (data || []).map(r => r.txid);
 }
@@ -661,8 +670,7 @@ export async function countTxidsWithoutAppName(recentDays = null) {
 
     const { count, error } = await query;
     if (error) {
-        log.error(`countTxidsWithoutAppName error: ${error.message}`);
-        return 0;
+        throw readFailed('countTxidsWithoutAppName', error);
     }
     return count || 0;
 }
@@ -698,8 +706,7 @@ export async function getTransactionsByDate(date) {
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) {
-            log.error(`getTransactionsByDate error: ${error.message}`);
-            return rows;
+            throw readFailed('getTransactionsByDate', error);
         }
         if (!data || data.length === 0) break;
 
@@ -728,8 +735,7 @@ export async function getTransactionsByBlockRange(startBlock, endBlock) {
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) {
-            log.error(`getTransactionsByBlockRange error: ${error.message}`);
-            return rows;
+            throw readFailed('getTransactionsByBlockRange', error);
         }
         if (!data || data.length === 0) break;
 
@@ -835,8 +841,7 @@ export async function getPaymentCountForDateRange(startDate, endDate) {
         .lte('date', endDate);
 
     if (error) {
-        log.error(`getPaymentCountForDateRange error: ${error.message}`);
-        return 0;
+        throw readFailed('getPaymentCountForDateRange', error);
     }
     return count || 0;
 }
@@ -857,8 +862,7 @@ export async function getRevenueForBlockRange(startBlock, endBlock) {
             .range(offset, offset + pageSize - 1);
 
         if (error) {
-            log.error(`getRevenueForBlockRange error: ${error.message}`);
-            return total;
+            throw readFailed('getRevenueForBlockRange', error);
         }
         if (!data || data.length === 0) break;
 
@@ -889,8 +893,7 @@ export async function getTxidCount() {
         .select('*', { count: 'exact', head: true });
 
     if (error) {
-        log.error(`getTxidCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getTxidCount', error);
     }
     return count || 0;
 }
@@ -987,8 +990,7 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
     });
 
     if (error) {
-        log.error(`getAppAnalytics error: ${error.message}`);
-        return { apps: [], total: 0, page, limit, offset };
+        throw readFailed('getAppAnalytics', error);
     }
 
     const total = data?.[0]?.total_count || 0;
@@ -1019,8 +1021,7 @@ export async function getDailyRevenueFromTransactions(days = 30) {
     try {
         data = await pagedRpc('get_daily_revenue', { start_date: startDate });
     } catch (error) {
-        log.error(`getDailyRevenueFromTransactions error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueFromTransactions', error);
     }
     log.info(`Retrieved daily revenue for ${data.length} days from transactions`);
     return data;
@@ -1031,8 +1032,7 @@ export async function getDailyRevenueInRange(startDate, endDate) {
     try {
         data = await pagedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
     } catch (error) {
-        log.error(`getDailyRevenueInRange error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueInRange', error);
     }
     log.info(`Retrieved daily revenue for ${data.length} days from transactions (${startDate} to ${endDate})`);
     return data;
@@ -1052,8 +1052,7 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
     try {
         data = await pagedRpc('get_daily_revenue_usd', { start_date: startDate });
     } catch (error) {
-        log.error(`getDailyRevenueUSDFromTransactions error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueUSDFromTransactions', error);
     }
     log.info(`Retrieved daily USD revenue for ${data.length} days from transactions`);
     return data;
@@ -1176,8 +1175,7 @@ export async function getUnresolvedFailedTxids(limit = 200) {
         .limit(limit);
 
     if (error) {
-        log.error(`getUnresolvedFailedTxids error: ${error.message}`);
-        return [];
+        throw readFailed('getUnresolvedFailedTxids', error);
     }
     return data || [];
 }
@@ -1200,8 +1198,7 @@ export async function getFailedTxidCount() {
         .eq('resolved', 0);
 
     if (error) {
-        log.error(`getFailedTxidCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getFailedTxidCount', error);
     }
     return count || 0;
 }
@@ -1374,8 +1371,7 @@ export async function getPricesForDateRange(startDate, endDate) {
             .range(offset, offset + PAGE_SIZE - 1);
 
         if (error) {
-            log.error(`getPricesForDateRange error: ${error.message}`);
-            return [];
+            throw readFailed('getPricesForDateRange', error);
         }
         if (!data || data.length === 0) break;
 
@@ -1425,8 +1421,7 @@ export async function getTransactionsWithNullUsd(limit = 1000, offset = 0) {
         .range(offset, offset + limit - 1);
 
     if (error) {
-        log.error(`getTransactionsWithNullUsd error: ${error.message}`);
-        return [];
+        throw readFailed('getTransactionsWithNullUsd', error);
     }
     return data || [];
 }
@@ -1495,8 +1490,7 @@ export async function getPriceHistoryCount() {
         .select('*', { count: 'exact', head: true });
 
     if (error) {
-        log.error(`getPriceHistoryCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getPriceHistoryCount', error);
     }
     return count || 0;
 }
@@ -1568,8 +1562,7 @@ export async function getRepoSnapshotCountByDate(date) {
         .eq('snapshot_date', date);
 
     if (error) {
-        log.error(`getRepoSnapshotCountByDate error: ${error.message}`);
-        return 0;
+        throw readFailed('getRepoSnapshotCountByDate', error);
     }
     return count || 0;
 }
@@ -1583,8 +1576,7 @@ export async function getRepoHistory(imageName, limit = 90) {
         });
 
         if (error) {
-            log.error(`getRepoHistory (merged) error: ${error.message}`);
-            return [];
+            throw readFailed('getRepoHistory', error);
         }
         return data || [];
     }
@@ -1597,8 +1589,7 @@ export async function getRepoHistory(imageName, limit = 90) {
         .limit(limit);
 
     if (error) {
-        log.error(`getRepoHistory error: ${error.message}`);
-        return [];
+        throw readFailed('getRepoHistory', error);
     }
     return data || [];
 }
@@ -1610,8 +1601,7 @@ export async function getDistinctRepos() {
     try {
         data = await pagedRpc('get_distinct_repos');
     } catch (error) {
-        log.error(`getDistinctRepos error: ${error.message}`);
-        return [];
+        throw readFailed('getDistinctRepos', error);
     }
 
     return data.map(r => r.image_name);
@@ -1624,9 +1614,10 @@ export async function getLatestRepoSnapshot() {
         .select('snapshot_date')
         .order('snapshot_date', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
-    if (dateError || !dateRow) return [];
+    if (dateError) throw readFailed('getLatestRepoSnapshot', dateError);
+    if (!dateRow) return [];
 
     const { data, error } = await supabase
         .from('repo_snapshots')
@@ -1635,8 +1626,7 @@ export async function getLatestRepoSnapshot() {
         .order('instance_count', { ascending: false });
 
     if (error) {
-        log.error(`getLatestRepoSnapshot error: ${error.message}`);
-        return [];
+        throw readFailed('getLatestRepoSnapshot', error);
     }
     return data || [];
 }
@@ -1664,8 +1654,7 @@ export async function getTopReposByCategory(category, limit = 3) {
         .maybeSingle();
 
     if (dateError) {
-        log.error(`getTopReposByCategory error: ${dateError.message}`);
-        return { date: null, repos: [] };
+        throw readFailed('getTopReposByCategory', dateError);
     }
     if (!dateRow) return { date: null, repos: [] };
 
@@ -1679,8 +1668,7 @@ export async function getTopReposByCategory(category, limit = 3) {
         .limit(limit);
 
     if (error) {
-        log.error(`getTopReposByCategory error: ${error.message}`);
-        return { date: null, repos: [] };
+        throw readFailed('getTopReposByCategory', error);
     }
 
     return { date: dateRow.snapshot_date, repos: data || [] };
@@ -1694,8 +1682,7 @@ export async function getCategoryTotal(category, date) {
         .eq('snapshot_date', date);
 
     if (error) {
-        log.error(`getCategoryTotal error: ${error.message}`);
-        return 0;
+        throw readFailed('getCategoryTotal', error);
     }
     return (data || []).reduce((sum, r) => sum + (r.instance_count || 0), 0);
 }
@@ -1705,8 +1692,7 @@ export async function getCategoryHistory(category, limit = 90) {
     try {
         data = await pagedRpc('get_category_history', { cat: category, lim: limit });
     } catch (error) {
-        log.error(`getCategoryHistory error: ${error.message}`);
-        return [];
+        throw readFailed('getCategoryHistory', error);
     }
     return data;
 }
@@ -1716,8 +1702,7 @@ export async function getReposByCategory(category) {
     try {
         data = await pagedRpc('get_repos_by_category', { cat: category });
     } catch (error) {
-        log.error(`getReposByCategory error: ${error.message}`);
-        return [];
+        throw readFailed('getReposByCategory', error);
     }
     return data;
 }
@@ -2078,8 +2063,7 @@ export async function getGameSnapshotsByDate(snapshotDate) {
         .order('instance_count', { ascending: false });
 
     if (error) {
-        log.error(`getGameSnapshotsByDate error: ${error.message}`);
-        return [];
+        throw readFailed('getGameSnapshotsByDate', error);
     }
     return data || [];
 }

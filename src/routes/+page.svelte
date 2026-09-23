@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG, DECENTRALIZATION_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
+  import { fetchJson } from '$lib/utils/fetchJson.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
@@ -27,6 +28,24 @@
   let interval;
   // Revenue data for current period
   let revenueData = null;
+  let revenuePeriodLoaded = null; // which period revenueData belongs to
+
+  // Load health for the hero cards (issue #319). A failed fetch used to leave `metrics`/
+  // `revenueData` unchanged or fill them with an error body, and the cards' `|| 0`
+  // fallbacks then showed the failure as real zeros. Now: `*Failed` marks the last attempt,
+  // `*UpdatedAt` is when the shown data was actually loaded, and `*Stale` is withDbFallback's
+  // 503-with-cached-data answer (a real reading, but not a current one).
+  let metricsFailed = false;
+  let metricsStale = false;
+  let metricsUpdatedAt = null;
+  let revenueFailed = false;
+  let revenueStale = false;
+  let revenueUpdatedAt = null;
+
+  $: metricsUnavailable = !loading && !metrics && metricsFailed;
+  $: metricsStaleSince = metrics && (metricsFailed || metricsStale) ? metricsUpdatedAt : null;
+  $: revenueUnavailable = !loading && !revenueData && revenueFailed;
+  $: revenueStaleSince = revenueData && (revenueFailed || revenueStale) ? revenueUpdatedAt : null;
 
   // Busiest Node card — its own slower refresh (see BUSIEST_NODE_CONFIG), independent of
   // the shared dashboard refresh interval since its payload is much larger.
@@ -298,15 +317,19 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     };
     
     const periodName = periodMap[period] || 'daily';
-    const response = await fetch(`${API_URL}/api/revenue/${periodName}`);
-    const data = await response.json();
-    
-    if (data) {
-      revenueData = data;
-      console.log(`✓ ${periodName} revenue loaded:`, data);
-    }
+    const data = await fetchJson(`${API_URL}/api/revenue/${periodName}`);
+
+    revenueData = data;
+    revenuePeriodLoaded = period;
+    revenueFailed = false;
+    revenueStale = data._stale === true;
+    if (!revenueStale) revenueUpdatedAt = Date.now();
   } catch (error) {
     console.error(`Error fetching ${period} revenue:`, error);
+    revenueFailed = true;
+    // Never show another period's figures under this period's label: after a failed
+    // period switch there is nothing honest to show, so the card says so.
+    if (revenuePeriodLoaded !== period) revenueData = null;
   }
 }
   
@@ -318,17 +341,25 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
   
   async function fetchMetrics() {
     try {
-      const response = await fetch(`${API_URL}/api/metrics/current`);
-      const data = await response.json();
-      
-      if (data) {
-        metrics = data;
-        loading = false;
-      }
+      const data = await fetchJson(`${API_URL}/api/metrics/current`);
+      metrics = data;
+      metricsFailed = false;
+      metricsStale = data._stale === true;
+      if (!metricsStale) metricsUpdatedAt = Date.now();
     } catch (error) {
       console.error('Error fetching metrics:', error);
+      metricsFailed = true; // keep the last good `metrics`, if any -- the card marks it stale
+    } finally {
       loading = false;
     }
+  }
+
+  function retryMetrics() {
+    fetchMetrics();
+  }
+
+  function retryRevenue() {
+    fetchRevenue(comparisonPeriod);
   }
   
   async function fetchComparison(period) {
@@ -470,6 +501,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         selfFunded={revenueData?.selfFunded || null}
         period={comparisonPeriod}
         {loading}
+        unavailable={revenueUnavailable}
+        staleSince={revenueStaleSince}
+        onRetry={retryRevenue}
     />
       
       <!-- Total Nodes Card (NEW: Using NodeCard component) -->
@@ -484,6 +518,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         totalComparison={totalNodesComparison}
         {uniqueWallets}
         {loading}
+        unavailable={metricsUnavailable}
+        staleSince={metricsStaleSince}
+        onRetry={retryMetrics}
       />
       
       <!-- Cloud Resources Card (NEW: Using CloudCard component) -->
@@ -495,6 +532,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         {ramComparison}
         {storageComparison}
         {loading}
+        unavailable={metricsUnavailable}
+        staleSince={metricsStaleSince}
+        onRetry={retryMetrics}
       />
     </div>
     
