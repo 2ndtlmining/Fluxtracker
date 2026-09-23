@@ -3,6 +3,7 @@
   import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG, DECENTRALIZATION_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { fetchJson } from '$lib/utils/fetchJson.js';
+  import { pollWhileVisible } from '$lib/utils/pollWhileVisible.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
@@ -196,10 +197,11 @@
   prefetchComparisons();
 
   // Auto-refresh on the shared dashboard interval so every card moves together
-  interval = setInterval(refreshAll, DASHBOARD_REFRESH_MS);
+  // All three pause while the tab is hidden and catch up when it returns (issue #298).
+  interval = pollWhileVisible(refreshAll, DASHBOARD_REFRESH_MS);
   // Busiest Node refreshes on its own, much slower interval (see BUSIEST_NODE_CONFIG)
-  busiestNodeInterval = setInterval(fetchBusiestNode, BUSIEST_NODE_CONFIG.updateInterval);
-  decentralizationInterval = setInterval(fetchDecentralization, DECENTRALIZATION_CONFIG.updateInterval);
+  busiestNodeInterval = pollWhileVisible(fetchBusiestNode, BUSIEST_NODE_CONFIG.updateInterval);
+  decentralizationInterval = pollWhileVisible(fetchDecentralization, DECENTRALIZATION_CONFIG.updateInterval);
 });
 
 async function refreshAll() {
@@ -334,9 +336,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
 }
   
   onDestroy(() => {
-    if (interval) clearInterval(interval);
-    if (busiestNodeInterval) clearInterval(busiestNodeInterval);
-    if (decentralizationInterval) clearInterval(decentralizationInterval);
+    interval?.();
+    busiestNodeInterval?.();
+    decentralizationInterval?.();
   });
   
   async function fetchMetrics() {

@@ -16,10 +16,11 @@ describe('buildCspHeaderValue', () => {
         expect(value).not.toMatch(/[A-Z]/); // no leftover camelCase directive names
     });
 
-    it('includes the Google Fonts exception app.css needs', () => {
+    it('allows fonts and styles from this origin only -- fonts are self-hosted (#302)', () => {
         const value = buildCspHeaderValue(CSP_DIRECTIVES);
-        expect(value).toContain('style-src \'self\' https://fonts.googleapis.com');
-        expect(value).toContain('font-src \'self\' https://fonts.gstatic.com data:');
+        expect(value).toContain('style-src \'self\';');
+        expect(value).toContain('font-src \'self\' data:');
+        expect(value).not.toMatch(/googleapis|gstatic/);
     });
 
     it('joins directives with "; "', () => {

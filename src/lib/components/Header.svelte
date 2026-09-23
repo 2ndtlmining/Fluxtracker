@@ -3,6 +3,7 @@
   import { getApiUrl } from '$lib/config.js';
   import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
   import { pickLatestDeployed, pickLatestExpiring } from '$lib/utils/terminalAnimation.js';
+  import { pollWhileVisible } from '$lib/utils/pollWhileVisible.js';
 
   let API_URL = '';
 
@@ -81,11 +82,12 @@
   onMount(async () => {
     API_URL = getApiUrl();
     await fetchHeaderData();
-    interval = setInterval(fetchHeaderData, 30000);
+    // Idle while the tab is hidden, catch up on return (issue #298).
+    interval = pollWhileVisible(fetchHeaderData, 30000);
   });
 
   onDestroy(() => {
-    if (interval) clearInterval(interval);
+    interval?.();
   });
 
   /**

@@ -596,7 +596,7 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: var(--spacing-xs);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .search-input {
@@ -607,7 +607,7 @@
     padding: var(--spacing-sm) var(--spacing-md);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     transition: all 0.2s ease;
   }
 
@@ -634,7 +634,7 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin-bottom: var(--spacing-sm);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .log-count {
@@ -650,7 +650,7 @@
   .transaction-table {
     width: 100%;
     border-collapse: collapse;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 0.8rem;
   }
 
@@ -711,7 +711,7 @@
   }
 
   .txid-col {
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .txid-link {
@@ -749,7 +749,7 @@
     color: var(--accent-purple);
     font-weight: 700;
     text-align: right;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .date-col {
@@ -823,7 +823,7 @@
     gap: var(--spacing-md);
     padding-top: var(--spacing-md);
     border-top: 1px solid var(--border-color);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 0.875rem;
     flex-wrap: wrap;
   }
@@ -845,7 +845,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s ease;
     min-width: 32px;
@@ -888,7 +888,7 @@
     padding: var(--spacing-xs) var(--spacing-sm);
     border-radius: var(--radius-sm);
     font-size: 0.875rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     cursor: pointer;
     transition: all 0.2s ease;
   }

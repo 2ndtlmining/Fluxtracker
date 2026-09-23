@@ -3,7 +3,7 @@
  *
  * ── Why this exists ──
  * This app's CSP (src/lib/security/contentSecurityPolicy.js) sets
- * `style-src 'self' https://fonts.googleapis.com` with no 'unsafe-inline'. That directive
+ * `style-src 'self'` with no 'unsafe-inline'. That directive
  * governs inline style ATTRIBUTES as well as <style> blocks, so the browser refuses to parse
  * `style="height: 1050px"` at all: the attribute stays visible in the DOM while
  * `element.style.height` reads back empty and the declaration never applies.

@@ -32,8 +32,8 @@
 // app.css's Google Fonts @import — that's the only exception needed.
 export const CSP_DIRECTIVES = {
     defaultSrc: ["'self'"],
-    styleSrc: ["'self'", 'https://fonts.googleapis.com'],
-    fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+    styleSrc: ["'self'"], // fonts are self-hosted since #302 -- no Google stylesheet
+    fontSrc: ["'self'", 'data:'],
     imgSrc: ["'self'", 'data:'],
     connectSrc: ["'self'"],
     objectSrc: ["'none'"],

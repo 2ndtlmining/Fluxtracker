@@ -180,7 +180,7 @@
   .transaction-count {
     font-size: 0.875rem;
     color: var(--text-muted);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .header-right {
@@ -193,7 +193,7 @@
   .page-info {
     font-size: 0.75rem;
     color: var(--text-muted);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .highlight {
@@ -204,7 +204,7 @@
   .mode-indicator {
     font-size: 0.75rem;
     color: var(--text-muted);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
   }
 
   .mode-badge {
@@ -227,7 +227,7 @@
     padding: 0.375rem 0.75rem;
     border-radius: var(--radius-sm);
     font-size: 0.75rem;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s ease;
