@@ -724,10 +724,22 @@ function formatResourceSummary(cpu, ram, hdd) {
   return parts.join(' ');
 }
 
+// Enterprise specs are encrypted, so their resources are unreadable -- and that is most
+// deployments (106 of 134 in one 24h sample). Leaving the RES row out left a blank row in
+// the middle of the frame; saying the spec is private is the real reading.
+export const ENTERPRISE_RESOURCES = 'private (enterprise)';
+
+/** The RES value for an app: its resources, the enterprise note, or '' (row omitted). */
+export function describeResources(app) {
+  const summary = formatResourceSummary(app?.cpu, app?.ram, app?.hdd);
+  if (summary) return summary;
+  return app?.isEnterprise ? ENTERPRISE_RESOURCES : '';
+}
+
 // Mirrors CarouselCard.svelte's formatBlocksAsTime (30s/block, same as config.js's
 // BLOCKS_PER_DAY = 2880) -- kept local rather than shared since this box's rendering
 // has its own width/label constraints the carousel doesn't.
-function formatBlocksAsTime(blocks) {
+export function formatBlocksAsTime(blocks) {
   const totalMinutes = Math.round(blocks * 30 / 60);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -770,7 +782,7 @@ export function pickLatestExpiring(expiringApps) {
  */
 export function formatDeploymentFrame(deployment, rank = null) {
   const instances = Number.isFinite(deployment.instances) ? deployment.instances : null;
-  const resources = formatResourceSummary(deployment.cpu, deployment.ram, deployment.hdd);
+  const resources = describeResources(deployment);
   const deployedAgo = Number.isFinite(deployment.blockAge)
     ? `${formatBlocksAsTime(deployment.blockAge)} ago`
     : null;
@@ -822,7 +834,7 @@ export function deploymentFrameKinds() {
  */
 export function formatExpiringFrame(app) {
   const instances = Number.isFinite(app.instances) ? app.instances : null;
-  const resources = formatResourceSummary(app.cpu, app.ram, app.hdd);
+  const resources = describeResources(app);
   const expiresIn = Number.isFinite(app.blocksUntilExpiry) ? formatBlocksAsTime(app.blocksUntilExpiry) : null;
 
   const detailLines = [formatDetailLine('NAME', app.name || 'unknown')];
@@ -878,4 +890,97 @@ export function formatExpiringReducedMotionLines(app) {
     `  ${name}`,
     expiresIn !== null ? `  in ${expiresIn}` : ''
   ], BOOT_LINE_COUNT);
+}
+
+// ---------------------------------------------------------------------------------------
+// Pause marker (issue #282). While the pointer is over the header the rotation holds, and
+// the box says so: `[ paused ]` replaces the last row's final columns, so the width -- and
+// therefore the header -- never changes.
+export const PAUSED_MARKER = '[ paused ]';
+
+export function markPaused(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return lines;
+  const last = String(lines.at(-1)).padEnd(LOGO_WIDTH).slice(0, LOGO_WIDTH - PAUSED_MARKER.length);
+  return [...lines.slice(0, -1), last + PAUSED_MARKER];
+}
+
+// ---------------------------------------------------------------------------------------
+// Desktop side panel (approved 2026-09-23). The art box keeps its 34x6 cell; this panel
+// sits beside it with the facts of whatever the box is showing, so the detail is readable
+// while the art plays instead of only after it. Exactly BOOT_LINE_COUNT rows, every one
+// real data or an honest dash -- never an empty row.
+
+const DASH = '—';
+
+function countLabel(value, noun) {
+  if (!Number.isFinite(value)) return null;
+  return `${value.toLocaleString('en-US')} ${noun}`;
+}
+
+function appFactsLine(app) {
+  const parts = [];
+  if (Number.isFinite(app?.instances)) parts.push(`${app.instances} inst`);
+  const res = describeResources(app);
+  if (res) parts.push(res);
+  return parts.length ? parts.join(' · ') : DASH;
+}
+
+/**
+ * The panel's rows for the current slot.
+ *
+ * @param {{
+ *   kind: 'logo'|'deployed'|'expiring'|null,
+ *   app?: object, rank?: {position: number, total: number}|null,
+ *   next?: {kind: 'deployed'|'expiring', app: object}|null,
+ *   blockHeight?: number|null, totalNodes?: number, totalApps?: number,
+ *   deployedCount?: number, newest?: object|null
+ * }} view
+ * @returns {{text: string, aside?: string, role: 'title'|'name'|'text'|'next'|'foot'}[]}
+ */
+export function formatSidePanel(view = {}) {
+  const { kind, app, rank, next, blockHeight, totalNodes, totalApps, deployedCount, newest } = view;
+
+  const nextRow = next?.app?.name
+    ? { text: `next up: ${next.app.name}`, role: 'next' }
+    : { text: `next up: ${DASH}`, role: 'text' };
+
+  const footParts = [];
+  if (Number.isFinite(blockHeight)) footParts.push(`block ${blockHeight.toLocaleString('en-US')}`);
+  const nodes = countLabel(totalNodes, 'nodes');
+  if (nodes && totalNodes > 0) footParts.push(nodes);
+  const foot = { text: footParts.length ? footParts.join(' · ') : DASH, role: 'foot' };
+
+  if (kind === 'deployed' && app) {
+    const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total);
+    return [
+      { text: 'NOW PLAYING', aside: ranked ? `#${rank.position} OF ${rank.total}` : undefined, role: 'title' },
+      { text: app.name || 'unknown', role: 'name' },
+      { text: appFactsLine(app), role: 'text' },
+      { text: Number.isFinite(app.blockAge) ? `deployed ${formatBlocksAsTime(app.blockAge)} ago` : `deployed in the last 24h`, role: 'text' },
+      nextRow,
+      foot
+    ];
+  }
+
+  if (kind === 'expiring' && app) {
+    return [
+      { text: 'EXPIRING SOON', role: 'title' },
+      { text: app.name || 'unknown', role: 'name' },
+      { text: appFactsLine(app), role: 'text' },
+      { text: Number.isFinite(app.blocksUntilExpiry) ? `expires in ${formatBlocksAsTime(app.blocksUntilExpiry)}` : 'expires within 24h', role: 'text' },
+      nextRow,
+      foot
+    ];
+  }
+
+  const network = [countLabel(totalNodes, 'nodes'), countLabel(totalApps, 'apps')]
+    .filter((part, i) => part && [totalNodes, totalApps][i] > 0);
+  return [
+    { text: 'FLUX NETWORK', role: 'title' },
+    { text: network.length ? network.join(' · ') : DASH, role: 'text' },
+    { text: Number.isFinite(deployedCount) ? `${deployedCount.toLocaleString('en-US')} deployed in 24h` : `deployed in 24h: ${DASH}`, role: 'text' },
+    { text: newest?.name ? `newest: ${newest.name}` : `newest: ${DASH}`, role: 'text' },
+    nextRow,
+    foot
+  ];
 }

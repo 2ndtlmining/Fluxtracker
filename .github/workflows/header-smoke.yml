@@ -18,6 +18,9 @@ on:
       - 'svelte.config.js'
       - 'src/lib/components/TerminalHeaderAnimation.svelte'
       - 'src/lib/components/Header.svelte'
+      - 'src/lib/stores/appFocus.js'
+      - 'src/lib/components/RevenueTransactions.svelte'
+      - 'src/lib/components/RevenueTransactionsTable.svelte'
       - 'src/routes/+page.svelte'
       - 'src/routes/+page.server.js'
       - 'src/lib/utils/headerRotation.js'
@@ -145,6 +148,12 @@ jobs:
 
       - name: Run header smoke
         run: node scripts/header-smoke/check-header.mjs
+
+      # Hover pause, click-through, the side panel and the rapid-click single-chain check
+      # (PR 10). Game-independent, so one job runs it.
+      - name: Run interaction check
+        if: matrix.game == 'valheim'
+        run: node scripts/header-smoke/check-interaction.mjs
 
       - name: Server logs
         if: failure()
