@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
-  import { resolveIntroKey } from '$lib/config.js';
+  import { resolveIntroKey, getApiUrl } from '$lib/config.js';
   import { focusApp } from '$lib/stores/appFocus.js';
   import {
     pickNextDeployed,
@@ -611,10 +611,42 @@
     return null;
   }
 
+  // What was paid for the app on screen (issue #345: the panel shows what the box cannot,
+  // rather than repeating it). One small search per app name, cached for PAYMENT_TTL_MS so
+  // the rotation's repeat visits cost nothing. Keyed by name, so a slow answer for an app
+  // that has already left the screen lands in the cache and never on the wrong app.
+  const PAYMENT_TTL_MS = 5 * 60 * 1000;
+  let payments = {}; // name -> { status, amount?, usd?, date?, total?, at }
+
+  async function loadPayment(name) {
+    const cached = payments[name];
+    if (cached && (cached.status === 'loading' || Date.now() - cached.at < PAYMENT_TTL_MS)) return;
+    payments = { ...payments, [name]: { status: 'loading', at: Date.now() } };
+    let result;
+    try {
+      const params = new URLSearchParams({ page: '1', limit: '1', search: name });
+      const response = await fetch(`${getApiUrl()}/api/transactions/paginated?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      // The search is a substring match; only an exact app-name row counts as its payment.
+      const tx = body.transactions?.find(t => t.app_name === name);
+      result = tx
+        ? { status: 'ok', amount: tx.amount, usd: tx.amount_usd, date: tx.date, total: body.total }
+        : { status: 'none' };
+    } catch {
+      result = { status: 'error' };
+    }
+    payments = { ...payments, [name]: { ...result, at: Date.now() } };
+  }
+
+  $: slotAppName = (currentSlot?.kind === 'deployed' || currentSlot?.kind === 'expiring') ? currentSlot.data?.name : null;
+  $: if (slotAppName) loadPayment(slotAppName);
+
   $: panelRows = formatSidePanel({
     kind: state === 'ready' ? currentSlot?.kind ?? 'logo' : null,
     app: currentSlot?.data,
-    rank: currentSlot?.rank,
+    introKey: currentSlot?.data ? resolveIntroKey(currentSlot.data) : null,
+    payment: slotAppName ? payments[slotAppName] : null,
     next: state === 'ready'
       ? previewNext(rotationIndex, recentDeployed, latestExpiringApp, deployedApps, latestDeployedApp)
       : null,

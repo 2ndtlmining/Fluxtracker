@@ -1,6 +1,12 @@
 import adapter from '@sveltejs/adapter-node';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
-import { CSP_DIRECTIVES, toKebabDirectives } from './src/lib/security/contentSecurityPolicy.js';
+import { pageCspDirectives, toKebabDirectives } from './src/lib/security/contentSecurityPolicy.js';
+
+// Only `vite build` output gets the production page policy (see pageCspDirectives): the
+// dev server's inline <style> tags need 'unsafe-inline', which any hash would switch off.
+// Anything that is not a build falls back to the dev policy, whose worst case is one
+// console message rather than a page with no styles.
+const production = process.argv.includes('build');
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -34,7 +40,7 @@ const config = {
 		// <script>, which a hand-set header has no way to do.
 		csp: {
 			mode: 'auto',
-			directives: toKebabDirectives(CSP_DIRECTIVES)
+			directives: toKebabDirectives(pageCspDirectives({ production }))
 		}
 	}
 };

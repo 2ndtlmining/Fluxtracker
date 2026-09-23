@@ -107,3 +107,28 @@ describe('Cross-Origin-Opener-Policy on untrustworthy origins', () => {
         expect(isTrustworthyOrigin(new URL('https://example.com/'), new Headers({ host: '10.0.0.5' }))).toBe(true);
     });
 });
+
+describe('pageCspDirectives: SvelteKit route announcer style', () => {
+    it('production allows exactly the inline style @sveltejs/kit generates, by hash', async () => {
+        const { readFileSync } = await import('node:fs');
+        const { createHash } = await import('node:crypto');
+        const { pageCspDirectives, SVELTEKIT_ANNOUNCER_STYLE_HASH } = await import('../contentSecurityPolicy.js');
+        const source = readFileSync('node_modules/@sveltejs/kit/src/core/sync/write_root.js', 'utf8');
+        const style = source.match(/id="svelte-announcer"[^>]*style="([^"]+)"/)?.[1];
+        expect(style, 'announcer markup not found in @sveltejs/kit -- re-check the CSP hash').toBeTruthy();
+        const hash = `'sha256-${createHash('sha256').update(style).digest('base64')}'`;
+        expect(hash).toBe(SVELTEKIT_ANNOUNCER_STYLE_HASH);
+        expect(pageCspDirectives({ production: true }).styleSrc).toEqual(["'self'", "'unsafe-hashes'", hash]);
+    });
+
+    it('dev gets no hash -- it would switch off the unsafe-inline the dev server needs', async () => {
+        const { pageCspDirectives } = await import('../contentSecurityPolicy.js');
+        expect(pageCspDirectives({ production: false }).styleSrc).toEqual(["'self'"]);
+    });
+
+    it('leaves the API policy (CSP_DIRECTIVES) untouched', async () => {
+        const { pageCspDirectives } = await import('../contentSecurityPolicy.js');
+        pageCspDirectives({ production: true });
+        expect(CSP_DIRECTIVES.styleSrc).toEqual(["'self'"]);
+    });
+});

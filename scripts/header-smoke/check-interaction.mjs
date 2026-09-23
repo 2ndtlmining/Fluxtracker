@@ -139,7 +139,7 @@ const run = async () => {
 
     // ---- click an app frame -> transaction search (#284) ----
     const appFrame = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
-    const panelName = await page.$eval('.side-panel .panel-name', el => el.textContent.trim());
+    const panelText = await page.$$eval('.side-panel .panel-row', rs => rs.map(r => r.textContent.trim()));
     await page.click('.terminal-box');
     await sleep(1500);
     const afterClick = await page.evaluate(() => {
@@ -148,7 +148,9 @@ const run = async () => {
       const r = log.getBoundingClientRect();
       return { search: input?.value, logOnScreen: r.top < window.innerHeight && r.bottom > 0 };
     });
-    check('click app frame: panel names the same app as the box', panelName === appFrame.name, `${panelName} / ${appFrame.name}`);
+    // Issue #345: the panel adds to the box, it does not repeat it.
+    check('app frame: panel does not repeat the box (no app name, no INST/RES/rank)',
+      !panelText.some(t => t.includes(appFrame.name) || /\binst\b|IN 24H| OF \d/i.test(t)), JSON.stringify(panelText));
     check('click app frame: transaction search is that app', afterClick.search === appFrame.name, afterClick.search);
     check('click app frame: transaction section scrolled into view', afterClick.logOnScreen);
     await page.mouse.move(700, 880);

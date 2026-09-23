@@ -1,3 +1,5 @@
+import { formatNumber } from './format.js';
+
 // Compact ASCII "FLUX" wordmark — the persistent header identity after boot.
 // Kept as a single constant so it's easy to swap later without touching component logic.
 export const FLUX_LOGO = ` ███████╗██╗     ██╗   ██╗██╗  ██╗
@@ -905,24 +907,58 @@ export function markPaused(lines) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Desktop side panel (approved 2026-09-23). The art box keeps its 34x6 cell; this panel
-// sits beside it with the facts of whatever the box is showing, so the detail is readable
-// while the art plays instead of only after it. Exactly BOOT_LINE_COUNT rows, every one
-// real data or an honest dash -- never an empty row.
+// Desktop side panel (approved 2026-09-23, reworked for issue #345). The art box keeps its
+// 34x6 cell and this panel sits beside it. It must never repeat the box: the box already
+// shows an app's name, age/expiry, instances, resources and its place in the day, so for an
+// app the panel carries what the box cannot fit -- what kind of app it is, its image, and
+// what was paid for it. Exactly BOOT_LINE_COUNT rows, every one real data or an honest
+// dash, never an empty row.
 
 const DASH = '—';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 function countLabel(value, noun) {
-  if (!Number.isFinite(value)) return null;
+  if (!Number.isFinite(value) || value <= 0) return null;
   return `${value.toLocaleString('en-US')} ${noun}`;
 }
 
-function appFactsLine(app) {
-  const parts = [];
-  if (Number.isFinite(app?.instances)) parts.push(`${app.instances} inst`);
-  const res = describeResources(app);
-  if (res) parts.push(res);
-  return parts.length ? parts.join(' · ') : DASH;
+/** 'game:Valheim' -> 'game · Valheim', 'service:wordpress' -> 'service · wordpress'. */
+function kindLine(app, introKey) {
+  const [family, name] = typeof introKey === 'string' && introKey.includes(':')
+    ? introKey.split(/:(.*)/s)
+    : ['app', null];
+  const parts = [name ? `${family} · ${name}` : family];
+  if (app?.isEnterprise) parts.push('enterprise');
+  return parts.join(' · ');
+}
+
+function imageLine(app) {
+  if (app?.repo) return app.repo;
+  return app?.isEnterprise ? 'image private (enterprise spec)' : `image ${DASH}`;
+}
+
+/** '2026-09-16' -> 'Sep 16'. */
+function shortDate(isoDate) {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(isoDate || '');
+  return m ? `${MONTHS[Number(m[1]) - 1]} ${Number(m[2])}` : null;
+}
+
+/**
+ * @param {{status: 'loading'|'none'|'ok'|'error', amount?: number, usd?: number,
+ *          date?: string, total?: number}|null|undefined} payment
+ */
+function paymentLine(payment) {
+  if (!payment || payment.status === 'loading') return 'payment: checking…';
+  if (payment.status === 'error') return `payment: ${DASH}`;
+  // A deployment only has a payment row after the next revenue sync.
+  if (payment.status === 'none') return 'no payment synced yet';
+  const flux = `${formatNumber(payment.amount, 2)} FLUX`;
+  const date = shortDate(payment.date);
+  if (payment.total > 1) {
+    return [`${payment.total} payments`, `last ${flux}`, date].filter(Boolean).join(' · ');
+  }
+  const usd = Number.isFinite(payment.usd) ? `$${formatNumber(payment.usd, 2)}` : null;
+  return ['paid ' + flux, usd, date].filter(Boolean).join(' · ');
 }
 
 /**
@@ -930,15 +966,15 @@ function appFactsLine(app) {
  *
  * @param {{
  *   kind: 'logo'|'deployed'|'expiring'|null,
- *   app?: object, rank?: {position: number, total: number}|null,
+ *   app?: object, introKey?: string|null, payment?: object|null,
  *   next?: {kind: 'deployed'|'expiring', app: object}|null,
  *   blockHeight?: number|null, totalNodes?: number, totalApps?: number,
  *   deployedCount?: number, newest?: object|null
  * }} view
- * @returns {{text: string, aside?: string, role: 'title'|'name'|'text'|'next'|'foot'}[]}
+ * @returns {{text: string, role: 'title'|'name'|'text'|'next'|'foot'}[]}
  */
 export function formatSidePanel(view = {}) {
-  const { kind, app, rank, next, blockHeight, totalNodes, totalApps, deployedCount, newest } = view;
+  const { kind, app, introKey, payment, next, blockHeight, totalNodes, totalApps, deployedCount, newest } = view;
 
   const nextRow = next?.app?.name
     ? { text: `next up: ${next.app.name}`, role: 'next' }
@@ -947,34 +983,21 @@ export function formatSidePanel(view = {}) {
   const footParts = [];
   if (Number.isFinite(blockHeight)) footParts.push(`block ${blockHeight.toLocaleString('en-US')}`);
   const nodes = countLabel(totalNodes, 'nodes');
-  if (nodes && totalNodes > 0) footParts.push(nodes);
+  if (nodes) footParts.push(nodes);
   const foot = { text: footParts.length ? footParts.join(' · ') : DASH, role: 'foot' };
 
-  if (kind === 'deployed' && app) {
-    const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total);
+  if ((kind === 'deployed' || kind === 'expiring') && app) {
     return [
-      { text: 'NOW PLAYING', aside: ranked ? `#${rank.position} OF ${rank.total}` : undefined, role: 'title' },
-      { text: app.name || 'unknown', role: 'name' },
-      { text: appFactsLine(app), role: 'text' },
-      { text: Number.isFinite(app.blockAge) ? `deployed ${formatBlocksAsTime(app.blockAge)} ago` : `deployed in the last 24h`, role: 'text' },
+      { text: kind === 'deployed' ? 'NOW PLAYING' : 'EXPIRING SOON', role: 'title' },
+      { text: kindLine(app, introKey), role: 'name' },
+      { text: imageLine(app), role: 'text' },
+      { text: paymentLine(payment), role: 'text' },
       nextRow,
       foot
     ];
   }
 
-  if (kind === 'expiring' && app) {
-    return [
-      { text: 'EXPIRING SOON', role: 'title' },
-      { text: app.name || 'unknown', role: 'name' },
-      { text: appFactsLine(app), role: 'text' },
-      { text: Number.isFinite(app.blocksUntilExpiry) ? `expires in ${formatBlocksAsTime(app.blocksUntilExpiry)}` : 'expires within 24h', role: 'text' },
-      nextRow,
-      foot
-    ];
-  }
-
-  const network = [countLabel(totalNodes, 'nodes'), countLabel(totalApps, 'apps')]
-    .filter((part, i) => part && [totalNodes, totalApps][i] > 0);
+  const network = [countLabel(totalNodes, 'nodes'), countLabel(totalApps, 'apps')].filter(Boolean);
   return [
     { text: 'FLUX NETWORK', role: 'title' },
     { text: network.length ? network.join(' · ') : DASH, role: 'text' },

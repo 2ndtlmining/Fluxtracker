@@ -54,24 +54,53 @@ describe('formatSidePanel', () => {
     expect(rows).toHaveLength(BOOT_LINE_COUNT);
     for (const r of rows) expect(r.text.trim().length).toBeGreaterThan(0);
   };
+  const paid = { status: 'ok', amount: 18.4, usd: 0.955512, date: '2026-09-16', total: 1 };
 
-  it('deployed: the approved mockup rows, rank beside the title, next up as the action row', () => {
-    const rows = formatSidePanel({ ...base, kind: 'deployed', app: open, rank: { position: 12, total: 125 }, next: { kind: 'expiring', app: { name: 'minecraftj1' } } });
+  it('deployed: kind, image, payment, next up -- the facts the box does not show', () => {
+    const rows = formatSidePanel({ ...base, kind: 'deployed', app: open, introKey: 'game:Palworld', payment: paid, next: { kind: 'expiring', app: { name: 'minecraftj1' } } });
     noEmptyRows(rows);
-    expect(rows[0]).toMatchObject({ text: 'NOW PLAYING', aside: '#12 OF 125', role: 'title' });
-    expect(rows[1].text).toBe('palworld1787015974836');
-    expect(rows[2].text).toBe('2 inst · 6 CPU 16.0G RAM 40G SSD');
-    expect(rows[3].text).toBe('deployed 37m ago');
-    expect(rows[4]).toEqual({ text: 'next up: minecraftj1', role: 'next' });
-    expect(rows[5].text).toBe('block 2,976,515 · 6,490 nodes');
+    expect(rows.map(r => r.text)).toEqual([
+      'NOW PLAYING',
+      'game · Palworld',
+      'image —', // this fixture has no repo and is not enterprise
+      'paid 18.40 FLUX · $0.96 · Sep 16',
+      'next up: minecraftj1',
+      'block 2,976,515 · 6,490 nodes'
+    ]);
+    expect(rows[4].role).toBe('next');
   });
 
-  it('expiring: time left and the enterprise note', () => {
-    const rows = formatSidePanel({ ...base, kind: 'expiring', app: { ...enterprise, blocksUntilExpiry: 120 } });
+  it('never repeats what the box shows for the same app (issue #345)', () => {
+    const app = { ...open, repo: 'runonflux/palworld-server-flux:latest' };
+    const box = formatDeploymentFrame(app, { position: 12, total: 125 }).join('\n');
+    const panel = formatSidePanel({ ...base, kind: 'deployed', app, introKey: 'game:Palworld', payment: paid, rank: { position: 12, total: 125 } })
+      .map(r => r.text).join('\n');
+    expect(box).toMatch(/INST\s+2/);
+    expect(panel).not.toMatch(/\binst\b/i);
+    for (const repeated of [app.name, '12 OF 125', '16.0G RAM', '37m ago']) {
+      expect(box).toContain(repeated);
+      expect(panel).not.toContain(repeated);
+    }
+  });
+
+  it('enterprise: says the image is private and marks the kind', () => {
+    const rows = formatSidePanel({ ...base, kind: 'expiring', app: { ...enterprise, blocksUntilExpiry: 120 }, introKey: 'game:RuneScape: Dragonwilds', payment: { status: 'none' } });
     noEmptyRows(rows);
     expect(rows[0].text).toBe('EXPIRING SOON');
-    expect(rows[2].text).toBe(`2 inst · ${ENTERPRISE_RESOURCES}`);
-    expect(rows[3].text).toBe('expires in 1h');
+    expect(rows[1].text).toBe('game · RuneScape: Dragonwilds · enterprise');
+    expect(rows[2].text).toBe('image private (enterprise spec)');
+    expect(rows[3].text).toBe('no payment synced yet');
+  });
+
+  it('several payments: count, last amount and date', () => {
+    const rows = formatSidePanel({ ...base, kind: 'deployed', app: open, introKey: null, payment: { ...paid, total: 3 } });
+    expect(rows[1].text).toBe('app');
+    expect(rows[3].text).toBe('3 payments · last 18.40 FLUX · Sep 16');
+  });
+
+  it('while the payment lookup is in flight or failed it says so, never a zero', () => {
+    expect(formatSidePanel({ kind: 'deployed', app: open })[3].text).toBe('payment: checking…');
+    expect(formatSidePanel({ kind: 'deployed', app: open, payment: { status: 'error' } })[3].text).toBe('payment: —');
   });
 
   it('logo: network facts and the newest deployment', () => {
