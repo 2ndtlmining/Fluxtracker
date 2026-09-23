@@ -2,23 +2,15 @@ import { describe, it, expect } from 'vitest';
 import {
   pickNextDeployed,
   rememberShown,
-  blockMilestone,
-  RECENT_HISTORY_LIMIT,
-  MILESTONE_BLOCK_STEP,
-  MILESTONE_WINDOW_BLOCKS
+  RECENT_HISTORY_LIMIT
 } from './headerRotation.js';
 import { resolveIntroKey } from '../config.js';
 import {
-  formatMilestoneFrame,
-  formatMilestoneReducedMotionLines,
-  milestoneFrameKinds,
   formatDeployedCounterLine,
   formatDeploymentFrame,
   DEPLOYED_ICON_LINE,
   LOGO_WIDTH,
-  BOOT_LINE_COUNT,
-  ROW_KIND_MILESTONE,
-  MILESTONE_FRAME_COUNT
+  BOOT_LINE_COUNT
 } from './terminalAnimation.js';
 
 const app = (name, blockAge, repo = '') => ({ name, blockAge, repo });
@@ -113,67 +105,6 @@ describe('pickNextDeployed (issue #283)', () => {
     for (let i = 0; i < RECENT_HISTORY_LIMIT + 50; i++) recent = rememberShown(recent, { name: `a${i}` }, null);
     expect(recent).toHaveLength(RECENT_HISTORY_LIMIT);
     expect(recent.at(-1).name).toBe(`a${RECENT_HISTORY_LIMIT + 49}`);
-  });
-});
-
-describe('blockMilestone (issue #285)', () => {
-  it('is null away from a round height', () => {
-    expect(blockMilestone(2_974_396)).toBeNull();
-    expect(blockMilestone(null)).toBeNull();
-    expect(blockMilestone(0)).toBeNull();
-  });
-
-  it('counts down in the day before', () => {
-    expect(blockMilestone(3_000_000 - MILESTONE_WINDOW_BLOCKS))
-      .toEqual({ phase: 'countdown', target: 3_000_000, blocksToGo: MILESTONE_WINDOW_BLOCKS });
-    expect(blockMilestone(2_999_999)).toMatchObject({ phase: 'countdown', blocksToGo: 1 });
-    expect(blockMilestone(3_000_000 - MILESTONE_WINDOW_BLOCKS - 1)).toBeNull();
-  });
-
-  it('celebrates from the exact height for one day', () => {
-    expect(blockMilestone(3_000_000)).toEqual({ phase: 'reached', target: 3_000_000, blocksPast: 0 });
-    expect(blockMilestone(3_000_000 + MILESTONE_WINDOW_BLOCKS - 1)).toMatchObject({ phase: 'reached' });
-    expect(blockMilestone(3_000_000 + MILESTONE_WINDOW_BLOCKS)).toBeNull();
-  });
-
-  it('recurs every step', () => {
-    expect(blockMilestone(3 * MILESTONE_BLOCK_STEP + 3_000_000 + 10)).toMatchObject({ target: 3_300_000 });
-  });
-});
-
-describe('milestone frames (issue #285)', () => {
-  const countdown = { phase: 'countdown', target: 3_000_000, blocksToGo: 1234 };
-  const reached = { phase: 'reached', target: 3_000_000, blocksPast: 217 };
-
-  it.each([['countdown', countdown], ['reached', reached]])('%s: fixed box, no empty rows, animates', (_, m) => {
-    const frames = Array.from({ length: MILESTONE_FRAME_COUNT }, (__, s) => formatMilestoneFrame(m, s));
-    for (const f of frames) {
-      expect(f).toHaveLength(BOOT_LINE_COUNT);
-      for (const row of f) {
-        expect(row).toHaveLength(LOGO_WIDTH);
-        expect(row.trim().length).toBeGreaterThan(0);
-      }
-    }
-    expect(frames[1]).not.toEqual(frames[0]);
-  });
-
-  it('shows only real numbers', () => {
-    expect(formatMilestoneFrame(countdown).join('\n')).toMatch(/3,000,000[\s\S]*1,234 blocks to go/);
-    expect(formatMilestoneFrame(reached).join('\n')).toMatch(/REACHED[\s\S]*now at 3,000,217/);
-  });
-
-  it('the countdown bar fills as the block approaches', () => {
-    const bar = m => formatMilestoneFrame(m)[3].split('#').length - 1;
-    expect(bar({ ...countdown, blocksToGo: 2000 })).toBeLessThan(bar({ ...countdown, blocksToGo: 100 }));
-  });
-
-  it('every row is gold', () => {
-    expect(milestoneFrameKinds()).toEqual(Array(BOOT_LINE_COUNT).fill(ROW_KIND_MILESTONE));
-  });
-
-  it('reduced motion keeps the facts', () => {
-    expect(formatMilestoneReducedMotionLines(reached).join('\n')).toContain('3,000,000 reached');
-    expect(formatMilestoneReducedMotionLines(reached)).toHaveLength(BOOT_LINE_COUNT);
   });
 });
 

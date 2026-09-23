@@ -37,12 +37,6 @@ timing changes) are caught mechanically.
   controller fallback.
 - **Now playing** (issue #283): the deployed frame's closing bookend says where the app sits
   in the day (`#1 OF 1 IN 24H` against the stub's one-app lists)
-- **Block milestones** (issue #285): start the stub with `BLOCK_HEIGHT=299000` (inside the
-  one-day countdown to 300,000) and run the check with `EXPECT_MILESTONE=1` to assert the
-  gold milestone frame appears with no empty rows. The milestone is the LAST slot in the
-  rotation on purpose -- placed earlier, it delayed the first deployed frame past the stub's
-  fixture switch and the controller-fallback checks never saw the first fixture. CI runs
-  this in the valheim job.
 - Build version renders `--accent-green`, codename `--accent-purple`
 - Mobile (375px): exactly 6 mobile rows, no wrapping
 - No console errors

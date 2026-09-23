@@ -92,12 +92,26 @@ const TRUSTWORTHY_ONLY_HEADERS = new Set(['Cross-Origin-Opener-Policy']);
 /**
  * Whether the browser will treat the page's origin as potentially trustworthy: https (directly,
  * or behind a TLS-terminating proxy that says so in X-Forwarded-Proto) or a loopback host.
+ *
+ * The host is read from the request's Host header, not from `url`: adapter-node builds
+ * `event.url` from the ORIGIN env var (the Dockerfile and start-all default it to
+ * http://localhost:5173), so `url.hostname` said "localhost" for a visitor on a LAN IP and
+ * the header was still sent to them.
  */
 export function isTrustworthyOrigin(url, requestHeaders) {
     if (url.protocol === 'https:') return true;
     const forwarded = requestHeaders?.get?.('x-forwarded-proto') || '';
     if (forwarded.split(',')[0].trim().toLowerCase() === 'https') return true;
-    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.hostname.endsWith('.localhost');
+    let hostname = url.hostname;
+    const hostHeader = requestHeaders?.get?.('host');
+    if (hostHeader) {
+        try {
+            hostname = new URL(`http://${hostHeader}`).hostname;
+        } catch {
+            return false; // unparseable Host: not something to vouch for
+        }
+    }
+    return ['localhost', '127.0.0.1', '[::1]'].includes(hostname) || hostname.endsWith('.localhost');
 }
 
 /**

@@ -46,32 +46,3 @@ export function rememberShown(recent, app, key) {
   const next = [...recent, { name: app.name, key: key ?? null }];
   return next.length > RECENT_HISTORY_LIMIT ? next.slice(-RECENT_HISTORY_LIMIT) : next;
 }
-
-// Block-height milestones (issue #285). A round height every 100,000 blocks is ~35 days at
-// Flux's 30s block time: rare enough to feel like an event, common enough to recur. The
-// window is one day either side (2,880 blocks) -- a countdown the day before, a
-// celebration the day after.
-export const MILESTONE_BLOCK_STEP = 100_000;
-export const MILESTONE_WINDOW_BLOCKS = 2880;
-
-/**
- * The block milestone in play at `blockHeight`, or null outside every window. Uses only the
- * real height from /api/header -- the header never invents a number.
- *
- * @returns {{phase: 'countdown', target: number, blocksToGo: number}
- *          |{phase: 'reached', target: number, blocksPast: number}|null}
- */
-export function blockMilestone(blockHeight) {
-  if (!Number.isFinite(blockHeight) || blockHeight <= 0) return null;
-
-  const previous = Math.floor(blockHeight / MILESTONE_BLOCK_STEP) * MILESTONE_BLOCK_STEP;
-  if (previous > 0 && blockHeight - previous < MILESTONE_WINDOW_BLOCKS) {
-    return { phase: 'reached', target: previous, blocksPast: blockHeight - previous };
-  }
-
-  const next = previous + MILESTONE_BLOCK_STEP;
-  if (next - blockHeight <= MILESTONE_WINDOW_BLOCKS) {
-    return { phase: 'countdown', target: next, blocksToGo: next - blockHeight };
-  }
-  return null;
-}

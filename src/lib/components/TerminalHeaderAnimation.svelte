@@ -4,9 +4,7 @@
   import { resolveIntroKey } from '$lib/config.js';
   import {
     pickNextDeployed,
-    rememberShown,
-    blockMilestone,
-    MILESTONE_WINDOW_BLOCKS
+    rememberShown
   } from '$lib/utils/headerRotation.js';
   import {
     LOGO_LINES,
@@ -41,11 +39,7 @@
     palworldFrameKinds,
     PALWORLD_FRAME_COUNT,
     minecraftFrameKinds,
-    MINECRAFT_FRAME_COUNT,
-    formatMilestoneFrame,
-    formatMilestoneReducedMotionLines,
-    milestoneFrameKinds,
-    MILESTONE_FRAME_COUNT
+    MINECRAFT_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -372,10 +366,6 @@
     const slots = [{ kind: 'logo' }];
     if (latestExpiringApp) slots.push({ kind: 'expiring', data: latestExpiringApp });
     if (deployedList().length > 0) slots.push({ kind: 'deployed' });
-    // A block milestone (issue #285) only exists for a day either side of a round height.
-    // Last in the cycle, so it never delays the app frames the rotation exists for.
-    const milestone = blockMilestone(blockHeight);
-    if (milestone) slots.push({ kind: 'milestone', data: milestone });
     return slots;
   }
 
@@ -406,13 +396,6 @@
    * A game with its own art gets it; every other game falls back to the controller.
    */
   function introForSlot(slot) {
-    if (slot?.kind === 'milestone') {
-      return {
-        frameCount: MILESTONE_FRAME_COUNT,
-        format: step => formatMilestoneFrame(slot.data, step, MILESTONE_WINDOW_BLOCKS),
-        kinds: milestoneFrameKinds
-      };
-    }
     if (slot?.kind !== 'deployed') return null;
     // One resolver for games and services (issue #271): `game:<name>` or `service:<key>`.
     const key = resolveIntroKey(slot.data);
@@ -424,15 +407,6 @@
   function framesForSlot(slot) {
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
-    }
-    if (slot.kind === 'milestone') {
-      const m = slot.data;
-      const lines = reducedMotion ? formatMilestoneReducedMotionLines(m) : formatMilestoneFrame(m, 0, MILESTONE_WINDOW_BLOCKS);
-      const kinds = reducedMotion ? textKinds() : milestoneFrameKinds();
-      const label = m.phase === 'countdown'
-        ? `Block ${m.target.toLocaleString('en-US')} in ${m.blocksToGo} blocks`
-        : `Block ${m.target.toLocaleString('en-US')} reached`;
-      return { lines, kinds, ariaLabel: label };
     }
     if (slot.kind === 'expiring') {
       // Reduced motion stays plain text (essentials only, per its existing design
@@ -618,13 +592,6 @@
     text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
   }
 
-  /* Block milestone frames (issue #285) -- gold, an event rather than a deployment. */
-  .row-milestone {
-    font-size: 0.7rem;
-    color: var(--accent-yellow);
-    text-shadow: 0 0 8px rgba(255, 235, 59, 0.55);
-  }
-
   @media (max-width: 480px) {
     .terminal-box {
       --box-row: 0.8rem;
@@ -639,8 +606,7 @@
     }
 
     .row-expiring,
-    .row-deployed,
-    .row-milestone {
+    .row-deployed {
       font-size: 0.6rem;
     }
   }
