@@ -197,6 +197,7 @@ file run manually:
 14. `014_unique_wallets.sql` -- `unique_wallets` column
 15. `015_unique_app_owners.sql` -- `unique_app_owners` column
 16. `016_locked_collateral.sql` -- `locked_collateral*` columns
+17. `017_transactions_paginated_index_order.sql` -- faster, totally ordered `get_transactions_paginated` + composite index (#294). Same signature: optional for correctness of existing callers, but the transaction table and CSV export are slower without it
 
 Skipping 011-016 is not a partial degradation: a fresh project without them has no
 `game_snapshots` table, no payer filter, and none of the newer snapshot columns, so several

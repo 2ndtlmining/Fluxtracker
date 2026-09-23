@@ -18,6 +18,8 @@ on:
       - 'svelte.config.js'
       - 'src/lib/components/TerminalHeaderAnimation.svelte'
       - 'src/lib/components/Header.svelte'
+      - 'src/routes/+page.svelte'
+      - 'src/routes/+page.server.js'
       - 'src/lib/utils/headerRotation.js'
       - 'src/lib/utils/terminalAnimation.js'
       - 'src/routes/api/core.js'
