@@ -44,22 +44,17 @@
 
   async function fetchFooterStats() {
     try {
-      // Fetch both endpoints in parallel
-      const [txResponse, statusResponse] = await Promise.all([
-        fetch(`${API_URL}/api/transactions/summary`),
-        fetch(`${API_URL}/api/admin/revenue-status`)
-      ]);
-
-      if (txResponse.ok) {
-        const txData = await txResponse.json();
-        if (txData && txData.totalTransactions !== undefined) {
-          totalTransactions = txData.totalTransactions;
-          syncStatus = 'success';
-        }
-      }
+      // One request (issue #301). revenue-status already carries the transaction count; the
+      // footer also called /api/transactions/summary, which ran that count again plus three
+      // revenue sums the footer never showed.
+      const statusResponse = await fetch(`${API_URL}/api/admin/revenue-status`);
 
       if (statusResponse.ok) {
         const statusData = await statusResponse.json();
+        if (statusData && statusData.transactionCount !== undefined) {
+          totalTransactions = statusData.transactionCount;
+          syncStatus = 'success';
+        }
         lastSyncBlock = statusData.lastSyncBlock;
         currentBlock = statusData.currentBlock;
         isSyncing = statusData.isSyncing;

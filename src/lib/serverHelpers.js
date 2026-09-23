@@ -7,12 +7,38 @@ import { dbSuccessCount, isDatabaseError } from './db/dbCallTracker.js';
 // ============================================
 // RESPONSE CACHE — stale-while-revalidate
 // ============================================
-export function createCache(ttlMs) {
-    const store = new Map();
+/**
+ * A bounded cache (issue #291). It used to be a plain Map that never evicted -- on purpose,
+ * since stale entries back the 503 fallback -- keyed on raw query strings, so every distinct
+ * `limit`/date/search a client sent was kept forever. Now least-recently-used entries are
+ * dropped past BOTH `maxEntries` and `maxBytes`, which still leaves the stale copy of every
+ * key actually in use. Routes also normalise their keys -- see parseRangeQuery().
+ *
+ * The byte budget matters as much as the count: one /snapshots/full "All" answer is ~3 MB,
+ * so 100 of them would still be ~300 MB (measured on a real server before this budget).
+ * Size is estimated from the JSON the route is about to send anyway; an entry larger than
+ * the whole budget is simply not cached.
+ */
+export function createCache(ttlMs, { maxEntries = 100, maxBytes = 32 * 1024 * 1024 } = {}) {
+    const store = new Map(); // insertion order doubles as recency order
+    let bytes = 0;
+    const touch = (key, entry) => {
+        store.delete(key);
+        store.set(key, entry);
+    };
+    const remove = (key) => {
+        const entry = store.get(key);
+        if (!entry) return;
+        bytes -= entry.bytes;
+        store.delete(key);
+    };
     return {
         get(key) {
             const entry = store.get(key);
-            if (entry && Date.now() - entry.time < ttlMs) return entry.data;
+            if (entry && Date.now() - entry.time < ttlMs) {
+                touch(key, entry);
+                return entry.data;
+            }
             return null;
         },
         getStale(key) {
@@ -20,9 +46,46 @@ export function createCache(ttlMs) {
             return entry ? entry.data : null;
         },
         set(key, data) {
-            store.set(key, { data, time: Date.now() });
+            let size;
+            try {
+                size = JSON.stringify(data)?.length ?? 0;
+            } catch {
+                size = 0;
+            }
+            remove(key);
+            if (size > maxBytes) return; // bigger than the whole budget: don't cache it
+            store.set(key, { data, time: Date.now(), bytes: size });
+            bytes += size;
+            while (store.size > maxEntries || bytes > maxBytes) remove(store.keys().next().value);
+        },
+        get size() {
+            return store.size;
+        },
+        get bytes() {
+            return bytes;
         }
     };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * `?limit=&start_date=&end_date=` parsed and clamped once, so equivalent requests share one
+ * cache key (issue #291): `30`, `030` and `30.0` were three entries. Malformed dates are an
+ * error rather than being passed through to the database.
+ *
+ * @returns {{limit: number, start: string|null, end: string|null, key: string, error?: string}}
+ */
+export function parseRangeQuery(query, { defaultLimit = 30, maxLimit = 10000 } = {}) {
+    const parsed = parseInt(query.limit, 10);
+    const limit = Math.min(Math.max(Number.isFinite(parsed) ? parsed : defaultLimit, 1), maxLimit);
+    const start = query.start_date || null;
+    const end = query.end_date || null;
+    if ((start && !ISO_DATE.test(start)) || (end && !ISO_DATE.test(end))) {
+        return { limit, start: null, end: null, key: '', error: 'start_date and end_date must be YYYY-MM-DD' };
+    }
+    const range = start && end;
+    return { limit, start: range ? start : null, end: range ? end : null, key: range ? `${start}:${end}` : `last:${limit}` };
 }
 
 // ============================================
@@ -93,6 +156,9 @@ export async function withDbFallback(cache, cacheKey, res, fetchFn) {
         cache.set(cacheKey, data);
         return res.json(data);
     } catch (error) {
+        // A deliberate client-facing answer (e.g. 404 "nothing to compare yet") is not an
+        // outage: pass its status through, and neither trip the breaker nor serve stale data.
+        if (error.httpStatus) return res.status(error.httpStatus).json({ error: error.message });
         if (isDatabaseError(error)) recordFailure();
         const stale = cache.getStale(cacheKey);
         if (stale) return res.status(503).json({ ...stale, _stale: true });

@@ -56,7 +56,7 @@ const NETWORK_UTILS = [
 function serve({ utils = NETWORK_UTILS, benchmarks = BENCHMARKS } = {}) {
     mockResilientFetch.mockImplementation(async (url) => {
         if (url === API_ENDPOINTS.API_FLUX_NETWORK_UTILISATION) return utils;
-        if (url === API_ENDPOINTS.API_NODE_BENCHMARKS) return benchmarks;
+        if (url === API_ENDPOINTS.API_NODE_BENCHMARK_CAPACITY) return benchmarks;
         throw new Error('unexpected endpoint: ' + url);
     });
 }

@@ -76,7 +76,7 @@ router.get('/decentralization', async (req, res) => {
 // Chart.svelte's own timeframe options.
 router.get('/decentralization/history', async (req, res) => {
     try {
-        const days = Math.max(1, parseInt(req.query.days) || 90);
+        const days = Math.min(Math.max(1, parseInt(req.query.days) || 90), 3650); // bounded (#295)
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
 

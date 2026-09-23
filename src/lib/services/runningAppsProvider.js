@@ -8,6 +8,14 @@ const log = createLogger('runningAppsProvider');
 // gaming, crypto, wordpress and cloud each used to download this ~450KB payload separately
 // on every cycle. One fetch per cycle, shared.
 const DEFAULT_TTL_MS = 60 * 1000;
+
+/**
+ * For viewer-facing reads (issue #296). The service cycle refreshes this data every 5
+ * minutes; a request path using the 60 s default paid the ~550 KB upstream fetch inside the
+ * request whenever the cycle's copy was more than a minute old -- most of the time. Readers
+ * accept up to two cycles of age and leave refreshing to the scheduler.
+ */
+export const READ_PATH_TTL_MS = 10 * 60 * 1000;
 const MAX_RETRIES = 2;    // attempts after the first (3 total, as the old inline loop had)
 const RETRY_DELAY_MS = 5000;
 

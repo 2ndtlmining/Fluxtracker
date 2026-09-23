@@ -1492,11 +1492,13 @@ export async function getPriceHistoryCount() {
 // UTILITY FUNCTIONS
 // ============================================
 
-export async function getDatabaseStats() {
+/** Row counts; `{ lean: true }` is just the two the header shows (issue #301). */
+export async function getDatabaseStats({ lean = false } = {}) {
     try {
         const d = getDb();
         const snapshots = d.prepare('SELECT COUNT(*) AS cnt FROM daily_snapshots').get().cnt;
         const transactions = d.prepare('SELECT COUNT(*) AS cnt FROM revenue_transactions').get().cnt;
+        if (lean) return { snapshots, transactions };
         const priceHistory = d.prepare('SELECT COUNT(*) AS cnt FROM flux_price_history').get().cnt;
         const repoSnapshots = d.prepare('SELECT COUNT(*) AS cnt FROM repo_snapshots').get().cnt;
         const distinctRepos = d.prepare('SELECT COUNT(DISTINCT image_name) AS cnt FROM repo_snapshots').get().cnt;

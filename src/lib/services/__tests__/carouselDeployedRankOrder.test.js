@@ -33,7 +33,7 @@ beforeEach(() => {
     vi.clearAllMocks();
     axios.get.mockImplementation(async url => {
         if (String(url).includes('getblockcount')) return { data: { data: BLOCK_HEIGHT } };
-        if (String(url).includes('globalappsspecifications')) return { data: { data: REGISTRY } };
+        if (String(url).includes('globalappsspecifications')) return { data: { status: 'success', data: REGISTRY } }; // appSpecsCache checks status (#293)
         throw new Error(`unexpected axios call: ${url}`);
     });
 });
