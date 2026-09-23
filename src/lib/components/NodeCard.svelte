@@ -1,4 +1,5 @@
 <script>
+  import CardNotice from '$lib/components/CardNotice.svelte';
   import { Server } from 'lucide-svelte';
   
   export let cumulus = { count: 0 };
@@ -6,6 +7,12 @@
   export let stratus = { count: 0 };
   export let total = 0;
   export let loading = false;
+
+  // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
+  // never zeros); `staleSince` = ms of the last good load while a refresh is failing.
+  export let unavailable = false;
+  export let staleSince = null;
+  export let onRetry = null;
 
   // Unique operator wallets (issue #201) — distinct payment addresses across the node list.
   // Sits here rather than in its own card because it only means anything next to the node
@@ -35,7 +42,7 @@
     <div class="node-title">Total Nodes</div>
   </div>
   
-  {#if !loading}
+  {#if !loading && !unavailable}
     <div class="node-metrics">
       <!-- Cumulus -->
       <div class="node-metric">
@@ -121,6 +128,11 @@
         <div class="wallets-value">{formatNumber(uniqueWallets)}</div>
       </div>
     {/if}
+    {#if staleSince}
+      <CardNotice kind="stale" updatedAt={staleSince} {onRetry} />
+    {/if}
+  {:else if unavailable}
+    <CardNotice kind="unavailable" {onRetry} />
   {:else}
     <div class="loading-state">Loading node data...</div>
   {/if}

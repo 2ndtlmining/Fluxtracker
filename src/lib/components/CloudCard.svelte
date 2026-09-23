@@ -1,10 +1,17 @@
 <script>
+  import CardNotice from '$lib/components/CardNotice.svelte';
   import { Cloud } from 'lucide-svelte';
   
   export let cpu = { total: 0, used: 0, utilization: 0 };
   export let ram = { total: 0, used: 0, utilization: 0 };
   export let storage = { total: 0, used: 0, utilization: 0 };
   export let loading = false;
+
+  // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
+  // never zeros); `staleSince` = ms of the last good load while a refresh is failing.
+  export let unavailable = false;
+  export let staleSince = null;
+  export let onRetry = null;
   
   // Comparison data (optional)
   export let cpuComparison = null;      // { change: number, trend: 'up'|'down'|'neutral' }
@@ -51,7 +58,7 @@
     <div class="cloud-title">Cloud Resources</div>
     
     <!-- Overall demand indicator (based on CPU) -->
-    {#if !loading}
+    {#if !loading && !unavailable}
       <div class="overall-demand" class:poor={demandLevel === 'poor'} 
            class:mediocre={demandLevel === 'mediocre'} 
            class:high={demandLevel === 'high'} 
@@ -61,7 +68,7 @@
     {/if}
   </div>
   
-  {#if !loading}
+  {#if !loading && !unavailable}
     <div class="cloud-metrics">
       <!-- CPU -->
       <div class="cloud-metric">
@@ -126,6 +133,11 @@
         {/if}
       </div>
     </div>
+    {#if staleSince}
+      <CardNotice kind="stale" updatedAt={staleSince} {onRetry} />
+    {/if}
+  {:else if unavailable}
+    <CardNotice kind="unavailable" {onRetry} />
   {:else}
     <div class="loading-state">Loading cloud data...</div>
   {/if}

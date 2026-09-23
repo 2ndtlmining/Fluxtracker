@@ -1,4 +1,5 @@
 <script>
+  import CardNotice from '$lib/components/CardNotice.svelte';
   import { DollarSign } from 'lucide-svelte';
   
   export let payments = { count: 0 };
@@ -8,6 +9,12 @@
   // line, never subtracted from the headline figures — the total stays the primary number.
   export let selfFunded = null;
   export let loading = false;
+
+  // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
+  // never zeros); `staleSince` = ms of the last good load while a refresh is failing.
+  export let unavailable = false;
+  export let staleSince = null;
+  export let onRetry = null;
   export let period = 'D'; // D, W, M, Q, Y
   
   // Map period to display name
@@ -91,7 +98,7 @@
     <div class="revenue-title">{periodName}</div>
   </div>
   
-  {#if !loading}
+  {#if !loading && !unavailable}
     <div class="revenue-metrics">
       <!-- Payments -->
       <div class="revenue-metric">
@@ -147,6 +154,11 @@
         {/if}
       </div>
     {/if}
+    {#if staleSince}
+      <CardNotice kind="stale" updatedAt={staleSince} {onRetry} />
+    {/if}
+  {:else if unavailable}
+    <CardNotice kind="unavailable" {onRetry} />
   {:else}
     <div class="loading-state">Loading revenue data...</div>
   {/if}

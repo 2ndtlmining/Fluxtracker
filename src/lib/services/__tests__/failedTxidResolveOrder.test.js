@@ -22,7 +22,7 @@ vi.mock('../../db/database.js', () => ({
     updateSyncStatus: vi.fn(),
     getSyncStatus: vi.fn(),
     insertTransactionsBatch: vi.fn(),
-    getTxidCount: vi.fn(),
+    getTxidCount: vi.fn().mockResolvedValue(0),
     upsertFailedTxid: vi.fn(),
     getUnresolvedFailedTxids: vi.fn(),
     resolveFailedTxid: vi.fn(),

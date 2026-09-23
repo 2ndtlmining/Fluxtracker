@@ -11,6 +11,17 @@ import { resolveDimension } from '../../decentralizationDimensions.js';
 
 const log = createLogger('sqliteAdapter');
 
+/**
+ * A read that failed must THROW, never return 0/[]/null (issue #307). A swallowed error looked
+ * like a successful empty read: dbCallTracker counted it as a DB success, withDbFallback cached
+ * the zeros as fresh for its whole TTL (overwriting the good stale entry), and the circuit
+ * breaker never tripped -- so an outage rendered as real zeros instead of a 503 with stale data.
+ */
+function readFailed(fn, error) {
+    log.error(`${fn} error: ${error.message}`);
+    return new Error(`${fn} failed: ${error.message}`);
+}
+
 // ============================================
 // DATABASE CONNECTION
 // ============================================
@@ -434,8 +445,7 @@ export async function getCurrentMetrics() {
     try {
         return getDb().prepare('SELECT * FROM current_metrics WHERE id = 1').get() || null;
     } catch (error) {
-        log.error(`getCurrentMetrics error: ${error.message}`);
-        return null;
+        throw readFailed('getCurrentMetrics', error);
     }
 }
 
@@ -673,8 +683,7 @@ export async function getLastNSnapshots(n = 30) {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots ORDER BY snapshot_date DESC LIMIT ?').all(n);
     } catch (error) {
-        log.error(`getLastNSnapshots error: ${error.message}`);
-        return [];
+        throw readFailed('getLastNSnapshots', error);
     }
 }
 
@@ -702,8 +711,7 @@ export async function getAllSnapshots() {
     try {
         return getDb().prepare('SELECT * FROM daily_snapshots ORDER BY snapshot_date DESC').all();
     } catch (error) {
-        log.error(`getAllSnapshots error: ${error.message}`);
-        return [];
+        throw readFailed('getAllSnapshots', error);
     }
 }
 
@@ -822,8 +830,7 @@ export async function getTxidsWithoutAppName(limit = 500, recentDays = null) {
 
         return getDb().prepare(sql).all(...params).map(r => r.txid);
     } catch (error) {
-        log.error(`getTxidsWithoutAppName error: ${error.message}`);
-        return [];
+        throw readFailed('getTxidsWithoutAppName', error);
     }
 }
 
@@ -841,8 +848,7 @@ export async function countTxidsWithoutAppName(recentDays = null) {
 
         return getDb().prepare(sql).get(...params).cnt || 0;
     } catch (error) {
-        log.error(`countTxidsWithoutAppName error: ${error.message}`);
-        return 0;
+        throw readFailed('countTxidsWithoutAppName', error);
     }
 }
 
@@ -860,8 +866,7 @@ export async function getTransactionsByDate(date) {
     try {
         return getDb().prepare('SELECT * FROM revenue_transactions WHERE date = ? LIMIT 10000').all(date);
     } catch (error) {
-        log.error(`getTransactionsByDate error: ${error.message}`);
-        return [];
+        throw readFailed('getTransactionsByDate', error);
     }
 }
 
@@ -871,8 +876,7 @@ export async function getTransactionsByBlockRange(startBlock, endBlock) {
             'SELECT * FROM revenue_transactions WHERE block_height >= ? AND block_height <= ? ORDER BY block_height DESC LIMIT 10000'
         ).all(startBlock, endBlock);
     } catch (error) {
-        log.error(`getTransactionsByBlockRange error: ${error.message}`);
-        return [];
+        throw readFailed('getTransactionsByBlockRange', error);
     }
 }
 
@@ -917,8 +921,7 @@ export async function getPaymentCountForDateRange(startDate, endDate) {
         ).get(startDate, endDate);
         return row.cnt || 0;
     } catch (error) {
-        log.error(`getPaymentCountForDateRange error: ${error.message}`);
-        return 0;
+        throw readFailed('getPaymentCountForDateRange', error);
     }
 }
 
@@ -929,8 +932,7 @@ export async function getRevenueForBlockRange(startBlock, endBlock) {
         ).get(startBlock, endBlock);
         return row.total;
     } catch (error) {
-        log.error(`getRevenueForBlockRange error: ${error.message}`);
-        return 0;
+        throw readFailed('getRevenueForBlockRange', error);
     }
 }
 
@@ -951,8 +953,7 @@ export async function getTxidCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM revenue_transactions').get();
         return row.cnt || 0;
     } catch (error) {
-        log.error(`getTxidCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getTxidCount', error);
     }
 }
 
@@ -1059,8 +1060,7 @@ export async function getAppAnalytics(page = 1, limit = 50, search = '') {
             offset
         };
     } catch (error) {
-        log.error(`getAppAnalytics error: ${error.message}`);
-        return { apps: [], total: 0, page, limit, offset };
+        throw readFailed('getAppAnalytics', error);
     }
 }
 
@@ -1085,8 +1085,7 @@ export async function getDailyRevenueFromTransactions(days = 30) {
         log.info(`Retrieved daily revenue for ${rows.length} days from transactions`);
         return rows;
     } catch (error) {
-        log.error(`getDailyRevenueFromTransactions error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueFromTransactions', error);
     }
 }
 
@@ -1104,8 +1103,7 @@ export async function getDailyRevenueInRange(startDate, endDate) {
         log.info(`Retrieved daily revenue for ${rows.length} days from transactions (${startDate} to ${endDate})`);
         return rows;
     } catch (error) {
-        log.error(`getDailyRevenueInRange error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueInRange', error);
     }
 }
 
@@ -1134,8 +1132,7 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
         log.info(`Retrieved daily USD revenue for ${rows.length} days from transactions`);
         return rows;
     } catch (error) {
-        log.error(`getDailyRevenueUSDFromTransactions error: ${error.message}`);
-        return [];
+        throw readFailed('getDailyRevenueUSDFromTransactions', error);
     }
 }
 
@@ -1230,8 +1227,7 @@ export async function getTransactionsWithNullUsd(limit = 1000, offset = 0) {
             'SELECT txid, amount, date, timestamp FROM revenue_transactions WHERE amount_usd IS NULL ORDER BY block_height DESC LIMIT ? OFFSET ?'
         ).all(limit, offset);
     } catch (error) {
-        log.error(`getTransactionsWithNullUsd error: ${error.message}`);
-        return [];
+        throw readFailed('getTransactionsWithNullUsd', error);
     }
 }
 
@@ -1300,8 +1296,7 @@ export async function getUnresolvedFailedTxids(limit = 200) {
             'SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt FROM failed_txids WHERE resolved = 0 ORDER BY attempt_count ASC, last_attempt ASC LIMIT ?'
         ).all(limit);
     } catch (error) {
-        log.error(`getUnresolvedFailedTxids error: ${error.message}`);
-        return [];
+        throw readFailed('getUnresolvedFailedTxids', error);
     }
 }
 
@@ -1318,8 +1313,7 @@ export async function getFailedTxidCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM failed_txids WHERE resolved = 0').get();
         return row.cnt || 0;
     } catch (error) {
-        log.error(`getFailedTxidCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getFailedTxidCount', error);
     }
 }
 
@@ -1460,8 +1454,7 @@ export async function getPricesForDateRange(startDate, endDate) {
             'SELECT date, price_usd FROM flux_price_history WHERE date >= ? AND date <= ? ORDER BY date ASC'
         ).all(startDate, endDate);
     } catch (error) {
-        log.error(`getPricesForDateRange error: ${error.message}`);
-        return [];
+        throw readFailed('getPricesForDateRange', error);
     }
 }
 
@@ -1490,8 +1483,7 @@ export async function getPriceHistoryCount() {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM flux_price_history').get();
         return row.cnt || 0;
     } catch (error) {
-        log.error(`getPriceHistoryCount error: ${error.message}`);
-        return 0;
+        throw readFailed('getPriceHistoryCount', error);
     }
 }
 
@@ -1583,8 +1575,7 @@ export async function getRepoSnapshotCountByDate(date) {
         const row = getDb().prepare('SELECT COUNT(*) AS cnt FROM repo_snapshots WHERE snapshot_date = ?').get(date);
         return row.cnt || 0;
     } catch (error) {
-        log.error(`getRepoSnapshotCountByDate error: ${error.message}`);
-        return 0;
+        throw readFailed('getRepoSnapshotCountByDate', error);
     }
 }
 
@@ -1607,8 +1598,7 @@ export async function getRepoHistory(imageName, limit = 90) {
             'SELECT snapshot_date, instance_count FROM repo_snapshots WHERE image_name = ? ORDER BY snapshot_date DESC LIMIT ?'
         ).all(imageName, limit);
     } catch (error) {
-        log.error(`getRepoHistory error: ${error.message}`);
-        return [];
+        throw readFailed('getRepoHistory', error);
     }
 }
 
@@ -1618,8 +1608,7 @@ export async function getDistinctRepos() {
         const rows = getDb().prepare('SELECT DISTINCT image_name FROM repo_snapshots ORDER BY image_name').all();
         return rows.map(r => r.image_name);
     } catch (error) {
-        log.error(`getDistinctRepos error: ${error.message}`);
-        return [];
+        throw readFailed('getDistinctRepos', error);
     }
 }
 
@@ -1632,8 +1621,7 @@ export async function getLatestRepoSnapshot() {
             'SELECT image_name, instance_count FROM repo_snapshots WHERE snapshot_date = ? ORDER BY instance_count DESC'
         ).all(dateRow.snapshot_date);
     } catch (error) {
-        log.error(`getLatestRepoSnapshot error: ${error.message}`);
-        return [];
+        throw readFailed('getLatestRepoSnapshot', error);
     }
 }
 
@@ -1661,8 +1649,7 @@ export async function getTopReposByCategory(category, limit = 3) {
 
         return { date: dateRow.d, repos };
     } catch (error) {
-        log.error(`getTopReposByCategory error: ${error.message}`);
-        return { date: null, repos: [] };
+        throw readFailed('getTopReposByCategory', error);
     }
 }
 
@@ -1673,8 +1660,7 @@ export async function getCategoryTotal(category, date) {
         ).get(category, date);
         return row.total;
     } catch (error) {
-        log.error(`getCategoryTotal error: ${error.message}`);
-        return 0;
+        throw readFailed('getCategoryTotal', error);
     }
 }
 
@@ -1690,8 +1676,7 @@ export async function getCategoryHistory(category, limit = 90) {
             LIMIT ?
         `).all(category, limit);
     } catch (error) {
-        log.error(`getCategoryHistory error: ${error.message}`);
-        return [];
+        throw readFailed('getCategoryHistory', error);
     }
 }
 
@@ -1709,8 +1694,7 @@ export async function getReposByCategory(category) {
             ORDER BY image_name
         `).all(category);
     } catch (error) {
-        log.error(`getReposByCategory error: ${error.message}`);
-        return [];
+        throw readFailed('getReposByCategory', error);
     }
 }
 

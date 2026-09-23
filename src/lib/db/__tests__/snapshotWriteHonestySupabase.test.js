@@ -19,6 +19,7 @@ vi.mock('../supabaseClient.js', () => {
             select: () => chain,
             eq: () => chain,
             single: () => Promise.resolve({ data: { id: 1, node_total: 3 }, error: null }),
+            maybeSingle: () => Promise.resolve({ data: { id: 1, node_total: 3 }, error: null }),
             upsert: () => Promise.resolve({ error: writeError }),
             update: () => chain,
             then: (resolve) => Promise.resolve({ error: writeError }).then(resolve)
