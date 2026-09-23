@@ -226,7 +226,7 @@ describe('runDecentralizationCycle', () => {
     it('skips IPs already classified recently (not stale)', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1.1.1.1', isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '1.1.1.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         await runDecentralizationCycle();
@@ -239,7 +239,7 @@ describe('runDecentralizationCycle', () => {
         const THIRTY_ONE_DAYS_AGO = Date.now() - 31 * 24 * 60 * 60 * 1000;
         getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1.1.1.1', isDatacenter: false, classifiedAt: THIRTY_ONE_DAYS_AGO }
+            { ip: '1.1.1.1', org: 'Free SAS', isDatacenter: false, classifiedAt: THIRTY_ONE_DAYS_AGO }
         ]);
         axios.get.mockResolvedValue(ipwhoisResponse());
 
@@ -286,8 +286,8 @@ describe('getDecentralizationStats', () => {
     it('computes datacenterPercent over the classified subset and coveragePercent over all candidates', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1.1.1.1', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '2.2.2.2', isDatacenter: false, classifiedAt: Date.now() }
+            { ip: '1.1.1.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2.2.2.2', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() }
         ]);
 
         const stats = await getDecentralizationStats();
@@ -302,8 +302,8 @@ describe('getDecentralizationStats', () => {
     it('only counts classifications for IPs still in the current candidate set', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1.1.1.1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1.1.1.1', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '9.9.9.9', isDatacenter: false, classifiedAt: Date.now() } // no longer a live node
+            { ip: '1.1.1.1', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '9.9.9.9', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() } // no longer a live node
         ]);
 
         const stats = await getDecentralizationStats();
@@ -349,14 +349,14 @@ describe('getDecentralizationStats', () => {
     it('caps topDatacenters at 6 and reports the rest via otherProviderCount', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5', '6', '7', '8']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '2', org: 'Provider B', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '3', org: 'Provider C', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '4', org: 'Provider D', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '5', org: 'Provider E', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '6', org: 'Provider F', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '7', org: 'Provider G', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '8', org: 'Provider H', isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '1', org: 'Provider A Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', org: 'Provider B Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', org: 'Provider C Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '4', org: 'Provider D Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '5', org: 'Provider E Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '6', org: 'Provider F Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '7', org: 'Provider G Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '8', org: 'Provider H Datacenter', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         const stats = await getDecentralizationStats();
@@ -365,7 +365,7 @@ describe('getDecentralizationStats', () => {
         expect(stats.otherProviderCount).toBe(2);
     });
 
-    it('groups a missing/null org under "Unknown" rather than dropping it', async () => {
+    it('a row with no org is never a datacenter, whatever its stored flag says (issue #314)', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
             { ip: '1', org: null, isDatacenter: true, classifiedAt: Date.now() }
@@ -373,7 +373,8 @@ describe('getDecentralizationStats', () => {
 
         const stats = await getDecentralizationStats();
 
-        expect(stats.topDatacenters).toEqual([{ org: 'Unknown', count: 1, percent: 100 }]);
+        expect(stats.topDatacenters).toEqual([]);
+        expect(stats.datacenterCount).toBe(0);
     });
 
     it('is empty (not an error) when nothing is classified as a datacenter yet', async () => {
@@ -426,10 +427,10 @@ describe('getFullDatacenterBreakdown', () => {
     it('returns every distinct datacenter org uncapped, plus the (independent) bucket', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3', '4', '5', '6']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '2', org: 'Provider B', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '3', org: 'Provider C', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '4', org: 'Provider D', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '1', org: 'Provider A Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', org: 'Provider B Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', org: 'Provider C Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '4', org: 'Provider D Datacenter', isDatacenter: true, classifiedAt: Date.now() },
             { ip: '5', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() },
             { ip: '6', org: 'KPN B.V.', isDatacenter: false, classifiedAt: Date.now() }
         ]);
@@ -437,16 +438,16 @@ describe('getFullDatacenterBreakdown', () => {
         const breakdown = await getFullDatacenterBreakdown();
 
         expect(breakdown).toEqual(expect.arrayContaining([
-            { org: 'Provider A', count: 1 },
-            { org: 'Provider B', count: 1 },
-            { org: 'Provider C', count: 1 },
-            { org: 'Provider D', count: 1 },
+            { org: 'Provider A Datacenter', count: 1 },
+            { org: 'Provider B Datacenter', count: 1 },
+            { org: 'Provider C Datacenter', count: 1 },
+            { org: 'Provider D Datacenter', count: 1 },
             { org: '(independent)', count: 2 }
         ]));
         expect(breakdown).toHaveLength(5); // not capped at 6, unlike topDatacenters
     });
 
-    it('groups a missing/null org under "Unknown"', async () => {
+    it('a row with no org lands in (independent), not a datacenter (issue #314)', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
             { ip: '1', org: null, isDatacenter: true, classifiedAt: Date.now() }
@@ -454,13 +455,13 @@ describe('getFullDatacenterBreakdown', () => {
 
         const breakdown = await getFullDatacenterBreakdown();
 
-        expect(breakdown).toEqual([{ org: 'Unknown', count: 1 }]);
+        expect(breakdown).toEqual([{ org: '(independent)', count: 1 }]);
     });
 
     it('omits the (independent) entry entirely when nothing has been classified as non-datacenter', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '1', org: 'Provider A Datacenter', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         const breakdown = await getFullDatacenterBreakdown();
@@ -478,13 +479,13 @@ describe('getFullDatacenterBreakdown', () => {
     it('only counts candidates still in the current network node-IP set', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', org: 'Provider A', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '9', org: 'Provider B', isDatacenter: true, classifiedAt: Date.now() } // no longer a live node
+            { ip: '1', org: 'Provider A Datacenter', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '9', org: 'Provider B Datacenter', isDatacenter: true, classifiedAt: Date.now() } // no longer a live node
         ]);
 
         const breakdown = await getFullDatacenterBreakdown();
 
-        expect(breakdown).toEqual([{ org: 'Provider A', count: 1 }]);
+        expect(breakdown).toEqual([{ org: 'Provider A Datacenter', count: 1 }]);
     });
 });
 
@@ -492,9 +493,9 @@ describe('getFullCountryBreakdown', () => {
     it('groups every classified node by country, uncapped', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '2', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '3', country: 'France', countryCode: 'FR', isDatacenter: false, classifiedAt: Date.now() }
+            { ip: '1', country: 'Germany', countryCode: 'DE', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', country: 'Germany', countryCode: 'DE', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', country: 'France', countryCode: 'FR', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() }
         ]);
 
         const breakdown = await getFullCountryBreakdown();
@@ -509,7 +510,7 @@ describe('getFullCountryBreakdown', () => {
     it('groups a missing/null country under "(unknown)" rather than dropping it', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', country: null, countryCode: null, isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '1', country: null, countryCode: null, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         const breakdown = await getFullCountryBreakdown();
@@ -520,8 +521,8 @@ describe('getFullCountryBreakdown', () => {
     it('only counts candidates still in the current network node-IP set', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', country: 'Germany', countryCode: 'DE', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '9', country: 'France', countryCode: 'FR', isDatacenter: true, classifiedAt: Date.now() } // no longer a live node
+            { ip: '1', country: 'Germany', countryCode: 'DE', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '9', country: 'France', countryCode: 'FR', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() } // no longer a live node
         ]);
 
         const breakdown = await getFullCountryBreakdown();
@@ -541,9 +542,9 @@ describe('getFullContinentBreakdown', () => {
     it('groups every classified node by continent, uncapped', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1', '2', '3']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', continent: 'Europe', continentCode: 'EU', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '2', continent: 'Europe', continentCode: 'EU', isDatacenter: true, classifiedAt: Date.now() },
-            { ip: '3', continent: 'North America', continentCode: 'NA', isDatacenter: false, classifiedAt: Date.now() }
+            { ip: '1', continent: 'Europe', continentCode: 'EU', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '2', continent: 'Europe', continentCode: 'EU', org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() },
+            { ip: '3', continent: 'North America', continentCode: 'NA', org: 'Free SAS', isDatacenter: false, classifiedAt: Date.now() }
         ]);
 
         const breakdown = await getFullContinentBreakdown();
@@ -558,7 +559,7 @@ describe('getFullContinentBreakdown', () => {
     it('groups a missing/null continent under "(unknown)" rather than dropping it', async () => {
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', continent: null, continentCode: null, isDatacenter: true, classifiedAt: Date.now() }
+            { ip: '1', continent: null, continentCode: null, org: 'Hetzner Online GmbH', isDatacenter: true, classifiedAt: Date.now() }
         ]);
 
         const breakdown = await getFullContinentBreakdown();
@@ -626,18 +627,15 @@ describe('reclassifyStoredDatacenterFlags (issue #196)', () => {
         expect(upsertNodeIpClassifications).not.toHaveBeenCalled();
     });
 
-    it('makes the corrected flag visible on the next stats read, not only after a restart', async () => {
+    it('a stale stored flag is overridden on read -- no reclassify needed (issue #314)', async () => {
+        // Stored before 'datavex' joined DATACENTER_ORG_KEYWORDS: the row still says false.
         getCachedNetworkNodeIps.mockReturnValue(['1']);
         getAllNodeIpClassifications.mockResolvedValue([
             { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: false, classifiedAt: 1 }
         ]);
-        expect((await getDecentralizationStats()).datacenterPercent).toBe(0);
 
-        await reclassifyStoredDatacenterFlags();
-        getAllNodeIpClassifications.mockResolvedValue([
-            { ip: '1', asn: 201814, org: 'DataVex', isDatacenter: true, classifiedAt: 1 }
-        ]);
-
+        // Read-time derivation already counts it; before #314 this read 0% until someone ran
+        // POST /api/admin/reclassify-datacenters.
         expect((await getDecentralizationStats()).datacenterPercent).toBe(100);
     });
 });

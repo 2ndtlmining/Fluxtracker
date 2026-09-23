@@ -16,11 +16,7 @@ import {
     ListObjectsV2Command
 } from '@aws-sdk/client-s3';
 
-import {
-    upsertDailySnapshots,
-    upsertRepoSnapshots,
-    upsertPriceHistory
-} from '../db/database.js';
+import { BACKUP_TABLES } from './backupTables.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('bootstrapService');
@@ -47,6 +43,55 @@ function isBootstrapConfigured() {
 // BOOTSTRAP LOGIC
 // ============================================
 
+/**
+ * Which backup tables are empty in the local SQLite file -- those are the ones to import.
+ * A table that does not exist yet counts as empty.
+ *
+ * Checked per table (issue #311). The old check looked at daily_snapshots alone, so a first
+ * boot whose repo or price import failed never retried it: daily_snapshots had rows, and every
+ * later boot read that as a warm restart.
+ */
+export async function findEmptyTables(dbPath, tables = BACKUP_TABLES.map(t => t.table)) {
+    const { default: Database } = await import('better-sqlite3');
+    let db = null;
+    try {
+        db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    } catch {
+        return [...tables]; // no database file yet -- everything is empty
+    }
+    try {
+        return tables.filter(table => {
+            try {
+                return db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).get() === undefined;
+            } catch {
+                return true; // table missing
+            }
+        });
+    } finally {
+        db.close();
+    }
+}
+
+/**
+ * The backup folder to restore from: the newest COMPLETE one (every table present), falling
+ * back to the newest that at least has the required tables. The newest folder alone could be
+ * a partial backup from a run where a table failed (issue #311).
+ *
+ * @param {string[]} datesNewestFirst
+ * @param {(date: string) => Promise<Set<string>>} tablesIn
+ */
+export async function pickBackupDate(datesNewestFirst, tablesIn, maxToCheck = 7) {
+    const all = BACKUP_TABLES.map(t => t.table);
+    const required = BACKUP_TABLES.filter(t => t.required).map(t => t.table);
+    let fallback = null;
+    for (const date of datesNewestFirst.slice(0, maxToCheck)) {
+        const present = await tablesIn(date);
+        if (all.every(t => present.has(t))) return { date, complete: true };
+        if (!fallback && required.every(t => present.has(t))) fallback = date;
+    }
+    return fallback ? { date: fallback, complete: false } : null;
+}
+
 export async function runBootstrap() {
     const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
     if (dbType !== 'sqlite') {
@@ -54,39 +99,27 @@ export async function runBootstrap() {
         return;
     }
 
-    // Check if DB already has data (warm restart)
+    const DB_PATH = process.env.DB_PATH || 'data/fluxtracker.sqlite3';
+    let needed;
     try {
-        const { default: Database } = await import('better-sqlite3');
-        const DB_PATH = process.env.DB_PATH || 'data/fluxtracker.sqlite3';
-
-        let needsBootstrap = true;
-
-        try {
-            const db = new Database(DB_PATH, { readonly: true });
-            const row = db.prepare('SELECT COUNT(*) AS cnt FROM daily_snapshots').get();
-            db.close();
-
-            if (row && row.cnt > 0) {
-                log.info({ count: row.cnt }, 'skipped (DB already has daily snapshots -- warm restart)');
-                needsBootstrap = false;
-            }
-        } catch {
-            // DB doesn't exist or has no tables yet — needs bootstrap
-            log.info('fresh database detected');
-        }
-
-        if (!needsBootstrap) return;
+        needed = await findEmptyTables(DB_PATH);
     } catch (error) {
-        log.info({ err: error }, 'cannot check DB state, proceeding');
+        log.info({ err: error }, 'cannot check DB state, proceeding with every table');
+        needed = BACKUP_TABLES.map(t => t.table);
+    }
+
+    if (needed.length === 0) {
+        log.info('skipped (every backed-up table already has data -- warm restart)');
+        return;
     }
 
     // Check for bootstrap credentials
     if (!isBootstrapConfigured()) {
-        log.warn('BOOTSTRAP_R2_* env vars not set -- starting with empty database');
+        log.warn({ emptyTables: needed }, 'BOOTSTRAP_R2_* env vars not set -- empty tables stay empty');
         return;
     }
 
-    log.info('downloading latest backup from R2');
+    log.info({ tables: needed }, 'downloading latest backup from R2');
 
     try {
         const cfg = getBootstrapConfig();
@@ -99,7 +132,6 @@ export async function runBootstrap() {
             }
         });
 
-        // List backup dates, pick the latest
         const listResp = await client.send(new ListObjectsV2Command({
             Bucket: cfg.bucket,
             Prefix: 'backups/',
@@ -109,80 +141,46 @@ export async function runBootstrap() {
         const dates = (listResp.CommonPrefixes || [])
             .map(p => p.Prefix.replace('backups/', '').replace('/', ''))
             .filter(d => d.length > 0)
-            .sort();
+            .sort()
+            .reverse();
 
-        if (dates.length === 0) {
-            log.warn('no backups found in R2 -- starting with empty database');
+        const tablesIn = async (date) => {
+            const resp = await client.send(new ListObjectsV2Command({ Bucket: cfg.bucket, Prefix: `backups/${date}/` }));
+            return new Set((resp.Contents || []).map(o => o.Key.split('/').pop().replace(/\.json$/, '')));
+        };
+
+        const choice = await pickBackupDate(dates, tablesIn);
+        if (!choice) {
+            log.warn('no usable backup found in R2 -- starting with empty tables');
             return;
         }
+        log.info({ date: choice.date, complete: choice.complete }, 'using backup');
 
-        const latestDate = dates[dates.length - 1];
-        log.info({ date: latestDate }, 'using backup');
-
-        // Download daily_snapshots
-        let dailyCount = 0;
-        try {
-            log.info('downloading daily_snapshots');
-            const dailyObj = await client.send(new GetObjectCommand({
-                Bucket: cfg.bucket,
-                Key: `backups/${latestDate}/daily_snapshots.json`
-            }));
-            const dailyJson = JSON.parse(await dailyObj.Body.transformToString());
-            dailyCount = dailyJson.rows?.length || 0;
-
-            if (dailyCount > 0) {
-                await upsertDailySnapshots(dailyJson.rows);
-                log.info({ count: dailyCount }, 'imported daily snapshots');
+        // Each table independently: one failed import doesn't block the others, and a table
+        // left empty is retried on the next boot (the per-table check above).
+        const counts = {};
+        for (const entry of BACKUP_TABLES) {
+            if (!needed.includes(entry.table)) continue;
+            try {
+                const obj = await client.send(new GetObjectCommand({
+                    Bucket: cfg.bucket,
+                    Key: `backups/${choice.date}/${entry.table}.json`
+                }));
+                const json = JSON.parse(await obj.Body.transformToString());
+                const rows = json.rows || [];
+                if (rows.length > 0) await entry.importRows(rows);
+                counts[entry.table] = rows.length;
+                log.info({ table: entry.table, count: rows.length }, 'imported');
+            } catch (error) {
+                counts[entry.table] = 0;
+                log.warn({ err: error, table: entry.table }, 'import failed or table not in this backup');
             }
-        } catch (error) {
-            dailyCount = 0;
-            log.warn({ err: error }, 'daily_snapshots failed');
         }
 
-        // Download repo_snapshots
-        let repoCount = 0;
-        try {
-            log.info('downloading repo_snapshots');
-            const repoObj = await client.send(new GetObjectCommand({
-                Bucket: cfg.bucket,
-                Key: `backups/${latestDate}/repo_snapshots.json`
-            }));
-            const repoJson = JSON.parse(await repoObj.Body.transformToString());
-            repoCount = repoJson.rows?.length || 0;
-
-            if (repoCount > 0) {
-                await upsertRepoSnapshots(repoJson.rows);
-                log.info({ count: repoCount }, 'imported repo snapshots');
-            }
-        } catch (error) {
-            repoCount = 0;
-            log.warn({ err: error }, 'repo_snapshots failed');
-        }
-
-        // Download flux_price_history (optional — may be missing)
-        let priceCount = 0;
-        try {
-            log.info('downloading flux_price_history');
-            const priceObj = await client.send(new GetObjectCommand({
-                Bucket: cfg.bucket,
-                Key: `backups/${latestDate}/flux_price_history.json`
-            }));
-            const priceJson = JSON.parse(await priceObj.Body.transformToString());
-            priceCount = priceJson.rows?.length || 0;
-
-            if (priceCount > 0) {
-                await upsertPriceHistory(priceJson.rows);
-                log.info({ count: priceCount }, 'imported price history rows');
-            }
-        } catch {
-            priceCount = 0;
-            log.info('no price history backup found (skipping)');
-        }
-
-        log.info({ dailyCount, repoCount, priceCount, date: latestDate }, 'bootstrap complete');
+        log.info({ counts, date: choice.date }, 'bootstrap complete');
 
     } catch (error) {
         log.error({ err: error }, 'bootstrap failed');
-        log.warn('starting with empty database -- data will sync from blockchain');
+        log.warn('starting with empty tables -- data will sync from the network');
     }
 }

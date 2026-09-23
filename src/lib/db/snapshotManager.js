@@ -76,6 +76,13 @@ export function getSnapshotState() {
     };
 }
 
+/** Epoch seconds or milliseconds -> milliseconds (null for anything else). */
+function toEpochMs(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n < 1e12 ? n * 1000 : n;
+}
+
 export async function getSnapshotSystemStatus() {
     const now = new Date();
     const today = now.toISOString().split('T')[0];
@@ -102,7 +109,8 @@ export async function getSnapshotSystemStatus() {
         state: {
             ...safeState,
             // After a restart the in-memory value is null; today's row says when it last worked.
-            lastSuccess: safeState.lastSuccess ?? todaySnapshot?.timestamp ?? null
+            // Its `timestamp` column is epoch SECONDS -- normalised so the field is always ms.
+            lastSuccess: safeState.lastSuccess ?? toEpochMs(todaySnapshot?.timestamp)
         },
         todaySnapshotExists: !!todaySnapshot,
         todaySnapshotDate: todaySnapshot?.snapshot_date || null,

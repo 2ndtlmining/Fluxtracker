@@ -1,8 +1,9 @@
 /**
  * BACKUP SERVICE — Cloudflare R2 backup/restore for critical tables
  *
- * Backs up daily_snapshots, repo_snapshots, flux_price_history and game_snapshots to R2.
- * These tables contain irreplaceable point-in-time observations.
+ * Backs up every table in backupTables.js (snapshots, per-game and decentralization history,
+ * price history, node classifications) to R2. These hold point-in-time observations that
+ * cannot be re-derived later.
  *
  * Env vars (all optional — backup is a no-op without them):
  *   R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
@@ -16,16 +17,7 @@ import {
     DeleteObjectsCommand
 } from '@aws-sdk/client-s3';
 
-import {
-    exportAllDailySnapshots,
-    exportAllRepoSnapshots,
-    exportAllPriceHistory,
-    exportAllGameSnapshots,
-    upsertDailySnapshots,
-    upsertRepoSnapshots,
-    upsertPriceHistory,
-    upsertGameSnapshots
-} from '../db/database.js';
+import { BACKUP_TABLES, BACKUP_TABLE_NAMES } from './backupTables.js';
 import { BACKUP_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
 
@@ -131,104 +123,25 @@ export async function performBackup() {
         const tableCounts = {};
         const tableErrors = [];
 
-        // Upload each table independently — one failure doesn't block the others.
-        // Each upload is retried up to UPLOAD_MAX_RETRIES times with exponential backoff.
-        // The DB export is NOT retried (only the S3 upload).
-
-        // daily_snapshots
-        try {
-            log.info('exporting daily_snapshots');
-            const dailyRows = await exportAllDailySnapshots();
-            const dailyPayload = JSON.stringify({
-                table: 'daily_snapshots',
-                exportedAt: now,
-                rowCount: dailyRows.length,
-                rows: dailyRows
-            });
-            await withRetry(() => client.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${dateStr}/daily_snapshots.json`,
-                Body: dailyPayload,
-                ContentType: 'application/json'
-            })), 'daily_snapshots upload');
-            tableCounts.daily_snapshots = dailyRows.length;
-            log.info({ rows: dailyRows.length }, 'daily_snapshots uploaded');
-        } catch (error) {
-            tableErrors.push(`daily_snapshots: ${error.message}`);
-            log.error({ err: error }, 'daily_snapshots failed after retries');
-        }
-
-        // repo_snapshots
-        try {
-            log.info('exporting repo_snapshots');
-            const repoRows = await exportAllRepoSnapshots();
-            const repoPayload = JSON.stringify({
-                table: 'repo_snapshots',
-                exportedAt: now,
-                rowCount: repoRows.length,
-                rows: repoRows
-            });
-            await withRetry(() => client.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${dateStr}/repo_snapshots.json`,
-                Body: repoPayload,
-                ContentType: 'application/json'
-            })), 'repo_snapshots upload');
-            tableCounts.repo_snapshots = repoRows.length;
-            log.info({ rows: repoRows.length }, 'repo_snapshots uploaded');
-        } catch (error) {
-            tableErrors.push(`repo_snapshots: ${error.message}`);
-            log.error({ err: error }, 'repo_snapshots failed after retries');
-        }
-
-        // game_snapshots (issue #231). The per-game history the Gaming card's comparison
-        // arrows and the chart's per-game series both read, and the only record of the
-        // app-name counts -- the `gaming_*` columns are derived FROM it, not the reverse,
-        // so losing this table loses per-game history outright while the other three
-        // survive.
-        try {
-            log.info('exporting game_snapshots');
-            const gameRows = await exportAllGameSnapshots();
-            const gamePayload = JSON.stringify({
-                table: 'game_snapshots',
-                exportedAt: now,
-                rowCount: gameRows.length,
-                rows: gameRows
-            });
-            await withRetry(() => client.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${dateStr}/game_snapshots.json`,
-                Body: gamePayload,
-                ContentType: 'application/json'
-            })), 'game_snapshots upload');
-            tableCounts.game_snapshots = gameRows.length;
-            log.info({ rows: gameRows.length }, 'game_snapshots uploaded');
-        } catch (error) {
-            tableErrors.push(`game_snapshots: ${error.message}`);
-            log.error({ err: error }, 'game_snapshots failed after retries');
-        }
-
-        // flux_price_history
-        try {
-            log.info('exporting flux_price_history');
-            const priceRows = await exportAllPriceHistory();
-            const pricePayload = JSON.stringify({
-                table: 'flux_price_history',
-                exportedAt: now,
-                rowCount: priceRows.length,
-                rows: priceRows
-            });
-            await withRetry(() => client.send(new PutObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${dateStr}/flux_price_history.json`,
-                Body: pricePayload,
-                ContentType: 'application/json'
-            })), 'flux_price_history upload');
-            tableCounts.flux_price_history = priceRows.length;
-            log.info({ rows: priceRows.length }, 'flux_price_history uploaded');
-        } catch (error) {
-            tableErrors.push(`flux_price_history: ${error.message}`);
-            log.error({ err: error }, 'flux_price_history failed after retries');
+        // Each table independently -- one failure doesn't block the others. The S3 upload is
+        // retried with exponential backoff; the DB export is not.
+        for (const { table, exportRows } of BACKUP_TABLES) {
+            try {
+                log.info({ table }, 'exporting');
+                const rows = await exportRows();
+                const payload = JSON.stringify({ table, exportedAt: now, rowCount: rows.length, rows });
+                await withRetry(() => client.send(new PutObjectCommand({
+                    Bucket: bucket,
+                    Key: `backups/${dateStr}/${table}.json`,
+                    Body: payload,
+                    ContentType: 'application/json'
+                })), `${table} upload`);
+                tableCounts[table] = rows.length;
+                log.info({ table, rows: rows.length }, 'uploaded');
+            } catch (error) {
+                tableErrors.push(`${table}: ${error.message}`);
+                log.error({ err: error, table }, 'backup of table failed after retries');
+            }
         }
 
         // Prune old backups
@@ -265,8 +178,6 @@ export async function performBackup() {
     }
 }
 
-/** Tables every complete backup holds -- a folder missing any of them is partial. */
-export const BACKUP_TABLES = ['daily_snapshots', 'repo_snapshots', 'game_snapshots', 'flux_price_history'];
 
 /**
  * Recover the last backup's time from R2 at startup (issue #310).
@@ -295,8 +206,16 @@ export async function seedBackupStatusFromStore() {
         const present = new Set(objects.map(o => o.Key.split('/').pop().replace(/\.json$/, '')));
         lastBackup = Math.max(...times);
         lastBackupDate = newest;
-        lastBackupPartial = BACKUP_TABLES.some(t => !present.has(t));
+        lastBackupPartial = BACKUP_TABLE_NAMES.some(t => !present.has(t));
         log.info({ date: newest, partial: lastBackupPartial }, 'backup status seeded from R2');
+
+        // A backup folder written before a table joined the set (or one where a table failed)
+        // stays incomplete until the next daily snapshot triggers a backup. Top it up now
+        // rather than carry a "partial" warning -- and the gap -- until the next midnight.
+        if (lastBackupPartial && (process.env.DB_TYPE || 'supabase').toLowerCase() !== 'sqlite') {
+            log.info('latest backup is missing tables -- running a backup now');
+            performBackup().catch(error => log.warn({ err: error }, 'top-up backup failed'));
+        }
     } catch (error) {
         log.warn({ err: error }, 'could not seed backup status from R2');
     }
@@ -343,77 +262,30 @@ export async function restoreFromBackup(date) {
         const client = getS3Client();
         const bucket = getConfig().bucket;
 
-        // Download daily_snapshots
-        log.info({ date }, 'downloading daily_snapshots');
-        const dailyObj = await client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: `backups/${date}/daily_snapshots.json`
-        }));
-        const dailyJson = JSON.parse(await dailyObj.Body.transformToString());
-
-        // Download repo_snapshots
-        log.info({ date }, 'downloading repo_snapshots');
-        const repoObj = await client.send(new GetObjectCommand({
-            Bucket: bucket,
-            Key: `backups/${date}/repo_snapshots.json`
-        }));
-        const repoJson = JSON.parse(await repoObj.Body.transformToString());
-
-        // Download flux_price_history (optional — older backups may not have it)
-        let priceJson = null;
-        try {
-            log.info({ date }, 'downloading flux_price_history');
-            const priceObj = await client.send(new GetObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${date}/flux_price_history.json`
-            }));
-            priceJson = JSON.parse(await priceObj.Body.transformToString());
-        } catch {
-            log.info('no price history backup found (skipping)');
-        }
-
-        // Download game_snapshots (optional — backups taken before #231 have no such file)
-        let gameJson = null;
-        try {
-            log.info({ date }, 'downloading game_snapshots');
-            const gameObj = await client.send(new GetObjectCommand({
-                Bucket: bucket,
-                Key: `backups/${date}/game_snapshots.json`
-            }));
-            gameJson = JSON.parse(await gameObj.Body.transformToString());
-        } catch {
-            log.info('no game snapshot backup found (skipping)');
-        }
-
-        // Upsert into DB
-        log.info({ rowCount: dailyJson.rowCount }, 'upserting daily snapshots');
-        const dailyCount = await upsertDailySnapshots(dailyJson.rows);
-
-        log.info({ rowCount: repoJson.rowCount }, 'upserting repo snapshots');
-        const repoCount = await upsertRepoSnapshots(repoJson.rows);
-
-        let priceCount = 0;
-        if (priceJson) {
-            log.info({ rowCount: priceJson.rowCount }, 'upserting price history rows');
-            priceCount = await upsertPriceHistory(priceJson.rows);
-        }
-
-        let gameCount = 0;
-        if (gameJson) {
-            log.info({ rowCount: gameJson.rowCount }, 'upserting game snapshots');
-            gameCount = await upsertGameSnapshots(gameJson.rows);
-        }
-
-        return {
-            success: true,
-            date,
-            restored: {
-                daily_snapshots: dailyCount,
-                repo_snapshots: repoCount,
-                flux_price_history: priceCount,
-                game_snapshots: gameCount
+        // Download everything first, then write: a missing REQUIRED table aborts before any
+        // row is touched. Optional tables are skipped when absent -- older backups predate them.
+        const downloaded = [];
+        for (const entry of BACKUP_TABLES) {
+            try {
+                log.info({ date, table: entry.table }, 'downloading');
+                const obj = await client.send(new GetObjectCommand({
+                    Bucket: bucket,
+                    Key: `backups/${date}/${entry.table}.json`
+                }));
+                downloaded.push({ entry, json: JSON.parse(await obj.Body.transformToString()) });
+            } catch (error) {
+                if (entry.required) throw new Error(`${entry.table}: ${error.message}`);
+                log.info({ table: entry.table }, 'not in this backup (skipping)');
             }
-        };
+        }
+
+        const restored = {};
+        for (const { entry, json } of downloaded) {
+            log.info({ table: entry.table, rowCount: json.rowCount }, 'upserting');
+            restored[entry.table] = await entry.importRows(json.rows || []);
+        }
+
+        return { success: true, date, restored };
 
     } catch (error) {
         return { success: false, error: error.message };
