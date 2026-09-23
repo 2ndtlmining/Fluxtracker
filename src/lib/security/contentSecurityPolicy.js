@@ -41,6 +41,27 @@ export const CSP_DIRECTIVES = {
     frameAncestors: ["'self'"]
 };
 
+// SvelteKit's generated root component creates its route announcer (#svelte-announcer, the
+// visually-hidden live region screen readers use) with an inline style attribute, which
+// style-src 'self' refuses -- a CSP error on every page load. 'unsafe-hashes' plus this one
+// hash allows exactly that attribute value and nothing else. The test re-derives it from
+// @sveltejs/kit's own source, so an upgrade that changes the style fails CI.
+export const SVELTEKIT_ANNOUNCER_STYLE_HASH = "'sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo='";
+
+/**
+ * The page policy for svelte.config.js's kit.csp. Production adds the announcer hash; dev
+ * must NOT: the dev server injects component CSS as inline <style> tags and SvelteKit adds
+ * 'unsafe-inline' to style-src for them, and a browser ignores 'unsafe-inline' as soon as any
+ * hash is present -- one hash there blocks every stylesheet on the page.
+ */
+export function pageCspDirectives({ production }) {
+    if (!production) return CSP_DIRECTIVES;
+    return {
+        ...CSP_DIRECTIVES,
+        styleSrc: [...CSP_DIRECTIVES.styleSrc, "'unsafe-hashes'", SVELTEKIT_ANNOUNCER_STYLE_HASH]
+    };
+}
+
 function toKebabCase(directiveName) {
     return directiveName.replace(/[A-Z]/g, match => '-' + match.toLowerCase());
 }

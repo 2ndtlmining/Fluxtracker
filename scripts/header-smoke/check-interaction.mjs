@@ -1,16 +1,15 @@
-/* Header interaction harness (PR 10: issues #282, #284 and the desktop side panel).
+/* Header interaction harness (issues #282, #284, #345).
  *
  * Asserts, against the stub API:
- *   - the side panel renders beside the box on desktop, six non-empty rows, the same height
- *     as the box, and is hidden on mobile
+ *   - desktop: an app frame is ONE wide frame about that app (type, image, payment beside
+ *     the name/expiry/instances/resources) with nothing unrelated in it (#345); mobile keeps
+ *     the narrow frame
  *   - hovering holds the frame past a full rotation hold and shows `[ paused ]`; leaving
  *     resumes the rotation
  *   - clicking an app frame puts that app's name in the transaction search and brings the
  *     transaction section on screen (#284)
- *   - clicking the logo replays the last intro
- *   - 20 rapid clicks on "next up" leave ONE rotation chain: the frame that follows holds
- *     for a full dwell instead of being wiped by a second chain (#192's double loop, which
- *     a click could otherwise recreate)
+ *   - clicking the logo replays the last intro, and the frame after it holds a full dwell:
+ *     one rotation chain, not two (#192's double loop, which a click could otherwise recreate)
  *   - no console errors
  *
  * Usage (same shape as the other harness scripts):
@@ -61,14 +60,20 @@ async function readBox(page) {
     const text = rows.map(r => r.text).join('\n');
     const all = cls => rows.length > 0 && rows.every(r => r.cls.includes(cls));
     let kind = 'other';
-    if (all('row-logo')) kind = 'logo';
+    const anyLogo = rows.some(r => r.cls.includes('row-logo'));
+    // Part logo, part something else = a wipe in progress, not a frame to judge.
+    if (anyLogo && !all('row-logo')) kind = 'mixed';
+    else if (all('row-logo')) kind = 'logo';
     else if (/\bNAME\b/.test(text)) kind = rows.some(r => r.cls.includes('row-expiring')) ? 'expiring' : 'deployed';
     else if (all('row-deployed')) kind = 'intro';
     const name = (text.match(/NAME\s+(\S+)/) || [])[1] ?? null;
     // `[ paused ]` REPLACES the last row's final 10 columns, so the signature leaves those
     // columns out -- otherwise pausing itself would read as the frame changing.
     const sig = rows.map((r, i) => (i === rows.length - 1 ? r.text.slice(0, -10) : r.text)).join('|');
-    return { kind, name, text, sig };
+    // Which slot is on screen. A frame legitimately redraws in place when its payment lookup
+    // lands ("checking…" -> the figure), so holds and dwells are judged on this, not on sig.
+    const id = `${kind}:${name ?? ''}`;
+    return { kind, name, text, sig, id };
   });
 }
 
@@ -107,40 +112,37 @@ const run = async () => {
     await page.goto(BASE, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.terminal-row.ready', { timeout: 30000 });
 
-    // ---- side panel ----
-    const panel = await page.evaluate(() => {
-      const p = document.querySelector('.side-panel');
-      const box = document.querySelector('.terminal-box');
-      const rows = [...p.querySelectorAll('.panel-row')].map(r => r.textContent.trim());
-      return {
-        display: getComputedStyle(p).display,
-        rows,
-        panelH: Math.round(p.getBoundingClientRect().height),
-        boxH: Math.round(box.getBoundingClientRect().height),
-        sideBySide: p.getBoundingClientRect().left > box.getBoundingClientRect().right
-      };
-    });
-    check('panel: shown beside the box on desktop', panel.display === 'flex' && panel.sideBySide, panel.display);
-    check('panel: six rows, none empty', panel.rows.length === 6 && panel.rows.every(r => r.length > 0), JSON.stringify(panel.rows));
-    check('panel: same height as the box', panel.panelH === panel.boxH, `${panel.panelH} vs ${panel.boxH}`);
+    // ---- wide detail frame (issue #345): one frame, everything about one app ----
+    const wideFrame = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
+    const wideRows = wideFrame.text.split('\n');
+    check('desktop: app frame is one wide frame with type, image and payment rows',
+      /\b(GAME|SERVICE|TYPE)\b/.test(wideRows[1]) && /\bIMAGE\b/.test(wideRows[2]) && /\bPAID\b/.test(wideRows[3]) && /\bON\b/.test(wideRows[4]),
+      JSON.stringify(wideRows));
+    check('desktop: nothing that is not about the app (no block height, node count, next up)',
+      !/block|nodes|next up/i.test(wideFrame.text));
+    check('desktop: no side panel any more', await page.$('.side-panel') === null);
 
     // ---- hover pause (#282) ----
-    const boxRect = await page.$eval('.terminal-box', el => { const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    const boxRect = await page.$eval('.terminal-box', el => { const r = el.getBoundingClientRect(); return { x: r.x + 60, y: r.y + r.height / 2 }; });
     const before = await readBox(page);
     await page.mouse.move(boxRect.x, boxRect.y);
     await sleep(ROTATE_HOLD_MS + 3000);
     const during = await readBox(page);
-    check('hover: frame holds past a full rotation hold', during.sig === before.sig, `${before.kind} -> ${during.kind}`);
+    check('hover: frame holds past a full rotation hold', during.id === before.id, `${before.id} -> ${during.id}`);
     check('hover: box shows [ paused ]', /\[ paused \]$/.test(during.text.split('\n').at(-1)));
     await page.mouse.move(700, 880);
     const t0 = Date.now();
-    await waitFor(page, b => b.sig !== during.sig, 4000, 'rotation to resume');
+    await waitFor(page, b => b.id !== during.id, 4000, 'rotation to resume');
     check('leave: rotation resumes promptly', Date.now() - t0 < 4000, `${Date.now() - t0}ms`);
 
     // ---- click an app frame -> transaction search (#284) ----
-    const appFrame = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
-    const panelName = await page.$eval('.side-panel .panel-name', el => el.textContent.trim());
-    await page.click('.terminal-box');
+    // Hover first (pauses the rotation), then read the frame and click: the app clicked is
+    // exactly the app read, with no chance of the rotation moving on in between.
+    await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
+    await page.mouse.move(boxRect.x, boxRect.y);
+    await sleep(300);
+    const appFrame = await readBox(page);
+    await page.mouse.click(boxRect.x, boxRect.y);
     await sleep(1500);
     const afterClick = await page.evaluate(() => {
       const input = document.querySelector('.search-input');
@@ -148,48 +150,38 @@ const run = async () => {
       const r = log.getBoundingClientRect();
       return { search: input?.value, logOnScreen: r.top < window.innerHeight && r.bottom > 0 };
     });
-    check('click app frame: panel names the same app as the box', panelName === appFrame.name, `${panelName} / ${appFrame.name}`);
     check('click app frame: transaction search is that app', afterClick.search === appFrame.name, afterClick.search);
     check('click app frame: transaction section scrolled into view', afterClick.logOnScreen);
     await page.mouse.move(700, 880);
     await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(500);
 
-    // ---- 20 rapid "next up" clicks: one chain afterwards ----
-    await page.waitForSelector('.panel-next', { timeout: 30000 });
-    for (let i = 0; i < 20; i++) {
-      await page.click('.panel-next').catch(() => {});
-      await sleep(30);
-    }
+    // ---- click the logo -> replay the last intro, and ONE chain carries on from it ----
+    await waitFor(page, b => b.kind === 'logo', 40000, 'the logo');
+    await page.click('.terminal-box');
     await page.mouse.move(700, 880);
-    // Let the last click's intro/wipe finish, then the detail frame must hold a full dwell.
-    const settled = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 15000, 'a detail frame after the click storm');
+    const replay = await waitFor(page, b => b.kind === 'intro', 3000, 'the replayed intro').catch(() => null);
+    check('click logo: last intro replays', !!replay);
+    const settled = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 15000, 'the detail frame after the replay');
     const dwellStart = Date.now();
     let dwellBroken = null;
     while (Date.now() - dwellStart < MIN_SLOT_DWELL_MS) {
       const b = await readBox(page);
-      if (b.sig !== settled.sig) { dwellBroken = Date.now() - dwellStart; break; }
+      if (b.id !== settled.id) { dwellBroken = Date.now() - dwellStart; break; }
       await sleep(60);
     }
-    check(`20 rapid clicks: next frame holds >= ${MIN_SLOT_DWELL_MS}ms (one chain)`, dwellBroken === null,
+    check(`after a replay the detail frame holds >= ${MIN_SLOT_DWELL_MS}ms (one chain)`, dwellBroken === null,
       dwellBroken === null ? '' : `replaced after ${dwellBroken}ms`);
-
-    // ---- click the logo -> replay the last intro ----
-    await waitFor(page, b => b.kind === 'logo', 40000, 'the logo');
-    await page.click('.terminal-box');
-    const replay = await waitFor(page, b => b.kind === 'intro', 3000, 'the replayed intro').catch(() => null);
-    check('click logo: last intro replays', !!replay);
-    await page.mouse.move(700, 880);
 
     check('no console errors', errors.length === 0, errors.slice(0, 3).join(' || '));
 
-    // ---- mobile ----
+    // ---- mobile keeps the narrow frame ----
     const mobile = await browser.newPage();
     await mobile.setViewport({ width: 390, height: 844, isMobile: true });
     await mobile.goto(BASE, { waitUntil: 'domcontentloaded' });
-    await mobile.waitForSelector('.side-panel');
-    const mobilePanel = await mobile.$eval('.side-panel', el => getComputedStyle(el).display);
-    check('mobile: side panel hidden', mobilePanel === 'none', mobilePanel);
+    await mobile.waitForSelector('.terminal-row.ready', { timeout: 30000 });
+    const narrow = await waitFor(mobile, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'a mobile app frame');
+    check('mobile: narrow frame (no IMAGE/PAID columns)', !/IMAGE|PAID/.test(narrow.text) && narrow.text.split('\n').every(r => r.length <= 34));
   } catch (e) {
     check(`harness error: ${e.message}`, false);
   } finally {
