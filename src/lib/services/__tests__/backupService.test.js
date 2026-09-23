@@ -28,6 +28,11 @@ vi.mock('../../db/database.js', () => ({
     upsertRepoSnapshots: vi.fn(),
     upsertPriceHistory: vi.fn(),
     upsertGameSnapshots: vi.fn(),
+    // issue #311: node classifications and the three decentralization histories
+    getAllNodeIpClassifications: vi.fn(),
+    upsertNodeIpClassifications: vi.fn(),
+    getDecentralizationDimensionSnapshotHistory: vi.fn(),
+    createDecentralizationDimensionSnapshots: vi.fn(),
 }));
 
 // ---- Imports (after mocks are declared) ----
@@ -41,7 +46,12 @@ import {
     upsertRepoSnapshots,
     upsertPriceHistory,
     upsertGameSnapshots,
+    getAllNodeIpClassifications,
+    upsertNodeIpClassifications,
+    getDecentralizationDimensionSnapshotHistory,
+    createDecentralizationDimensionSnapshots,
 } from '../../db/database.js';
+import { BACKUP_TABLES } from '../backupTables.js';
 
 // We need to re-import the service fresh for each test group because the module
 // caches the S3 client. Use resetModules + dynamic import.
@@ -88,6 +98,11 @@ describe('Backup Service', () => {
         // Defaulted, unlike the other three: every test predates game_snapshots being in
         // the backup set, and without a default each would fail on an unrelated table.
         vi.mocked(exportAllGameSnapshots).mockResolvedValue([]);
+        // Same reason for the tables #311 added: empty unless a test says otherwise.
+        vi.mocked(getAllNodeIpClassifications).mockReset().mockResolvedValue([]);
+        vi.mocked(upsertNodeIpClassifications).mockReset().mockResolvedValue(0);
+        vi.mocked(getDecentralizationDimensionSnapshotHistory).mockReset().mockResolvedValue([]);
+        vi.mocked(createDecentralizationDimensionSnapshots).mockReset().mockResolvedValue(0);
     });
 
     // ========================================
@@ -145,7 +160,7 @@ describe('Backup Service', () => {
             expect(result.error).toMatch(/not configured/i);
         });
 
-        it('exports all 4 tables and calls PutObjectCommand 4 times on success', async () => {
+        it('exports every table in the backup set, one PutObjectCommand each', async () => {
             setR2Env();
             vi.stubEnv('DB_TYPE', 'supabase');
 
@@ -182,11 +197,17 @@ describe('Backup Service', () => {
             expect(result.tables.flux_price_history).toBe(1);
             expect(result.errors).toBeUndefined();
 
-            // 3 PutObjectCommand calls + at least 1 ListObjectsV2Command for pruning
+            // One PutObjectCommand per table + at least 1 ListObjectsV2Command for pruning
             const putCalls = mockSend.mock.calls.filter(
                 ([cmd]) => cmd._type === 'PutObjectCommand'
             );
-            expect(putCalls.length).toBe(4);
+            expect(putCalls.length).toBe(BACKUP_TABLES.length);
+            // issue #311: the history that cannot be re-derived is now in the set
+            const keys = putCalls.map(([cmd]) => cmd.Key);
+            for (const table of ['node_ip_classification', 'decentralization_snapshots',
+                'decentralization_country_snapshots', 'decentralization_continent_snapshots']) {
+                expect(keys.some(k => k.endsWith(`/${table}.json`))).toBe(true);
+            }
         });
 
         it('handles partial failure — one table throws, others succeed', async () => {
@@ -480,8 +501,57 @@ describe('Backup Service', () => {
             expect(result.success).toBe(true);
             expect(result.restored.daily_snapshots).toBe(1);
             expect(result.restored.repo_snapshots).toBe(1);
-            expect(result.restored.flux_price_history).toBe(0);
+            expect(result.restored.flux_price_history).toBeUndefined();
             expect(upsertPriceHistory).not.toHaveBeenCalled();
+        });
+
+        it('fails without writing anything when a REQUIRED table is missing', async () => {
+            setR2Env();
+            mockSend.mockImplementation((cmd) => {
+                if (cmd._type === 'GetObjectCommand' && cmd.Key.includes('daily_snapshots')) {
+                    return Promise.resolve(makeS3Body({ rows: [{ date: '2026-03-01' }] }));
+                }
+                return Promise.reject(new Error('NoSuchKey'));
+            });
+
+            const { restoreFromBackup } = await import('../backupService.js');
+            const result = await restoreFromBackup('2026-03-01');
+
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/repo_snapshots/);
+            expect(upsertDailySnapshots).not.toHaveBeenCalled();
+        });
+
+        it('restores decentralization history through the per-date writer (issue #311)', async () => {
+            setR2Env();
+            const byKey = {
+                daily_snapshots: { rows: [{ date: '2026-03-01' }] },
+                repo_snapshots: { rows: [{ date: '2026-03-01' }] },
+                decentralization_country_snapshots: { rows: [
+                    { snapshot_date: '2026-03-01', country: 'Germany', country_code: 'DE', node_count: 900 },
+                    { snapshot_date: '2026-03-01', country: 'Finland', country_code: 'FI', node_count: 300 },
+                    { snapshot_date: '2026-03-02', country: 'Germany', country_code: 'DE', node_count: 910 }
+                ] }
+            };
+            mockSend.mockImplementation((cmd) => {
+                const table = cmd.Key?.split('/').pop().replace('.json', '');
+                if (cmd._type === 'GetObjectCommand' && byKey[table]) return Promise.resolve(makeS3Body(byKey[table]));
+                return Promise.reject(new Error('NoSuchKey'));
+            });
+            vi.mocked(createDecentralizationDimensionSnapshots).mockImplementation(async (_k, _d, items) => items.length);
+
+            const { restoreFromBackup } = await import('../backupService.js');
+            const result = await restoreFromBackup('2026-03-02');
+
+            expect(result.success).toBe(true);
+            expect(result.restored.decentralization_country_snapshots).toBe(3);
+            expect(createDecentralizationDimensionSnapshots).toHaveBeenCalledWith('country', '2026-03-01', [
+                { country: 'Germany', countryCode: 'DE', count: 900 },
+                { country: 'Finland', countryCode: 'FI', count: 300 }
+            ]);
+            expect(createDecentralizationDimensionSnapshots).toHaveBeenCalledWith('country', '2026-03-02', [
+                { country: 'Germany', countryCode: 'DE', count: 910 }
+            ]);
         });
 
         it('returns error for invalid date format', async () => {

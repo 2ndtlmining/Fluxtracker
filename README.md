@@ -590,14 +590,30 @@ browser against a dev server and asserts size/style/timing invariants.
 
 ### Automated Backups (Cloudflare R2)
 
-The `daily_snapshots`, `repo_snapshots` and `flux_price_history` tables contain irreplaceable point-in-time data that cannot be re-derived from blockchain or external APIs. Backups protect against data loss if the Supabase instance is lost.
+These tables hold point-in-time observations that cannot be re-derived later from the
+blockchain or an external API, so all of them are backed up. The list lives in one place,
+`src/lib/services/backupTables.js`, and backup, restore and the SQLite bootstrap all read it:
+
+| Table | Required |
+|---|---|
+| `daily_snapshots`, `repo_snapshots` | yes -- a restore without them fails before writing anything |
+| `game_snapshots`, `flux_price_history` | no |
+| `node_ip_classification` | no -- re-deriving it means looking every node IP up again against rate-limited geo APIs |
+| `decentralization_snapshots`, `decentralization_country_snapshots`, `decentralization_continent_snapshots` | no |
 
 - **Trigger**: Automatically after each successful daily snapshot (fire-and-forget, never blocks the snapshot)
 - **Manual**: `POST /api/admin/backup`
-- **Storage**: Cloudflare R2 at `backups/{YYYY-MM-DD}/daily_snapshots.json` + `repo_snapshots.json` + `flux_price_history.json`
+- **Storage**: Cloudflare R2 at `backups/{YYYY-MM-DD}/<table>.json`, one object per table
 - **Retention**: 30 days (older backups pruned automatically)
-- **Restore**: `POST /api/admin/restore` with `{ "date": "2026-03-18" }` -- upserts data into the current DB
-- **Health**: Backup is "healthy" if not configured (not expected) OR last backup is less than 48 hours old
+- **Restore**: `POST /api/admin/restore` with `{ "date": "2026-03-18" }` -- upserts data into the current DB.
+  Optional tables missing from an older backup are skipped
+- **Health**: Backup is "healthy" if not configured (not expected) OR last backup is less than 48 hours old.
+  A backup missing any table is reported as `partial`. At startup the newest backup is read back
+  from R2; if it is partial (for example, taken before a table joined the set) a top-up backup
+  runs straight away
+- **Bootstrap** (SQLite mode): imports every table that is EMPTY locally -- checked per table, so
+  one that failed to import is retried on the next boot -- from the newest COMPLETE backup,
+  falling back to the newest one that has the required tables
 - **No-op without config**: If R2 env vars are not set, backup is silently disabled -- no errors, no log spam
 
 ### Auto-Failover

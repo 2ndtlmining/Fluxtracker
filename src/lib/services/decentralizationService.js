@@ -45,6 +45,19 @@ export function isKnownDatacenterOrg(orgOrIsp) {
     return DATACENTER_ORG_KEYWORDS.some(keyword => lower.includes(keyword));
 }
 
+/**
+ * The stored classifications with `isDatacenter` re-derived from the CURRENT keyword list
+ * (issue #314). The stored flag was decided once, when the IP was classified, so editing
+ * DATACENTER_ORG_KEYWORDS changed nothing already in the table until someone remembered
+ * POST /api/admin/reclassify-datacenters -- DataVex's 105 nodes read as independent for
+ * exactly that reason (#196). `org` is stored, so deriving costs nothing. This matches how
+ * repo categories are re-validated against config at read time.
+ */
+export async function loadCurrentClassifications() {
+    const stored = await getAllNodeIpClassifications();
+    return stored.map(row => ({ ...row, isDatacenter: isKnownDatacenterOrg(row.org) }));
+}
+
 async function classifyViaIpwhois(ip) {
     const data = await resilientFetch(`https://ipwho.is/${ip}`, {
         timeout: LOOKUP_TIMEOUT_MS,
@@ -166,7 +179,7 @@ export async function loadClassificationContext() {
 
     const candidateIps = getCachedNetworkNodeIps();
     const candidateSet = new Set(candidateIps);
-    const allClassifications = await getAllNodeIpClassifications();
+    const allClassifications = await loadCurrentClassifications();
 
     if (candidateIps.length === 0) {
         // Loud on purpose. Everything downstream degrades to null rather than failing, so
@@ -311,7 +324,7 @@ export async function runDecentralizationCycle() {
         return;
     }
 
-    const allClassifications = await getAllNodeIpClassifications();
+    const allClassifications = await loadCurrentClassifications();
     const known = new Map(allClassifications.map(row => [row.ip, row]));
     const staleBefore = Date.now() - DECENTRALIZATION_CONFIG.staleAfterMs;
 
