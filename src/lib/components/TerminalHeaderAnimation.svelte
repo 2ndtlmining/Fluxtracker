@@ -45,6 +45,12 @@
     formatDeploymentFrameWide,
     formatExpiringFrameWide
   } from '$lib/utils/terminalAnimation.js';
+  import {
+    formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT,
+    formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT,
+    formatFoldingFrame, foldingFrameKinds, FOLDING_FRAME_COUNT,
+    formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT
+  } from '$lib/utils/introArt.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
@@ -126,13 +132,22 @@
       frameCount: DRAGON_FRAME_COUNT,
       format: formatDragonFrame,
       kinds: dragonFrameKinds
+    },
+    // Issue #273: the most-deployed game without art of its own until now.
+    'Project Zomboid': {
+      frameCount: ZOMBOID_FRAME_COUNT,
+      format: formatZomboidFrame,
+      kinds: zomboidFrameKinds
     }
   };
 
-  // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Empty
-  // until the per-service intros land (#272-#279): an unlisted service gets no intro, exactly
-  // as before, so resolving it is safe to ship ahead of the art.
-  const SERVICE_INTROS = {};
+  // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. A service
+  // without an entry gets no intro, exactly as before (#276-#279 add the rest).
+  const SERVICE_INTROS = {
+    orbit: { frameCount: ORBIT_FRAME_COUNT, format: formatOrbitFrame, kinds: orbitFrameKinds },       // #272
+    folding: { frameCount: FOLDING_FRAME_COUNT, format: formatFoldingFrame, kinds: foldingFrameKinds }, // #274
+    crypto: { frameCount: CRYPTO_FRAME_COUNT, format: formatCryptoFrame, kinds: cryptoFrameKinds }      // #275
+  };
 
   // Apps the rotation has shown, oldest first -- pickNextDeployed() walks the whole day's
   // list with it instead of replaying the newest deployment (issue #283).
@@ -779,7 +794,7 @@
      sideways each time the rotation moves between the logo and an app. */
   @media (min-width: 1280px) {
     .terminal-box {
-      min-width: 76ch;
+      min-width: 80ch;
     }
   }
 
@@ -819,6 +834,26 @@
     text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
   }
 
+  /* Service intro accents (issues #272, #274, #275). Games stay green; a service takes its
+     own colour so its art never reads as a game deployment. */
+  .row-purple {
+    font-size: 0.7rem;
+    color: var(--accent-purple);
+    text-shadow: 0 0 8px rgba(189, 147, 249, 0.55);
+  }
+
+  .row-blue {
+    font-size: 0.7rem;
+    color: var(--accent-blue);
+    text-shadow: 0 0 8px rgba(0, 217, 255, 0.55);
+  }
+
+  .row-gold {
+    font-size: 0.7rem;
+    color: var(--accent-yellow);
+    text-shadow: 0 0 8px rgba(255, 235, 59, 0.5);
+  }
+
   @media (max-width: 480px) {
     .terminal-box {
       --box-row: 0.8rem;
@@ -833,7 +868,10 @@
     }
 
     .row-expiring,
-    .row-deployed {
+    .row-deployed,
+    .row-purple,
+    .row-blue,
+    .row-gold {
       font-size: 0.6rem;
     }
   }

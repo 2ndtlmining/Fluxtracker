@@ -26,7 +26,6 @@ working day, so a version change on production confirms that day's work landed.
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 11 | Intros, batch 1 | #272 #273 #274 #275 | Move the harness's `INITIAL_DEPLOYED` fixture first if any of these gives it art |
 | 12 | Expiring + non-game fallback | #182 (per-game outros first, fuse as fallback) #181 | See the refinement comments on both issues |
 | 13 | Intros, batch 2 | #276 #277 #278 #279 #280 #281 | |
 | 14 | Header extras | #286 #287 #288 #290 | |
@@ -177,6 +176,9 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #346 | One wide header frame per app (type, image, payment); SvelteKit announcer CSP (#345) |
+| #344 | Header hover pause, click-through to the table, reduced-motion poster, enterprise RES (#282 #284 #289) |
+| #343 | COOP judged by the request Host; block milestones removed (#285 dropped) |
 | #342 | Polish and accessibility: page title/OG tags, one number formatter, carousel pause + reduced motion, contrast, aria states, period control, layout fixes (#320 #321 #323-#331) |
 | #340 | Lazy chart (page chunk 112 -> 45 KB gzip), server-rendered hero cards, chart data cache, index-ordered and totally ordered transaction paging (#297 #299 #303 #294) |
 | #339 | Revalidation that works through the proxy (304s), idle hidden tabs, self-hosted font, one font everywhere (#300 #298 #302 #322) |

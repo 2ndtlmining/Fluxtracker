@@ -293,7 +293,7 @@ export function rotateStrip(strip, by) {
 }
 
 /** Build a wave strip of exactly LOGO_WIDTH columns from a repeating pattern. */
-function waveStrip(pattern) {
+export function waveStrip(pattern) {
   return pattern.repeat(Math.ceil(LOGO_WIDTH / pattern.length)).slice(0, LOGO_WIDTH);
 }
 
@@ -336,7 +336,7 @@ export const VALHEIM_FRAME_COUNT = SHIP_BOB.length;
  * underneath (the water) shows through the gaps in the ship. Never changes row length:
  * anything that would land past the right edge is dropped.
  */
-function overlayAt(row, column, art) {
+export function overlayAt(row, column, art) {
   const out = row.split('');
   for (let i = 0; i < art.length; i++) {
     const target = column + i;
@@ -709,10 +709,32 @@ export function palworldFrameKinds() {
 
 const FIELD_LABEL_WIDTH = 9; // "  NAME   ".length -- every field prefix is this wide
 
-function formatDetailLine(label, value) {
+function formatDetailLine(label, value, width = LOGO_WIDTH) {
   const prefix = `  ${label.padEnd(6)} `;
-  const available = Math.max(1, LOGO_WIDTH - FIELD_LABEL_WIDTH);
+  const available = Math.max(1, width - FIELD_LABEL_WIDTH);
   return prefix + truncateForBox(String(value), available);
+}
+
+/** NAME / AGO / INST / RES for a deployment, each omitted when its data is not real. */
+function deploymentDetailLines(deployment, width = LOGO_WIDTH) {
+  const instances = Number.isFinite(deployment.instances) ? deployment.instances : null;
+  const resources = describeResources(deployment);
+  const lines = [formatDetailLine('NAME', deployment.name || 'unknown', width)];
+  if (Number.isFinite(deployment.blockAge)) lines.push(formatDetailLine('AGO', `${formatBlocksAsTime(deployment.blockAge)} ago`, width));
+  if (instances !== null) lines.push(formatDetailLine('INST', instances, width));
+  if (resources) lines.push(formatDetailLine('RES', resources, width));
+  return lines;
+}
+
+/** NAME / EXPIRE / INST / RES for an expiring app, each omitted when its data is not real. */
+function expiringDetailLines(app, width = LOGO_WIDTH) {
+  const instances = Number.isFinite(app.instances) ? app.instances : null;
+  const resources = describeResources(app);
+  const lines = [formatDetailLine('NAME', app.name || 'unknown', width)];
+  if (Number.isFinite(app.blocksUntilExpiry)) lines.push(formatDetailLine('EXPIRE', formatBlocksAsTime(app.blocksUntilExpiry), width));
+  if (instances !== null) lines.push(formatDetailLine('INST', instances, width));
+  if (resources) lines.push(formatDetailLine('RES', resources, width));
+  return lines;
 }
 
 // Space-separated, not " | "-joined: the RES row is the tightest fit in the box (three
@@ -783,17 +805,7 @@ export function pickLatestExpiring(expiringApps) {
  * type" now, not "app type" (see DEPLOYED_ICON_LINE).
  */
 export function formatDeploymentFrame(deployment, rank = null) {
-  const instances = Number.isFinite(deployment.instances) ? deployment.instances : null;
-  const resources = describeResources(deployment);
-  const deployedAgo = Number.isFinite(deployment.blockAge)
-    ? `${formatBlocksAsTime(deployment.blockAge)} ago`
-    : null;
-
-  const detailLines = [formatDetailLine('NAME', deployment.name || 'unknown')];
-  if (deployedAgo) detailLines.push(formatDetailLine('AGO', deployedAgo));
-  if (instances !== null) detailLines.push(formatDetailLine('INST', instances));
-  if (resources) detailLines.push(formatDetailLine('RES', resources));
-
+  const detailLines = deploymentDetailLines(deployment);
   const middleRowCount = BOOT_LINE_COUNT - 2;
   const middle = padLines(detailLines, middleRowCount);
   return [DEPLOYED_ICON_LINE, ...middle, formatDeployedCounterLine(rank)];
@@ -835,15 +847,7 @@ export function deploymentFrameKinds() {
  * place of AGO, since expiry (not deployment recency) is the relevant time here.
  */
 export function formatExpiringFrame(app) {
-  const instances = Number.isFinite(app.instances) ? app.instances : null;
-  const resources = describeResources(app);
-  const expiresIn = Number.isFinite(app.blocksUntilExpiry) ? formatBlocksAsTime(app.blocksUntilExpiry) : null;
-
-  const detailLines = [formatDetailLine('NAME', app.name || 'unknown')];
-  if (expiresIn) detailLines.push(formatDetailLine('EXPIRE', expiresIn));
-  if (instances !== null) detailLines.push(formatDetailLine('INST', instances));
-  if (resources) detailLines.push(formatDetailLine('RES', resources));
-
+  const detailLines = expiringDetailLines(app);
   const middleRowCount = BOOT_LINE_COUNT - 2;
   const middle = padLines(detailLines, middleRowCount);
   return [EXPIRING_ICON_LINE, ...middle, EXPIRING_ICON_LINE];
@@ -914,9 +918,12 @@ export function markPaused(lines) {
 // was paid for it and when. No second panel repeating the same app, and nothing that is not
 // about the app on screen. Mobile keeps the narrow frame.
 
+// The left column is 4 wider than the narrow box so a full timestamped app name fits:
+// projectzomboid<13 digits> is 27 characters, and the narrow frame cuts it to 25.
+const WIDE_LEFT_WIDTH = LOGO_WIDTH + 4;
 const WIDE_GAP = 2;
 const WIDE_RIGHT_WIDTH = 40;
-export const WIDE_WIDTH = LOGO_WIDTH + WIDE_GAP + WIDE_RIGHT_WIDTH;
+export const WIDE_WIDTH = WIDE_LEFT_WIDTH + WIDE_GAP + WIDE_RIGHT_WIDTH;
 const DASH = '—';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -982,7 +989,7 @@ function wideMiddle(leftLines, app, extras) {
     formatWideField('ON', on)
   ];
   const left = padLines(leftLines, BOOT_LINE_COUNT - 2);
-  return left.map((line, i) => String(line).padEnd(LOGO_WIDTH + WIDE_GAP) + right[i]);
+  return left.map((line, i) => String(line).padEnd(WIDE_LEFT_WIDTH + WIDE_GAP) + right[i]);
 }
 
 /**
@@ -990,18 +997,16 @@ function wideMiddle(leftLines, app, extras) {
  * @param {{introKey?: string|null, payment?: object|null}} extras
  */
 export function formatDeploymentFrameWide(deployment, rank = null, extras = {}) {
-  const narrow = formatDeploymentFrame(deployment, rank);
   const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total) && rank.total >= 1;
   return [
     wideBookend('NEW APP DEPLOYED', '>', '<'),
-    ...wideMiddle(narrow.slice(1, -1).filter(line => line.trim()), deployment, extras),
+    ...wideMiddle(deploymentDetailLines(deployment, WIDE_LEFT_WIDTH), deployment, extras),
     wideBookend(ranked ? `#${rank.position} OF ${rank.total} IN 24H` : 'NEW APP DEPLOYED', '>', '<')
   ];
 }
 
 /** Desktop expiring frame: the narrow frame's rows plus type, image and payment. */
 export function formatExpiringFrameWide(app, extras = {}) {
-  const narrow = formatExpiringFrame(app);
   const bookend = wideBookend('EXPIRING', '<', '>');
-  return [bookend, ...wideMiddle(narrow.slice(1, -1).filter(line => line.trim()), app, extras), bookend];
+  return [bookend, ...wideMiddle(expiringDetailLines(app, WIDE_LEFT_WIDTH), app, extras), bookend];
 }

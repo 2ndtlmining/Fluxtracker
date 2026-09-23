@@ -42,7 +42,8 @@ const DEPLOYED_GAME_NAMES = {
   valheim: 'valheim1789155733041',
   minecraft: 'minecraftj1789155733041',
   dragonwilds: 'dragonwilds1789155733041',
-  palworld: 'palworld1789155733041'
+  palworld: 'palworld1789155733041',
+  zomboid: 'projectzomboid1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
