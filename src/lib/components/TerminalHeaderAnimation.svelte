@@ -1,7 +1,13 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
-  import { resolveGameFromAppName } from '$lib/config.js';
+  import { resolveIntroKey } from '$lib/config.js';
+  import {
+    pickNextDeployed,
+    rememberShown,
+    blockMilestone,
+    MILESTONE_WINDOW_BLOCKS
+  } from '$lib/utils/headerRotation.js';
   import {
     LOGO_LINES,
     BOOT_LINE_COUNT,
@@ -31,11 +37,15 @@
     dragonFrameKinds,
     DRAGON_FRAME_COUNT,
     formatMinecraftFrame,
-  formatPalworldFrame,
-  palworldFrameKinds,
-  PALWORLD_FRAME_COUNT,
+    formatPalworldFrame,
+    palworldFrameKinds,
+    PALWORLD_FRAME_COUNT,
     minecraftFrameKinds,
-    MINECRAFT_FRAME_COUNT
+    MINECRAFT_FRAME_COUNT,
+    formatMilestoneFrame,
+    formatMilestoneReducedMotionLines,
+    milestoneFrameKinds,
+    MILESTONE_FRAME_COUNT
   } from '$lib/utils/terminalAnimation.js';
 
   export let blockHeight = null;
@@ -48,6 +58,7 @@
   export let dbStatus = 'checking';
   export let dataReady = false;
   export let latestDeployedApp = null;   // most recent /api/carousel/deployed entry, or null
+  export let deployedApps = [];          // the whole 24h /api/carousel/deployed list (issue #283)
   export let latestExpiringApp = null;   // soonest /api/carousel/expiring entry, or null
 
   // Boot pacing. Everything the boot sequence schedules is multiplied by
@@ -119,6 +130,15 @@
       kinds: dragonFrameKinds
     }
   };
+
+  // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Empty
+  // until the per-service intros land (#272-#279): an unlisted service gets no intro, exactly
+  // as before, so resolving it is safe to ship ahead of the art.
+  const SERVICE_INTROS = {};
+
+  // Apps the rotation has shown, oldest first -- pickNextDeployed() walks the whole day's
+  // list with it instead of replaying the newest deployment (issue #283).
+  let recentDeployed = [];
 
   let state = 'booting'; // 'booting' | 'ready'
   // The single fixed box: every phase of the header (boot text, logo, rotation
@@ -351,8 +371,30 @@
   function idleSlots() {
     const slots = [{ kind: 'logo' }];
     if (latestExpiringApp) slots.push({ kind: 'expiring', data: latestExpiringApp });
-    if (latestDeployedApp) slots.push({ kind: 'deployed', data: latestDeployedApp });
+    if (deployedList().length > 0) slots.push({ kind: 'deployed' });
+    // A block milestone (issue #285) only exists for a day either side of a round height.
+    // Last in the cycle, so it never delays the app frames the rotation exists for.
+    const milestone = blockMilestone(blockHeight);
+    if (milestone) slots.push({ kind: 'milestone', data: milestone });
     return slots;
+  }
+
+  /** The deployed list to rotate through; falls back to the single latest app. */
+  function deployedList() {
+    if (Array.isArray(deployedApps) && deployedApps.length > 0) return deployedApps;
+    return latestDeployedApp ? [latestDeployedApp] : [];
+  }
+
+  /**
+   * Fill in the deployed slot at the moment it is entered: which app is up next, and its
+   * place in the day. Chosen here rather than in idleSlots() so the shown-history only
+   * advances when a deployment is actually put on screen.
+   */
+  function claimDeployedSlot(slot) {
+    const choice = pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey);
+    if (!choice) return null;
+    recentDeployed = rememberShown(recentDeployed, choice.app, resolveIntroKey(choice.app));
+    return { ...slot, data: choice.app, rank: { position: choice.position, total: choice.total } };
   }
 
   /**
@@ -364,15 +406,33 @@
    * A game with its own art gets it; every other game falls back to the controller.
    */
   function introForSlot(slot) {
+    if (slot?.kind === 'milestone') {
+      return {
+        frameCount: MILESTONE_FRAME_COUNT,
+        format: step => formatMilestoneFrame(slot.data, step, MILESTONE_WINDOW_BLOCKS),
+        kinds: milestoneFrameKinds
+      };
+    }
     if (slot?.kind !== 'deployed') return null;
-    const game = resolveGameFromAppName(slot.data?.name);
-    if (!game) return null;
-    return GAME_INTROS[game] || GAMEPAD_INTRO;
+    // One resolver for games and services (issue #271): `game:<name>` or `service:<key>`.
+    const key = resolveIntroKey(slot.data);
+    if (!key) return null;
+    if (key.startsWith('game:')) return GAME_INTROS[key.slice(5)] || GAMEPAD_INTRO;
+    return SERVICE_INTROS[key.slice(8)] || null;
   }
 
   function framesForSlot(slot) {
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
+    }
+    if (slot.kind === 'milestone') {
+      const m = slot.data;
+      const lines = reducedMotion ? formatMilestoneReducedMotionLines(m) : formatMilestoneFrame(m, 0, MILESTONE_WINDOW_BLOCKS);
+      const kinds = reducedMotion ? textKinds() : milestoneFrameKinds();
+      const label = m.phase === 'countdown'
+        ? `Block ${m.target.toLocaleString('en-US')} in ${m.blocksToGo} blocks`
+        : `Block ${m.target.toLocaleString('en-US')} reached`;
+      return { lines, kinds, ariaLabel: label };
     }
     if (slot.kind === 'expiring') {
       // Reduced motion stays plain text (essentials only, per its existing design
@@ -381,7 +441,7 @@
       const kinds = reducedMotion ? textKinds() : expiringFrameKinds();
       return { lines, kinds, ariaLabel: `Expiring soon: ${slot.data.name}` };
     }
-    const lines = reducedMotion ? formatDeploymentReducedMotionLines(slot.data) : formatDeploymentFrame(slot.data);
+    const lines = reducedMotion ? formatDeploymentReducedMotionLines(slot.data) : formatDeploymentFrame(slot.data, slot.rank);
     const kinds = reducedMotion ? textKinds() : deploymentFrameKinds();
     return { lines, kinds, ariaLabel: `Latest deployment: ${slot.data.name}` };
   }
@@ -408,14 +468,21 @@
     }
 
     rotationIndex = (rotationIndex + 1) % slots.length;
-    const slot = slots[rotationIndex];
+    let slot = slots[rotationIndex];
+    if (slot.kind === 'deployed') {
+      slot = claimDeployedSlot(slot);
+      if (!slot) {
+        scheduleNextRotationStep();
+        return;
+      }
+    }
     const next = framesForSlot(slot);
 
     // Reduced motion skips intro art entirely -- it is decoration, and animated decoration
     // at that, so it is exactly what that preference is asking us not to do.
     const intro = reducedMotion ? null : introForSlot(slot);
     if (intro) {
-      playIntroThen(intro, next);
+      playIntroThen(intro, next, { app: slot.data, blockHeight });
       return;
     }
 
@@ -442,13 +509,16 @@
    * Each step is a straight frame swap (no wipe) so the art reads as one continuous
    * animation; only the handover to the details uses the shared reveal.
    *
-   * @param {{frameCount: number, format: (step: number) => string[], kinds: () => string[]}} intro
+   * @param {{frameCount: number, format: (step: number, ctx?: object) => string[], kinds: () => string[]}} intro
+   * @param {{app?: object, blockHeight?: number}} ctx real data an intro may draw on (issue
+   *   #271) -- the existing art ignores it; intros that show a height or an instance count
+   *   read it here rather than inventing a number
    */
-  function playIntroThen(intro, next) {
+  function playIntroThen(intro, next, ctx = {}) {
     let step = 0;
 
     const showStep = () => {
-      frameLines = intro.format(step);
+      frameLines = intro.format(step, ctx);
       frameKinds = intro.kinds();
       currentAriaLabel = next.ariaLabel;   // the details are the meaning; the art is not
 
@@ -470,7 +540,7 @@
 
     // Wipe INTO the art the same way every other rotation step arrives, so it does not pop
     // in differently from the frames around it.
-    runReveal(frameLines, frameKinds, intro.format(0), intro.kinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
+    runReveal(frameLines, frameKinds, intro.format(0, ctx), intro.kinds(), 'top-down', ROTATE_TRANSITION_MS, showStep);
   }
 
   onMount(() => {
@@ -548,6 +618,13 @@
     text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
   }
 
+  /* Block milestone frames (issue #285) -- gold, an event rather than a deployment. */
+  .row-milestone {
+    font-size: 0.7rem;
+    color: var(--accent-yellow);
+    text-shadow: 0 0 8px rgba(255, 235, 59, 0.55);
+  }
+
   @media (max-width: 480px) {
     .terminal-box {
       --box-row: 0.8rem;
@@ -562,7 +639,8 @@
     }
 
     .row-expiring,
-    .row-deployed {
+    .row-deployed,
+    .row-milestone {
       font-size: 0.6rem;
     }
   }

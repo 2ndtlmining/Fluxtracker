@@ -48,6 +48,7 @@
   // refreshed on the same 30s poll as everything else, so the rotation never shows
   // stale first-load data -- see fetchHeaderData/pollLatestApps.
   let latestDeployedApp = null;
+  let deployedApps = [];   // the whole 24h list -- the header rotates through it (issue #283)
   let latestExpiringApp = null;
 
   // Guards against overlapping poll cycles and hung requests. Without both, a slow or
@@ -172,12 +173,13 @@
    */
   async function pollLatestApps() {
     const [deployedResult, expiringResult] = await Promise.allSettled([
-      fetchLatestApp(`${API_URL}/api/carousel/deployed`, pickLatestDeployed),
+      fetchLatestApp(`${API_URL}/api/carousel/deployed`, stats => stats),
       fetchLatestApp(`${API_URL}/api/carousel/expiring`, pickLatestExpiring)
     ]);
 
     if (deployedResult.status === 'fulfilled') {
-      latestDeployedApp = deployedResult.value;
+      deployedApps = deployedResult.value;
+      latestDeployedApp = pickLatestDeployed(deployedApps);
     } else {
       console.error('Error polling latest deployed apps for header animation:', deployedResult.reason);
     }
@@ -240,6 +242,7 @@
         {dbStatus}
         {dataReady}
         {latestDeployedApp}
+        {deployedApps}
         {latestExpiringApp}
       />
       <div class="build-info">

@@ -344,6 +344,47 @@ export function resolveGameFromAppName(appName) {
     return match ? match.name : null;
 }
 
+// Non-game services the terminal header can recognise (issue #271), measured on the live
+// network 2026-09-23. Each rule matches on the app NAME, the image REPO, or both; a rule
+// hits when either does. Names are checked because the dedicated sites (WordPress, the AI
+// agents) encrypt their specs and carry no repo at all. Note the name patterns: ownllm,
+// blockbook and kaspanode apps do NOT end in the 13-digit timestamp the game sites use,
+// so they are prefix matches rather than the anchored GAME_PREFIX_MATCHERS form.
+export const SERVICE_INTRO_RULES = [
+    { key: 'orbit', repo: /^runonflux\/orbit(:|$)/ },
+    { key: 'folding', repo: /folding-at-home/ },
+    { key: 'wordpress', name: /^wordpress[0-9]{13,}$/, repo: /^(runonflux\/wp-nginx|wordpress)(:|$)/ },
+    { key: 'ai-agent', name: /^(hermesagent[0-9]{13,}|openclaw|ownllm)/ },
+    { key: 'vpn', repo: /(softethervpn|cumulusvpn-gateway|shadowsocks|outline-ss-server|socks5|tor-socks-proxy|http-proxy)/ },
+    { key: 'probe', name: /^probeamericas|probe$/, repo: /(globalping-probe|outposts-probe)/ },
+    { key: 'crypto', name: /^(presearchnode|streamrnode|kaspanode|blockbook)/ }
+];
+
+/**
+ * Which header intro an app gets (issue #271): `game:<name>`, `service:<key>`, or null.
+ *
+ * Order matters: a game always wins over a service, so a game server whose image happens to
+ * trip a service rule still gets its game's art. After the explicit rules, any image that
+ * categorizeImage() files as crypto is a crypto node -- the same rule the category cards use.
+ *
+ * @param {{name?: string, repo?: string}} app a /api/carousel/deployed or /expiring entry
+ */
+export function resolveIntroKey(app) {
+    if (!app) return null;
+    const game = resolveGameFromAppName(app.name);
+    if (game) return `game:${game}`;
+
+    const name = String(app.name || '').toLowerCase();
+    const repo = String(app.repo || '').toLowerCase();
+    for (const rule of SERVICE_INTRO_RULES) {
+        if ((rule.name && name && rule.name.test(name)) || (rule.repo && repo && rule.repo.test(repo))) {
+            return `service:${rule.key}`;
+        }
+    }
+    if (repo && categorizeImage(repo) === 'crypto') return 'service:crypto';
+    return null;
+}
+
 // ============================================
 // CRYPTO NODE REPOSITORIES TO TRACK
 // ============================================

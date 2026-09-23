@@ -53,6 +53,9 @@ const MAIN_LOOP_BUDGET_MS = 100000;
 // started with -- the stub names its second deployed fixture after it, and the component
 // picks the art from that name. Defaults to valheim so an unset run behaves as before.
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
+// Issue #285: set when the stub was started with a BLOCK_HEIGHT inside a milestone window.
+// Adds the milestone checks; unset, the run is exactly as before.
+const EXPECT_MILESTONE = Boolean(process.env.EXPECT_MILESTONE);
 const GAME_ART_BY_NAME = {
   // The hull, and the two scrolling water rows beneath it.
   valheim: {
@@ -119,6 +122,7 @@ const bootTextStyle = { color: 'rgb(136, 146, 176)', fontSize: '11.2px' };
 const GREEN = 'rgb(0, 255, 65)';    // --accent-green
 const PURPLE = 'rgb(189, 147, 249)'; // --accent-purple
 const ORANGE = 'rgb(249, 115, 22)'; // --accent-orange fallback (#f97316)
+const YELLOW = 'rgb(255, 235, 59)'; // --accent-yellow (#ffeb3b), block milestones (#285)
 
 const run = async () => {
   if (!(await stubReachable())) {
@@ -159,6 +163,10 @@ const run = async () => {
   let sawInstRow = false;
   let sawResRow = false;
   let sawDeployedIconBanner = false;
+  let sawDeployedCounter = false;
+  let sawMilestoneFrame = false;
+  let milestoneColor = null;
+  let milestoneEmptyRows = 0;
   // Issue #177: a game deployment plays an ASCII controller before its detail frame. The
   // deployed fixture is named like a real dedicated-site deploy (a game name + 13-digit
   // timestamp) so this path is actually exercised; the expiring fixture stays a
@@ -186,6 +194,7 @@ const run = async () => {
         ? (() => { const cs = getComputedStyle(textStyleRow); return { color: cs.color, fontSize: cs.fontSize, text: textStyleRow.textContent.replace(/\n/g, '') }; })()
         : null;
       const deployedIconRow = spans.find(sp => sp.className.includes('row-deployed'));
+      const milestoneRow = spans.find(sp => sp.className.includes('row-milestone'));
       const expiringIconRow = spans.find(sp => sp.className.includes('row-expiring'));
       return {
         settled: box.className.includes('settled'),
@@ -194,6 +203,7 @@ const run = async () => {
         textStyle: style,
         deployedIconColor: deployedIconRow ? getComputedStyle(deployedIconRow).color : null,
         expiringIconColor: expiringIconRow ? getComputedStyle(expiringIconRow).color : null,
+        milestoneColor: milestoneRow ? getComputedStyle(milestoneRow).color : null,
         rows: spans.map(sp => ({ cls: sp.className, text: sp.textContent.replace(/\n/g, '') }))
       };
     });
@@ -231,6 +241,13 @@ const run = async () => {
         }
       }
 
+      // Block milestone frames (issue #285): every row gold, a BLOCK headline, never empty.
+      if (s.settled && s.rows.every(r => r.cls.includes('row-milestone')) && /BLOCK [\d,]+/.test(joined)) {
+        sawMilestoneFrame = true;
+        milestoneColor ??= s.milestoneColor;
+        if (s.rows.some(r => r.text.trim().length === 0)) milestoneEmptyRows++;
+      }
+
       // Gamepad frames (issue #177). Checked OUTSIDE the NAME-row guard below: a
       // controller frame has no NAME row, so inside it this could only ever match a
       // mid-wipe frame holding rows from both the controller and the detail frame.
@@ -257,6 +274,7 @@ const run = async () => {
         if (isDeployed) {
           sawDeployedFrame = true;
           sawDeployedIconBanner = true;
+          if (/#\d+ OF \d+ IN 24H/.test(joined)) sawDeployedCounter = true;
           if (joined.includes(UPDATED_DEPLOYED_NAME)) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
@@ -343,6 +361,7 @@ const run = async () => {
     ['idle rotation: expiring frame observed', sawExpiringFrame],
     ['idle rotation: deployed frame observed', sawDeployedFrame],
     ['idle rotation: DEPLOYED banner shown on the deployed frame', sawDeployedIconBanner],
+    ['idle rotation: deployed frame says its place in the day (#283)', sawDeployedCounter],
     ['idle rotation: EXPIRE row shown', sawExpireRow],
     ['idle rotation: AGO row shown', sawAgoRow],
     ['idle rotation: INST row shown', sawInstRow],
@@ -360,7 +379,12 @@ const run = async () => {
     ['idle rotation: picks up the updated expiring app on a later poll (not cached)', sawUpdatedExpiringName],
     ['build version is accent-green', build.version && build.version.color === GREEN],
     ['build codename is accent-purple', build.codename && build.codename.color === PURPLE],
-    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow]
+    ['mobile: exactly 6 mobile rows, no overflow', mobile?.settled && Math.abs(mobile.boxH - 6 * 0.8 * mobile.rootPx) < 1 && !mobile.overflow],
+    ...(EXPECT_MILESTONE ? [
+      ['milestone: block milestone frame shown (#285)', sawMilestoneFrame],
+      ['milestone: frame is accent-yellow', milestoneColor === YELLOW],
+      ['milestone: no empty rows', sawMilestoneFrame && milestoneEmptyRows === 0]
+    ] : [])
   ];
 
   console.log('phases:', JSON.stringify(phases, null, 0));
