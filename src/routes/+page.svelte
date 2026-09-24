@@ -17,7 +17,6 @@
   import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
   import AppInstancesCard from '$lib/components/AppInstancesCard.svelte';
-  import UtilizationProjectionCard from '$lib/components/UtilizationProjectionCard.svelte';
   
   // Hero-card data rendered on the server (issue #299) -- see +page.server.js. Either field is
   // null when the API did not answer inside the SSR budget; the client fetch in onMount then
@@ -613,9 +612,6 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       <DecentralizationCard stats={decentralizationStats} loading={decentralizationLoading} error={decentralizationError} comparison={decentralizationComparison} />
 
     </div>
-
-    <!-- Utilization Projection (issue #347): the network if no app renews. -->
-    <UtilizationProjectionCard cpuInUse={metrics?.cloud?.cpu?.used ?? null} />
 
     <!-- Historical Performance Chart -->
     <!-- height 525 (issues #149/#153/#163) -- Additional Metrics row above is a
