@@ -67,26 +67,40 @@ describe('wide detail frames (issue #345)', () => {
   };
 
   it('expiring: everything about the one app, in one frame', () => {
-    const frame = formatExpiringFrameWide(enshrouded, { introKey: 'game:Enshrouded', payment: paid });
+    const frame = formatExpiringFrameWide({ ...enshrouded, expireBlocks: 88000 }, { introKey: 'game:Enshrouded', payment: paid });
     shape(frame);
     expect(frame[0]).toContain(' EXPIRING ');
     expect(frame[1]).toMatch(/NAME\s+enshrouded1789586019696\s+GAME\s+Enshrouded/);
     expect(frame[2]).toMatch(/EXPIRE\s+6m\s+IMAGE\s+sknnr\/enshrouded-dedicated-server/);
-    expect(frame[3]).toMatch(/INST\s+2\s+PAID\s+18\.40 FLUX · \$0\.96/);
-    expect(frame[4]).toMatch(/RES\s+2 CPU 4\.0G RAM 50G SSD\s+ON\s+Sep 16/);
+    expect(frame[3]).toMatch(/INST\s+2\s+PAID\s+18\.40 FLUX · \$0\.96 · Sep 16/);
+    // The EXPIRE row already says when, so the term is the length alone.
+    expect(frame[4]).toMatch(/RES\s+2 CPU 4\.0G RAM 50G SSD\s+TERM\s+1 month$/);
     // Nothing that is not about this app (the owner's call on #345).
     expect(frame.join('\n')).not.toMatch(/block|nodes|next up/i);
   });
 
-  it('deployed: rank in the closing bookend, age on the left', () => {
-    const frame = formatDeploymentFrameWide(open, { position: 12, total: 125 }, { introKey: 'game:Palworld', payment: { ...paid, total: 3 } });
+  it('deployed: rank in the closing bookend, age on the left, term and end date', () => {
+    const nowMs = Date.UTC(2026, 8, 24, 12);
+    const app = { ...open, expireBlocks: 88000, blocksUntilExpiry: 88000 - 74 };
+    const frame = formatDeploymentFrameWide(app, { position: 12, total: 125 }, { introKey: 'game:Palworld', payment: paid, nowMs });
     shape(frame);
     const text = frame.join('\n');
     expect(frame[0]).toContain(' NEW APP DEPLOYED ');
     expect(frame.at(-1)).toContain(' #12 OF 125 IN 24H ');
     expect(text).toMatch(/AGO\s+37m ago/);
-    expect(text).toContain('Sep 16 (last of 3)');
+    // 87,926 blocks * 30s = ~30.5 days after Sep 24 12:00 UTC
+    expect(frame[4]).toMatch(/TERM\s+1 month · ends Oct 25$/);
     expect(text).toMatch(/IMAGE\s+—/); // no repo, not enterprise
+  });
+
+  it('term: standard lengths by name, odd ones in days, none as a dash', () => {
+    const term = expireBlocks => formatExpiringFrameWide({ ...enshrouded, expireBlocks }, {})[4].split('TERM')[1].trim();
+    expect(term(20160)).toBe('1 week');
+    expect(term(1056000)).toBe('1 year');
+    expect(term(1055997)).toBe('1 year');
+    expect(term(528000)).toBe('6 months');
+    expect(term(108144)).toBe('~38 days');
+    expect(term(undefined)).toBe('—');
   });
 
   it('enterprise: image private, service or plain app type, payment not synced yet', () => {

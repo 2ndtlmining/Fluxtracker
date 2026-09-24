@@ -66,7 +66,7 @@ exactly as before. Takes ~70s.
 
 `check-interaction.mjs` covers what the header does when someone uses it:
 
-- **Wide frame (#345):** on desktop, an app frame is one wide frame about that app. The type,
+- **Wide frame (#345):** on desktop, an app frame is one wide frame about that app. The type, term,
   image and payment sit beside the name, expiry, instances and resources, and nothing
   unrelated (block height, node count) appears. Mobile keeps the narrow frame.
 - **Hover:** hovering holds the frame past a full 8s hold and shows `[ paused ]`. Leaving

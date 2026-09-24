@@ -188,7 +188,12 @@ export async function fetchLatestDeployedApps() {
                 hdd: hdd,
                 isEnterprise: isEnterprise,
                 height: app.height,
-                blockAge: currentBlockHeight - app.height
+                blockAge: currentBlockHeight - app.height,
+                // Subscription length and time left (header TERM row): 1 week vs 1 year is
+                // the context a new deployment otherwise lacks. Null when the spec has no
+                // expire, rather than a guessed default.
+                expireBlocks: Number.isFinite(app.expire) ? app.expire : null,
+                blocksUntilExpiry: Number.isFinite(app.expire) ? app.height + app.expire - currentBlockHeight : null
             };
         });
         
@@ -435,7 +440,8 @@ export async function fetchExpiringApps() {
                 ram: ram,
                 hdd: hdd,
                 isEnterprise: isEnterprise,
-                blocksUntilExpiry: app.expiresInBlocks
+                blocksUntilExpiry: app.expiresInBlocks,
+                expireBlocks: app.expire
             };
         });
 
