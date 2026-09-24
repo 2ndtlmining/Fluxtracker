@@ -178,7 +178,8 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
-| #356 | Utilization Projection card: app instances and readable-spec CPU if nothing renews, coverage stated (#347) |
+| #357 | Utilization Projection moved into the chart as a Cloud Resources metric (owner feedback) |
+| #356 | Utilization Projection: app instances and readable-spec CPU if nothing renews, coverage stated (#347) |
 | #354 | Large deployments play twice and brighter; seasonal sky (Halloween, December, New Year fireworks); attract mode (#286 #287 #288). #290 recommended against |
 | #353 | Intros: AI agents, WordPress, VPN/proxy, Globalping probes, FiveM; second variants for Dragonwilds, Valheim, Palworld (#276-#281) |
 | #352 | Expiring outros (longship sails off, Pal walks off ...), fuse fallback, crane for non-game deployments (#182 #181) |

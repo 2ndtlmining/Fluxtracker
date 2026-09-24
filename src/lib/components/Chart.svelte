@@ -159,6 +159,8 @@
         { id: 'cpu_used', label: 'Used CPU cores', field: 'used_cpu_cores', format: 'number' },
         { id: 'ram_used', label: 'Used Ram TB', field: 'used_ram_gb', format: 'number' },
         { id: 'storage_used', label: 'Used Storage TB', field: 'used_storage_gb', format: 'number' },
+        // Issue #347: not a history but a forecast -- see PROJECTION_METRIC below.
+        { id: 'utilization_projection', label: 'Utilization Projection', field: null, format: 'number', projection: true },
       ]
     },
     apps: {
@@ -258,9 +260,45 @@
     selectedMetric = entityValueType === 'qty' ? 'entity_qty' : 'entity_percent';
   }
 
+  // ---- Utilization Projection (issue #347), a Cloud Resources metric. Not a history: it is
+  // what the network would still run on each coming day if no app renewed, from every app
+  // spec's expiry. Selecting it retitles the chart, hides View/Period (they describe the
+  // past), and draws two lines -- app instances (every app) and CPU cores (only specs whose
+  // resources are readable; encrypted game-site specs hide theirs, and the note says so).
+  const PROJECTION_METRIC = 'utilization_projection';
+  let projection = null;
+  let projectionError = null;
+
+  $: isProjection = selectedMetric === PROJECTION_METRIC;
+  $: displayTitle = isProjection ? 'Utilization Projection' : title;
+
+  const projectionDate = iso => {
+    const [, m, d] = String(iso).split('-').map(Number);
+    return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][m - 1]} ${d}`;
+  };
+
+  async function loadProjection() {
+    try {
+      const response = await fetch(`${API_URL}/api/cloud/utilization-projection`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = await response.json();
+      if (!body?.available) throw new Error('projection unavailable');
+      projection = body;
+      projectionError = null;
+    } catch (err) {
+      console.error('Error fetching utilization projection:', err);
+      projectionError = 'Projection unavailable right now';
+    }
+  }
+
+  $: projectionSummary = projection
+    ? `If no app renews: ${formatCount(projection.drops.d7.instances)} instances gone in 7 days, `
+      + `${formatCount(projection.drops.d30.instances)} of ${formatCount(projection.today.instances)} within 30 days`
+    : '';
+
   // Text alternative for the canvas (issue #326): what is plotted, over which range, and
   // where it ends.
-  $: chartAriaLabel = (() => {
+  $: chartAriaLabel = isProjection ? `Utilization projection. ${projectionSummary}` : (() => {
     const metric = availableMetrics.find(m => m.id === selectedMetric);
     const range = timeframes.find(t => t.id === selectedTimeframe)?.label ?? selectedTimeframe;
     const points = chartData.data.length;
@@ -578,6 +616,25 @@
   }
 
   function processChartData() {
+    if (selectedMetric === PROJECTION_METRIC) {
+      if (!projection) {
+        loading = true;
+        loadProjection().then(() => {
+          loading = false;
+          if (projection) processChartData();
+          else error = projectionError;
+        });
+        return;
+      }
+      error = null;
+      chartData = {
+        labels: projection.points.map(p => projectionDate(p.date)),
+        data: projection.points.map(p => p.instances),
+        cpu: projection.points.map(p => Math.round(p.cpu)),
+        rawDates: projection.points.map(p => p.date)
+      };
+      return;
+    }
     if (!allSnapshots || allSnapshots.length === 0) {
       console.warn('⚠️ No snapshots available to process');
       return;
@@ -842,9 +899,70 @@
     return { labels, data, rawDates };
   }
 
+  function renderProjection() {
+    if (chartInstance) chartInstance.destroy();
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const tick = color => ({ color, font: { family: "'JetBrains Mono', monospace", size: 11 }, callback: v => formatCount(v, { compact: true }) });
+    chartInstance = new ChartJS(chartCanvas, {
+      type: 'line',
+      data: {
+        labels: chartData.labels,
+        datasets: [
+          {
+            label: 'App instances',
+            data: chartData.data,
+            borderColor: 'rgb(100, 200, 255)',
+            backgroundColor: 'rgba(100, 200, 255, 0.12)',
+            fill: true,
+            yAxisID: 'instances',
+            pointRadius: 0,
+            borderWidth: 2,
+            stepped: true
+          },
+          {
+            label: 'CPU cores (readable specs)',
+            data: chartData.cpu,
+            borderColor: 'rgb(189, 147, 249)',
+            backgroundColor: 'transparent',
+            yAxisID: 'cpu',
+            pointRadius: 0,
+            borderWidth: 2,
+            borderDash: [4, 3],
+            stepped: true
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: reduced ? false : undefined,
+        interaction: { intersect: false, mode: 'index' },
+        plugins: {
+          legend: { display: true, labels: { color: '#8b92b0', font: { family: "'JetBrains Mono', monospace", size: 11 } } },
+          tooltip: {
+            backgroundColor: 'rgba(10, 14, 23, 0.95)',
+            titleColor: '#00ffff',
+            bodyColor: '#ffffff',
+            padding: 12,
+            callbacks: { label: ctx => `${ctx.dataset.label}: ${formatCount(ctx.parsed.y)}` }
+          }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(139, 146, 176, 0.1)' }, ticks: { color: '#8b92b0', maxTicksLimit: 10, font: { family: "'JetBrains Mono', monospace", size: 10 } } },
+          instances: { position: 'left', beginAtZero: true, grid: { color: 'rgba(139, 146, 176, 0.1)' }, ticks: tick('rgb(100, 200, 255)') },
+          cpu: { position: 'right', beginAtZero: true, grid: { display: false }, ticks: tick('rgb(189, 147, 249)') }
+        }
+      }
+    });
+  }
+
   function renderChart() {
     if (!chartCanvas || !ChartJS) {
       return; // re-run by the reactive block once both exist
+    }
+    if (selectedMetric === PROJECTION_METRIC) {
+      if (chartData.cpu) renderProjection();
+      return;
     }
 
     // Destroy existing chart
@@ -1099,6 +1217,18 @@
     
     if (!metric || !category) return;
 
+    if (selectedMetric === PROJECTION_METRIC) {
+      const csv = ['Date,App instances if no renewals,CPU cores (readable specs) if no renewals',
+        ...chartData.rawDates.map((date, i) => `${date},${chartData.data[i]},${chartData.cpu[i]}`)].join('\n');
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+      link.href = url;
+      link.download = `flux_utilization_projection_${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
     // Build CSV content
     const headers = ['Date', metric.label, 'Category', 'Timeframe', 'Aggregation'];
     const rows = chartData.rawDates.map((date, index) => {
@@ -1148,15 +1278,17 @@
   <!-- Header with Controls -->
   <div class="chart-header">
     <div class="chart-title-section">
-      <h3 class="chart-title">{title}</h3>
+      <h3 class="chart-title">{displayTitle}</h3>
       {#if !loading && !error}
         <span class="chart-subtitle">
-          {availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
+          {isProjection ? projectionSummary : availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
         </span>
       {/if}
     </div>
 
     <div class="chart-controls">
+      <!-- View and Period describe the past; the projection looks forward (issue #347). -->
+      {#if !isProjection}
       <!-- NEW: Aggregation Selector -->
       <div class="control-group">
         <label for="aggregation-{title}">View:</label>
@@ -1185,6 +1317,7 @@
           {/each}
         </select>
       </div>
+      {/if}
 
       <!-- Metric Selector (or entity search for decentralization country/continent/datacenter) -->
       {#if selectedCategory === 'decentralization' && decentralizationView !== 'overview'}
@@ -1360,9 +1493,44 @@
       </div>
     {/if}
   </div>
+
+  {#if isProjection && projection && !loading && !error}
+    <div class="projection-notes">
+      {#if projection.biggestDrop?.instances > 0}
+        <p>
+          <span class="note-label">Biggest week</span>
+          {projectionDate(projection.biggestDrop.from)} – {projectionDate(projection.biggestDrop.to)}:
+          −{formatCount(projection.biggestDrop.instances)} instances, −{formatCount(Math.round(projection.biggestDrop.cpu))} cores
+        </p>
+      {/if}
+      <p>
+        <span class="note-label">CPU line covers</span>
+        {formatCount(Math.round(projection.today.cpu))} cores ordered by readable specs.
+        {formatCount(projection.coverage.cpuUnreadableApps)} encrypted apps (mostly game sites) hide their
+        CPU; their instances are in the instance line.
+      </p>
+    </div>
+  {/if}
 </div>
 
 <style>
+  .projection-notes {
+    margin-top: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  .note-label {
+    display: inline-block;
+    min-width: 9rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
   .chart-canvas {
     position: relative;
     width: 100%;
