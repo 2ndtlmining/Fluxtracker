@@ -297,6 +297,8 @@ export function waveStrip(pattern) {
   return pattern.repeat(Math.ceil(LOGO_WIDTH / pattern.length)).slice(0, LOGO_WIDTH);
 }
 
+const BSLASH_V = String.fromCharCode(92);
+
 // Two different periods so the rows never line up into one marching stripe -- the near
 // water reads as faster than the far water, which is what sells the parallax.
 const SEA_FAR = waveStrip('~~^~~~-~');
@@ -351,7 +353,7 @@ export function overlayAt(row, column, art) {
  * One frame of the longship, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0) {
+export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0, { oars = false } = {}) {
   const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
   const bob = SHIP_BOB[index];
 
@@ -367,10 +369,15 @@ export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0) {
   // Drift is driven by the WRAPPED index, not the raw step: every frame has to be a pure
   // function of step % VALHEIM_FRAME_COUNT, or the sequence never repeats and a caller that
   // just counts up forever slowly desynchronises the sky from the hull.
-  GULL_COLUMNS.forEach((start, gull) => {
-    const column = (start + GULL_DRIFT[gull] * index) % LOGO_WIDTH;
-    rows[0] = overlayAt(rows[0], column, GULL);
-  });
+  if (oars) {
+    // The variant's raven: one bird, flying the other way from the gulls.
+    rows[0] = overlayAt(rows[0], (26 - 2 * index + LOGO_WIDTH) % (LOGO_WIDTH - 2), RAVEN);
+  } else {
+    GULL_COLUMNS.forEach((start, gull) => {
+      const column = (start + GULL_DRIFT[gull] * index) % LOGO_WIDTH;
+      rows[0] = overlayAt(rows[0], column, GULL);
+    });
+  }
 
   SHIP_ROWS.forEach((art, shipRow) => {
     const target = shipRow + bob;
@@ -378,7 +385,27 @@ export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0) {
     rows[target] = overlayAt(rows[target], SHIP_COLUMNS[shipRow] + shipOffset, art);
   });
 
+  if (oars) {
+    // Oars under the shields, dipping and lifting on alternate steps -- into the water row
+    // below the hull, which is where an oar belongs.
+    const oarRow = SHIP_ROWS.length + bob;
+    if (oarRow < BOOT_LINE_COUNT) {
+      OAR_COLUMNS.forEach(column => {
+        rows[oarRow] = overlayAt(rows[oarRow], column + shipOffset, index % 2 === 0 ? '/' : '|');
+      });
+    }
+  }
+
   return rows;
+}
+
+// Issue #281 variant: the same longship rowed by its crew, with a raven overhead. Half of
+// Valheim deployments play this one (picked per app name in the component).
+const RAVEN = BSLASH_V + 'v/';
+const OAR_COLUMNS = [12, 15, 18, 21];
+
+export function formatValheimOarsFrame(step = 0) {
+  return formatValheimFrame(step, {}, 0, { oars: true });
 }
 
 // Issue #182 outro: the longship sails off the right edge (overlayAt drops what passes the
@@ -707,7 +734,7 @@ export const PALWORLD_FRAME_COUNT = PAL_BOB.length;
  * One frame of the Pal and the sphere, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, sphere = true } = {}) {
+export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, sphere = true, catches = false } = {}) {
   const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
   const bob = PAL_BOB[index];
 
@@ -727,12 +754,19 @@ export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, spher
 
   // The sphere, before the Pal for the same reason -- a sphere that landed on the Pal's
   // face would read as a rendering fault rather than a throw.
-  if (sphere) rows[SPHERE_ROWS[index]] = overlayAt(rows[SPHERE_ROWS[index]], SPHERE_COLUMNS[index], SPHERE);
+  if (sphere && catches) {
+    const [row, column] = CATCH_PATH[index];
+    rows[row] = overlayAt(rows[row], column, SPHERE);
+  } else if (sphere) {
+    rows[SPHERE_ROWS[index]] = overlayAt(rows[SPHERE_ROWS[index]], SPHERE_COLUMNS[index], SPHERE);
+  }
 
   PAL_ROWS.forEach((art, palRow) => {
     const target = PAL_TOP_ROW + palRow + bob;
     if (target >= BOOT_LINE_COUNT) return;
-    rows[target] = overlayAt(rows[target], PAL_COLUMNS[palRow] + walkOffset, art);
+    // Caught it: the Pal is delighted for the last two steps.
+    const face = catches && palRow === 1 && index >= CATCH_STEP ? PAL_HAPPY : art;
+    rows[target] = overlayAt(rows[target], PAL_COLUMNS[palRow] + walkOffset, face);
   });
 
   return rows;
@@ -741,6 +775,17 @@ export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, spher
 // Issue #182 outro: no sphere this time -- the Pal walks off to the right and is last seen
 // at the wall, so the rows it leaves still have it in them.
 const PAL_DEPART = [0, 1, 2, 3, 4, 5, 6, 7];
+
+// Issue #281 variant: the sphere arcs in and the Pal catches it -- the throw lands beside
+// its face on the last steps, and the face lights up. Half of Palworld deployments play this.
+// [row, column] per step; the last two sit beside the face at the bob's lower position.
+const CATCH_PATH = [[3, 1], [2, 4], [1, 7], [1, 10], [1, 13], [2, 16], [3, 19], [3, 19]];
+const CATCH_STEP = 6;
+const PAL_HAPPY = '(^.^)';
+
+export function formatPalworldCatchFrame(step = 0) {
+  return formatPalworldFrame(step, {}, { catches: true });
+}
 
 export function formatPalworldOutro(step = 0) {
   const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;

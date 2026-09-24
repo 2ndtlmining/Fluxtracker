@@ -48,8 +48,20 @@
     formatDragonOutro,
     formatMinecraftOutro,
     formatPalworldOutro,
-    outroFrameKinds
+    outroFrameKinds,
+    formatValheimOarsFrame,
+    formatPalworldCatchFrame
   } from '$lib/utils/terminalAnimation.js';
+  import {
+    formatAgentFrame, agentFrameKinds,
+    formatWordpressFrame, wordpressFrameKinds,
+    formatVpnFrame, vpnFrameKinds,
+    formatProbeFrame, probeFrameKinds,
+    formatFivemFrame, fivemFrameKinds,
+    formatCampfireFrame, campfireFrameKinds,
+    BATCH2_FRAME_COUNT
+  } from '$lib/utils/introArt2.js';
+  import { pickVariant } from '$lib/utils/introVariants.js';
   import {
     formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT,
     formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT,
@@ -111,12 +123,15 @@
 
   // Per-game art, keyed by what resolveGameFromAppName() returns (issue #180). Adding a
   // game is one entry here plus its formatter -- nothing else in this component changes.
+  //
+  // An array is a set of variants (issue #281): each app gets one, picked by a hash of its
+  // name, so the same app always plays the same art and a game's deployments are not all
+  // the same scene.
   const GAME_INTROS = {
-    Valheim: {
-      frameCount: VALHEIM_FRAME_COUNT,
-      format: formatValheimFrame,
-      kinds: valheimFrameKinds
-    },
+    Valheim: [
+      { frameCount: VALHEIM_FRAME_COUNT, format: formatValheimFrame, kinds: valheimFrameKinds },
+      { frameCount: VALHEIM_FRAME_COUNT, format: formatValheimOarsFrame, kinds: valheimFrameKinds }
+    ],
     // One key covers Java and Bedrock: resolveGameFromAppName() returns 'Minecraft' for
     // all four of minecraftj / minecraftb / minecraftserver / minecraftbedrockserver.
     Minecraft: {
@@ -131,16 +146,16 @@
     // its own. The key is what resolveGameFromAppName() returns for the 'palworld' app-name
     // prefix -- app names rather than repotags, because most Palworld deployments are
     // enterprise-encrypted and carry no readable image.
-    Palworld: {
-      frameCount: PALWORLD_FRAME_COUNT,
-      format: formatPalworldFrame,
-      kinds: palworldFrameKinds
-    },
-    'RuneScape: Dragonwilds': {
-      frameCount: DRAGON_FRAME_COUNT,
-      format: formatDragonFrame,
-      kinds: dragonFrameKinds
-    },
+    Palworld: [
+      { frameCount: PALWORLD_FRAME_COUNT, format: formatPalworldFrame, kinds: palworldFrameKinds },
+      { frameCount: PALWORLD_FRAME_COUNT, format: formatPalworldCatchFrame, kinds: palworldFrameKinds }
+    ],
+    'RuneScape: Dragonwilds': [
+      { frameCount: DRAGON_FRAME_COUNT, format: formatDragonFrame, kinds: dragonFrameKinds },
+      { frameCount: BATCH2_FRAME_COUNT, format: formatCampfireFrame, kinds: campfireFrameKinds }
+    ],
+    // Issue #280.
+    FiveM: { frameCount: BATCH2_FRAME_COUNT, format: formatFivemFrame, kinds: fivemFrameKinds },
     // Issue #273: the most-deployed game without art of its own until now.
     'Project Zomboid': {
       frameCount: ZOMBOID_FRAME_COUNT,
@@ -149,12 +164,16 @@
     }
   };
 
-  // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. A service
-  // without an entry gets no intro, exactly as before (#276-#279 add the rest).
+  // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
+  // key resolveIntroKey() can return now has art; the crane below catches anything else.
   const SERVICE_INTROS = {
-    orbit: { frameCount: ORBIT_FRAME_COUNT, format: formatOrbitFrame, kinds: orbitFrameKinds },       // #272
-    folding: { frameCount: FOLDING_FRAME_COUNT, format: formatFoldingFrame, kinds: foldingFrameKinds }, // #274
-    crypto: { frameCount: CRYPTO_FRAME_COUNT, format: formatCryptoFrame, kinds: cryptoFrameKinds }      // #275
+    orbit: { frameCount: ORBIT_FRAME_COUNT, format: formatOrbitFrame, kinds: orbitFrameKinds },           // #272
+    folding: { frameCount: FOLDING_FRAME_COUNT, format: formatFoldingFrame, kinds: foldingFrameKinds },   // #274
+    crypto: { frameCount: CRYPTO_FRAME_COUNT, format: formatCryptoFrame, kinds: cryptoFrameKinds },       // #275
+    'ai-agent': { frameCount: BATCH2_FRAME_COUNT, format: formatAgentFrame, kinds: agentFrameKinds },     // #276
+    wordpress: { frameCount: BATCH2_FRAME_COUNT, format: formatWordpressFrame, kinds: wordpressFrameKinds }, // #277
+    vpn: { frameCount: BATCH2_FRAME_COUNT, format: formatVpnFrame, kinds: vpnFrameKinds },                // #278
+    probe: { frameCount: BATCH2_FRAME_COUNT, format: formatProbeFrame, kinds: probeFrameKinds }           // #279
   };
 
   // Every deployment with no art of its own -- no game, no service with an intro -- gets the
@@ -484,7 +503,10 @@
     const key = resolveIntroKey(slot.data);
     const game = key?.startsWith('game:') ? key.slice(5) : null;
     if (slot.kind === 'expiring') return (game && GAME_OUTROS[game]) || FUSE_OUTRO;
-    if (game) return GAME_INTROS[game] || GAMEPAD_INTRO;
+    if (game) {
+      const art = GAME_INTROS[game];
+      return (Array.isArray(art) ? pickVariant(slot.data?.name, art) : art) || GAMEPAD_INTRO;
+    }
     return (key && SERVICE_INTROS[key.slice(8)]) || CRANE_INTRO;
   }
 
