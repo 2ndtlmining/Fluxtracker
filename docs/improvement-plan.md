@@ -26,7 +26,6 @@ working day, so a version change on production confirms that day's work landed.
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 14 | Header extras | #286 #287 #288 #290 | One wide frame per app -- no side panels (decided on #345) |
 | 15 | Utilization Projection | #347 | Owner's new feature: CPU use if apps are not renewed, from `globalappsspecifications` (already cached). After the header work, by the owner's call |
 | 16 | Analytics quick wins | #261 #266 #267 | Data already stored |
 | 17 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
@@ -180,6 +179,7 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #354 | Large deployments play twice and brighter; seasonal sky (Halloween, December, New Year fireworks); attract mode (#286 #287 #288). #290 recommended against |
 | #353 | Intros: AI agents, WordPress, VPN/proxy, Globalping probes, FiveM; second variants for Dragonwilds, Valheim, Palworld (#276-#281) |
 | #352 | Expiring outros (longship sails off, Pal walks off ...), fuse fallback, crane for non-game deployments (#182 #181) |
 | #351 | TERM end date carries the year when it is not this year |

@@ -1,4 +1,5 @@
 import { formatNumber } from './format.js';
+import { PLAIN_SKY } from './seasons.js';
 
 // Compact ASCII "FLUX" wordmark — the persistent header identity after boot.
 // Kept as a single constant so it's easy to swap later without touching component logic.
@@ -172,6 +173,18 @@ export function truncateForBox(text, maxWidth = LOGO_WIDTH - 2) {
 // terminalAnimation.test.js, not built via padding/centering since the arrow run length on
 // each side already sums to the exact width.
 export const DEPLOYED_ICON_LINE = '>>>>>>>> NEW APP DEPLOYED <<<<<<<<';
+// Issue #286: a large deployment's opening bookend -- exactly as wide as the normal one.
+export const LARGE_ICON_LINE = '>>>>>>>> LARGE DEPLOYMENT <<<<<<<<';
+
+/**
+ * A large deployment (issue #286) -- 10+ instances or 8+ CPU. NOT isEnterprise: ~85% of
+ * specs are enterprise because the game sites encrypt them, so it says nothing about size.
+ * Encrypted specs report 0 CPU, so for them only the instance count can qualify.
+ */
+export function isLargeDeployment(app) {
+  return (Number.isFinite(app?.instances) && app.instances >= 10)
+    || (Number.isFinite(app?.cpu) && app.cpu >= 8);
+}
 export const EXPIRING_ICON_LINE = '<<<<<<<<<<<< EXPIRING >>>>>>>>>>>>';
 
 // ── Gamepad frame (issue #177) ────────────────────────────────────────────────────────
@@ -327,7 +340,7 @@ const SHIP_BOB = [0, 0, 1, 1, 0, 0, 1, 1];
 // row of every frame has content, whatever the hull is doing. Columns are taken modulo the
 // canvas width, so they can never land outside the box.
 // Both drift right, starting clear of the mast so neither is painted over by the sail.
-const GULL = 'v';
+// The gull glyph itself comes from ctx.sky (seasons.js, issue #287).
 const GULL_COLUMNS = [2, 22];
 const GULL_DRIFT = [1, 1];
 
@@ -353,7 +366,8 @@ export function overlayAt(row, column, art) {
  * One frame of the longship, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0, { oars = false } = {}) {
+export function formatValheimFrame(step = 0, ctx = {}, shipOffset = 0, { oars = false } = {}) {
+  const sky = ctx?.sky ?? PLAIN_SKY;
   const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
   const bob = SHIP_BOB[index];
 
@@ -375,7 +389,7 @@ export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0, { oars =
   } else {
     GULL_COLUMNS.forEach((start, gull) => {
       const column = (start + GULL_DRIFT[gull] * index) % LOGO_WIDTH;
-      rows[0] = overlayAt(rows[0], column, GULL);
+      rows[0] = overlayAt(rows[0], column, sky.bird);
     });
   }
 
@@ -404,17 +418,17 @@ export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0, { oars =
 const RAVEN = BSLASH_V + 'v/';
 const OAR_COLUMNS = [12, 15, 18, 21];
 
-export function formatValheimOarsFrame(step = 0) {
-  return formatValheimFrame(step, {}, 0, { oars: true });
+export function formatValheimOarsFrame(step = 0, ctx = {}) {
+  return formatValheimFrame(step, ctx, 0, { oars: true });
 }
 
 // Issue #182 outro: the longship sails off the right edge (overlayAt drops what passes the
 // wall). It stops with its bow still in the box, so no row it vacates is ever left empty.
 const VALHEIM_DEPART = [0, 3, 6, 9, 12, 15, 18, 20];
 
-export function formatValheimOutro(step = 0) {
+export function formatValheimOutro(step = 0, ctx = {}) {
   const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
-  return formatValheimFrame(index, {}, VALHEIM_DEPART[index]);
+  return formatValheimFrame(index, ctx, VALHEIM_DEPART[index]);
 }
 
 /**
@@ -472,9 +486,8 @@ const DRAGON_BOB = [0, 0, 1, 1, 0, 0, 1, 1];
 // harness rejects outright. The sun is fixed; the two wisps drift at different rates so the
 // sky is never static either. Columns are taken modulo the canvas width, so they can never
 // land outside the box.
-const SUN = '(*)';
+// Sun and wisp glyphs come from ctx.sky (seasons.js, issue #287).
 const SUN_COLUMN = 28;
-const WISP = '~~';
 // Row 0's wisp always drifts. Row 1's is drawn ONLY when the dragon has bobbed down and
 // vacated that row -- it exists to keep the row non-empty, and drawing it while the dragon
 // is up puts a cloud straight through the wing.
@@ -489,7 +502,8 @@ export const DRAGON_FRAME_COUNT = DRAGON_BOB.length;
  * One frame of the gliding dragon, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatDragonFrame(step = 0, _ctx = {}, flightOffset = 0) {
+export function formatDragonFrame(step = 0, ctx = {}, flightOffset = 0) {
+  const sky = ctx?.sky ?? PLAIN_SKY;
   const index = ((step % DRAGON_FRAME_COUNT) + DRAGON_FRAME_COUNT) % DRAGON_FRAME_COUNT;
   const bob = DRAGON_BOB[index];
   const wingsUp = index % 2 === 0;
@@ -506,11 +520,11 @@ export function formatDragonFrame(step = 0, _ctx = {}, flightOffset = 0) {
   // driven by the WRAPPED index, not the raw step: every frame must be a pure function of
   // step % DRAGON_FRAME_COUNT, or a caller that counts up forever slowly desynchronises the
   // sky from the body.
-  rows[0] = overlayAt(rows[0], SUN_COLUMN, SUN);
+  rows[0] = overlayAt(rows[0], SUN_COLUMN, sky.sun);
   WISP_ROWS.forEach((row, wisp) => {
     if (WISP_ONLY_WHEN_BOBBED[wisp] && bob === 0) return;
     const column = (WISP_COLUMNS[wisp] + WISP_DRIFT[wisp] * index) % LOGO_WIDTH;
-    rows[row] = overlayAt(rows[row], column, WISP);
+    rows[row] = overlayAt(rows[row], column, sky.wisp);
   });
 
   // The dragon occupies four rows from `1 + bob`: upper wing, body, head/tail, lower wing.
@@ -542,9 +556,9 @@ export function dragonFrameKinds() {
 // tail still in the box, so no row it vacates is ever left empty.
 const DRAGON_DEPART = [0, 2, 4, 7, 10, 13, 16, 18];
 
-export function formatDragonOutro(step = 0) {
+export function formatDragonOutro(step = 0, ctx = {}) {
   const index = ((step % DRAGON_FRAME_COUNT) + DRAGON_FRAME_COUNT) % DRAGON_FRAME_COUNT;
-  return formatDragonFrame(index, {}, DRAGON_DEPART[index]);
+  return formatDragonFrame(index, ctx, DRAGON_DEPART[index]);
 }
 
 // =======================================================================================
@@ -591,9 +605,8 @@ const TORCH_GLYPHS = ['i', '!'];
 // In the early steps the build has not reached the upper rows yet, and a frame with a
 // genuinely empty row is rejected outright by the smoke harness. The sun is fixed; the
 // clouds drift at different rates so the sky reads as alive while the build is still low.
-const MC_SUN = '(*)';
+// Sun and cloud glyphs come from ctx.sky (seasons.js, issue #287).
 const MC_SUN_COLUMN = 2;
-const MC_CLOUD = '~~~~~~';
 // `untilStep` is the step the build reaches that row. Past it the cloud stops being drawn,
 // because a wisp drifting through a finished wall reads as corruption rather than sky --
 // and by then the blocks themselves keep the row non-empty, which is the only job the
@@ -611,7 +624,8 @@ export const MINECRAFT_FRAME_COUNT = 8;
  * One frame of the block build, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatMinecraftFrame(step = 0) {
+export function formatMinecraftFrame(step = 0, ctx = {}) {
+  const sky = ctx?.sky ?? PLAIN_SKY;
   const index = ((step % MINECRAFT_FRAME_COUNT) + MINECRAFT_FRAME_COUNT) % MINECRAFT_FRAME_COUNT;
 
   const blank = ' '.repeat(LOGO_WIDTH);
@@ -622,11 +636,11 @@ export function formatMinecraftFrame(step = 0) {
 
   // Sky next, so blocks paint over a cloud rather than the other way round. Drift uses the
   // WRAPPED index so the frame stays a pure function of step % MINECRAFT_FRAME_COUNT.
-  rows[0] = overlayAt(rows[0], MC_SUN_COLUMN, MC_SUN);
+  rows[0] = overlayAt(rows[0], MC_SUN_COLUMN, sky.sun);
   for (const cloud of MC_CLOUDS) {
     if (index >= cloud.untilStep) continue;
     const column = (cloud.column + cloud.drift * index) % LOGO_WIDTH;
-    rows[cloud.row] = overlayAt(rows[cloud.row], column, MC_CLOUD);
+    rows[cloud.row] = overlayAt(rows[cloud.row], column, sky.cloud);
   }
 
   // The build, cumulative: every part whose step has been reached is drawn.
@@ -658,19 +672,20 @@ const MC_SET_SUN_COLUMN = 28;
 const MC_SUN_ROWS = [0, 0, 1, 1, 2, 2, 3, 3];
 const MC_TORCH_OUT = ['i', '!', 'i', '.', '.', ' ', ' ', ' '];
 
-export function formatMinecraftOutro(step = 0) {
+export function formatMinecraftOutro(step = 0, ctx = {}) {
+  const sky = ctx?.sky ?? PLAIN_SKY;
   const index = ((step % MINECRAFT_FRAME_COUNT) + MINECRAFT_FRAME_COUNT) % MINECRAFT_FRAME_COUNT;
   const rows = Array(BOOT_LINE_COUNT).fill(' '.repeat(LOGO_WIDTH));
   rows[BOOT_LINE_COUNT - 1] = GROUND;
   // The two top rows keep their drifting clouds -- they never get blocks, and they must
   // never be empty.
   for (const cloud of MC_CLOUDS.filter(c => c.untilStep === Infinity)) {
-    rows[cloud.row] = overlayAt(rows[cloud.row], (cloud.column + cloud.drift * index) % LOGO_WIDTH, MC_CLOUD);
+    rows[cloud.row] = overlayAt(rows[cloud.row], (cloud.column + cloud.drift * index) % LOGO_WIDTH, sky.cloud);
   }
   for (const part of BUILD_PARTS) rows[part.row] = overlayAt(rows[part.row], part.column, part.art);
   rows[TORCH_ROW] = overlayAt(rows[TORCH_ROW], TORCH_COLUMN, MC_TORCH_OUT[index]);
   // Sun last, so it sinks in front of a cloud rather than behind it.
-  rows[MC_SUN_ROWS[index]] = overlayAt(rows[MC_SUN_ROWS[index]], MC_SET_SUN_COLUMN, MC_SUN);
+  rows[MC_SUN_ROWS[index]] = overlayAt(rows[MC_SUN_ROWS[index]], MC_SET_SUN_COLUMN, sky.sun);
   return rows;
 }
 
@@ -722,7 +737,7 @@ const SPHERE_ROWS = [3, 2, 1, 1, 1, 2, 3, 3];
 // the one thing the header smoke harness rejects outright. Row 0 always carries a drifting
 // wisp because the Pal never reaches it. Row 1's is drawn ONLY when the Pal has bobbed down
 // and vacated that row -- drawing it otherwise puts a cloud through the Pal's ears.
-const WISP_TOP = '~~';
+// The top wisp's glyph comes from ctx.sky (seasons.js, issue #287).
 const WISP_TOP_COLUMN = 5;
 const WISP_TOP_DRIFT = 2;
 const WISP_SECOND = '~';
@@ -734,7 +749,8 @@ export const PALWORLD_FRAME_COUNT = PAL_BOB.length;
  * One frame of the Pal and the sphere, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, sphere = true, catches = false } = {}) {
+export function formatPalworldFrame(step = 0, ctx = {}, { walkOffset = 0, sphere = true, catches = false } = {}) {
+  const sky = ctx?.sky ?? PLAIN_SKY;
   const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
   const bob = PAL_BOB[index];
 
@@ -747,7 +763,7 @@ export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, spher
   rows[BOOT_LINE_COUNT - 1] = rotateStrip(GRASS_NEAR, -Math.floor(index / 2));
 
   // Sky before the Pal, so the Pal paints over a wisp rather than the other way round.
-  rows[0] = overlayAt(rows[0], (WISP_TOP_COLUMN + WISP_TOP_DRIFT * index) % LOGO_WIDTH, WISP_TOP);
+  rows[0] = overlayAt(rows[0], (WISP_TOP_COLUMN + WISP_TOP_DRIFT * index) % LOGO_WIDTH, sky.wisp);
   if (bob === 1) {
     rows[1] = overlayAt(rows[1], WISP_SECOND_COLUMN, WISP_SECOND);
   }
@@ -783,13 +799,13 @@ const CATCH_PATH = [[3, 1], [2, 4], [1, 7], [1, 10], [1, 13], [2, 16], [3, 19], 
 const CATCH_STEP = 6;
 const PAL_HAPPY = '(^.^)';
 
-export function formatPalworldCatchFrame(step = 0) {
-  return formatPalworldFrame(step, {}, { catches: true });
+export function formatPalworldCatchFrame(step = 0, ctx = {}) {
+  return formatPalworldFrame(step, ctx, { catches: true });
 }
 
-export function formatPalworldOutro(step = 0) {
+export function formatPalworldOutro(step = 0, ctx = {}) {
   const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
-  return formatPalworldFrame(index, {}, { walkOffset: PAL_DEPART[index], sphere: false });
+  return formatPalworldFrame(index, ctx, { walkOffset: PAL_DEPART[index], sphere: false });
 }
 
 /** Every outro (issue #182) is the expiring accent across the whole frame. */
@@ -907,7 +923,7 @@ export function formatDeploymentFrame(deployment, rank = null) {
   const detailLines = deploymentDetailLines(deployment);
   const middleRowCount = BOOT_LINE_COUNT - 2;
   const middle = padLines(detailLines, middleRowCount);
-  return [DEPLOYED_ICON_LINE, ...middle, formatDeployedCounterLine(rank)];
+  return [isLargeDeployment(deployment) ? LARGE_ICON_LINE : DEPLOYED_ICON_LINE, ...middle, formatDeployedCounterLine(rank)];
 }
 
 /**
@@ -1135,7 +1151,7 @@ function wideMiddle(leftLines, app, extras, { withEnd }) {
 export function formatDeploymentFrameWide(deployment, rank = null, extras = {}) {
   const ranked = rank && Number.isFinite(rank.position) && Number.isFinite(rank.total) && rank.total >= 1;
   return [
-    wideBookend('NEW APP DEPLOYED', '>', '<'),
+    wideBookend(isLargeDeployment(deployment) ? 'LARGE DEPLOYMENT' : 'NEW APP DEPLOYED', '>', '<'),
     ...wideMiddle(deploymentDetailLines(deployment, WIDE_LEFT_WIDTH), deployment, extras, { withEnd: true }),
     wideBookend(ranked ? `#${rank.position} OF ${rank.total} IN 24H` : 'NEW APP DEPLOYED', '>', '<')
   ];

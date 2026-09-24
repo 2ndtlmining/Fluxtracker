@@ -62,6 +62,12 @@
     BATCH2_FRAME_COUNT
   } from '$lib/utils/introArt2.js';
   import { pickVariant } from '$lib/utils/introVariants.js';
+  import { skyFor } from '$lib/utils/seasons.js';
+  import { isLargeDeployment } from '$lib/utils/terminalAnimation.js';
+  import {
+    formatFireworksFrame, fireworksFrameKinds, FIREWORKS_FRAME_COUNT,
+    formatCaptionFrame, captionFrameKinds, pushAttractKey
+  } from '$lib/utils/headerExtras.js';
   import {
     formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT,
     formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT,
@@ -466,8 +472,12 @@
     const slots = [{ kind: 'logo' }];
     if (latestExpiringApp) slots.push({ kind: 'expiring', data: latestExpiringApp });
     if (deployedList().length > 0) slots.push({ kind: 'deployed' });
+    // New Year's Day (UTC) only: a fireworks slot joins the rotation (issue #287).
+    if (skyFor(Date.now()).newYear) slots.push({ kind: 'fireworks' });
     return slots;
   }
+
+  const FIREWORKS_INTRO = { frameCount: FIREWORKS_FRAME_COUNT, format: formatFireworksFrame, kinds: fireworksFrameKinds };
 
   /** The deployed list to rotate through; falls back to the single latest app. */
   function deployedList() {
@@ -498,6 +508,7 @@
    * fuse (#182). Only the logo goes straight to its frame.
    */
   function introForSlot(slot) {
+    if (slot?.kind === 'fireworks') return FIREWORKS_INTRO;
     if (slot?.kind !== 'deployed' && slot?.kind !== 'expiring') return null;
     // One resolver for games and services (issue #271): `game:<name>` or `service:<key>`.
     const key = resolveIntroKey(slot.data);
@@ -520,9 +531,14 @@
     currentSlot = slot;
     detailShown = false;
     const next = framesForSlot(slot);
-    const intro = introForSlot(slot);
+    let intro = introForSlot(slot);
     if (intro) lastIntroSlot = slot;
-    const ctx = { app: slot.data, blockHeight };
+    // Seasonal sky (issue #287) rides in ctx; the art decides what to do with it.
+    const ctx = { app: slot.data, blockHeight, sky: skyFor(Date.now()), nowMs: Date.now() };
+    // A large deployment plays its intro twice, brighter (issue #286). Every format wraps,
+    // so doubling the frame count simply runs the sequence round again.
+    large = slot.kind === 'deployed' && isLargeDeployment(slot.data);
+    if (intro && large) intro = { ...intro, frameCount: intro.frameCount * 2 };
 
     if (reducedMotion) {
       currentAriaLabel = next.ariaLabel;
@@ -562,6 +578,10 @@
     if (slot.kind === 'logo') {
       return { lines: LOGO_LINES, kinds: logoKinds(), ariaLabel: 'Flux network status' };
     }
+    if (slot.kind === 'fireworks') {
+      const lines = formatFireworksFrame(FIREWORKS_FRAME_COUNT - 1, { nowMs: Date.now() });
+      return { lines, kinds: fireworksFrameKinds(), ariaLabel: 'Happy New Year' };
+    }
     const extras = { introKey: resolveIntroKey(slot.data), payment: payments[slot.data?.name], nowMs: Date.now() };
     if (slot.kind === 'expiring') {
       // Reduced motion stays plain text (essentials only, per its existing design
@@ -581,6 +601,7 @@
 
   function startIdleRotation() {
     rotationIndex = 0;
+    large = false;
     currentSlot = { kind: 'logo' };
     frameLines = LOGO_LINES;
     frameKinds = logoKinds();
@@ -624,6 +645,67 @@
     presentSlot(slot);
   }
 
+  // True while a large deployment (issue #286) is on screen: brighter glow on the box.
+  let large = false;
+
+  // ---- Attract mode (issue #288): the Konami code, or typing "flux", plays every piece of
+  // art back to back with a caption naming it, then hands back to the normal rotation. It
+  // doubles as a manual QA pass over art the smoke harness never sees. ----
+  let attractKeys = [];
+  let attracting = false;
+  const ATTRACT_CAPTION_MS = 1800;
+
+  function attractList() {
+    const list = [];
+    for (const [name, art] of Object.entries(GAME_INTROS)) {
+      const variants = Array.isArray(art) ? art : [art];
+      variants.forEach((intro, i) => list.push({ label: variants.length > 1 ? `${name} ${i + 1}` : name, intro }));
+    }
+    list.push({ label: 'Other games', intro: GAMEPAD_INTRO });
+    for (const [key, intro] of Object.entries(SERVICE_INTROS)) list.push({ label: key, intro });
+    list.push({ label: 'Any other app', intro: CRANE_INTRO });
+    for (const [name, intro] of Object.entries(GAME_OUTROS)) list.push({ label: `${name} expiring`, intro });
+    list.push({ label: 'Expiring', intro: FUSE_OUTRO });
+    list.push({ label: 'New Year', intro: FIREWORKS_INTRO });
+    return list;
+  }
+
+  function startAttract() {
+    if (state !== 'ready' || reducedMotion || attracting) return;
+    restartChain();
+    attracting = true;
+    large = false;
+    currentSlot = { kind: 'attract' };
+    const list = attractList();
+    // No app in ctx: the fuse then reads "time running out" and the crane stacks one
+    // container, rather than showing figures from an app that is not on screen.
+    const ctx = { blockHeight, sky: skyFor(Date.now()), nowMs: Date.now() };
+    let position = 0;
+    const playNext = () => {
+      if (position >= list.length) {
+        attracting = false;
+        startIdleRotation();
+        return;
+      }
+      const { label, intro } = list[position++];
+      const caption = {
+        lines: formatCaptionFrame(label, position, list.length),
+        kinds: captionFrameKinds(),
+        ariaLabel: `Attract mode: ${label}`
+      };
+      playIntroThen(intro, caption, ctx, () => chainStep(playNext, ATTRACT_CAPTION_MS));
+    };
+    playNext();
+  }
+
+  function onAttractKey(event) {
+    const target = event.target;
+    if (target?.isContentEditable || /^(input|textarea|select)$/i.test(target?.tagName ?? '')) return;
+    const { buffer, triggered } = pushAttractKey(attractKeys, event.key);
+    attractKeys = buffer;
+    if (triggered) startAttract();
+  }
+
   // ---- Pointer interaction. Issue #282: hover pauses, click acts -- pointer only, no
   // keyboard focus on the box, by the owner's decision. Issue #284: an app frame's click
   // goes to that app's payments. ----
@@ -645,7 +727,7 @@
 
   /** The box: an app frame jumps to that app's payments; the logo replays the last intro. */
   function handleBoxClick() {
-    if (state !== 'ready' || !currentSlot) return;
+    if (state !== 'ready' || !currentSlot || attracting) return;
     if ((currentSlot.kind === 'deployed' || currentSlot.kind === 'expiring') && currentSlot.data?.name) {
       focusApp(currentSlot.data.name);
       return;
@@ -735,7 +817,7 @@
    *   #271) -- the existing art ignores it; intros that show a height or an instance count
    *   read it here rather than inventing a number
    */
-  function playIntroThen(intro, next, ctx = {}) {
+  function playIntroThen(intro, next, ctx = {}, then = scheduleNextRotationStep) {
     let step = 0;
     const gen = chainGen;
 
@@ -758,7 +840,7 @@
           frameKinds = next.kinds;
           currentAriaLabel = next.ariaLabel;
           detailShown = true;
-          scheduleNextRotationStep();
+          then();
         });
       }, INTRO_STEP_MS, { paced: true });
     };
@@ -776,11 +858,13 @@
     wideQuery = window.matchMedia(WIDE_QUERY);
     wide = wideQuery.matches;
     wideQuery.addEventListener('change', onWideChange);
+    window.addEventListener('keydown', onAttractKey);
     startBoot();
   });
 
   onDestroy(() => {
     wideQuery?.removeEventListener('change', onWideChange);
+    if (typeof window !== 'undefined') window.removeEventListener('keydown', onAttractKey);
     timeouts.forEach(clearTimeout);
     if (bootTimeoutId) clearTimeout(bootTimeoutId);
     cancelRafLoop();
@@ -802,6 +886,7 @@
   <pre
     class="terminal-box"
     class:settled={logoSettled}
+    class:large
     use:cssomStyle={{ '--box-rows': BOOT_LINE_COUNT }}
     aria-label={boxLabel}
     title={state === 'ready' ? boxLabel : undefined}
@@ -882,6 +967,11 @@
     font-size: 0.7rem;
     color: var(--accent-green);
     text-shadow: 0 0 8px rgba(0, 255, 65, 0.6);
+  }
+
+  /* A large deployment (issue #286): every row glows harder while it is on screen. */
+  .terminal-box.large span {
+    text-shadow: 0 0 6px currentColor, 0 0 14px currentColor;
   }
 
   /* Service intro accents (issues #272, #274, #275). Games stay green; a service takes its

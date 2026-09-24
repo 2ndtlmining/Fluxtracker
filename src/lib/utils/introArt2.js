@@ -181,12 +181,14 @@ const EMBERS = [
   [[1, 20], [0, 18]], [[0, 20], [1, 12]], [[1, 19], [0, 12]], [[0, 19], [1, 13]]
 ];
 const NIGHT = ['  *        .            *     .  ', ' .    *            .        *    '];
+const SNOW = [' *   .    *    .   *   .    *   ', '   .   *    .    *   .   *    .  '];
 const GRASS = waveStrip('.,.^,..');
 
-export function formatCampfireFrame(step = 0) {
+export function formatCampfireFrame(step = 0, ctx = {}) {
   const index = wrap(step);
   const rows = blankRows();
-  rows[0] = pad(NIGHT[index % 2]);
+  // December's snow falls on the campfire too (issue #287); the stars otherwise.
+  rows[0] = pad(ctx?.sky?.season === 'december' || ctx?.sky?.season === 'new-year' ? SNOW[index % 2] : NIGHT[index % 2]);
   rows[1] = overlayAt(rows[1], 26, 'z z');
   const flame = FLAMES[index % 2];
   flame.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], FIRE_COLUMN, art); });
