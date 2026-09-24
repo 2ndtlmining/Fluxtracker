@@ -72,7 +72,7 @@ export async function fetchCarouselData() {
  * independently -- doubling upstream load and, under real latency, pushing the caller's
  * own timeout past its limit (observed as "Error polling latest deployed/expiring apps").
  */
-async function getSharedFluxApiData() {
+export async function getSharedFluxApiData() {
     const age = Date.now() - lastFluxApiCacheTime;
     if (cachedFluxApiData && age < FLUX_API_CACHE_DURATION) {
         return cachedFluxApiData;

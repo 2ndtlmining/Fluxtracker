@@ -18,7 +18,8 @@ import {
 } from '../../lib/db/database.js';
 
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
-import { getFluxCloudActivity } from '../../lib/services/carouselService.js';
+import { getFluxCloudActivity, getSharedFluxApiData } from '../../lib/services/carouselService.js';
+import { computeUtilizationProjection } from '../../lib/utils/utilizationProjection.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, computeDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
@@ -35,6 +36,7 @@ const categoryCache = createCache(300_000);   // 5 min
 // a stale copy of data the provider has already refreshed.
 const gamesCache = createCache(60_000);       // 60s
 const fillCache = createCache(60_000);        // 60s -- issue #200
+const projectionCache = createCache(600_000); // 10 min -- issue #347; expiries move by the day
 // Comparison (issue #295). The page asks for D on load, prefetches W and M, and refetches on
 // every refresh -- and each call ran six reads. 60s means a viewer's burst is one run.
 const comparisonCache = createCache(60_000);
@@ -263,6 +265,24 @@ router.get('/apps/deployment-fill', async (req, res) => {
             shortfalls: limit > 0 ? fill.shortfalls.slice(0, limit) : [],
             fetchedAt: apps.fetchedAt
         };
+    });
+});
+
+/**
+ * GET /api/cloud/utilization-projection -- issue #347. What the network would still run on
+ * each of the next ?days (default 180, max 365) days if no app renewed, from every spec's
+ * registration height + paid-for blocks. Instances cover every app; CPU covers only specs
+ * whose resources are readable, and `coverage` says how many that is -- the card shows it.
+ *
+ * Reads the carousel's shared registry fetch (TTL-cached), so no upstream call of its own.
+ */
+router.get('/cloud/utilization-projection', async (req, res) => {
+    const days = Math.min(Math.max(parseInt(req.query.days) || 180, 7), 365);
+    return withDbFallback(projectionCache, `projection:${days}`, res, async () => {
+        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
+        const projection = computeUtilizationProjection(appsData, currentBlockHeight, { horizonDays: days });
+        if (!projection) return { available: false };
+        return { available: true, ...projection, generatedAt: Date.now() };
     });
 });
 
