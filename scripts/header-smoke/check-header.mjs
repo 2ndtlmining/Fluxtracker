@@ -173,6 +173,9 @@ const run = async () => {
   // non-game name, which keeps the no-gamepad path covered too.
   let sawGamepadFrame = false;
   let sawGamepadPress = false;
+  // Issue #182: the expiring fixture is a non-game app, so it plays the fuse fallback
+  // before its detail frame. Distinct fuse frames prove the spark actually travels.
+  const fuseFrames = new Set();
   // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
   // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
   // that game's art AND the controller fallback (the initial fixture is enshrouded, which
@@ -252,6 +255,10 @@ const run = async () => {
         // terminalAnimation.test.js asserts it exactly instead: one distinct row width across
         // every frame of the sequence.
       }
+
+      // The fuse (issue #182): the app block, lit or burnt out. No NAME row, like the
+      // controller, so it is checked outside the info-frame guard below.
+      if (s.settled && /\| (APP|\.\.\.) \|/.test(joined)) fuseFrames.add(joined);
 
       // An idle-rotation info frame (expiring or deployed), identified by its NAME row.
       if (s.settled && /NAME\s+\S/.test(joined)) {
@@ -359,6 +366,8 @@ const run = async () => {
     ['idle rotation: RES row shown', sawResRow],
     ['idle rotation: no info frame ever shows an empty row', emptyRowViolations === 0],
     ['gamepad: controller frame shown for a game deployment', sawGamepadFrame],
+    ['expiring: a non-game app plays the fuse before its details (#182)', fuseFrames.size > 0],
+    ['expiring: the fuse burns (3+ distinct frames)', fuseFrames.size >= 3],
     ['gamepad: at least one button/d-pad press animates', sawGamepadPress],
     [`${DEPLOYED_GAME}: deployment shows its own art`, sawGameArtFrame],
     [`${DEPLOYED_GAME}: the art animates`, gameArtMovingRows.size > 1],

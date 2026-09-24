@@ -32,8 +32,9 @@ import { existsSync } from 'node:fs';
 const BASE = process.env.BASE_URL || 'http://127.0.0.1:5199';
 const STUB_URL = process.env.STUB_URL || 'http://127.0.0.1:3100/api/carousel/deployed';
 const SAMPLE_MS = Number(process.env.SAMPLE_MS || 25);
-// Two full rotation cycles at ROTATE_HOLD_MS (8s) plus the boot.
-const RUN_MS = Number(process.env.RUN_MS || 30000);
+// The boot, then the logo, the expiring still and details, and the deployed still at 8s
+// each (the expiring slot gained a still of its own with the #182 fuse) -- 40s leaves room.
+const RUN_MS = Number(process.env.RUN_MS || 40000);
 
 // A healthy run repaints the box only on boot lines and rotation handovers: well under
 // one change per second. The bug produces ~30 per second, so the threshold does not need

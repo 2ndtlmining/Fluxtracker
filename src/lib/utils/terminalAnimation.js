@@ -351,7 +351,7 @@ export function overlayAt(row, column, art) {
  * One frame of the longship, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatValheimFrame(step = 0) {
+export function formatValheimFrame(step = 0, _ctx = {}, shipOffset = 0) {
   const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
   const bob = SHIP_BOB[index];
 
@@ -375,10 +375,19 @@ export function formatValheimFrame(step = 0) {
   SHIP_ROWS.forEach((art, shipRow) => {
     const target = shipRow + bob;
     if (target >= BOOT_LINE_COUNT) return;
-    rows[target] = overlayAt(rows[target], SHIP_COLUMNS[shipRow], art);
+    rows[target] = overlayAt(rows[target], SHIP_COLUMNS[shipRow] + shipOffset, art);
   });
 
   return rows;
+}
+
+// Issue #182 outro: the longship sails off the right edge (overlayAt drops what passes the
+// wall). It stops with its bow still in the box, so no row it vacates is ever left empty.
+const VALHEIM_DEPART = [0, 3, 6, 9, 12, 15, 18, 20];
+
+export function formatValheimOutro(step = 0) {
+  const index = ((step % VALHEIM_FRAME_COUNT) + VALHEIM_FRAME_COUNT) % VALHEIM_FRAME_COUNT;
+  return formatValheimFrame(index, {}, VALHEIM_DEPART[index]);
 }
 
 /**
@@ -453,7 +462,7 @@ export const DRAGON_FRAME_COUNT = DRAGON_BOB.length;
  * One frame of the gliding dragon, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatDragonFrame(step = 0) {
+export function formatDragonFrame(step = 0, _ctx = {}, flightOffset = 0) {
   const index = ((step % DRAGON_FRAME_COUNT) + DRAGON_FRAME_COUNT) % DRAGON_FRAME_COUNT;
   const bob = DRAGON_BOB[index];
   const wingsUp = index % 2 === 0;
@@ -482,7 +491,7 @@ export function formatDragonFrame(step = 0) {
   const place = (offset, column, art) => {
     const target = top + offset;
     if (target >= BOOT_LINE_COUNT) return;
-    rows[target] = overlayAt(rows[target], column, art);
+    rows[target] = overlayAt(rows[target], column + flightOffset, art);
   };
 
   place(0, DRAGON_UPPER_WING_COLUMN, wingsUp ? WING_UP : WING_DOWN);
@@ -500,6 +509,15 @@ export function formatDragonFrame(step = 0) {
  */
 export function dragonFrameKinds() {
   return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
+}
+
+// Issue #182 outro: the dragon flies off to the right, wings still beating; it ends with its
+// tail still in the box, so no row it vacates is ever left empty.
+const DRAGON_DEPART = [0, 2, 4, 7, 10, 13, 16, 18];
+
+export function formatDragonOutro(step = 0) {
+  const index = ((step % DRAGON_FRAME_COUNT) + DRAGON_FRAME_COUNT) % DRAGON_FRAME_COUNT;
+  return formatDragonFrame(index, {}, DRAGON_DEPART[index]);
 }
 
 // =======================================================================================
@@ -607,6 +625,28 @@ export function minecraftFrameKinds() {
   return Array(BOOT_LINE_COUNT).fill(ROW_KIND_DEPLOYED);
 }
 
+// Issue #182 outro: the finished build stands while the torch gutters out and the sun sets
+// behind it -- the server is still there, its time is what is running down.
+const MC_SET_SUN_COLUMN = 28;
+const MC_SUN_ROWS = [0, 0, 1, 1, 2, 2, 3, 3];
+const MC_TORCH_OUT = ['i', '!', 'i', '.', '.', ' ', ' ', ' '];
+
+export function formatMinecraftOutro(step = 0) {
+  const index = ((step % MINECRAFT_FRAME_COUNT) + MINECRAFT_FRAME_COUNT) % MINECRAFT_FRAME_COUNT;
+  const rows = Array(BOOT_LINE_COUNT).fill(' '.repeat(LOGO_WIDTH));
+  rows[BOOT_LINE_COUNT - 1] = GROUND;
+  // The two top rows keep their drifting clouds -- they never get blocks, and they must
+  // never be empty.
+  for (const cloud of MC_CLOUDS.filter(c => c.untilStep === Infinity)) {
+    rows[cloud.row] = overlayAt(rows[cloud.row], (cloud.column + cloud.drift * index) % LOGO_WIDTH, MC_CLOUD);
+  }
+  for (const part of BUILD_PARTS) rows[part.row] = overlayAt(rows[part.row], part.column, part.art);
+  rows[TORCH_ROW] = overlayAt(rows[TORCH_ROW], TORCH_COLUMN, MC_TORCH_OUT[index]);
+  // Sun last, so it sinks in front of a cloud rather than behind it.
+  rows[MC_SUN_ROWS[index]] = overlayAt(rows[MC_SUN_ROWS[index]], MC_SET_SUN_COLUMN, MC_SUN);
+  return rows;
+}
+
 // =======================================================================================
 // Palworld -- a Pal on the grass, watching a sphere arc in.
 //
@@ -667,7 +707,7 @@ export const PALWORLD_FRAME_COUNT = PAL_BOB.length;
  * One frame of the Pal and the sphere, as BOOT_LINE_COUNT rows of exactly LOGO_WIDTH.
  * @param {number} step index into the sequence; wraps, so callers can just count up.
  */
-export function formatPalworldFrame(step = 0) {
+export function formatPalworldFrame(step = 0, _ctx = {}, { walkOffset = 0, sphere = true } = {}) {
   const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
   const bob = PAL_BOB[index];
 
@@ -687,15 +727,29 @@ export function formatPalworldFrame(step = 0) {
 
   // The sphere, before the Pal for the same reason -- a sphere that landed on the Pal's
   // face would read as a rendering fault rather than a throw.
-  rows[SPHERE_ROWS[index]] = overlayAt(rows[SPHERE_ROWS[index]], SPHERE_COLUMNS[index], SPHERE);
+  if (sphere) rows[SPHERE_ROWS[index]] = overlayAt(rows[SPHERE_ROWS[index]], SPHERE_COLUMNS[index], SPHERE);
 
   PAL_ROWS.forEach((art, palRow) => {
     const target = PAL_TOP_ROW + palRow + bob;
     if (target >= BOOT_LINE_COUNT) return;
-    rows[target] = overlayAt(rows[target], PAL_COLUMNS[palRow], art);
+    rows[target] = overlayAt(rows[target], PAL_COLUMNS[palRow] + walkOffset, art);
   });
 
   return rows;
+}
+
+// Issue #182 outro: no sphere this time -- the Pal walks off to the right and is last seen
+// at the wall, so the rows it leaves still have it in them.
+const PAL_DEPART = [0, 1, 2, 3, 4, 5, 6, 7];
+
+export function formatPalworldOutro(step = 0) {
+  const index = ((step % PALWORLD_FRAME_COUNT) + PALWORLD_FRAME_COUNT) % PALWORLD_FRAME_COUNT;
+  return formatPalworldFrame(index, {}, { walkOffset: PAL_DEPART[index], sphere: false });
+}
+
+/** Every outro (issue #182) is the expiring accent across the whole frame. */
+export function outroFrameKinds() {
+  return Array(BOOT_LINE_COUNT).fill(ROW_KIND_EXPIRING);
 }
 
 /**

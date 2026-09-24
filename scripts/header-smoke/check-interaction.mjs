@@ -65,7 +65,8 @@ async function readBox(page) {
     if (anyLogo && !all('row-logo')) kind = 'mixed';
     else if (all('row-logo')) kind = 'logo';
     else if (/\bNAME\b/.test(text)) kind = rows.some(r => r.cls.includes('row-expiring')) ? 'expiring' : 'deployed';
-    else if (all('row-deployed')) kind = 'intro';
+    // Anything else with no NAME row is art: a game intro, the crane, an outro or the fuse.
+    else if (rows.length > 0) kind = 'intro';
     const name = (text.match(/NAME\s+(\S+)/) || [])[1] ?? null;
     // `[ paused ]` REPLACES the last row's final 10 columns, so the signature leaves those
     // columns out -- otherwise pausing itself would read as the frame changing.
@@ -85,6 +86,18 @@ async function waitFor(page, predicate, timeoutMs, label) {
     await sleep(100);
   }
   throw new Error(`timed out waiting for ${label}`);
+}
+
+/** Like waitFor, but only for a frame that is still the same a wipe's length later. */
+async function waitForSettled(page, predicate, timeoutMs, label) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    const first = await waitFor(page, predicate, timeoutMs - (Date.now() - t0), label);
+    await sleep(500); // REVEAL_MS is 400
+    const second = await readBox(page);
+    if (second && second.sig === first.sig) return second;
+  }
+  throw new Error(`timed out waiting for a settled ${label}`);
 }
 
 const run = async () => {
@@ -113,7 +126,7 @@ const run = async () => {
     await page.waitForSelector('.terminal-row.ready', { timeout: 30000 });
 
     // ---- wide detail frame (issue #345): one frame, everything about one app ----
-    const wideFrame = await waitFor(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
+    const wideFrame = await waitForSettled(page, b => b.kind === 'deployed' || b.kind === 'expiring', 40000, 'an app detail frame');
     const wideRows = wideFrame.text.split('\n');
     check('desktop: app frame is one wide frame with type, image, payment and term rows',
       /\b(GAME|SERVICE|TYPE)\b/.test(wideRows[1]) && /\bIMAGE\b/.test(wideRows[2]) && /\bPAID\b/.test(wideRows[3]) && /\bTERM\b/.test(wideRows[4]),
