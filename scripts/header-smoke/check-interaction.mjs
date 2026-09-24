@@ -186,6 +186,19 @@ const run = async () => {
     check(`after a replay the detail frame holds >= ${MIN_SLOT_DWELL_MS}ms (one chain)`, dwellBroken === null,
       dwellBroken === null ? '' : `replaced after ${dwellBroken}ms`);
 
+    // ---- attract mode (#288): typing "flux" plays every piece of art with a caption ----
+    await page.mouse.move(700, 880);
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.type('flux');
+    const first = await waitFor(page, b => /ATTRACT MODE/.test(b.text) && /\b1 of \d+/.test(b.text), 15000, 'the first attract caption').catch(() => null);
+    check('attract: typing "flux" starts the run', !!first && /1 of \d+/.test(first.text), first?.text.split('\n')[3]?.trim());
+    const second = await waitFor(page, b => /ATTRACT MODE/.test(b.text) && /\b2 of \d+/.test(b.text), 15000, 'the second caption').catch(() => null);
+    check('attract: it moves on to the next piece of art', !!second);
+    // Typing into a field must not trigger it.
+    await page.focus('.search-input');
+    await page.keyboard.type('flux');
+    await page.evaluate(() => document.activeElement?.blur());
+
     check('no console errors', errors.length === 0, errors.slice(0, 3).join(' || '));
 
     // ---- mobile keeps the narrow frame ----

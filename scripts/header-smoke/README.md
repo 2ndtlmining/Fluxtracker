@@ -75,6 +75,10 @@ exactly as before. Takes ~70s.
   and scrolls the section into view.
 - **Logo click:** clicking the logo replays the last intro. The frame after it holds a full
   dwell, which proves a click restarts the rotation chain instead of starting a second one.
+- **Attract mode (#288):** typing `flux` starts a run through every piece of art with a
+  caption ("1 of 25"), and it moves on to the next piece. Typing `flux` into a text field does
+  not trigger it. Outside the harness, attract mode is also the quickest way to eyeball all
+  the art by hand.
 
 ```bash
 node scripts/header-smoke/stub-api.mjs                 # terminal 1

@@ -10,6 +10,7 @@
 //   - the only numbers shown are real ones taken from ctx; anything that merely animates
 //     (hash glyphs, nonces, progress bars) is not presented as a measurement
 import { formatNumber } from './format.js';
+import { PLAIN_SKY } from './seasons.js';
 import {
   LOGO_WIDTH,
   BOOT_LINE_COUNT,
@@ -105,7 +106,8 @@ export const orbitFrameKinds = kindsOf(ROW_KIND_PURPLE);
 // -- this is a successful deployment, so nothing breaks (the creeper's reasoning, #199).
 // =======================================================================================
 
-const ZOMBOID_SKY = centre('.  *     DAY 1     *   .');
+// The day label comes from the sky, so Halloween week reads NIGHT 1 (issue #287).
+const zomboidSky = label => centre(`.  *     ${label}     *   .`);
 const ZOMBOID_HOUSE = [
   ' ___________',
   '|=|=|=|=|=|=|',
@@ -123,10 +125,10 @@ const ZOMBIE_COLUMNS = [22, 21, 20, 19, 18, 17, 16, 16];
 
 export const ZOMBOID_FRAME_COUNT = FRAME_COUNT;
 
-export function formatZomboidFrame(step = 0, _ctx = {}, columns = ZOMBIE_COLUMNS) {
+export function formatZomboidFrame(step = 0, ctx = {}, columns = ZOMBIE_COLUMNS) {
   const index = wrap(step);
   const rows = blankRows();
-  rows[0] = ZOMBOID_SKY;
+  rows[0] = zomboidSky((ctx?.sky ?? PLAIN_SKY).dayLabel);
   ZOMBOID_HOUSE.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], ZOMBOID_HOUSE_COLUMN, art); });
   rows[BOOT_LINE_COUNT - 1] = rotateStrip(ZOMBOID_GRASS, index);
 
@@ -142,8 +144,8 @@ export const zomboidFrameKinds = kindsOf(ROW_KIND_DEPLOYED);
 // Issue #182 outro: the zombie turns from the boards and shambles off to the right.
 const ZOMBIE_DEPART = [16, 18, 20, 22, 24, 26, 28, 30];
 
-export function formatZomboidOutro(step = 0) {
-  return formatZomboidFrame(step, {}, ZOMBIE_DEPART);
+export function formatZomboidOutro(step = 0, ctx = {}) {
+  return formatZomboidFrame(step, ctx, ZOMBIE_DEPART);
 }
 
 // =======================================================================================
