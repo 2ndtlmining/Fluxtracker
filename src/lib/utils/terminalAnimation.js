@@ -1011,7 +1011,10 @@ function termValue(app, { withEnd, nowMs }) {
   if (!term) return DASH;
   if (!withEnd || !Number.isFinite(app?.blocksUntilExpiry) || !Number.isFinite(nowMs)) return term;
   const end = new Date(nowMs + app.blocksUntilExpiry * 30 * 1000);
-  return `${term} · ends ${MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}`;
+  // A year's term ends on almost the same day next year: without the year, "1 year · ends
+  // Sep 26" read as two days away. Any end outside the current year carries it.
+  const year = end.getUTCFullYear() !== new Date(nowMs).getUTCFullYear() ? ` ${end.getUTCFullYear()}` : '';
+  return `${term} · ends ${MONTHS[end.getUTCMonth()]} ${end.getUTCDate()}${year}`;
 }
 
 function wideMiddle(leftLines, app, extras, { withEnd }) {
