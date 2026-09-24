@@ -93,6 +93,12 @@ describe('wide detail frames (issue #345)', () => {
     expect(text).toMatch(/IMAGE\s+—/); // no repo, not enterprise
   });
 
+  it('a term ending in a later year says which year (seen live: "1 year · ends Sep 26")', () => {
+    const nowMs = Date.UTC(2026, 8, 24, 12);
+    const year = { ...open, expireBlocks: 1056000, blocksUntilExpiry: 1056000 - 14 };
+    expect(formatDeploymentFrameWide(year, null, { nowMs })[4]).toMatch(/TERM\s+1 year · ends Sep 26 2027$/);
+  });
+
   it('term: standard lengths by name, odd ones in days, none as a dash', () => {
     const term = expireBlocks => formatExpiringFrameWide({ ...enshrouded, expireBlocks }, {})[4].split('TERM')[1].trim();
     expect(term(20160)).toBe('1 week');
