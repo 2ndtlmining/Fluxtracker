@@ -26,7 +26,6 @@ working day, so a version change on production confirms that day's work landed.
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 12 | Expiring + non-game fallback | #182 (per-game outros first, fuse as fallback) #181 | See the refinement comments on both issues |
 | 13 | Intros, batch 2 | #276 #277 #278 #279 #280 #281 | |
 | 14 | Header extras | #286 #287 #288 #290 | One wide frame per app -- no side panels (decided on #345) |
 | 15 | Utilization Projection | #347 | Owner's new feature: CPU use if apps are not renewed, from `globalappsspecifications` (already cached). After the header work, by the owner's call |
@@ -182,6 +181,8 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #352 | Expiring outros (longship sails off, Pal walks off ...), fuse fallback, crane for non-game deployments (#182 #181) |
+| #351 | TERM end date carries the year when it is not this year |
 | #349 | Header TERM row: subscription length (1 week ... 1 year) and end date |
 | #348 | Intros for Git (Orbit), Project Zomboid, Folding@home, crypto nodes (#272-#275) |
 | #346 | One wide header frame per app (type, image, payment); SvelteKit announcer CSP (#345) |

@@ -13,9 +13,14 @@ import { formatNumber } from './format.js';
 import {
   LOGO_WIDTH,
   BOOT_LINE_COUNT,
+  ROW_KIND_TEXT,
+  ROW_KIND_EXPIRING,
+  ROW_KIND_DEPLOYED,
+  EXPIRING_ICON_LINE,
   rotateStrip,
   waveStrip,
-  overlayAt
+  overlayAt,
+  formatBlocksAsTime
 } from './terminalAnimation.js';
 
 // Accent kinds for the new art. Games stay green (ROW_KIND_DEPLOYED); services take a colour
@@ -118,21 +123,28 @@ const ZOMBIE_COLUMNS = [22, 21, 20, 19, 18, 17, 16, 16];
 
 export const ZOMBOID_FRAME_COUNT = FRAME_COUNT;
 
-export function formatZomboidFrame(step = 0) {
+export function formatZomboidFrame(step = 0, _ctx = {}, columns = ZOMBIE_COLUMNS) {
   const index = wrap(step);
   const rows = blankRows();
   rows[0] = ZOMBOID_SKY;
   ZOMBOID_HOUSE.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], ZOMBOID_HOUSE_COLUMN, art); });
   rows[BOOT_LINE_COUNT - 1] = rotateStrip(ZOMBOID_GRASS, index);
 
-  const column = ZOMBIE_COLUMNS[index];
+  const column = columns[index];
   const sprite = [...ZOMBIE_TOP, ZOMBIE_LEGS[index % 2]];
   sprite.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], column, art); });
   return rows;
 }
 
 // A game: the green deployment accent, like every other game intro.
-export const zomboidFrameKinds = kindsOf('deployed');
+export const zomboidFrameKinds = kindsOf(ROW_KIND_DEPLOYED);
+
+// Issue #182 outro: the zombie turns from the boards and shambles off to the right.
+const ZOMBIE_DEPART = [16, 18, 20, 22, 24, 26, 28, 30];
+
+export function formatZomboidOutro(step = 0) {
+  return formatZomboidFrame(step, {}, ZOMBIE_DEPART);
+}
 
 // =======================================================================================
 // #274 Folding@home: a rotating double helix -- the largest single service on the network.
@@ -200,3 +212,111 @@ export function formatCryptoFrame(step = 0, ctx = {}) {
 }
 
 export const cryptoFrameKinds = kindsOf(ROW_KIND_GOLD);
+
+// =======================================================================================
+// #182 fallback: a fuse burning toward the app. Every expiring app without an outro of its
+// own -- most non-game apps, and games without art -- plays this. The spark travels right
+// to left along a fixed-length fuse (a moving column, never a changing string length); the
+// burnt part turns to '-', and the app block goes dark when the spark arrives. The row
+// under it is the REAL time left, from the app's blocksUntilExpiry.
+// Keeps the EXPIRING bookends on rows 0 and 5, so it reads as part of the expiring frame.
+// =======================================================================================
+
+const FUSE_START = 9;                    // first fuse column, right after the block
+const FUSE_END = LOGO_WIDTH - 3;         // last fuse column
+const FUSE_SPARK_COLUMNS = [31, 28, 25, 22, 19, 16, 13, 9];
+const FUSE_SPARKLES = [".'", "'.", '*.', '.*', "'.", ".'", '*.', '  '];
+const FUSE_BOX_EDGE = '  +-----+';
+
+export const FUSE_FRAME_COUNT = FRAME_COUNT;
+
+/** @param {{app?: {blocksUntilExpiry?: number}}} ctx */
+export function formatFuseFrame(step = 0, ctx = {}) {
+  const index = wrap(step);
+  const spark = FUSE_SPARK_COLUMNS[index];
+  const arrived = index === FRAME_COUNT - 1;
+
+  let fuse = '';
+  for (let column = FUSE_START; column <= FUSE_END; column++) {
+    if (column === spark && !arrived) fuse += '*';
+    else fuse += column < spark ? '=' : '-';
+  }
+  const block = arrived ? '| ... |' : '| APP |';
+  const left = ctx.app?.blocksUntilExpiry;
+  const timeLeft = Number.isFinite(left) ? `${formatBlocksAsTime(Math.max(0, left))} left` : 'time running out';
+
+  return [
+    EXPIRING_ICON_LINE,
+    overlayAt(FUSE_BOX_EDGE.padEnd(LOGO_WIDTH), Math.max(FUSE_START, spark - 1), FUSE_SPARKLES[index]),
+    ('  ' + block + fuse).slice(0, LOGO_WIDTH).padEnd(LOGO_WIDTH),
+    FUSE_BOX_EDGE.padEnd(LOGO_WIDTH),
+    `  ${timeLeft}`.padEnd(LOGO_WIDTH),
+    EXPIRING_ICON_LINE
+  ];
+}
+
+/** Bookends in the expiring accent, the burning fuse in plain terminal text. */
+export function fuseFrameKinds() {
+  const kinds = Array(BOOT_LINE_COUNT).fill(ROW_KIND_TEXT);
+  kinds[0] = ROW_KIND_EXPIRING;
+  kinds[BOOT_LINE_COUNT - 1] = ROW_KIND_EXPIRING;
+  return kinds;
+}
+
+// =======================================================================================
+// #181 fallback: a crane lowers a container onto a stack. Every deployment without art of
+// its own plays this -- it animates what actually happened (a container landed) rather
+// than a mascot. The stack is the app's REAL instance count, 1 to 3 cells of fixed width,
+// so the art reports something true about the deployment.
+// =======================================================================================
+
+const CRANE_CELL = '[#]';
+const CRANE_STACK_COLUMN = 12;
+const CRANE_TOWER_COLUMN = 3;
+const CRANE_JIB = ('  _|' + '='.repeat(LOGO_WIDTH - 8)).padEnd(LOGO_WIDTH);
+const CRANE_GROUND = ('  ' + '='.repeat(LOGO_WIDTH - 4)).padEnd(LOGO_WIDTH);
+// The container's row on each step until it lands (row 4); then the empty hook's row as it
+// rises back up, and on the last two steps the trolley runs back along the jib.
+const CRANE_LOAD_ROWS = [1, 2, 3];
+const CRANE_HOOK_ROWS = [null, null, null, 3, 2, 1, 1, 1];
+const CRANE_TROLLEY_SHIFT = [0, 0, 0, 0, 0, 0, 3, 6];
+const CRANE_DUST = [null, null, null, '.   .', "'   '", null, null, null];
+
+export const CRANE_FRAME_COUNT = FRAME_COUNT;
+
+/** @param {{app?: {instances?: number}}} ctx */
+export function formatCraneFrame(step = 0, ctx = {}) {
+  const index = wrap(step);
+  const instances = Number.isFinite(ctx.app?.instances) ? ctx.app.instances : 1;
+  const cells = Math.min(3, Math.max(1, instances));
+  const landing = CRANE_STACK_COLUMN + CRANE_CELL.length * (cells - 1);
+  const hook = landing + 1 + CRANE_TROLLEY_SHIFT[index];
+
+  const rows = blankRows();
+  // Jib across the top with the trolley over the hook; the tower down the left keeps
+  // rows 1-4 non-empty whatever the load is doing.
+  rows[0] = overlayAt(CRANE_JIB, hook - 1, '[_]');
+  for (let row = 1; row < BOOT_LINE_COUNT - 1; row++) rows[row] = overlayAt(rows[row], CRANE_TOWER_COLUMN, '|');
+  rows[BOOT_LINE_COUNT - 1] = CRANE_GROUND;
+
+  const landed = index >= CRANE_LOAD_ROWS.length;
+  const stackCount = landed ? cells : cells - 1;
+  for (let i = 0; i < stackCount; i++) {
+    rows[4] = overlayAt(rows[4], CRANE_STACK_COLUMN + CRANE_CELL.length * i, CRANE_CELL);
+  }
+
+  if (!landed) {
+    const loadRow = CRANE_LOAD_ROWS[index];
+    for (let row = 1; row < loadRow; row++) rows[row] = overlayAt(rows[row], hook, '|');
+    rows[loadRow] = overlayAt(rows[loadRow], landing, CRANE_CELL);
+  } else {
+    const hookRow = CRANE_HOOK_ROWS[index];
+    for (let row = 1; row < hookRow; row++) rows[row] = overlayAt(rows[row], hook, '|');
+    rows[hookRow] = overlayAt(rows[hookRow], hook, 'J');
+    // Dust on the row above the stack, so it can never overwrite a neighbouring container.
+    if (CRANE_DUST[index]) rows[3] = overlayAt(rows[3], landing - 1, CRANE_DUST[index]);
+  }
+  return rows;
+}
+
+export const craneFrameKinds = kindsOf(ROW_KIND_DEPLOYED);

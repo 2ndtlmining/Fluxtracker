@@ -96,7 +96,7 @@ it read as a Brave-only bug.
 
 It asserts:
 
-- the box repaints at most 40 times in 30s
+- the box repaints at most 40 times in 40s
 - the boot never falls back to `> telemetry unavailable` while the stub is answering
 - (issue #289) a game deployment shows its art as a still poster, and every rotation frame,
   the poster included, holds a full 8s
@@ -107,7 +107,7 @@ API_PORT=3100 npm run dev -- --port 5199            # terminal 2
 node scripts/header-smoke/check-reduced-motion.mjs  # terminal 3
 ```
 
-Takes ~30s. Before the fix: 923 repaints in 30s. After: 8.
+Takes ~40s. Before the fix: 923 repaints in 30s. After: 8.
 
 ## Run it
 

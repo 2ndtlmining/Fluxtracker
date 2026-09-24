@@ -43,13 +43,21 @@
     MINECRAFT_FRAME_COUNT,
     markPaused,
     formatDeploymentFrameWide,
-    formatExpiringFrameWide
+    formatExpiringFrameWide,
+    formatValheimOutro,
+    formatDragonOutro,
+    formatMinecraftOutro,
+    formatPalworldOutro,
+    outroFrameKinds
   } from '$lib/utils/terminalAnimation.js';
   import {
     formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT,
     formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT,
     formatFoldingFrame, foldingFrameKinds, FOLDING_FRAME_COUNT,
-    formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT
+    formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT,
+    formatZomboidOutro,
+    formatFuseFrame, fuseFrameKinds, FUSE_FRAME_COUNT,
+    formatCraneFrame, craneFrameKinds, CRANE_FRAME_COUNT
   } from '$lib/utils/introArt.js';
 
   export let blockHeight = null;
@@ -148,6 +156,23 @@
     folding: { frameCount: FOLDING_FRAME_COUNT, format: formatFoldingFrame, kinds: foldingFrameKinds }, // #274
     crypto: { frameCount: CRYPTO_FRAME_COUNT, format: formatCryptoFrame, kinds: cryptoFrameKinds }      // #275
   };
+
+  // Every deployment with no art of its own -- no game, no service with an intro -- gets the
+  // crane landing its containers (issue #181). It used to go straight to the detail frame.
+  const CRANE_INTRO = { frameCount: CRANE_FRAME_COUNT, format: formatCraneFrame, kinds: craneFrameKinds };
+
+  // Expiring apps (issue #182). A game with art plays it in reverse, in orange: the ship
+  // sails off, the Pal walks off. Keyed exactly like GAME_INTROS. Everything else burns the
+  // fuse, which shows the real time left.
+  const outro = format => ({ frameCount: 8, format, kinds: outroFrameKinds });
+  const GAME_OUTROS = {
+    Valheim: outro(formatValheimOutro),
+    Minecraft: outro(formatMinecraftOutro),
+    Palworld: outro(formatPalworldOutro),
+    'RuneScape: Dragonwilds': outro(formatDragonOutro),
+    'Project Zomboid': outro(formatZomboidOutro)
+  };
+  const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
   // Apps the rotation has shown, oldest first -- pickNextDeployed() walks the whole day's
   // list with it instead of replaying the newest deployment (issue #283).
@@ -449,15 +474,18 @@
    * game deployments come from Flux's dedicated sites, whose specs are enterprise-encrypted
    * and carry no repotag at all, so an image check would miss nearly all of them.
    *
-   * A game with its own art gets it; every other game falls back to the controller.
+   * A game with its own art gets it; every other game falls back to the controller; any
+   * other deployment gets the crane (#181). An expiring app gets its game's outro, or the
+   * fuse (#182). Only the logo goes straight to its frame.
    */
   function introForSlot(slot) {
-    if (slot?.kind !== 'deployed') return null;
+    if (slot?.kind !== 'deployed' && slot?.kind !== 'expiring') return null;
     // One resolver for games and services (issue #271): `game:<name>` or `service:<key>`.
     const key = resolveIntroKey(slot.data);
-    if (!key) return null;
-    if (key.startsWith('game:')) return GAME_INTROS[key.slice(5)] || GAMEPAD_INTRO;
-    return SERVICE_INTROS[key.slice(8)] || null;
+    const game = key?.startsWith('game:') ? key.slice(5) : null;
+    if (slot.kind === 'expiring') return (game && GAME_OUTROS[game]) || FUSE_OUTRO;
+    if (game) return GAME_INTROS[game] || GAMEPAD_INTRO;
+    return (key && SERVICE_INTROS[key.slice(8)]) || CRANE_INTRO;
   }
 
   /**
