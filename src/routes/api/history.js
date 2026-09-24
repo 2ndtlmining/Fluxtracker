@@ -19,7 +19,8 @@ import {
     getGameSnapshotHistory
 } from '../../lib/db/database.js';
 
-import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES } from '../../lib/config.js';
+import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
+import { mergeRevenueSources } from '../../lib/utils/revenueSources.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
@@ -115,6 +116,33 @@ router.get('/revenue/team-funded/daily', async (req, res) => {
 
         const history = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
         return { count: history.length, data: history };
+    });
+});
+
+// Revenue sources (issue #261): per day, total / team-funded / fiat on-ramp / organic, in
+// FLUX and in USD at the time of payment. Organic is the remainder, so the three always add
+// up to the total. Six existing range queries in parallel -- no new collection, and full
+// history is available because it is transaction-based.
+router.get('/revenue/sources/daily', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
+    }
+
+    return withDbFallback(revenueCache, `sources:${start_date}:${end_date}`, res, async () => {
+        const [total, totalUsd, team, teamUsd, fiat, fiatUsd] = await Promise.all([
+            getDailyRevenueInRange(start_date, end_date),
+            getDailyRevenueUSDInRange(start_date, end_date),
+            getDailyRevenueFromAddressesInRange(start_date, end_date, FLUX_TEAM_ADDRESSES),
+            getDailyRevenueUSDFromAddressesInRange(start_date, end_date, FLUX_TEAM_ADDRESSES),
+            getDailyRevenueFromAddressesInRange(start_date, end_date, FLUX_FIAT_ADDRESSES),
+            getDailyRevenueUSDFromAddressesInRange(start_date, end_date, FLUX_FIAT_ADDRESSES)
+        ]);
+        const data = mergeRevenueSources({ total, totalUsd, team, teamUsd, fiat, fiatUsd });
+        return { count: data.length, data };
     });
 });
 

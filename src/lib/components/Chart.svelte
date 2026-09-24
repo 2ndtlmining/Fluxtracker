@@ -205,11 +205,22 @@
       // $ amount, and % of that day's total revenue, so a rising share is visible over time.
       // Transaction-based (like Revenue), not snapshot-based, so full history is available
       // immediately rather than only from whenever snapshotting started.
-      label: 'Team Funded',
+      //
+      // Issue #261 widened it into Revenue Sources: who paid -- organic (real on-chain
+      // customers), the fiat on-ramp, or the Flux team. Organic is the remainder, so the three
+      // add up to total revenue. The category id stays team_funded so existing links keep
+      // working. Percentages are shares of total FLUX, like the Revenue card's.
+      label: 'Revenue Sources',
       color: 'rgb(255, 215, 0)',
       metrics: [
-        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
+        { id: 'organic_usd', label: 'Organic ($)', field: 'organic_usd', format: 'usd', aggregateAsSum: true },
+        { id: 'organic_flux', label: 'Organic (FLUX)', field: 'organic_flux', format: 'flux', aggregateAsSum: true },
+        { id: 'organic_percent', label: 'Organic (% of Revenue)', field: 'organic_percent', format: 'percent', ratioFields: { numerator: 'organic_flux', denominator: 'total_flux' } },
+        { id: 'fiat_usd', label: 'Fiat on-ramp ($)', field: 'fiat_usd', format: 'usd', aggregateAsSum: true },
+        { id: 'fiat_flux', label: 'Fiat on-ramp (FLUX)', field: 'fiat_flux', format: 'flux', aggregateAsSum: true },
+        { id: 'fiat_percent', label: 'Fiat on-ramp (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' } },
         { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true },
+        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
         // Weekly/monthly must sum team_funded_flux and total_flux separately and divide
         // afterwards, not average the daily percentages -- see the fetchAllData comment on
         // total_flux and the aggregateByWeek/aggregateByMonth ratioFields handling.
@@ -510,37 +521,29 @@
             })()
           : '2018-01-01'; // 'All' -- predates Flux mainnet, so this just covers every real row
 
-        const [teamRes, totalRes] = await Promise.all([
-          fetch(`${API_URL}/api/history/revenue/team-funded/daily?start_date=${startDateStr}&end_date=${endDateStr}`),
-          fetch(`${API_URL}/api/history/revenue/daily?start_date=${startDateStr}&end_date=${endDateStr}`)
-        ]);
-
-        if (!teamRes.ok || !totalRes.ok) {
-          throw new Error('API error fetching Team Funded data');
+        // One endpoint returns every source per day (issue #261), including days with no
+        // team or fiat payment -- so each day's total_flux is always present for the
+        // weekly/monthly ratioFields sums below, and no period share is overstated.
+        const sourcesRes = await fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
+        if (!sourcesRes.ok) {
+          throw new Error('API error fetching Revenue Sources data');
         }
+        const sourcesJson = await sourcesRes.json();
+        const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0); // $0 days: 0%, never NaN
 
-        const [teamJson, totalJson] = await Promise.all([teamRes.json(), totalRes.json()]);
-        const teamFluxByDate = new Map((teamJson.data || []).map(r => [r.date, r.daily_revenue || 0]));
-        const teamUsdByDate = new Map((teamJson.data || []).map(r => [r.date, r.daily_revenue_usd || 0]));
-        const totalFluxByDate = new Map((totalJson.data || []).map(r => [r.date, r.daily_revenue || 0]));
-
-        // Union of both endpoints' dates, not just the team-funded ones: the team-funded
-        // endpoint only returns days with at least one team-address transaction, so a day
-        // with real total revenue but zero team funding would otherwise be missing from
-        // allSnapshots entirely -- and with it, that day's total_flux would be missing from
-        // the weekly/monthly ratioFields sum below, silently undercounting the denominator
-        // and overstating the period's Team Funded percentage.
-        const allDates = new Set([...teamFluxByDate.keys(), ...totalFluxByDate.keys()]);
-
-        allSnapshots = [...allDates].sort().map(date => {
-          const teamFlux = teamFluxByDate.get(date) || 0;
-          const totalFlux = totalFluxByDate.get(date) || 0;
+        allSnapshots = (sourcesJson.data || []).map(day => {
+          const totalFlux = day.total_flux || 0;
           return {
-            date,
-            team_funded_flux: teamFlux,
-            team_funded_usd: teamUsdByDate.get(date) || 0,
-            // $0-revenue days report 0%, never NaN/Infinity
-            team_funded_percent: totalFlux > 0 ? (teamFlux / totalFlux) * 100 : 0,
+            date: day.date,
+            organic_flux: day.organic_flux || 0,
+            organic_usd: day.organic_usd || 0,
+            organic_percent: pct(day.organic_flux || 0, totalFlux),
+            fiat_flux: day.fiat_flux || 0,
+            fiat_usd: day.fiat_usd || 0,
+            fiat_percent: pct(day.fiat_flux || 0, totalFlux),
+            team_funded_flux: day.team_flux || 0,
+            team_funded_usd: day.team_usd || 0,
+            team_funded_percent: pct(day.team_flux || 0, totalFlux),
             // Kept alongside the pre-computed daily percent so weekly/monthly aggregation
             // can sum team_funded_flux and total_flux separately and divide afterwards --
             // averaging the daily percentages themselves (as every other percent metric
