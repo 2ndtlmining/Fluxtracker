@@ -60,9 +60,11 @@ const GAME_ART_BY_NAME = {
     movingRows: rows => rows.slice(-2).filter(r => /[~^-]{6}/.test(r.text))
   },
   // The head and the two scrolling cloud rows -- the longship's structure, reused.
+  // Two variants since #281, picked per app name: the dragon over clouds, or the campfire
+  // (its logs) over grass. The fixture name decides which; either proves the art played.
   dragonwilds: {
-    signature: /<__o/,
-    movingRows: rows => rows.slice(-2).filter(r => /[~.\-]{6}/.test(r.text))
+    signature: /<__o|_\\\/\\\/\\\/_/,
+    movingRows: rows => rows.slice(-2).filter(r => /[~.\-,^]{6}/.test(r.text))
   },
   // Blocks on the ground line. The build's rows are what change here, not a scrolling
   // strip, so every block row counts as a moving row: seeing more than one distinct one
