@@ -28,6 +28,13 @@ vi.mock('../../services/cloudService.js', () => ({
     getLatestRepoCounts: vi.fn(() => null),
 }));
 
+// Issue #355: unmocked, this made every snapshot test fetch the real running-apps payload
+// from the Flux API -- seconds of network per test, so the #248 tests timed out whenever
+// the network was slow. No games = the snapshot skips the per-game write.
+vi.mock('../../services/gamingService.js', () => ({
+    getLiveGameBreakdown: vi.fn(() => Promise.resolve({ total: 0, gameCount: 0, games: [] })),
+}));
+
 vi.mock('../../services/carouselService.js', () => ({
     getFluxCloudActivity: vi.fn(),
 }));

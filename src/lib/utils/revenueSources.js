@@ -1,4 +1,4 @@
-// Revenue analytics that need nothing new collected (issues #261, #266). Pure: rows in,
+// Revenue analytics that need nothing new collected (issues #261, #262, #267). Pure: rows in,
 // numbers out, so the maths is unit-tested apart from the database.
 
 /**
@@ -35,29 +35,6 @@ export function mergeRevenueSources({ total = [], totalUsd = [], team = [], team
       organic_flux: Math.max(0, day.total_flux - day.team_flux - day.fiat_flux),
       organic_usd: Math.max(0, day.total_usd - day.team_usd - day.fiat_usd)
     }));
-}
-
-/**
- * #266 -- is FLUX revenue growth real demand, or the token price? App pricing is effectively
- * pegged to USD, so FLUX revenue rises whenever the price falls. Split the FLUX change into:
- *   - usdChange: the change in what was actually paid, in USD at the time of payment (demand)
- *   - priceChange: the change in the average USD price paid per FLUX (price)
- * Since FLUX = USD / price, (1 + fluxChange) = (1 + usdChange) / (1 + priceChange).
- * Null when either period has nothing to compare against.
- */
-export function computeDemandSplit({ fluxCurrent, fluxPrevious, usdCurrent, usdPrevious }) {
-  const valid = [fluxCurrent, fluxPrevious, usdCurrent, usdPrevious].every(v => Number.isFinite(v) && v > 0);
-  if (!valid) return null;
-  const usdChange = ((usdCurrent - usdPrevious) / usdPrevious) * 100;
-  const priceNow = usdCurrent / fluxCurrent;
-  const priceThen = usdPrevious / fluxPrevious;
-  const priceChange = ((priceNow - priceThen) / priceThen) * 100;
-  return {
-    usdCurrent,
-    usdPrevious,
-    usdChange: Math.round(usdChange * 10) / 10,
-    priceChange: Math.round(priceChange * 10) / 10
-  };
 }
 
 /**
@@ -137,9 +114,4 @@ export function shapeConcentration(row) {
     top10Share: total > 0 ? Math.round((1000 * (Number(row.top10_revenue) || 0)) / total) / 10 : 0,
     appsFor80Pct: Number(row?.apps_for_80pct) || 0
   };
-}
-
-/** Sum a daily USD series (as getDailyRevenueUSDInRange returns it). */
-export function sumUsd(rows) {
-  return (rows ?? []).reduce((sum, row) => sum + (Number(row?.daily_revenue_usd) || 0), 0);
 }

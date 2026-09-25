@@ -13,7 +13,6 @@ import {
     getDailyRevenueUSDFromAddressesInRange,
     getMonthlyPayerStats,
     getDailyRevenueMixInRange,
-    getDailyRunRateInRange,
     getAppCohorts,
     getDistinctRepos,
     getRepoHistory,
@@ -25,7 +24,6 @@ import {
 
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
-import { shapeRunRateRows } from '../../lib/utils/runRate.js';
 import { shapeCohortRows } from '../../lib/utils/appCohorts.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
@@ -171,30 +169,6 @@ router.get('/revenue/mix/daily', async (req, res) => {
         } catch (error) {
             if (isMissingFunctionError(error, 'get_daily_revenue_mix')) {
                 return { available: false, reason: 'Apply supabase/migrations/020_revenue_mix.sql', data: [] };
-            }
-            throw error;
-        }
-    });
-});
-
-// Run-rate per day (issue #263): each payment's USD spread over the days it bought, as a
-// monthly figure (MRR), plus what has been paid but not yet consumed. available:false until
-// migration 021 is applied.
-router.get('/revenue/run-rate/daily', async (req, res) => {
-    const { start_date, end_date } = req.query;
-    if (!start_date || !end_date) {
-        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
-    }
-    if (parseRangeQuery(req.query).error) {
-        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
-    }
-
-    return withDbFallback(revenueCache, `runrate:${start_date}:${end_date}`, res, async () => {
-        try {
-            return { available: true, data: shapeRunRateRows(await getDailyRunRateInRange(start_date, end_date)) };
-        } catch (error) {
-            if (isMissingFunctionError(error, 'get_daily_run_rate')) {
-                return { available: false, reason: 'Apply supabase/migrations/021_run_rate.sql', data: [] };
             }
             throw error;
         }
