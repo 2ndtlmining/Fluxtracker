@@ -7,7 +7,9 @@ vi.mock('../../db/database.js', () => ({
     getDailyRevenueUSDInRange: vi.fn(),
     getOldestTransactionDate: vi.fn(),
     getRevenueFromAddressesForDateRange: vi.fn(),
-    getDecentralizationSnapshotHistory: vi.fn(() => Promise.resolve([]))
+    getDecentralizationSnapshotHistory: vi.fn(() => Promise.resolve([])),
+    getDailyGameRevenueInRange: vi.fn(() => Promise.resolve([])),
+    getDailyRevenueMixInRange: vi.fn(() => Promise.resolve([]))
 }));
 // kpiService.js calls getFluxCloudActivity() directly (not getFluxCloudSnapshot) --
 // mock at that boundary with already-deduped fixtures. The dedup rule itself
@@ -24,7 +26,9 @@ import {
     getDailyRevenueUSDInRange,
     getOldestTransactionDate,
     getRevenueFromAddressesForDateRange,
-    getDecentralizationSnapshotHistory
+    getDecentralizationSnapshotHistory,
+    getDailyGameRevenueInRange,
+    getDailyRevenueMixInRange
 } from '../../db/database.js';
 import { getFluxCloudActivity } from '../carouselService.js';
 import { buildKpiReport, sendToDiscord } from '../kpiService.js';
@@ -232,61 +236,41 @@ describe('buildKpiReport — topDatacenters', () => {
     });
 });
 
-describe('sendToDiscord — Flux Cloud Activity (daily second message)', () => {
+describe('executive scorecard figures (owner redesign, 2026-09-26)', () => {
     const VALID = 'https://discord.com/api/webhooks/123456789/token';
 
-    function dailyReport() {
-        return {
-            timeframe: 'daily',
-            current: { start: '2026-09-04', end: '2026-09-04' },
-            comparison: { start: '2026-09-03', end: '2026-09-03' },
-            currentLabel: 'Sep 4, 2026',
-            comparisonLabel: 'Sep 3, 2026',
-            dataset: { sections: [], availableMetrics: 0, totalMetrics: 0, empty: false },
-            fluxCloud: {
-                appsDeployed: 7149,
-                deployedToday: { cached: true, apps: [{ name: 'app-a', repo: 'runonflux/app-a:latest', instances: 2, cpu: 1, ram: 1024, hdd: 10 }] },
-                expiring24h: { cached: true, apps: [] }
-            },
-            generatedAt: '2026-09-05T00:00:00.000Z'
-        };
-    }
+    it('adds game revenue, the new/renewal split, activity and the most-deployed line', async () => {
+        getDailyGameRevenueInRange.mockResolvedValue([{ date: '2026-08-20', total_flux: 1000, game_flux: 600, game_usd: 42 }]);
+        getDailyRevenueMixInRange.mockResolvedValue([{ date: '2026-08-20', total_flux: 1000, new_flux: 510, update_flux: 490 }]);
+        getFluxCloudActivity.mockResolvedValue({
+            deployedToday: { cached: true, apps: [{ name: 'palworld1790087212677' }, { name: 'palworld1790087212678' }, { name: 'myapp' }] },
+            expiring24h: { cached: true, apps: [{ name: 'x' }] }
+        });
 
-    it('sends both messages to the same webhook', async () => {
-        axios.post.mockResolvedValue({ status: 204 });
+        const { executive } = await buildKpiReport('daily', NOW);
 
-        const result = await sendToDiscord(VALID, dailyReport());
-
-        expect(axios.post).toHaveBeenCalledTimes(2);
-        expect(axios.post.mock.calls[0][1].embeds[0].title).toBe('FluxTracker KPI Report - Daily');
-        expect(axios.post.mock.calls[1][1].embeds[0].title).toBe('FluxTracker Flux Cloud Activity');
-        expect(result).toEqual({ delivered: true, activityDelivered: true });
+        expect(executive.gameRevenue.current).toEqual({ usd: 42, flux: 600, sharePercent: 60 });
+        expect(executive.mix).toEqual({ newPercent: 51, renewalPercent: 49 });
+        expect(executive.activity).toEqual({ deployed: 3, expiring: 1 });
+        expect(executive.mostDeployed).toBe('Most deployed: Palworld 2 · other 1');
+        expect(executive.trend).toBeNull(); // daily reports carry no trend line
     });
 
-    it('a failed activity message does not fail the delivered main report', async () => {
-        axios.post.mockResolvedValueOnce({ status: 204 }).mockRejectedValueOnce({ response: { status: 400 } });
-
-        const result = await sendToDiscord(VALID, dailyReport());
-
-        expect(result.delivered).toBe(true);
-        expect(result.activityDelivered).toBe(false);
-        expect(result.activityError).toMatch(/rejected the report payload/);
+    it('a failed extra read shows as n/a, never failing the report', async () => {
+        getDailyGameRevenueInRange.mockRejectedValue(new Error('function get_daily_game_revenue does not exist'));
+        const report = await buildKpiReport('weekly', NOW);
+        expect(report.executive.gameRevenue).toBeNull();
+        expect(report.dataset.empty).toBe(false);
     });
 
-    it('non-daily reports send only the main message', async () => {
+    it('sends exactly one message -- the old second "Flux Cloud Activity" message is gone', async () => {
         axios.post.mockResolvedValue({ status: 204 });
+        const report = await buildKpiReport('daily', NOW);
 
-        const weekly = {
-            timeframe: 'weekly',
-            current: { start: '2026-08-10', end: '2026-08-16' },
-            comparison: { start: '2026-08-03', end: '2026-08-09' },
-            dataset: { sections: [], availableMetrics: 0, totalMetrics: 0, empty: false },
-            fluxCloud: null,
-            generatedAt: '2026-08-21T00:00:00.000Z'
-        };
-        const result = await sendToDiscord(VALID, weekly);
+        const result = await sendToDiscord(VALID, report);
 
         expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.post.mock.calls[0][1].embeds[0].title).toMatch(/^Flux Network · Daily KPIs · /);
         expect(result).toEqual({ delivered: true });
     });
 });

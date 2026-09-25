@@ -5,12 +5,16 @@ import {
     getDailyRevenueUSDInRange,
     getOldestTransactionDate,
     getRevenueFromAddressesForDateRange,
-    getDecentralizationSnapshotHistory
+    getDecentralizationSnapshotHistory,
+    getDailyGameRevenueInRange,
+    getDailyRevenueMixInRange
 } from '../db/database.js';
-import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../config.js';
+import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES, GAME_APP_NAME_PATTERN, resolveGameFromAppName } from '../config.js';
+import { summarizeGameRevenue } from '../utils/gameRevenue.js';
+import { revenueTrend, mostDeployedLine, buildScorecardPayload } from '../kpi/scorecard.js';
 import { getPeriodRanges, formatPeriod, dayCount } from '../kpi/periods.js';
 import { buildKpiDataset, sumDaily, computeTopDatacentersForPeriod } from '../kpi/metrics.js';
-import { buildDiscordPayload, buildFluxCloudActivityPayload, buildSchedulerFailurePayload, isValidDiscordWebhook } from '../kpi/discord.js';
+import { buildSchedulerFailurePayload, isValidDiscordWebhook } from '../kpi/discord.js';
 import { getFluxCloudActivity } from './carouselService.js';
 import { createLogger } from '../logger.js';
 
@@ -82,6 +86,64 @@ async function getFluxCloudData() {
 }
 
 /**
+ * The executive scorecard's figures beyond the metric dataset (owner redesign,
+ * 2026-09-26): game-server revenue, the new-vs-renewal split, median time left,
+ * deployed/expiring, the revenue trend line and the "Most deployed" line. Each piece is
+ * read independently and falls back to null -- a missing migration or a failed read
+ * renders as "n/a" on its tile, never as a fake zero, and never fails the report.
+ */
+async function getExecutiveExtras(timeframe, current, comparison, currentSnapshots, comparisonSnapshots, fluxCloud) {
+    const safe = promise => promise.catch(error => {
+        log.warn({ err: error }, 'KPI scorecard figure unavailable');
+        return null;
+    });
+    const [gameCur, gameCmp, mixRows, usdRows] = await Promise.all([
+        safe(getDailyGameRevenueInRange(current.start, current.end, GAME_APP_NAME_PATTERN)),
+        safe(getDailyGameRevenueInRange(comparison.start, comparison.end, GAME_APP_NAME_PATTERN)),
+        safe(getDailyRevenueMixInRange(current.start, current.end)),
+        safe(getDailyRevenueUSDInRange(current.start, current.end))
+    ]);
+
+    const game = gameCur ? { current: summarizeGameRevenue(gameCur), comparison: gameCmp ? summarizeGameRevenue(gameCmp) : null } : null;
+
+    let mix = null;
+    if (mixRows?.length) {
+        const sum = key => mixRows.reduce((a, r) => a + (Number(r[key]) || 0), 0);
+        const total = sum('total_flux');
+        if (total > 0) mix = { newPercent: (100 * sum('new_flux')) / total, renewalPercent: (100 * sum('update_flux')) / total };
+    }
+
+    // Median time left is a point-in-time reading: the last recorded day of each period.
+    const lastReading = rows => [...(rows ?? [])].reverse().map(r => r.median_days_left).find(v => v != null);
+    const medianCur = lastReading(currentSnapshots);
+    const medianDaysLeft = medianCur != null ? { current: Number(medianCur), comparison: lastReading(comparisonSnapshots) != null ? Number(lastReading(comparisonSnapshots)) : null } : null;
+
+    // Deployed / expiring: live 24h counts on the daily report; summed daily snapshot counts
+    // otherwise, and only when every day of the period has a reading.
+    let activity = null;
+    if (timeframe === 'daily') {
+        const f = fluxCloud?.instant?.fluxCloud;
+        if (f && f.appsDeployed != null && f.appsExpiring24h != null) activity = { deployed: f.appsDeployed, expiring: f.appsExpiring24h };
+    } else if (currentSnapshots?.length && currentSnapshots.every(s => s.apps_deployed_today != null && s.apps_expiring_today != null)) {
+        activity = {
+            deployed: currentSnapshots.reduce((a, s) => a + Number(s.apps_deployed_today), 0),
+            expiring: currentSnapshots.reduce((a, s) => a + Number(s.apps_expiring_today), 0)
+        };
+    }
+
+    const deployedNames = fluxCloud?.activity?.deployedToday?.cached ? fluxCloud.activity.deployedToday.apps.map(a => a.name) : null;
+
+    return {
+        gameRevenue: game,
+        mix,
+        medianDaysLeft,
+        activity,
+        trend: usdRows ? revenueTrend(timeframe, usdRows, current) : null,
+        mostDeployed: timeframe === 'daily' && deployedNames ? mostDeployedLine(deployedNames, resolveGameFromAppName) : null
+    };
+}
+
+/**
  * Compute a full KPI report for a timeframe. Pure data — delivery is separate.
  *
  * @param {'daily'|'weekly'|'monthly'|'quarterly'|'yearly'} timeframe
@@ -116,6 +178,7 @@ export async function buildKpiReport(timeframe, now = new Date()) {
     });
 
     const topDatacenters = computeTopDatacentersForPeriod(decentralizationHistory);
+    const executive = await getExecutiveExtras(timeframe, current, comparison, currentSnapshots, comparisonSnapshots, fluxCloud);
 
     return {
         timeframe,
@@ -125,10 +188,12 @@ export async function buildKpiReport(timeframe, now = new Date()) {
         currentLabel: formatPeriod(timeframe, current),
         comparisonLabel: formatPeriod(timeframe, comparison),
         dataset,
-        // Per-app Flux Cloud detail, present only on daily. Discord renders it as a
-        // second "Flux Cloud Activity" message; other consumers can ignore it.
+        // Per-app Flux Cloud detail, present only on daily (the scorecard reduces it to one
+        // "Most deployed" line; the full lists stay here for API consumers).
         fluxCloud: fluxCloud?.activity ?? null,
         topDatacenters,
+        // The executive scorecard's extra figures (see getExecutiveExtras).
+        executive,
         generatedAt: new Date(now).toISOString()
     };
 }
@@ -172,37 +237,22 @@ export async function postToDiscordWebhook(webhookUrl, payload) {
 }
 
 /**
- * POST the report to a Discord webhook. On the daily timeframe a second message —
- * "Flux Cloud Activity", the per-app detail behind the report's Flux Cloud section —
- * follows the main one. Both go to the same webhook.
+ * POST the report to a Discord webhook as the executive scorecard (owner redesign,
+ * 2026-09-26): one message. The daily report used to follow it with a second "Flux Cloud
+ * Activity" message of per-app tables; that detail is now one "Most deployed" line inside
+ * the scorecard.
  *
  * The URL is re-validated here, not just at the API boundary — this is the function that
- * actually makes the outbound requests, so it is the last place the SSRF guard can live.
+ * actually makes the outbound request, so it is the last place the SSRF guard can live.
  *
- * @returns {{delivered: boolean, activityDelivered?: boolean, activityError?: string}}
- *   `activityDelivered: false` means the main report arrived but the follow-up message
- *   failed — the caller surfaces that instead of failing the whole submission (and
- *   prompting a retry that would duplicate the main report).
+ * @returns {{delivered: boolean}}
  */
 export async function sendToDiscord(webhookUrl, report) {
     if (!isValidDiscordWebhook(webhookUrl)) {
         throw new Error('Not a valid Discord webhook URL');
     }
-
-    await postWebhook(webhookUrl, buildDiscordPayload(report));
-
-    const activityPayload = buildFluxCloudActivityPayload(report);
-    if (!activityPayload) {
-        return { delivered: true };
-    }
-
-    try {
-        await postWebhook(webhookUrl, activityPayload);
-        return { delivered: true, activityDelivered: true };
-    } catch (error) {
-        log.error({ err: error }, 'Flux Cloud Activity message failed after the main report was delivered');
-        return { delivered: true, activityDelivered: false, activityError: error.message };
-    }
+    await postWebhook(webhookUrl, buildScorecardPayload(report));
+    return { delivered: true };
 }
 
 /**
@@ -217,4 +267,4 @@ export async function sendSchedulerFailureNotice(webhookUrl, timeframe, errorMes
  * Plain-text rendering, used by the modal's preview so a user can see the numbers before
  * (or without) sending anything.
  */
-export { buildDiscordPayload, isValidDiscordWebhook };
+export { buildScorecardPayload, isValidDiscordWebhook };

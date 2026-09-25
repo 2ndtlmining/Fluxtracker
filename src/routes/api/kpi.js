@@ -123,11 +123,11 @@ router.post('/kpi-report', async (req, res) => {
             });
         }
 
-        const result = await sendToDiscord(target.trim(), report);
+        await sendToDiscord(target.trim(), report);
 
         const incomplete = report.dataset.totalMetrics - report.dataset.availableMetrics;
         log.info(
-            { timeframe, medium, target: maskWebhook(target), incomplete, activityDelivered: result.activityDelivered !== false },
+            { timeframe, medium, target: maskWebhook(target), incomplete },
             'KPI report delivered'
         );
 
@@ -137,12 +137,7 @@ router.post('/kpi-report', async (req, res) => {
             currentLabel: report.currentLabel,
             comparisonLabel: report.comparisonLabel,
             metricsReported: report.dataset.availableMetrics,
-            metricsTotal: report.dataset.totalMetrics,
-            // The daily report is two messages (report + Flux Cloud Activity); a failure
-            // of the second one is surfaced as a warning rather than an error, because
-            // the main report did arrive and a retry would duplicate it.
-            activityDelivered: result.activityDelivered !== false,
-            ...(result.activityError ? { warning: `The main report was delivered, but the Flux Cloud Activity message failed: ${result.activityError}` } : {})
+            metricsTotal: report.dataset.totalMetrics
         });
 
     } catch (error) {
