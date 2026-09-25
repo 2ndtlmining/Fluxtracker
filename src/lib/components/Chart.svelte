@@ -5,6 +5,7 @@
   import { getApiUrl } from '$lib/config.js';
   import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
+  import { mixFields } from '$lib/utils/revenueSources.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
 
   // Props
@@ -230,7 +231,19 @@
         // Weekly/monthly must sum team_funded_flux and total_flux separately and divide
         // afterwards, not average the daily percentages -- see the fetchAllData comment on
         // total_flux and the aggregateByWeek/aggregateByMonth ratioFields handling.
-        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' } }
+        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' } },
+        // Issue #262: what the payment bought, from its permanent message (migration 019).
+        // New apps = registrations; Renewals & updates = everything that extended or changed
+        // an existing app. Shares are of total FLUX; the ~3% of payments never matched to a
+        // message sit in the total only, so New + Renewals is a little under 100%.
+        { id: 'mix_new_usd', label: 'New apps ($)', field: 'new_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
+        { id: 'mix_new_percent', label: 'New apps (% of Revenue)', field: 'mix_new_percent', format: 'percent', ratioFields: { numerator: 'new_flux', denominator: 'total_flux' }, needsMix: true },
+        { id: 'mix_update_usd', label: 'Renewals & updates ($)', field: 'update_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
+        { id: 'mix_update_percent', label: 'Renewals & updates (% of Revenue)', field: 'mix_update_percent', format: 'percent', ratioFields: { numerator: 'update_flux', denominator: 'total_flux' }, needsMix: true },
+        { id: 'mix_enterprise_usd', label: 'Enterprise ($)', field: 'enterprise_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
+        { id: 'mix_enterprise_percent', label: 'Enterprise (% of Revenue)', field: 'mix_enterprise_percent', format: 'percent', ratioFields: { numerator: 'enterprise_flux', denominator: 'total_flux' }, needsMix: true },
+        // Days bought per payment; weekly/monthly divide summed days by summed payments.
+        { id: 'mix_commitment_days', label: 'Average commitment (days per payment)', field: 'mix_commitment_days', format: 'number', ratioFields: { numerator: 'commitment_days_sum', denominator: 'commitment_payments', scale: 1 }, needsMix: true }
       ]
     }
   };
@@ -290,11 +303,14 @@
   // Monthly. payersAvailable is false when the database lacks migration 018 -- then the
   // chart says so instead of plotting a row of zeros.
   let payersAvailable = null;
+  let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
   $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
   $: payerError = currentMetric?.monthlyOnly && payersAvailable === false
     ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
-    : null;
+    : currentMetric?.needsMix && mixAvailable === false
+      ? 'Revenue mix data is not available yet (database migration 020 not applied)'
+      : null;
 
   $: isProjection = selectedMetric === PROJECTION_METRIC;
   $: displayTitle = isProjection ? 'Utilization Projection' : title;
@@ -322,22 +338,6 @@
     ? `If no app renews: ${formatCount(projection.drops.d7.instances)} instances gone in 7 days, `
       + `${formatCount(projection.drops.d30.instances)} of ${formatCount(projection.today.instances)} within 30 days`
     : '';
-
-  // Text alternative for the canvas (issue #326): what is plotted, over which range, and
-  // where it ends.
-  $: chartAriaLabel = isProjection ? `Utilization projection. ${projectionSummary}` : (() => {
-    const metric = availableMetrics.find(m => m.id === selectedMetric);
-    const range = timeframes.find(t => t.id === selectedTimeframe)?.label ?? selectedTimeframe;
-    const points = chartData.data.length;
-    const parts = [
-      `${categories[selectedCategory]?.label ?? 'Chart'}: ${metric?.label ?? ''}`,
-      `${range}, ${selectedAggregation}`
-    ];
-    if (points > 0) {
-      parts.push(`latest ${formatChartValue(chartData.data[points - 1], metric?.format)} on ${chartData.labels[points - 1]}`);
-    }
-    return parts.join('. ');
-  })();
 
   // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
   let lastMetric = selectedMetric;
@@ -378,6 +378,24 @@
       processChartData();
     }
   }
+
+  // Text alternative for the canvas (issue #326): what is plotted, over which range, and
+  // where it ends. Declared AFTER the blocks that call processChartData(): Svelte cannot see
+  // the chartData assignment inside that function, so declared earlier it ran first in each
+  // flush and described the previous metric's data under the new metric's label.
+  $: chartAriaLabel = isProjection ? `Utilization projection. ${projectionSummary}` : (() => {
+    const metric = availableMetrics.find(m => m.id === selectedMetric);
+    const range = timeframes.find(t => t.id === selectedTimeframe)?.label ?? selectedTimeframe;
+    const points = chartData.data.length;
+    const parts = [
+      `${categories[selectedCategory]?.label ?? 'Chart'}: ${metric?.label ?? ''}`,
+      `${range}, ${selectedAggregation}`
+    ];
+    if (points > 0) {
+      parts.push(`latest ${formatChartValue(chartData.data[points - 1], metric?.format)} on ${chartData.labels[points - 1]}`);
+    }
+    return parts.join('. ');
+  })();
 
   // When canvas becomes available and we have data, render the chart
   $: if (chartCanvas && ChartJS && chartData.labels.length > 0 && !loading) {
@@ -540,9 +558,10 @@
         // One endpoint returns every source per day (issue #261), including days with no
         // team or fiat payment -- so each day's total_flux is always present for the
         // weekly/monthly ratioFields sums below, and no period share is overstated.
-        const [sourcesRes, payersRes] = await Promise.all([
+        const [sourcesRes, payersRes, mixRes] = await Promise.all([
           fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`),
-          fetch(`${API_URL}/api/history/revenue/payers/monthly?start_date=${startDateStr}&end_date=${endDateStr}`)
+          fetch(`${API_URL}/api/history/revenue/payers/monthly?start_date=${startDateStr}&end_date=${endDateStr}`),
+          fetch(`${API_URL}/api/history/revenue/mix/daily?start_date=${startDateStr}&end_date=${endDateStr}`)
         ]);
         if (!sourcesRes.ok) {
           throw new Error('API error fetching Revenue Sources data');
@@ -551,6 +570,9 @@
         const payersJson = payersRes.ok ? await payersRes.json() : { available: false, data: [] };
         payersAvailable = payersJson.available !== false;
         const payersByMonth = new Map((payersJson.data || []).map(row => [row.month, row]));
+        const mixJson = mixRes.ok ? await mixRes.json() : { available: false, data: [] };
+        mixAvailable = mixJson.available !== false;
+        const mixByDate = new Map((mixJson.data || []).map(row => [row.date, row]));
         const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0); // $0 days: 0%, never NaN
 
         allSnapshots = (sourcesJson.data || []).map(day => {
@@ -571,7 +593,8 @@
             // averaging the daily percentages themselves (as every other percent metric
             // does) understates the real period share whenever revenue is unevenly spread
             // across the days in that period. See the ratioFields handling below.
-            total_flux: totalFlux
+            total_flux: totalFlux,
+            ...mixFields(mixByDate.get(day.date), totalFlux)
           };
         });
 
@@ -843,7 +866,7 @@
     const data = sortedWeeks.map(([key, weekData]) => {
       if (metric.ratioFields) {
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
-        return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * 100 : 0;
+        return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return weekData.total; // Sum for revenue / sum-flagged metrics
@@ -923,7 +946,7 @@
     const data = sortedMonths.map(([key, monthData]) => {
       if (metric.ratioFields) {
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
-        return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * 100 : 0;
+        return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
       if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return monthData.total; // Sum for revenue / sum-flagged metrics

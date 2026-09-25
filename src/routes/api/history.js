@@ -12,6 +12,7 @@ import {
     getDailyRevenueFromAddressesInRange,
     getDailyRevenueUSDFromAddressesInRange,
     getMonthlyPayerStats,
+    getDailyRevenueMixInRange,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -21,7 +22,7 @@ import {
 } from '../../lib/db/database.js';
 
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
-import { mergeRevenueSources, shapePayerRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
+import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
@@ -144,6 +145,31 @@ router.get('/revenue/sources/daily', async (req, res) => {
         ]);
         const data = mergeRevenueSources({ total, totalUsd, team, teamUsd, fiat, fiatUsd });
         return { count: data.length, data };
+    });
+});
+
+// Revenue mix per day (issue #262 part 2): new apps vs renewals/updates, enterprise, and the
+// average commitment in days, from the message metadata. Before migration 020 is applied it
+// answers available:false naming the file -- never a 500 or a row of zeros.
+router.get('/revenue/mix/daily', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
+    }
+
+    return withDbFallback(revenueCache, `mix:${start_date}:${end_date}`, res, async () => {
+        try {
+            const rows = await getDailyRevenueMixInRange(start_date, end_date);
+            return { available: true, data: shapeMixRows(rows) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_daily_revenue_mix')) {
+                return { available: false, reason: 'Apply supabase/migrations/020_revenue_mix.sql', data: [] };
+            }
+            throw error;
+        }
     });
 });
 

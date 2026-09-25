@@ -1099,6 +1099,19 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
     return data;
 }
 
+// Daily revenue mix (issue #262 part 2, migration 020): new apps vs renewals, enterprise,
+// average commitment in days. Payments with no message metadata count in total_flux only.
+export async function getDailyRevenueMixInRange(startDate, endDate) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_mix', { p_start: startDate, p_end: endDate });
+    } catch (error) {
+        log.error(`getDailyRevenueMixInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueMixInRange failed: ${error.message}`);
+    }
+    return data;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
