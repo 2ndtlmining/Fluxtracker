@@ -79,6 +79,7 @@
   // Gaming breakdown for the App Instances card (issue #163). Null until loaded, so the
   // card omits the section entirely rather than flashing a zero.
   let gamingData = null;
+  let gameRevenue = null; // issue #265: last-30-day game-server revenue, null = not shown
   // Deployment fill (issue #200) — live, not snapshotted, so it is fetched like gaming data.
   let deploymentFill = null;
   let appsActivityLoading = true;
@@ -201,6 +202,7 @@
     fetchDecentralization(),
     fetchAppsActivity(),
     fetchGaming(),
+    fetchGameRevenue(),
     fetchDeploymentFill()
   ]);
 
@@ -224,6 +226,7 @@ async function refreshAll() {
     fetchComparison(comparisonPeriod),
     fetchAppsActivity(),
     fetchGaming(),
+    fetchGameRevenue(),
     fetchDeploymentFill()
   ]);
 }
@@ -280,6 +283,18 @@ async function fetchDeploymentFill() {
   } catch (error) {
     // Leave the previous value standing; the card falls back to the container count.
     console.error('Error fetching deployment fill:', error);
+  }
+}
+
+// Game-server revenue over the last 30 days (issue #265). A fixed window, so it does not
+// follow the period toggle; null (no line) before migration 024 or on a failed read.
+async function fetchGameRevenue() {
+  try {
+    const response = await fetch(`${API_URL}/api/games/revenue`);
+    const data = await response.json();
+    gameRevenue = data?.available && Number.isFinite(data.usd) ? { usd: data.usd } : null;
+  } catch (error) {
+    console.error('Error fetching game revenue:', error);
   }
 }
 
@@ -601,6 +616,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         gamingTotal={gamingData?.total ?? null}
         gamingPrevious={gamingData?.previousTotal ?? null}
         topGames={gamingData?.games ?? []}
+        gameRevenue={gameRevenue}
         loading={loading || appsActivityLoading}
       />
 

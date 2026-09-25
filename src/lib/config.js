@@ -295,6 +295,15 @@ const GAME_PREFIX_MATCHERS = [...GAME_APP_PREFIXES]
     .sort((a, b) => b.prefix.length - a.prefix.length)
     .map(({ prefix, name }) => ({ name, pattern: new RegExp('^' + prefix + '[0-9]{13,}$') }));
 
+// The same rule as ONE regular expression, for the database (issue #265, migration 024):
+// game-server revenue is summed in SQL, and passing this in -- rather than writing the
+// prefixes into the migration -- keeps revenue and the instance counts on the same list.
+// Match it against the LOWER-CASED app name, as resolveGameFromAppName does.
+export const GAME_APP_NAME_PATTERN = '^(' + [...GAME_APP_PREFIXES]
+    .sort((a, b) => b.prefix.length - a.prefix.length)
+    .map(({ prefix }) => prefix)
+    .join('|') + ')[0-9]{13,}$';
+
 // Components that are infrastructure FOR a game rather than an instance OF it.
 //
 // Multi-component (compose) apps run every component under the SAME app name, so the

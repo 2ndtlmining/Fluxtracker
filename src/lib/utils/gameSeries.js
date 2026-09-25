@@ -13,8 +13,25 @@ export const GAMING_TOTAL_METRIC = {
     id: 'gaming_instances_total',
     label: 'All Game Instances',
     field: 'game_instances',
-    format: 'number'
+    format: 'number',
+    group: 'Instances'
 };
+
+// Issue #265: what game servers earn, from revenue_transactions (migration 024) rather than
+// the per-game snapshots, hence their own source. Recognised by app name, so the
+// explanation says what is and is not counted.
+const GAME_REVENUE_NOTE = 'Payments for game servers deployed through the Flux game sites (Palworld, Minecraft, Valheim and others), recognised by app name.';
+export const GAME_REVENUE_METRICS = [
+    {
+        id: 'game_revenue_usd', label: 'Game server revenue ($)', field: 'game_usd', format: 'usd',
+        aggregateAsSum: true, source: 'gameRevenue', group: 'Revenue', description: GAME_REVENUE_NOTE
+    },
+    {
+        id: 'game_revenue_percent', label: 'Game server revenue (% of Revenue)', field: 'game_revenue_percent', format: 'percent',
+        ratioFields: { numerator: 'game_flux', denominator: 'total_flux' }, source: 'gameRevenue', group: 'Revenue',
+        description: GAME_REVENUE_NOTE + ' Share of all revenue that day.'
+    }
+];
 
 /**
  * Metric list for the Gaming dropdown: the total, then one entry per game the endpoint
@@ -31,8 +48,10 @@ export function buildGameMetrics(games = []) {
             id: `${GAME_METRIC_PREFIX}${name}`,
             label: name,
             field: 'game_instances',
-            format: 'number'
-        }))
+            format: 'number',
+            group: 'Instances'
+        })),
+        ...GAME_REVENUE_METRICS
     ];
 }
 

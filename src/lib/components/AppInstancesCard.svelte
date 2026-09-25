@@ -1,5 +1,6 @@
 <script>
   import { Package, Gamepad2 } from 'lucide-svelte';
+  import { formatCount } from '$lib/utils/format.js';
 
   // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) --
   // it comes from the running-apps census, not per-app image resolution.
@@ -44,6 +45,9 @@
   export let gamingTotal = null;
   export let gamingPrevious = null;
   export let topGames = [];
+  // Issue #265: $ paid for game servers over the last 30 days ({ usd } from
+  // /api/games/revenue). Null before migration 024 or on a failed read: no line shown.
+  export let gameRevenue = null;
 
   export let loading = false;
 
@@ -174,6 +178,13 @@
               </li>
             {/each}
           </ul>
+        {/if}
+        {#if gameRevenue}
+          <div class="game-revenue" title="Payments for game servers deployed through the Flux game sites, recognised by app name, over the last 30 days. USD at the price on the day of each payment.">
+            <span class="game-revenue-label">Game revenue</span>
+            <span class="game-revenue-value">${formatCount(gameRevenue.usd)}</span>
+            <span class="game-revenue-note">last 30 days</span>
+          </div>
         {/if}
       </div>
     {/if}
@@ -416,6 +427,36 @@
     font-size: 0.7rem;
     text-align: right;
     color: transparent;
+  }
+
+  /* Issue #265. One row under the top games: label, value, window -- wraps on a narrow
+     card rather than squeezing the value. */
+  .game-revenue {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: var(--spacing-xs);
+    padding-top: 0.2rem;
+    border-top: 1px dashed var(--border-color);
+    font-size: 0.8rem;
+    line-height: 1.3;
+  }
+
+  .game-revenue-label {
+    color: var(--text-dim);
+    margin-right: auto;
+  }
+
+  .game-revenue-value {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .game-revenue-note {
+    font-size: 0.7rem;
+    color: var(--text-muted);
   }
 
   .game-trend.up { color: var(--accent-green); }

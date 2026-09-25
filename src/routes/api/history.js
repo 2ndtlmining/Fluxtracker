@@ -14,6 +14,7 @@ import {
     getMonthlyPayerStats,
     getDailyRevenueMixInRange,
     getAppCohorts,
+    getDailyGameRevenueInRange,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -22,7 +23,8 @@ import {
     getGameSnapshotHistory
 } from '../../lib/db/database.js';
 
-import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
+import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES, GAME_APP_NAME_PATTERN } from '../../lib/config.js';
+import { shapeGameRevenueRows } from '../../lib/utils/gameRevenue.js';
 import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { shapeCohortRows } from '../../lib/utils/appCohorts.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
@@ -169,6 +171,29 @@ router.get('/revenue/mix/daily', async (req, res) => {
         } catch (error) {
             if (isMissingFunctionError(error, 'get_daily_revenue_mix')) {
                 return { available: false, reason: 'Apply supabase/migrations/020_revenue_mix.sql', data: [] };
+            }
+            throw error;
+        }
+    });
+});
+
+// Game-server revenue per day (issue #265): all revenue and the part paid for game servers,
+// recognised by app name. available:false until migration 024 is applied.
+router.get('/revenue/games/daily', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
+    }
+
+    return withDbFallback(revenueCache, `games:${start_date}:${end_date}`, res, async () => {
+        try {
+            return { available: true, data: shapeGameRevenueRows(await getDailyGameRevenueInRange(start_date, end_date, GAME_APP_NAME_PATTERN)) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_daily_game_revenue')) {
+                return { available: false, reason: 'Apply supabase/migrations/024_game_revenue.sql', data: [] };
             }
             throw error;
         }

@@ -1129,6 +1129,19 @@ export async function getAppCohorts(startDate, endDate, today) {
     return data;
 }
 
+// Game-server revenue (issue #265, migration 024): per day, all revenue and the part whose
+// app name matches `pattern` (GAME_APP_NAME_PATTERN from config.js).
+export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_game_revenue', { p_start: startDate, p_end: endDate, p_pattern: pattern });
+    } catch (error) {
+        log.error(`getDailyGameRevenueInRange error: ${error.message}`);
+        throw new Error(`getDailyGameRevenueInRange failed: ${error.message}`);
+    }
+    return data;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

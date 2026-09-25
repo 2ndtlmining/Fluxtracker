@@ -217,7 +217,7 @@
       // continuous. Two series both labelled "gaming" but differing by 100+ would mislead.
       label: 'Gaming',
       color: 'rgb(189, 147, 249)', // --accent-purple, matching the Gaming card's icon
-      metrics: [GAMING_TOTAL_METRIC]
+      metrics: buildGameMetrics([])
     },
     team_funded: {
       // Issue #146: Flux team's own FLUX_TEAM_ADDRESSES spend, trended daily -- FLUX amount,
@@ -317,6 +317,7 @@
   // Monthly. payersAvailable is false when the database lacks migration 018 -- then the
   // chart says so instead of plotting a row of zeros.
   let payersAvailable = null;
+  let gameRevenueAvailable = null; // the same, for game-server revenue and migration 024 (#265)
   let cohortsAvailable = null; // the same, for retention cohorts and migration 022 (#264)
   let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
@@ -338,13 +339,16 @@
       ? 'Revenue mix data is not available yet (database migration 020 not applied)'
       : currentMetric?.source === 'cohorts' && cohortsAvailable === false
         ? 'Retention data is not available yet (database migration 022 not applied)'
-        : null;
+        : currentMetric?.source === 'gameRevenue' && gameRevenueAvailable === false
+          ? 'Game revenue data is not available yet (database migration 024 not applied)'
+          : null;
 
   // True when this metric's data needs a migration the database does not have yet.
   function awaitingMigration(metric) {
     return (metric?.monthlyOnly && !metric.source && payersAvailable === false)
       || (metric?.needsMix && mixAvailable === false)
-      || (metric?.source === 'cohorts' && cohortsAvailable === false);
+      || (metric?.source === 'cohorts' && cohortsAvailable === false)
+      || (metric?.source === 'gameRevenue' && gameRevenueAvailable === false);
   }
 
   // The metric dropdown in groups (<optgroup>), in order of first appearance. Metrics with no
@@ -407,7 +411,7 @@
       console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
       lastMetric = selectedMetric;
       fetchAllData();
-    } else if (selectedCategory === 'gaming') {
+    } else if (selectedCategory === 'gaming' && !metricSource(selectedMetric)) {
       // Switching game re-derives from the cached payload -- no fetch. allSnapshots holds
       // one series at a time, so it has to be rebuilt before the data is reprocessed.
       lastMetric = selectedMetric;
@@ -573,6 +577,28 @@
         }
 
         allSnapshots = buildEntitySnapshots(selectedEntity);
+      } else if (metricForFetch()?.source === 'gameRevenue') {
+        // Game-server revenue (#265): per day from its own endpoint, with the day's total so
+        // the % view can divide sums (ratioFields).
+        const endDateStr = new Date().toISOString().split('T')[0];
+        const start = new Date();
+        start.setDate(start.getDate() - (limitParam - 1));
+        const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
+        const response = await fetch(`${API_URL}/api/history/revenue/games/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const result = await response.json();
+        gameRevenueAvailable = result.available !== false;
+        if (!gameRevenueAvailable) {
+          allSnapshots = [];
+          chartData = { labels: [], data: [], rawDates: [] };
+          error = null;
+          loading = false;
+          return;
+        }
+        allSnapshots = (result.data || []).map(day => ({
+          ...day,
+          game_revenue_percent: day.total_flux > 0 ? (day.game_flux / day.total_flux) * 100 : 0
+        }));
       } else if (selectedCategory === 'gaming') {
         // One fetch covers every game plus the total for the whole timeframe; only a
         // timeframe change lands back here.
@@ -1637,7 +1663,7 @@
         <span class="error-icon">!</span>
         <p>{error || payerError}</p>
       </div>
-    {:else if selectedCategory === 'gaming' && allSnapshots.length === 0}
+    {:else if selectedCategory === 'gaming' && !currentMetric?.source && allSnapshots.length === 0}
       <div class="chart-loading">
         <Gamepad2 size={40} strokeWidth={1.5} />
         <p>No game history collected yet</p>
