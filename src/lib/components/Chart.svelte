@@ -1783,6 +1783,10 @@
     display: flex;
     align-items: center;
     gap: var(--spacing-xs);
+    /* A select sizes itself to its longest option ("Median time left on running apps
+       (days)"); without these it pushed the phone page 20px sideways (#392). */
+    min-width: 0;
+    max-width: 100%;
   }
 
   .control-group label {
@@ -1794,6 +1798,9 @@
   }
 
   .chart-select {
+    min-width: 0;
+    max-width: 100%;
+    text-overflow: ellipsis;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     color: var(--text-white);

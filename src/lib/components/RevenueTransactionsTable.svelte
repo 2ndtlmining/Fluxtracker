@@ -90,6 +90,10 @@
 
   onDestroy(() => unsubscribeFocus?.());
 
+  // A header click-through asks for that exact app (issue #382): `search` is a substring match,
+  // so "kagura" would also list "kagura2". Typing in the box switches back to a normal search.
+  const exactAppFilter = () => (focusedApp && searchQuery === focusedApp ? { appName: focusedApp } : { search: searchQuery });
+
   async function fetchTransactions(sources = activeSources) {
     loading = true;
     error = null;
@@ -98,7 +102,7 @@
       const params = new URLSearchParams({
         page: currentPage,
         limit: perPage,
-        search: searchQuery
+        ...exactAppFilter()
       });
       // Stacks with the search box rather than replacing it, so "team-funded payments for
       // app alpha" is expressible. Omitted entirely when no badge is active.
@@ -267,7 +271,7 @@
 
       do {
         const response = await fetch(
-          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&search=${encodeURIComponent(searchQuery)}` +
+          `${API_URL}/api/transactions/paginated?page=${page}&limit=${PAGE_SIZE}&${new URLSearchParams(exactAppFilter())}` +
           (exportSource ? `&source=${encodeURIComponent(exportSource)}` : '')
         );
 
