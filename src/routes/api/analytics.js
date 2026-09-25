@@ -11,6 +11,7 @@ import {
     getCategoryTotal,
     getRepoHistory,
     getAppAnalytics,
+    getAppRevenueConcentration,
     getLastNSnapshots,
     getGameSnapshotsByDate,
     getSnapshotByDate,
@@ -20,6 +21,7 @@ import {
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { getFluxCloudActivity, getSharedFluxApiData } from '../../lib/services/carouselService.js';
 import { computeUtilizationProjection } from '../../lib/utils/utilizationProjection.js';
+import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, computeDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
@@ -303,6 +305,24 @@ router.get('/analytics/apps', async (req, res) => {
             limit,
             totalPages: Math.ceil(result.total / limit)
         };
+    });
+});
+
+/**
+ * GET /api/analytics/apps/concentration -- issue #267. How dependent all-time revenue is on a
+ * few apps: the top ten's share and how few apps make up 80% of it. Also the total the App
+ * Analytics table needs for its share-of-total column. Aggregates only.
+ */
+router.get('/analytics/apps/concentration', async (req, res) => {
+    return withDbFallback(analyticsCache, 'apps:concentration', res, async () => {
+        try {
+            return { available: true, ...shapeConcentration(await getAppRevenueConcentration()) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_app_revenue_concentration')) {
+                return { available: false, reason: 'Apply supabase/migrations/018_payer_base.sql' };
+            }
+            throw error;
+        }
     });
 });
 

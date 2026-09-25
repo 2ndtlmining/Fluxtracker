@@ -11,6 +11,7 @@ import {
     getDailyRevenueUSDInRange,
     getDailyRevenueFromAddressesInRange,
     getDailyRevenueUSDFromAddressesInRange,
+    getMonthlyPayerStats,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -20,7 +21,7 @@ import {
 } from '../../lib/db/database.js';
 
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
-import { mergeRevenueSources } from '../../lib/utils/revenueSources.js';
+import { mergeRevenueSources, shapePayerRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
@@ -143,6 +144,31 @@ router.get('/revenue/sources/daily', async (req, res) => {
         ]);
         const data = mergeRevenueSources({ total, totalUsd, team, teamUsd, fiat, fiatUsd });
         return { count: data.length, data };
+    });
+});
+
+// Paying wallets per month (issue #267): organic only -- the team and the fiat on-ramp are
+// excluded (the gateway pays for many anonymous buyers, so it is not one customer). "New"
+// means the wallet's first payment ever falls in that month. Aggregates only, no addresses.
+router.get('/revenue/payers/monthly', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
+    }
+
+    return withDbFallback(revenueCache, `payers:${start_date}:${end_date}`, res, async () => {
+        try {
+            const rows = await getMonthlyPayerStats(start_date, end_date, [...FLUX_TEAM_ADDRESSES, ...FLUX_FIAT_ADDRESSES]);
+            return { available: true, data: shapePayerRows(rows) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_monthly_payer_stats')) {
+                return { available: false, reason: 'Apply supabase/migrations/018_payer_base.sql', data: [] };
+            }
+            throw error;
+        }
     });
 });
 

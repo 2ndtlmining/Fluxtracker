@@ -60,6 +60,38 @@ export function computeDemandSplit({ fluxCurrent, fluxPrevious, usdCurrent, usdP
   };
 }
 
+/**
+ * #267 -- a Postgres function that does not exist yet (migration 018 not applied) must not
+ * read as a failed dashboard: the payer endpoints answer "not available, apply this file"
+ * instead, the way the transaction endpoint names a missing migration (#171).
+ */
+export function isMissingFunctionError(error, fnName) {
+  const message = String(error?.message ?? error ?? '');
+  return message.includes(fnName) && /could not find the function|does not exist|PGRST202/i.test(message);
+}
+
+/** #267 -- monthly payer rows with the returning count derived, never negative. */
+export function shapePayerRows(rows) {
+  return (rows ?? []).map(row => ({
+    month: String(row.month).slice(0, 10),
+    payers: Number(row.payers) || 0,
+    new_payers: Number(row.new_payers) || 0,
+    returning_payers: Math.max(0, (Number(row.payers) || 0) - (Number(row.new_payers) || 0))
+  }));
+}
+
+/** #267 -- the concentration row as shares of the total. */
+export function shapeConcentration(row) {
+  const total = Number(row?.total_revenue) || 0;
+  const apps = Number(row?.app_count) || 0;
+  return {
+    totalRevenue: total,
+    appCount: apps,
+    top10Share: total > 0 ? Math.round((1000 * (Number(row.top10_revenue) || 0)) / total) / 10 : 0,
+    appsFor80Pct: Number(row?.apps_for_80pct) || 0
+  };
+}
+
 /** Sum a daily USD series (as getDailyRevenueUSDInRange returns it). */
 export function sumUsd(rows) {
   return (rows ?? []).reduce((sum, row) => sum + (Number(row?.daily_revenue_usd) || 0), 0);

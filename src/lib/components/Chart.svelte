@@ -221,6 +221,12 @@
         { id: 'fiat_percent', label: 'Fiat on-ramp (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' } },
         { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true },
         { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
+        // Issue #267: organic paying wallets (team and fiat gateway excluded). Counted per
+        // calendar month -- distinct wallets cannot be summed from daily counts -- so these
+        // force the Monthly view. "New" = the wallet's first payment ever was that month.
+        { id: 'payers_total', label: 'Paying wallets (organic, per month)', field: 'payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
+        { id: 'payers_new', label: 'New paying wallets (per month)', field: 'new_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
+        { id: 'payers_returning', label: 'Returning paying wallets (per month)', field: 'returning_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
         // Weekly/monthly must sum team_funded_flux and total_flux separately and divide
         // afterwards, not average the daily percentages -- see the fetchAllData comment on
         // total_flux and the aggregateByWeek/aggregateByMonth ratioFields handling.
@@ -279,6 +285,16 @@
   const PROJECTION_METRIC = 'utilization_projection';
   let projection = null;
   let projectionError = null;
+
+  // Paying-wallet metrics (issue #267) are monthly by nature; selecting one pins View to
+  // Monthly. payersAvailable is false when the database lacks migration 018 -- then the
+  // chart says so instead of plotting a row of zeros.
+  let payersAvailable = null;
+  $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
+  $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
+  $: payerError = currentMetric?.monthlyOnly && payersAvailable === false
+    ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
+    : null;
 
   $: isProjection = selectedMetric === PROJECTION_METRIC;
   $: displayTitle = isProjection ? 'Utilization Projection' : title;
@@ -524,11 +540,17 @@
         // One endpoint returns every source per day (issue #261), including days with no
         // team or fiat payment -- so each day's total_flux is always present for the
         // weekly/monthly ratioFields sums below, and no period share is overstated.
-        const sourcesRes = await fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
+        const [sourcesRes, payersRes] = await Promise.all([
+          fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`),
+          fetch(`${API_URL}/api/history/revenue/payers/monthly?start_date=${startDateStr}&end_date=${endDateStr}`)
+        ]);
         if (!sourcesRes.ok) {
           throw new Error('API error fetching Revenue Sources data');
         }
         const sourcesJson = await sourcesRes.json();
+        const payersJson = payersRes.ok ? await payersRes.json() : { available: false, data: [] };
+        payersAvailable = payersJson.available !== false;
+        const payersByMonth = new Map((payersJson.data || []).map(row => [row.month, row]));
         const pct = (part, whole) => (whole > 0 ? (part / whole) * 100 : 0); // $0 days: 0%, never NaN
 
         allSnapshots = (sourcesJson.data || []).map(day => {
@@ -552,6 +574,19 @@
             total_flux: totalFlux
           };
         });
+
+        // Paying-wallet counts ride on the first day of each month; the Monthly view sums
+        // them, and every other field is left at 0 there so no revenue total is touched. A
+        // month whose first day had no revenue gets its own row.
+        const byDate = new Map(allSnapshots.map(row => [row.date, row]));
+        for (const [month, row] of payersByMonth) {
+          const target = byDate.get(month) ?? { date: month, total_flux: 0 };
+          target.payers = row.payers;
+          target.new_payers = row.new_payers;
+          target.returning_payers = row.returning_payers;
+          if (!byDate.has(month)) byDate.set(month, target);
+        }
+        allSnapshots = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
       } else {
         // For other categories, use snapshot data -- from the cache when this timeframe's
         // rows are already here (issue #303).
@@ -1299,6 +1334,8 @@
           id="aggregation-{title}"
           bind:value={selectedAggregation}
           class="chart-select"
+          disabled={currentMetric?.monthlyOnly}
+          title={currentMetric?.monthlyOnly ? 'Counted per calendar month' : undefined}
         >
           {#each aggregations as agg}
             <option value={agg.id}>{agg.label}</option>
@@ -1468,10 +1505,10 @@
         <div class="loading-spinner"></div>
         <p>Loading chart data...</p>
       </div>
-    {:else if error}
+    {:else if error || payerError}
       <div class="chart-error">
         <span class="error-icon">!</span>
-        <p>{error}</p>
+        <p>{error || payerError}</p>
       </div>
     {:else if selectedCategory === 'gaming' && allSnapshots.length === 0}
       <div class="chart-loading">
