@@ -32,6 +32,7 @@ import {
 } from './lib/services/servicesScheduler.js';
 
 import { startKpiScheduler, stopKpiScheduler } from './lib/services/kpiScheduler.js';
+import { startAnomalyAlerts, stopAnomalyAlerts } from './lib/services/anomalyAlerts.js';
 
 import coreRouter from './routes/api/core.js';
 import dashboardRouter from './routes/api/dashboard.js';
@@ -247,6 +248,7 @@ app.listen(PORT, '0.0.0.0', async () => {
         log.info('database ready — starting all schedulers');
         startSchedulers();
         startKpiScheduler();
+        startAnomalyAlerts();
     } else {
         log.warn('database not reachable — server is running in DEGRADED mode (stale cache or 503, schedulers deferred)');
 
@@ -263,6 +265,7 @@ app.listen(PORT, '0.0.0.0', async () => {
                     log.info('database connected — starting schedulers now');
                     startSchedulers();
                     startKpiScheduler();
+                    startAnomalyAlerts();
                 }
             } finally {
                 initRetryRunning = false;
@@ -287,6 +290,7 @@ function shutdownGracefully(signal) {
     stopRevenueSync();
     stopSnapshotChecker();
     stopKpiScheduler();
+    stopAnomalyAlerts();
     stopDecentralizationUpdates();
     clearTimeout(failedTxidCleanup.firstRun);
     clearInterval(failedTxidCleanup.interval);
