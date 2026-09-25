@@ -1164,6 +1164,72 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
 // an address-list filter -- mirrors getRevenueFromAddressesForDateRange()'s placeholder
 // pattern, just grouped by day instead of summed over the whole range.
 // RPC equivalent: get_daily_revenue_from_addresses_in_range
+// Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
+// "New" = the wallet's first payment ever (over the whole table) falls in that month.
+export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
+    const exclude = excludeAddresses ?? [];
+    const placeholders = exclude.map(() => '?').join(',');
+    const notExcluded = exclude.length ? `AND from_address NOT IN (${placeholders})` : '';
+    try {
+        return getDb().prepare(`
+            WITH firsts AS (
+                SELECT from_address, MIN(date) AS first_date
+                FROM revenue_transactions
+                WHERE from_address IS NOT NULL AND from_address <> 'Unknown' ${notExcluded}
+                GROUP BY from_address
+            ), monthly AS (
+                SELECT DISTINCT substr(date, 1, 7) || '-01' AS month, from_address
+                FROM revenue_transactions
+                WHERE date BETWEEN ? AND ?
+                  AND from_address IS NOT NULL AND from_address <> 'Unknown' ${notExcluded}
+            )
+            SELECT mo.month AS month,
+                   COUNT(*) AS payers,
+                   SUM(CASE WHEN substr(f.first_date, 1, 7) || '-01' = mo.month THEN 1 ELSE 0 END) AS new_payers
+            FROM monthly mo
+            JOIN firsts f ON f.from_address = mo.from_address
+            GROUP BY mo.month
+            ORDER BY mo.month ASC
+        `).all(...exclude, startDate, endDate, ...exclude);
+    } catch (error) {
+        log.error(`getMonthlyPayerStats error: ${error.message}`);
+        throw new Error(`getMonthlyPayerStats failed: ${error.message}`);
+    }
+}
+
+export async function getAppRevenueConcentration() {
+    try {
+        const row = getDb().prepare(`
+            WITH per_app AS (
+                SELECT app_name, SUM(amount) AS revenue
+                FROM revenue_transactions
+                WHERE app_name IS NOT NULL
+                GROUP BY app_name
+            ), ranked AS (
+                SELECT revenue,
+                       ROW_NUMBER() OVER (ORDER BY revenue DESC, app_name) AS rank,
+                       SUM(revenue) OVER (ORDER BY revenue DESC, app_name ROWS UNBOUNDED PRECEDING) AS running,
+                       SUM(revenue) OVER () AS total
+                FROM per_app
+            )
+            SELECT COALESCE(MAX(total), 0) AS total_revenue,
+                   COUNT(*) AS app_count,
+                   COALESCE(SUM(CASE WHEN rank <= 10 THEN revenue END), 0) AS top10_revenue,
+                   COALESCE(MIN(CASE WHEN running >= 0.8 * total THEN rank END), 0) AS apps_for_80pct
+            FROM ranked
+        `).get();
+        return {
+            total_revenue: Number(row?.total_revenue) || 0,
+            app_count: Number(row?.app_count) || 0,
+            top10_revenue: Number(row?.top10_revenue) || 0,
+            apps_for_80pct: Number(row?.apps_for_80pct) || 0
+        };
+    } catch (error) {
+        log.error(`getAppRevenueConcentration error: ${error.message}`);
+        throw new Error(`getAppRevenueConcentration failed: ${error.message}`);
+    }
+}
+
 export async function getDailyRevenueFromAddressesInRange(startDate, endDate, addresses) {
     if (!addresses || addresses.length === 0) return [];
 

@@ -50,3 +50,25 @@ describe('computeDemandSplit (#266)', () => {
     expect(sumUsd(null)).toBe(0);
   });
 });
+
+describe('payer base helpers (#267)', async () => {
+  const { shapePayerRows, shapeConcentration, isMissingFunctionError } = await import('./revenueSources.js');
+
+  it('derives returning payers and never goes negative', () => {
+    expect(shapePayerRows([{ month: '2026-07-01T00:00:00Z', payers: '3', new_payers: 1 }]))
+      .toEqual([{ month: '2026-07-01', payers: 3, new_payers: 1, returning_payers: 2 }]);
+    expect(shapePayerRows([{ month: '2026-07-01', payers: 1, new_payers: 5 }])[0].returning_payers).toBe(0);
+  });
+
+  it('turns the concentration row into shares, and survives an empty table', () => {
+    expect(shapeConcentration({ total_revenue: 1000, app_count: 40, top10_revenue: 212, apps_for_80pct: 9 }))
+      .toEqual({ totalRevenue: 1000, appCount: 40, top10Share: 21.2, appsFor80Pct: 9 });
+    expect(shapeConcentration({}).top10Share).toBe(0);
+  });
+
+  it('recognises a function that migration 018 has not created yet', () => {
+    expect(isMissingFunctionError(new Error('Could not find the function public.get_monthly_payer_stats(p_end, p_exclude, p_start) in the schema cache'), 'get_monthly_payer_stats')).toBe(true);
+    expect(isMissingFunctionError(new Error('function get_app_revenue_concentration() does not exist'), 'get_app_revenue_concentration')).toBe(true);
+    expect(isMissingFunctionError(new Error('connection refused'), 'get_monthly_payer_stats')).toBe(false);
+  });
+});

@@ -74,6 +74,9 @@ export const {
     // Team Funded historical trend (issue #146)
     getDailyRevenueFromAddressesInRange,
     getDailyRevenueUSDFromAddressesInRange,
+    // Payer base (issue #267) -- aggregates only
+    getMonthlyPayerStats,
+    getAppRevenueConcentration,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

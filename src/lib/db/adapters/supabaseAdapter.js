@@ -1070,6 +1070,44 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
     return data;
 }
 
+// Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
+// addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
+export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
+    let data;
+    try {
+        data = await pagedRpc('get_monthly_payer_stats', {
+            p_start: startDate, p_end: endDate, p_exclude: excludeAddresses ?? []
+        });
+    } catch (error) {
+        log.error(`getMonthlyPayerStats error: ${error.message}`);
+        throw new Error(`getMonthlyPayerStats failed: ${error.message}`);
+    }
+    return data.map(row => ({
+        month: row.month,
+        payers: Number(row.payers) || 0,
+        new_payers: Number(row.new_payers) || 0
+    }));
+}
+
+// Revenue concentration across apps (issue #267): all-time FLUX total, app count, the top
+// ten's revenue and how many apps make up 80% of it. One row.
+export async function getAppRevenueConcentration() {
+    let data;
+    try {
+        data = await pagedRpc('get_app_revenue_concentration', {});
+    } catch (error) {
+        log.error(`getAppRevenueConcentration error: ${error.message}`);
+        throw new Error(`getAppRevenueConcentration failed: ${error.message}`);
+    }
+    const row = data[0] ?? {};
+    return {
+        total_revenue: Number(row.total_revenue) || 0,
+        app_count: Number(row.app_count) || 0,
+        top10_revenue: Number(row.top10_revenue) || 0,
+        apps_for_80pct: Number(row.apps_for_80pct) || 0
+    };
+}
+
 // Team Funded historical trend (issue #146). A per-day GROUP BY needs to run server-side,
 // unlike getRevenueFromAddressesForDateRange()'s single-range sum (which gets away with a
 // plain .in() + client-side sum) -- so this goes through an RPC function, same as every

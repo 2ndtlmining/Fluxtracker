@@ -26,11 +26,34 @@
   let appTxnsLoading = false;
   let appTxnsTotal = 0;
 
+  // Revenue concentration (issue #267): all-time total, the top ten's share and how few apps
+  // make up 80% -- also the denominator for each card's share. Null until loaded or when the
+  // database has not got migration 018 yet; the cards then simply omit the share.
+  let concentration = null;
+
+  async function fetchConcentration() {
+    try {
+      const response = await fetch(`${API_URL}/api/analytics/apps/concentration`);
+      if (!response.ok) return;
+      const body = await response.json();
+      if (body?.available) concentration = body;
+    } catch {
+      // Optional context; the grid works without it.
+    }
+  }
+
+  // `totals` is passed in, not read from the closure, so the cards re-render when the
+  // concentration arrives after them (Svelte only tracks what the template names).
+  const shareOf = (app, totals) => totals?.totalRevenue > 0
+    ? (100 * app.total_revenue) / totals.totalRevenue
+    : null;
+
   onMount(() => {
     // Get API URL in browser context
     API_URL = getApiUrl();
 
     fetchApps();
+    fetchConcentration();
   });
 
   async function fetchApps() {
@@ -140,6 +163,15 @@
   <span class="apps-count">{totalApps.toLocaleString()} apps</span>
 </div>
 
+{#if concentration && concentration.appCount > 0}
+  <!-- Issue #267: how dependent revenue is on a few apps. Aggregates only. -->
+  <p class="concentration-line">
+    All-time revenue: the top 10 apps earn <strong>{concentration.top10Share}%</strong>;
+    80% comes from <strong>{concentration.appsFor80Pct.toLocaleString('en-US')}</strong> of
+    {concentration.appCount.toLocaleString('en-US')} apps.
+  </p>
+{/if}
+
 {#if appsLoading}
   <div class="loading-overlay"><div class="loading-spinner"></div><p>Loading apps...</p></div>
 {:else if appsError}
@@ -160,6 +192,12 @@
             <span class="app-stat-label">Total Revenue</span>
             <span class="app-stat-value green">{app.total_revenue.toFixed(2)} FLUX</span>
           </div>
+          {#if shareOf(app, concentration) !== null}
+            <div class="app-stat-row">
+              <span class="app-stat-label">Share of revenue</span>
+              <span class="app-stat-value">{shareOf(app, concentration) < 0.01 ? '<0.01' : shareOf(app, concentration).toFixed(2)}%</span>
+            </div>
+          {/if}
           <div class="app-stat-row">
             <span class="app-stat-label">Transactions</span>
             <span class="app-stat-value">{app.transaction_count}</span>
@@ -700,5 +738,15 @@
 
   .navigation-section.modal-navigation {
     padding-top: var(--spacing-sm);
+  }
+
+  .concentration-line {
+    margin: 0 0 var(--spacing-md);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  .concentration-line strong {
+    color: var(--text-white);
   }
 </style>

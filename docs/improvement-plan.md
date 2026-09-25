@@ -26,7 +26,6 @@ working day, so a version change on production confirms that day's work landed.
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 16b | Payer base | #267 | Needs a new adapter function (both adapters) and a Supabase migration the owner applies; adds to the existing chart + App Analytics, no new graph |
 | 17 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
 | 18 | Built on #262 | #263 #264 #265 | |
 | 19 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
@@ -178,6 +177,7 @@ Newest first. Kept short — `git log` is the full record.
 
 | PR | What |
 |----|------|
+| #359 | Paying wallets (new/returning, organic) in the chart; app revenue share + concentration in App Analytics; migration 018 (#267) |
 | #358 | Revenue Sources in the chart (organic / fiat / team), and the Revenue card's USD-vs-price line (#261 #266) |
 | #357 | Utilization Projection moved into the chart as a Cloud Resources metric (owner feedback) |
 | #356 | Utilization Projection: app instances and readable-spec CPU if nothing renews, coverage stated (#347) |
