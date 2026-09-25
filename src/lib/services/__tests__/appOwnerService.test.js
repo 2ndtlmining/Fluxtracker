@@ -62,8 +62,9 @@ describe('fetchUniqueAppOwners', () => {
     it('counts distinct owners, not specs', async () => {
         const result = await fetchUniqueAppOwners();
 
-        expect(result).toEqual({ unique_app_owners: 3 });
-        expect(updateCurrentMetrics).toHaveBeenCalledWith({ unique_app_owners: 3 });
+        // Median days left over the same five running specs: 4,700 blocks / 2,880 = 1.6.
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
+        expect(updateCurrentMetrics).toHaveBeenCalledWith({ unique_app_owners: 3, median_days_left: 1.6 });
         expect(updateSyncStatus).toHaveBeenCalledWith('app-owners', 'completed');
     });
 
@@ -111,7 +112,8 @@ describe('fetchUniqueAppOwners', () => {
 
         const result = await fetchUniqueAppOwners();
 
-        expect(result).toEqual({ unique_app_owners: 2 });
+        // Owner-less specs are still running apps: they count toward time left.
+        expect(result).toEqual({ unique_app_owners: 2, median_days_left: 1.7 });
     });
 
     it('marks the sync failed and rethrows rather than writing 0', async () => {
@@ -159,7 +161,7 @@ describe('refreshUniqueAppOwnersIfStale', () => {
     it('fetches on a cold cache', async () => {
         const result = await refreshUniqueAppOwnersIfStale();
 
-        expect(result).toEqual({ unique_app_owners: 3 });
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
         expect(axios.get).toHaveBeenCalledTimes(1);
     });
 
@@ -185,6 +187,6 @@ describe('refreshUniqueAppOwnersIfStale', () => {
         axios.get.mockResolvedValue(blockHeightResponse);
         const result = await refreshUniqueAppOwnersIfStale();
 
-        expect(result).toEqual({ unique_app_owners: 3 });
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
     });
 });

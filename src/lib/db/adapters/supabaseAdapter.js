@@ -259,6 +259,10 @@ export async function createDailySnapshot(snapshot) {
         // survived only via snapshotManager's NULL top-up; both are written here now.
         unique_wallets: snapshot.unique_wallets ?? null,
         unique_app_owners: snapshot.unique_app_owners ?? null,
+        // Only when there is a value: on Supabase the column exists once migration 023 is
+        // applied, and current_metrics can only hold a value after that -- so a deploy that
+        // lands before the migration never names a column the table lacks.
+        ...(snapshot.median_days_left != null ? { median_days_left: snapshot.median_days_left } : {}),
         locked_collateral_cumulus: snapshot.locked_collateral_cumulus ?? null,
         locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,

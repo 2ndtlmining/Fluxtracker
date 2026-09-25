@@ -9,6 +9,9 @@
   // Portion of the period's revenue paid by Flux team addresses. Shown as a secondary
   // line, never subtracted from the headline figures — the total stays the primary number.
   export let selfFunded = null;
+  // Median days left on running apps -- how far ahead customers have paid. Null until the
+  // first reading (and before migration 023 on Supabase): the line is then not shown.
+  export let medianDaysLeft = null;
   export let loading = false;
 
   // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
@@ -100,6 +103,14 @@
         {:else}
           <span class="self-funded-value">none this {periodWord}</span>
         {/if}
+      </div>
+    {/if}
+    {#if medianDaysLeft != null}
+      <div class="time-left" title="For every app running on Flux, the days until its paid time runs out. Half the apps have less than this left, half have more.">
+        <span class="self-funded-label">Median time left</span>
+        <span class="time-left-value">{formatCount(Math.round(medianDaysLeft))} {Math.round(medianDaysLeft) === 1 ? 'day' : 'days'}</span>
+        <span class="self-funded-sep">·</span>
+        <span class="time-left-note">running apps</span>
       </div>
     {/if}
     {#if staleSince}
@@ -302,6 +313,25 @@
 
 
 
+
+  .time-left {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: var(--spacing-xs);
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .time-left-value {
+    color: var(--text-white);
+    font-weight: 600;
+  }
+
+  .time-left-note {
+    color: var(--text-dim);
+  }
 
   .self-funded.none .self-funded-label {
     color: var(--text-muted);

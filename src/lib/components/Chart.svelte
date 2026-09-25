@@ -97,6 +97,7 @@
       return axis ? '$' + formatCount(value, { compact: true }) : formatUsd(value, { compact: false });
     }
     if (format === 'percent') return formatNumber(value, 2) + '%';
+    if (format === 'days') return formatNumber(value, 1) + (axis ? 'd' : ' days');
     return axis ? formatCount(value, { compact: true }) : formatCount(value);
   }
 
@@ -113,7 +114,13 @@
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
         { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
         { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
-        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
+        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true },
+        // Median days left on running apps (owner request, 2026-09-26). Read from the daily
+        // snapshots, not the transaction endpoints (source), recorded from ship day only
+        // (dropNulls: earlier days are a gap, never 0), and a level (weekly/monthly average).
+        { id: 'median_days_left', label: 'Median time left on running apps (days)', field: 'median_days_left', format: 'days', source: 'snapshots', level: true, dropNulls: true,
+          description: 'For every app running on Flux, the days until its paid time runs out; half have less left, half more. Recorded daily since September 2026.',
+          emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' }
       ]
     },
     nodes: {
@@ -491,7 +498,7 @@
 
       console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
 
-      if (selectedCategory === 'revenue') {
+      if (selectedCategory === 'revenue' && availableMetrics.find(m => m.id === selectedMetric)?.source !== 'snapshots') {
       // For REVENUE category, use transaction-based endpoint for real-time data
         // Check if USD metric is selected
         const metric = availableMetrics.find(m => m.id === selectedMetric);
@@ -816,7 +823,7 @@
         rawDates.push(dateStr);
 
         let value = 0;
-        if (selectedCategory === 'revenue') {
+        if (selectedCategory === 'revenue' && !metric.source) {
           if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
             // For USD, use the daily_revenue_usd field (handles NULL gracefully with || 0)
             value = snapshot.daily_revenue_usd || 0;
@@ -895,7 +902,7 @@
       }
 
       let value = 0;
-      if (selectedCategory === 'revenue') {
+      if (selectedCategory === 'revenue' && !metric.source) {
         if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
           value = snapshot.daily_revenue_usd || 0;
         } else {
@@ -976,7 +983,7 @@
       }
 
       let value = 0;
-      if (selectedCategory === 'revenue') {
+      if (selectedCategory === 'revenue' && !metric.source) {
         if (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd') {
           value = snapshot.daily_revenue_usd || 0;
         } else {
