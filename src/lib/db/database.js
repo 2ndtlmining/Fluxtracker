@@ -79,6 +79,8 @@ export const {
     getAppRevenueConcentration,
     // Revenue mix (issue #262 part 2)
     getDailyRevenueMixInRange,
+    // Run-rate (issue #263)
+    getDailyRunRateInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

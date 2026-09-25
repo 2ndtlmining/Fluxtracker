@@ -1234,6 +1234,46 @@ export async function getDailyRevenueMixInRange(startDate, endDate) {
     }
 }
 
+// Run-rate (issue #263) -- the SQLite twin of migration 021 (see it for the maths). Days are
+// julianday numbers; the end event is the first day after ceil(len) days.
+export async function getDailyRunRateInRange(startDate, endDate) {
+    try {
+        return getDb().prepare(`
+            WITH RECURSIVE pay AS (
+                SELECT julianday(date) AS s, expire_blocks / 2880.0 AS len, amount_usd AS usd
+                FROM revenue_transactions
+                WHERE expire_blocks > 0 AND amount_usd > 0 AND date <= @end
+            ),
+            ev AS (
+                SELECT s AS d, usd / len AS dr, usd / len * (s + len) AS dk FROM pay
+                UNION ALL
+                SELECT s + CAST(len AS INTEGER) + (len > CAST(len AS INTEGER)), -usd / len, -usd / len * (s + len) FROM pay
+            ),
+            days(d) AS (
+                SELECT MIN(s) FROM pay
+                UNION ALL
+                SELECT d + 1 FROM days WHERE d + 1 <= julianday(@end)
+            ),
+            cum AS (
+                SELECT days.d AS d,
+                       SUM(COALESCE(e.dr, 0)) OVER (ORDER BY days.d) AS a,
+                       SUM(COALESCE(e.dk, 0)) OVER (ORDER BY days.d) AS k
+                FROM days
+                LEFT JOIN (SELECT d, SUM(dr) AS dr, SUM(dk) AS dk FROM ev GROUP BY d) e ON e.d = days.d
+            )
+            SELECT date(d) AS date,
+                   MAX(a, 0) AS daily_rate_usd,
+                   MAX(k - d * a, 0) AS deferred_usd
+            FROM cum
+            WHERE d >= julianday(@start)
+            ORDER BY d ASC
+        `).all({ start: startDate, end: endDate });
+    } catch (error) {
+        log.error(`getDailyRunRateInRange error: ${error.message}`);
+        throw new Error(`getDailyRunRateInRange failed: ${error.message}`);
+    }
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

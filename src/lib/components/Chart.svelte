@@ -113,7 +113,11 @@
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
         { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
         { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
-        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
+        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true },
+        // Issue #263: each payment spread over the days it bought (migration 021). Levels,
+        // not flows -- weekly/monthly views average them instead of summing.
+        { id: 'run_rate_usd', label: 'Run-rate (MRR, $)', field: 'mrr_usd', format: 'usd', runRate: true, level: true },
+        { id: 'deferred_usd', label: 'Prepaid, not yet used ($)', field: 'deferred_usd', format: 'usd', runRate: true, level: true }
       ]
     },
     nodes: {
@@ -303,6 +307,7 @@
   // Monthly. payersAvailable is false when the database lacks migration 018 -- then the
   // chart says so instead of plotting a row of zeros.
   let payersAvailable = null;
+  let runRateAvailable = null; // the same, for run-rate and migration 021 (#263)
   let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
   $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
@@ -310,7 +315,9 @@
     ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
     : currentMetric?.needsMix && mixAvailable === false
       ? 'Revenue mix data is not available yet (database migration 020 not applied)'
-      : null;
+      : currentMetric?.runRate && runRateAvailable === false
+        ? 'Run-rate data is not available yet (database migration 021 not applied)'
+        : null;
 
   $: isProjection = selectedMetric === PROJECTION_METRIC;
   $: displayTitle = isProjection ? 'Utilization Projection' : title;
@@ -341,13 +348,17 @@
 
   // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
   let lastMetric = selectedMetric;
-  $: if (selectedMetric !== lastMetric && allSnapshots.length > 0) {
+  // A revenue metric that came back empty (run-rate before migration 021) still has to be
+  // able to switch away -- otherwise the next metric draws whatever chartData was left over.
+  $: if (selectedMetric !== lastMetric && (allSnapshots.length > 0 || (selectedCategory === 'revenue' && !loading))) {
     // Check if switching between FLUX and USD revenue (requires re-fetch)
     const fluxMetrics = ['daily_revenue', 'cumulative_revenue'];
     const usdMetrics = ['daily_revenue_usd', 'cumulative_revenue_usd'];
     const wasUSD = usdMetrics.includes(lastMetric);
     const isNowUSD = usdMetrics.includes(selectedMetric);
-    const needsRefetch = selectedCategory === 'revenue' && wasUSD !== isNowUSD;
+    const runRateIds = ['run_rate_usd', 'deferred_usd'];
+    const needsRefetch = selectedCategory === 'revenue'
+      && (wasUSD !== isNowUSD || runRateIds.includes(lastMetric) !== runRateIds.includes(selectedMetric));
 
     if (needsRefetch) {
       console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
@@ -460,6 +471,23 @@
         // Check if USD metric is selected
         const metric = availableMetrics.find(m => m.id === selectedMetric);
         const isUSD = metric && (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd');
+
+        if (metric?.runRate) {
+          // Run-rate (#263) has its own endpoint; available:false = migration 021 missing.
+          const endDateStr = new Date().toISOString().split('T')[0];
+          const start = new Date();
+          start.setDate(start.getDate() - (limitParam - 1));
+          const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
+          const response = await fetch(`${API_URL}/api/history/revenue/run-rate/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
+          if (!response.ok) throw new Error(`API error: ${response.status}`);
+          const result = await response.json();
+          runRateAvailable = result.available !== false;
+          allSnapshots = result.data || [];
+          if (runRateAvailable && allSnapshots.length === 0) throw new Error('No historical data available');
+          processChartData();
+          loading = false;
+          return;
+        }
 
         const endpoint = isUSD
           ? `${API_URL}/api/history/revenue/daily-usd?limit=${limitParam}`
@@ -845,7 +873,7 @@
 
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
       // For other metrics, average.
-      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
         weekData.total += value;
       } else {
         weekData.total += value;
@@ -868,7 +896,7 @@
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
         return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
-      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
         return weekData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return weekData.count > 0 ? weekData.total / weekData.count : 0; // Average for others
@@ -926,7 +954,7 @@
 
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
       // For other metrics, average.
-      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
         monthData.total += value;
       } else {
         monthData.total += value;
@@ -948,7 +976,7 @@
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
         return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
-      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
+      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
         return monthData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return monthData.count > 0 ? monthData.total / monthData.count : 0; // Average for others

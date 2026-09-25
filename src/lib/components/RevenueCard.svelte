@@ -13,6 +13,9 @@
   // USD per FLUX). App pricing is pegged to USD, so FLUX revenue rises whenever the price
   // falls -- this line says how much of a FLUX change was real demand. Null: nothing to compare.
   export let demand = null;
+  // Issue #263: every payment spread over the days it bought -- the underlying monthly
+  // revenue once lumpy prepayments are smoothed out. Null before migration 021.
+  export let runRate = null;
   export let loading = false;
 
   // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
@@ -117,6 +120,14 @@
         </span>
         <span class="self-funded-sep">·</span>
         <span class="demand-price">FLUX price {demand.priceChange > 0 ? '+' : ''}{demand.priceChange.toFixed(1)}%</span>
+      </div>
+    {/if}
+    {#if runRate}
+      <div class="demand-line" title="Every payment spread evenly over the days it paid for, as a monthly figure. Prepaid: paid but not yet used up. Payments with no known term (about 4%) are left out.">
+        <span class="self-funded-label">Run-rate</span>
+        <span class="demand-value">${formatCount(runRate.mrrUsd)}/mo</span>
+        <span class="self-funded-sep">·</span>
+        <span class="demand-price">${formatCount(runRate.deferredUsd)} prepaid</span>
       </div>
     {/if}
     {#if staleSince}
