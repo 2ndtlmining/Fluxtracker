@@ -542,6 +542,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         usd={revenueFormatted.usd}
         flux={revenueFormatted.flux}
         selfFunded={revenueData?.selfFunded || null}
+        demand={revenueData?.demand ?? null}
         period={comparisonPeriod}
         {loading}
         unavailable={revenueUnavailable}

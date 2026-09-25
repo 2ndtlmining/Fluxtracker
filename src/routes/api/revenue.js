@@ -7,6 +7,7 @@ import {
     getRevenueForDateRange,
     getPaymentCountForDateRange,
     getRevenueFromAddressesForDateRange,
+    getDailyRevenueUSDInRange,
     getTxidCount,
     getTransactionsByDate,
     getTransactionsPaginated
@@ -14,6 +15,7 @@ import {
 
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { getToDateRanges, TIMEFRAMES } from '../../lib/kpi/periods.js';
+import { computeDemandSplit, sumUsd } from '../../lib/utils/revenueSources.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 
@@ -106,7 +108,9 @@ router.get('/revenue/:period', async (req, res) => {
             currentPayments,
             previousRevenue,
             previousPayments,
-            selfFunded
+            selfFunded,
+            currentUsdRows,
+            previousUsdRows
         ] = await Promise.all([
             getCurrentMetrics(),
             getRevenueForDateRange(currentStart, currentEnd),
@@ -115,7 +119,11 @@ router.get('/revenue/:period', async (req, res) => {
             getPaymentCountForDateRange(previousStart, previousEnd),
             // Self-funded share: revenue paid by Flux team addresses. Reported alongside
             // the headline total, never subtracted from it -- the total stays primary.
-            getRevenueFromAddressesForDateRange(currentStart, currentEnd, FLUX_TEAM_ADDRESSES)
+            getRevenueFromAddressesForDateRange(currentStart, currentEnd, FLUX_TEAM_ADDRESSES),
+            // #266: what was actually paid in USD at the time, both periods -- the demand
+            // signal the FLUX change hides whenever the token price moves.
+            getDailyRevenueUSDInRange(currentStart, currentEnd),
+            getDailyRevenueUSDInRange(previousStart, previousEnd)
         ]);
 
         const fluxPrice = currentMetrics?.flux_price_usd || 0;
@@ -165,6 +173,14 @@ router.get('/revenue/:period', async (req, res) => {
                 change: changePercent,
                 trend: trend
             },
+            // #266: the FLUX change split into demand (USD at the time of payment) and price
+            // (average USD paid per FLUX). Null when either period has nothing to compare.
+            demand: computeDemandSplit({
+                fluxCurrent: currentRevenue,
+                fluxPrevious: previousRevenue,
+                usdCurrent: sumUsd(currentUsdRows),
+                usdPrevious: sumUsd(previousUsdRows)
+            }),
             selfFunded: {
                 flux: selfFunded.revenue,
                 usd: selfFunded.revenue * fluxPrice,
