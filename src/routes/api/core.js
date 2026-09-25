@@ -26,6 +26,7 @@ import { getArcaneCodename } from '../../lib/services/arcaneCodenameService.js';
 import { getPriceHistoryStatus } from '../../lib/services/priceHistoryService.js';
 import { getBackupStatus } from '../../lib/services/backupService.js';
 import { getKpiSchedulerState } from '../../lib/services/kpiScheduler.js';
+import { getAnomalyAlertsState } from '../../lib/services/anomalyAlerts.js';
 
 const router = express.Router();
 
@@ -175,6 +176,7 @@ router.get('/health', async (req, res) => {
         // transaction log hours later.
         livePrice: livePriceInfo,
         kpiScheduler: getKpiSchedulerState(),
+        anomalyAlerts: getAnomalyAlertsState(),
         uniqueWallets: walletsInfo
     });
 });

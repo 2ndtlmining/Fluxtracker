@@ -167,6 +167,15 @@ Optional -- Scheduled KPI reports (all unset = feature off):
 
 When configured, the scheduler checks every 10 minutes and sends the report once per period (a restart never double-sends; a server that was down at the scheduled hour catches up on boot). The footer KPI button keeps working independently with any webhook you enter in the dialog.
 
+Optional -- anomaly alerts to the same webhook (issue #269), off by default:
+
+| Variable | Description |
+|--------------------------------|---------------------------------|
+| `ANOMALY_ALERTS`              | `on` to enable. Needs a valid `KPI_WEBHOOK_URL`. |
+| `ANOMALY_OUTAGE_HOURS`        | Hours without a newly synced payment before the outage alert (default `6`). |
+
+Two alerts, each sent once: **payments stopped syncing** (and a follow-up when they resume), and an **unusual revenue day** -- a completed UTC day at least 3 standard deviations above the previous 28 days (about 14 days a year), naming the biggest payment's app and whether the Flux team, a card or FLUX paid it. Restart-safe via `sync_status` receipts; `/api/health` shows `anomalyAlerts`.
+
 Optional -- CORS allowed origins (production only):
 
 | Variable                | Description                                          |
