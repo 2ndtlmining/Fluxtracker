@@ -320,7 +320,18 @@
   let cohortsAvailable = null; // the same, for retention cohorts and migration 022 (#264)
   let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
-  $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
+  // Leaving a monthly-only metric gives the View back: without this, picking one Monthly
+  // metric left every later metric -- in any category -- stuck on Monthly.
+  let aggregationBeforePin = null;
+  $: if (currentMetric?.monthlyOnly) {
+    if (selectedAggregation !== 'monthly') {
+      aggregationBeforePin = selectedAggregation;
+      selectedAggregation = 'monthly';
+    }
+  } else if (aggregationBeforePin) {
+    selectedAggregation = aggregationBeforePin;
+    aggregationBeforePin = null;
+  }
   $: payerError = currentMetric?.monthlyOnly && !currentMetric.source && payersAvailable === false
     ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
     : currentMetric?.needsMix && mixAvailable === false
@@ -487,6 +498,19 @@
     }
   });
 
+  // The metric the fetch is FOR. handleCategoryChange() calls fetchAllData() synchronously,
+  // before the reactive block has swapped availableMetrics to the new category -- so looking
+  // the metric up there finds the PREVIOUS category's metric (e.g. a cohort metric) and
+  // fetches its data for the new category, which then draws as zeros. The new category's
+  // own list is current; a metric not in it is about to be replaced by that list's first.
+  function metricForFetch() {
+    const list = categories[selectedCategory]?.metrics;
+    if (!list || (selectedCategory === 'decentralization' && decentralizationView !== 'overview')) {
+      return availableMetrics.find(m => m.id === selectedMetric);
+    }
+    return list.find(m => m.id === selectedMetric) ?? list[0];
+  }
+
   async function fetchAllData() {
     loading = true;
     error = null;
@@ -498,10 +522,10 @@
 
       console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
 
-      if (selectedCategory === 'revenue' && availableMetrics.find(m => m.id === selectedMetric)?.source !== 'snapshots') {
+      if (selectedCategory === 'revenue' && metricForFetch()?.source !== 'snapshots') {
       // For REVENUE category, use transaction-based endpoint for real-time data
         // Check if USD metric is selected
-        const metric = availableMetrics.find(m => m.id === selectedMetric);
+        const metric = metricForFetch();
         const isUSD = metric && (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd');
 
 
@@ -654,7 +678,7 @@
           if (!byDate.has(month)) byDate.set(month, target);
         }
         allSnapshots = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-      } else if (availableMetrics.find(m => m.id === selectedMetric)?.source === 'cohorts') {
+      } else if (metricForFetch()?.source === 'cohorts') {
         // Retention cohorts (#264): one row per registration month from their own endpoint.
         const endDateStr = new Date().toISOString().split('T')[0];
         const start = new Date();
