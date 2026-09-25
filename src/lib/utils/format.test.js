@@ -74,3 +74,34 @@ describe('formatCount', () => {
     expect(formatCount(1234567, { compact: true })).toBe('1.23M');
   });
 });
+
+describe('formatBlocksLeft (time left, owner request)', async () => {
+  const { formatBlocksLeft } = await import('./format.js');
+  const days = d => d * 2880;
+
+  it('keeps hours and minutes under a day', () => {
+    expect(formatBlocksLeft(20)).toBe('10m');
+    expect(formatBlocksLeft(120)).toBe('1h');
+    expect(formatBlocksLeft(2700)).toBe('22h 30m');
+    expect(formatBlocksLeft(1000)).toBe('8h 20m');
+  });
+
+  it('reads a fresh one-week deployment as 7 days, not 167 hours', () => {
+    expect(formatBlocksLeft(20157)).toBe('7 days');
+    expect(formatBlocksLeft(days(1))).toBe('1 day');
+    expect(formatBlocksLeft(days(45))).toBe('45 days');
+  });
+
+  it('months from 60 days, years from a year', () => {
+    expect(formatBlocksLeft(88000)).toBe('31 days');
+    expect(formatBlocksLeft(days(90))).toBe('3 months');
+    expect(formatBlocksLeft(528000)).toBe('6 months');
+    expect(formatBlocksLeft(1056000)).toBe('1 year');
+    expect(formatBlocksLeft(days(550))).toBe('1.5 years');
+  });
+
+  it('never negative, never NaN', () => {
+    expect(formatBlocksLeft(-5)).toBe('0m');
+    expect(formatBlocksLeft(null)).toBe('0m');
+  });
+});

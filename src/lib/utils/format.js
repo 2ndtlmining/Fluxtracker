@@ -77,3 +77,30 @@ export function formatCount(value, { compact = false } = {}) {
   const n = Math.round(finite(value));
   return compact ? formatCompact(n, n >= 1_000_000 || n <= -1_000_000 ? 2 : 1, { trim: true }) : formatNumber(n, 0);
 }
+
+// ---------------------------------------------------------------------------------------
+// Time left on an app's subscription, from blocks (30s each, 2,880 a day). Owner request:
+// deployments run a week at the least, so "167h 59m" is the wrong unit -- anything over a
+// day reads in days, then months, then years. Under a day (the Expiring Soon tab) keeps
+// hours and minutes, where they matter.
+const BLOCKS_PER_DAY = 2880;
+const DAYS_PER_MONTH = 30.44;
+
+export function formatBlocksLeft(blocks) {
+  const b = Math.max(0, finite(blocks));
+  if (b < BLOCKS_PER_DAY) {
+    const totalMinutes = Math.round((b * 30) / 60);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes}m`;
+    return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  }
+  const days = Math.round(b / BLOCKS_PER_DAY);
+  if (days < 60) return `${days} ${days === 1 ? 'day' : 'days'}`;
+  if (days < 365) {
+    const months = Math.round(days / DAYS_PER_MONTH);
+    return `${months} months`;
+  }
+  const years = Math.round((days / 365) * 10) / 10;
+  return `${years} ${years === 1 ? 'year' : 'years'}`;
+}
