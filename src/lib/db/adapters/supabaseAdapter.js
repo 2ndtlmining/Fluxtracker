@@ -1112,6 +1112,18 @@ export async function getDailyRevenueMixInRange(startDate, endDate) {
     return data;
 }
 
+// Run-rate (issue #263, migration 021): each payment's USD spread over the days it bought.
+export async function getDailyRunRateInRange(startDate, endDate) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_run_rate', { p_start: startDate, p_end: endDate });
+    } catch (error) {
+        log.error(`getDailyRunRateInRange error: ${error.message}`);
+        throw new Error(`getDailyRunRateInRange failed: ${error.message}`);
+    }
+    return data;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
