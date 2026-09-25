@@ -2,11 +2,17 @@
 // numbers out, so the maths is unit-tested apart from the database.
 
 /**
- * #261 -- daily revenue split by who paid: the Flux team (FLUX_TEAM_ADDRESSES), the fiat
- * on-ramp (FLUX_FIAT_ADDRESSES), and everyone else ("organic" -- real on-chain customers).
- * Organic is the remainder, so the three always add up to the day's total, and a day with
- * no team or fiat payments still appears (the address endpoints only return days that had
- * some). Negative remainders -- rounding between two separately summed queries -- clamp to 0.
+ * #261 / #373 -- daily revenue split two independent ways:
+ *   - WHO paid: the Flux team (FLUX_TEAM_ADDRESSES) or everyone else ("organic" customers).
+ *     organic + team = total.
+ *   - HOW they paid: by card through the fiat on-ramp (FLUX_FIAT_ADDRESSES, which buys FLUX
+ *     for its customers and pays on their behalf) or in FLUX directly. fiat + crypto = total.
+ * Fiat is a payment METHOD, not a payer (#373): card payments are organic customers too. It
+ * used to be subtracted from organic as if it were a third payer, so organic read ~35% when
+ * customers were ~97% of revenue.
+ * A day with no team or fiat payments still appears (the address endpoints only return days
+ * that had some). Negative remainders -- rounding between separately summed queries --
+ * clamp to 0.
  *
  * @param {{date: string, daily_revenue?: number, daily_revenue_usd?: number}[]} rows each of
  *   total (FLUX), totalUsd, team, teamUsd, fiat, fiatUsd, as the history endpoints return them
@@ -32,8 +38,10 @@ export function mergeRevenueSources({ total = [], totalUsd = [], team = [], team
     .sort((a, b) => a.date.localeCompare(b.date))
     .map(day => ({
       ...day,
-      organic_flux: Math.max(0, day.total_flux - day.team_flux - day.fiat_flux),
-      organic_usd: Math.max(0, day.total_usd - day.team_usd - day.fiat_usd)
+      organic_flux: Math.max(0, day.total_flux - day.team_flux),
+      organic_usd: Math.max(0, day.total_usd - day.team_usd),
+      crypto_flux: Math.max(0, day.total_flux - day.fiat_flux),
+      crypto_usd: Math.max(0, day.total_usd - day.fiat_usd)
     }));
 }
 

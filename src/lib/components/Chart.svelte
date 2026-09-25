@@ -232,18 +232,20 @@
       label: 'Revenue Sources',
       color: 'rgb(255, 215, 0)',
       metrics: [
-        // Who paid (issue #261): organic is the remainder, so the three add up to total revenue.
-        // Percentages are shares of total FLUX. Weekly/monthly % views sum numerator and
-        // denominator separately and divide afterwards (ratioFields), never average daily %.
-        { id: 'organic_usd', label: 'Organic ($)', field: 'organic_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
-        { id: 'organic_flux', label: 'Organic (FLUX)', field: 'organic_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
-        { id: 'organic_percent', label: 'Organic (% of Revenue)', field: 'organic_percent', format: 'percent', ratioFields: { numerator: 'organic_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
-        { id: 'fiat_usd', label: 'Fiat on-ramp ($)', field: 'fiat_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
-        { id: 'fiat_flux', label: 'Fiat on-ramp (FLUX)', field: 'fiat_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
-        { id: 'fiat_percent', label: 'Fiat on-ramp (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
-        { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
-        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
-        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        // Who paid and how they paid are two independent splits of the same total (#373):
+        // organic + team = total, and card (fiat on-ramp) + FLUX = total. Fiat is a payment
+        // method, not a payer. Percentages are shares of total FLUX; weekly/monthly % views
+        // sum numerator and denominator separately and divide afterwards (ratioFields).
+        { id: 'organic_usd', label: 'Organic ($)', field: 'organic_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by customers -- everyone except the Flux team -- whether by card or in FLUX. Organic + Flux team = all revenue.' },
+        { id: 'organic_flux', label: 'Organic (FLUX)', field: 'organic_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by customers -- everyone except the Flux team -- whether by card or in FLUX. Organic + Flux team = all revenue.' },
+        { id: 'organic_percent', label: 'Organic (% of Revenue)', field: 'organic_percent', format: 'percent', ratioFields: { numerator: 'organic_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by customers -- everyone except the Flux team -- whether by card or in FLUX. Organic + Flux team = all revenue.' },
+        { id: 'team_funded_usd', label: 'Flux team ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        { id: 'team_funded_flux', label: 'Flux team (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        { id: 'team_funded_percent', label: 'Flux team (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        { id: 'fiat_usd', label: 'Paid by card ($)', field: 'fiat_usd', format: 'usd', aggregateAsSum: true, group: 'How they paid', description: 'Paid by card through the fiat on-ramp, which buys the FLUX for the customer. Card + FLUX = all revenue.' },
+        { id: 'fiat_percent', label: 'Paid by card (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' }, group: 'How they paid', description: 'Paid by card through the fiat on-ramp, which buys the FLUX for the customer. Card + FLUX = all revenue.' },
+        { id: 'crypto_usd', label: 'Paid in FLUX ($)', field: 'crypto_usd', format: 'usd', aggregateAsSum: true, group: 'How they paid', description: 'Paid in FLUX directly from a wallet, by customers or the Flux team. Card + FLUX = all revenue.' },
+        { id: 'crypto_percent', label: 'Paid in FLUX (% of Revenue)', field: 'crypto_percent', format: 'percent', ratioFields: { numerator: 'crypto_flux', denominator: 'total_flux' }, group: 'How they paid', description: 'Paid in FLUX directly from a wallet, by customers or the Flux team. Card + FLUX = all revenue.' },
         // What was bought (issue #262), from each payment's permanent message (migration 019).
         // The ~3% of payments never matched to a message sit in the total only.
         { id: 'mix_new_usd', label: 'New deployments ($)', field: 'new_usd', format: 'usd', aggregateAsSum: true, needsMix: true, group: 'What was bought', description: 'Payments that registered a brand-new app.' },
@@ -255,7 +257,7 @@
         // Paying customers (issue #267): distinct wallets, team and fiat on-ramp excluded.
         // Counted per calendar month -- distinct wallets cannot be summed from daily counts --
         // so these force the Monthly view.
-        { id: 'payers_total', label: 'Paying customers (per month)', field: 'payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Distinct wallets that paid for apps that month, not counting the Flux team or the fiat on-ramp.' },
+        { id: 'payers_total', label: 'Paying customers (per month)', field: 'payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Distinct wallets that paid in FLUX that month, not counting the Flux team. Card payments all arrive from the fiat on-ramp, so card customers cannot be counted one by one.' },
         { id: 'payers_new', label: 'New paying customers (per month)', field: 'new_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Wallets whose first-ever payment was that month.' },
         { id: 'payers_returning', label: 'Returning paying customers (per month)', field: 'returning_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Wallets that paid that month and had paid before.' }
       ]
@@ -679,6 +681,9 @@
             fiat_flux: day.fiat_flux || 0,
             fiat_usd: day.fiat_usd || 0,
             fiat_percent: pct(day.fiat_flux || 0, totalFlux),
+            crypto_flux: day.crypto_flux || 0,
+            crypto_usd: day.crypto_usd || 0,
+            crypto_percent: pct(day.crypto_flux || 0, totalFlux),
             team_funded_flux: day.team_flux || 0,
             team_funded_usd: day.team_usd || 0,
             team_funded_percent: pct(day.team_flux || 0, totalFlux),
