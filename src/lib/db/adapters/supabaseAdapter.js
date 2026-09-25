@@ -555,6 +555,17 @@ export async function insertTransaction(tx) {
     }
 }
 
+// Message-metadata columns (issue #262, migration 019). Until the migration is applied the
+// columns do not exist, and PostgREST rejects the whole insert -- which would stop the
+// revenue sync outright. So a missing-column rejection retries the chunk without them and
+// remembers not to send them again this process: new payments keep landing either way.
+const METADATA_FIELDS = ['msg_type', 'enterprise', 'expire_blocks', 'instances'];
+let metadataColumnsMissing = false;
+
+function isMissingColumnError(error) {
+    return error?.code === 'PGRST204' || /column .* (does not exist|of 'revenue_transactions')/i.test(error?.message ?? '');
+}
+
 export async function insertTransactionsBatch(transactions) {
     if (!transactions || transactions.length === 0) return true;
 
@@ -568,16 +579,34 @@ export async function insertTransactionsBatch(transactions) {
         timestamp: tx.timestamp,
         date: tx.date,
         app_name: tx.app_name || null,
-        app_type: tx.app_type || null
+        app_type: tx.app_type || null,
+        msg_type: tx.msg_type ?? null,
+        enterprise: tx.enterprise ?? null,
+        expire_blocks: tx.expire_blocks ?? null,
+        instances: tx.instances ?? null
     }));
+    const withoutMetadata = row => {
+        const copy = { ...row };
+        for (const field of METADATA_FIELDS) delete copy[field];
+        return copy;
+    };
 
     // Chunk into batches of 500 to respect Supabase limits
     const CHUNK_SIZE = 500;
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
-        const chunk = rows.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase
+        let chunk = rows.slice(i, i + CHUNK_SIZE);
+        if (metadataColumnsMissing) chunk = chunk.map(withoutMetadata);
+        let { error } = await supabase
             .from('revenue_transactions')
             .upsert(chunk, { onConflict: 'txid', ignoreDuplicates: true });
+
+        if (error && !metadataColumnsMissing && isMissingColumnError(error)) {
+            metadataColumnsMissing = true;
+            log.warn('revenue_transactions has no message-metadata columns yet -- inserting without them (apply migration 019)');
+            ({ error } = await supabase
+                .from('revenue_transactions')
+                .upsert(chunk.map(withoutMetadata), { onConflict: 'txid', ignoreDuplicates: true }));
+        }
 
         if (error) {
             log.error(`insertTransactionsBatch chunk error (offset ${i}): ${error.message}`);
@@ -1483,6 +1512,33 @@ export async function getOldestTransactionDate() {
         log.error(`getOldestTransactionDate error: ${error.message}`);
     }
     return data ? data.date : null;
+}
+
+/**
+ * Message-metadata back-fill (issue #262): one statement per 500-row chunk via the RPC from
+ * migration 019, which only touches rows with no metadata yet. Returns the rows updated.
+ * Throws when the migration is missing -- the back-fill cannot do anything useful without it.
+ */
+export async function updateTransactionMetadataBatch(updates) {
+    if (!updates || updates.length === 0) return 0;
+    const CHUNK_SIZE = 500;
+    let updated = 0;
+    for (let i = 0; i < updates.length; i += CHUNK_SIZE) {
+        const chunk = updates.slice(i, i + CHUNK_SIZE).map(u => ({
+            txid: u.txid,
+            msg_type: u.msg_type ?? null,
+            enterprise: u.enterprise ?? null,
+            expire_blocks: u.expire_blocks ?? null,
+            instances: u.instances ?? null
+        }));
+        const { data, error } = await supabase.rpc('update_transaction_metadata_batch', { p_updates: chunk });
+        if (error) {
+            log.error(`updateTransactionMetadataBatch error: ${error.message}`);
+            throw new Error(`updateTransactionMetadataBatch failed: ${error.message}`);
+        }
+        updated += Number(data) || 0;
+    }
+    return updated;
 }
 
 export async function updateTransactionUsdBatch(updates) {

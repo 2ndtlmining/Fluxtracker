@@ -81,6 +81,8 @@ export const {
     getTransactionsWithNullUsd,
     getOldestTransactionDate,
     updateTransactionUsdBatch,
+    // Message-metadata back-fill (issue #262)
+    updateTransactionMetadataBatch,
     // Failed txid tracking
     upsertFailedTxid,
     getUnresolvedFailedTxids,

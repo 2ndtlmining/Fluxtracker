@@ -19,6 +19,7 @@ import {
     setRevenueSyncError,
     getFailedTxStats
 } from './revenueSyncState.js';
+import { messageMetadata, indexMetadataByTxid } from './messageMetadata.js';
 
 const log = createLogger('revenueService');
 
@@ -139,6 +140,9 @@ export async function fetchRawTransaction(txid, retries = 3) {
 const permanentMessagesCache = {
     map: new Map(),      // hash -> name
     typeMap: new Map(),  // name (lowercase) -> 'git' | 'docker'
+    // payment txid -> { msg_type, enterprise, expire_blocks, instances } (issue #262): the
+    // rest of what each message says, which this cache used to download and throw away.
+    metaByTxid: new Map(),
     lastFetched: 0,
     TTL: 60 * 60 * 1000  // 1 hour
 };
@@ -163,6 +167,7 @@ export async function fetchPermanentMessages() {
                     permanentMessagesCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
                 }
             }
+            permanentMessagesCache.metaByTxid = indexMetadataByTxid(body.data);
             permanentMessagesCache.lastFetched = Date.now();
             log.info({ count: permanentMessagesCache.map.size }, 'Loaded %d app names from permanent messages', permanentMessagesCache.map.size);
         }
@@ -308,6 +313,8 @@ export async function fetchPermanentMessageByHash(hash) {
 
         permanentMessagesCache.map.set(hash, name);
         permanentMessagesCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
+        const meta = messageMetadata(msg);
+        if (meta) permanentMessagesCache.metaByTxid.set(meta.txid, meta);
         log.info({ hash: hash.substring(0, 10), name }, 'Resolved app name by targeted lookup: %s', name);
         return name;
     } catch (error) {
@@ -343,6 +350,16 @@ export async function resolveAppName(hash, txTimestamp = null) {
 
     missedHashes.delete(hash);
     return name;
+}
+
+/** Message metadata by payment txid (issue #262); null when no message names it. */
+export function lookupMessageMetadata(txid) {
+    return permanentMessagesCache.metaByTxid.get(txid) || null;
+}
+
+/** Every payment the cached messages describe -- the back-fill's source (issue #262). */
+export function getMessageMetadataIndex() {
+    return permanentMessagesCache.metaByTxid;
 }
 
 /**
@@ -413,6 +430,7 @@ export function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, ap
                     amountUSD = amountFlux * priceMap.get(date);
                 }
 
+                const meta = lookupMessageMetadata(tx.txid);
                 transactions.push({
                     txid: tx.txid,
                     address,
@@ -423,7 +441,13 @@ export function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, ap
                     timestamp,
                     date,
                     app_name: appName || null,
-                    app_type: appType || null
+                    app_type: appType || null,
+                    // Issue #262: new app or renewal, enterprise, blocks bought, instances.
+                    // Null when the message is not cached yet; the back-fill catches up.
+                    msg_type: meta?.msg_type ?? null,
+                    enterprise: meta?.enterprise ?? null,
+                    expire_blocks: meta?.expire_blocks ?? null,
+                    instances: meta?.instances ?? null
                 });
             }
         }

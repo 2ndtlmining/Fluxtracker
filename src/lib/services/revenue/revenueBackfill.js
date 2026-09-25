@@ -6,7 +6,8 @@ import {
     countTxidsWithoutAppName,
     updateAppNameForTxid,
     upsertFailedTxid,
-    isFailedTxid
+    isFailedTxid,
+    updateTransactionMetadataBatch
 } from '../../db/database.js';
 import {
     ensurePermanentMessagesCache,
@@ -14,10 +15,42 @@ import {
     resolveAppName,
     lookupAppType,
     fetchRawTransaction,
-    FLUXDRIVE_APP_TYPE
+    FLUXDRIVE_APP_TYPE,
+    fetchPermanentMessages,
+    getMessageMetadataIndex
 } from './transactionSync.js';
 
 const log = createLogger('revenueService');
+
+// ============================================
+// MESSAGE METADATA BACKFILL (issue #262)
+// ============================================
+
+/**
+ * Fill msg_type / enterprise / expire_blocks / instances on every stored transaction that a
+ * permanent message names, from ONE fresh download of /apps/permanentmessages (the sync
+ * fetches the same payload hourly). Only rows with no metadata yet are touched, so it is
+ * safe to re-run. Needs migration 019 on Supabase.
+ *
+ * @returns {{messages: number, updated: number}}
+ */
+export async function backfillMessageMetadata() {
+    await fetchPermanentMessages();
+    const index = getMessageMetadataIndex();
+    if (index.size === 0) {
+        throw new Error('No permanent messages loaded -- the API did not answer; nothing was changed');
+    }
+
+    const updates = [...index.values()];
+    const CHUNK = 5000;
+    let updated = 0;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+        updated += await updateTransactionMetadataBatch(updates.slice(i, i + CHUNK));
+        log.info({ done: Math.min(i + CHUNK, updates.length), total: updates.length, updated }, 'Message metadata back-fill: %d/%d messages', Math.min(i + CHUNK, updates.length), updates.length);
+    }
+    log.info({ messages: index.size, updated }, 'Message metadata back-fill complete: %d transactions updated', updated);
+    return { messages: index.size, updated };
+}
 
 // ============================================
 // APP TYPE BACKFILL
