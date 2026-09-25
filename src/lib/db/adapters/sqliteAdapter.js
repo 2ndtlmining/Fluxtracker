@@ -129,9 +129,22 @@ function createSchema() {
             timestamp INTEGER NOT NULL,
             date TEXT NOT NULL,
             app_name TEXT DEFAULT NULL,
-            app_type TEXT DEFAULT NULL
+            app_type TEXT DEFAULT NULL,
+            msg_type TEXT DEFAULT NULL,
+            enterprise INTEGER DEFAULT NULL,
+            expire_blocks INTEGER DEFAULT NULL,
+            instances INTEGER DEFAULT NULL
         )
     `);
+    // Message metadata (issue #262) on a database created before it: same "ALTER, swallow
+    // duplicate-column" self-healing as node_ip_classification below.
+    for (const [col, type] of [['msg_type', 'TEXT'], ['enterprise', 'INTEGER'], ['expire_blocks', 'INTEGER'], ['instances', 'INTEGER']]) {
+        try {
+            d.exec(`ALTER TABLE revenue_transactions ADD COLUMN ${col} ${type} DEFAULT NULL`);
+        } catch (error) {
+            if (!error.message?.includes('duplicate column name')) throw error;
+        }
+    }
 
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_address ON revenue_transactions(address)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_from_address ON revenue_transactions(from_address)`);
@@ -757,12 +770,40 @@ export async function insertTransaction(tx) {
     }
 }
 
+/** Message-metadata back-fill (issue #262): only rows with no metadata yet. Returns rows updated. */
+export async function updateTransactionMetadataBatch(updates) {
+    if (!updates || updates.length === 0) return 0;
+    const stmt = getDb().prepare(`
+        UPDATE revenue_transactions
+        SET msg_type = @msg_type, enterprise = @enterprise, expire_blocks = @expire_blocks, instances = @instances
+        WHERE txid = @txid AND msg_type IS NULL
+    `);
+    try {
+        let updated = 0;
+        getDb().transaction(rows => {
+            for (const u of rows) {
+                updated += stmt.run({
+                    txid: u.txid,
+                    msg_type: u.msg_type ?? null,
+                    enterprise: u.enterprise == null ? null : (u.enterprise ? 1 : 0),
+                    expire_blocks: u.expire_blocks ?? null,
+                    instances: u.instances ?? null
+                }).changes;
+            }
+        })(updates);
+        return updated;
+    } catch (error) {
+        log.error(`updateTransactionMetadataBatch error: ${error.message}`);
+        throw new Error(`updateTransactionMetadataBatch failed: ${error.message}`);
+    }
+}
+
 export async function insertTransactionsBatch(transactions) {
     if (!transactions || transactions.length === 0) return true;
 
     const stmt = getDb().prepare(`
-        INSERT OR IGNORE INTO revenue_transactions (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type)
-        VALUES (@txid, @address, @from_address, @amount, @amount_usd, @block_height, @timestamp, @date, @app_name, @app_type)
+        INSERT OR IGNORE INTO revenue_transactions (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type, msg_type, enterprise, expire_blocks, instances)
+        VALUES (@txid, @address, @from_address, @amount, @amount_usd, @block_height, @timestamp, @date, @app_name, @app_type, @msg_type, @enterprise, @expire_blocks, @instances)
     `);
 
     try {
@@ -778,7 +819,11 @@ export async function insertTransactionsBatch(transactions) {
                     timestamp: tx.timestamp,
                     date: tx.date,
                     app_name: tx.app_name || null,
-                    app_type: tx.app_type || null
+                    app_type: tx.app_type || null,
+                    msg_type: tx.msg_type ?? null,
+                    enterprise: tx.enterprise == null ? null : (tx.enterprise ? 1 : 0),
+                    expire_blocks: tx.expire_blocks ?? null,
+                    instances: tx.instances ?? null
                 });
             }
         });

@@ -7,6 +7,7 @@ import { createLogger } from '../../../lib/logger.js';
 import {
     backfillAppTypes,
     backfillAppNames,
+    backfillMessageMetadata,
     auditRecentTransactions
 } from '../../../lib/services/revenueService.js';
 import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryService.js';
@@ -65,6 +66,20 @@ router.post('/backfill-app-types', async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         log.error({ err: error }, 'app_type backfill failed');
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Issue #262: fill new-vs-renewal, enterprise, commitment length and instances on stored
+// transactions from one download of /apps/permanentmessages. Writes; only rows with no
+// metadata yet; safe to re-run. Needs migration 019 on Supabase.
+router.post('/backfill-message-metadata', async (req, res) => {
+    try {
+        log.info('message metadata backfill triggered via API');
+        const result = await backfillMessageMetadata();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        log.error({ err: error }, 'message metadata backfill failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });
