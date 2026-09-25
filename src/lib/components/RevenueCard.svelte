@@ -9,13 +9,6 @@
   // Portion of the period's revenue paid by Flux team addresses. Shown as a secondary
   // line, never subtracted from the headline figures — the total stays the primary number.
   export let selfFunded = null;
-  // Issue #266: the FLUX change split into demand (USD paid at the time) and price (average
-  // USD per FLUX). App pricing is pegged to USD, so FLUX revenue rises whenever the price
-  // falls -- this line says how much of a FLUX change was real demand. Null: nothing to compare.
-  export let demand = null;
-  // Issue #263: every payment spread over the days it bought -- the underlying monthly
-  // revenue once lumpy prepayments are smoothed out. Null before migration 021.
-  export let runRate = null;
   export let loading = false;
 
   // Failure states (issue #319): `unavailable` = nothing real to show (render the notice,
@@ -107,27 +100,6 @@
         {:else}
           <span class="self-funded-value">none this {periodWord}</span>
         {/if}
-      </div>
-    {/if}
-    {#if demand}
-      <!-- Issue #266. FLUX revenue moves with the token price, because apps are priced in
-           USD. This separates the two: what customers actually paid in USD, and what the
-           average FLUX cost them. -->
-      <div class="demand-line" title="USD: what was actually paid, at the price on the day of each payment. Price: the average USD paid per FLUX. A FLUX change with a flat USD line is the token price, not demand.">
-        <span class="self-funded-label">vs last {periodWord}</span>
-        <span class="demand-value" class:up={demand.usdChange > 0} class:down={demand.usdChange < 0}>
-          USD {demand.usdChange > 0 ? '+' : ''}{demand.usdChange.toFixed(1)}%
-        </span>
-        <span class="self-funded-sep">·</span>
-        <span class="demand-price">FLUX price {demand.priceChange > 0 ? '+' : ''}{demand.priceChange.toFixed(1)}%</span>
-      </div>
-    {/if}
-    {#if runRate}
-      <div class="demand-line" title="Every payment spread evenly over the days it paid for, as a monthly figure. Prepaid: paid but not yet used up. Payments with no known term (about 4%) are left out.">
-        <span class="self-funded-label">Run-rate</span>
-        <span class="demand-value">${formatCount(runRate.mrrUsd)}/mo</span>
-        <span class="self-funded-sep">·</span>
-        <span class="demand-price">${formatCount(runRate.deferredUsd)} prepaid</span>
       </div>
     {/if}
     {#if staleSince}
@@ -326,32 +298,10 @@
     border-top-color: var(--border-color);
   }
 
-  .demand-line {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-    margin-top: var(--spacing-xs);
-    font-size: 0.7rem;
-    color: var(--text-muted);
-  }
 
-  .demand-value {
-    color: var(--text-white);
-    font-weight: 600;
-  }
 
-  .demand-value.up {
-    color: var(--accent-green);
-  }
 
-  .demand-value.down {
-    color: var(--accent-red);
-  }
 
-  .demand-price {
-    color: var(--text-dim);
-  }
 
   .self-funded.none .self-funded-label {
     color: var(--text-muted);

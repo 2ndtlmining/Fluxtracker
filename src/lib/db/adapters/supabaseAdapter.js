@@ -1112,18 +1112,6 @@ export async function getDailyRevenueMixInRange(startDate, endDate) {
     return data;
 }
 
-// Run-rate (issue #263, migration 021): each payment's USD spread over the days it bought.
-export async function getDailyRunRateInRange(startDate, endDate) {
-    let data;
-    try {
-        data = await pagedRpc('get_daily_run_rate', { p_start: startDate, p_end: endDate });
-    } catch (error) {
-        log.error(`getDailyRunRateInRange error: ${error.message}`);
-        throw new Error(`getDailyRunRateInRange failed: ${error.message}`);
-    }
-    return data;
-}
-
 // App retention cohorts (issue #264, migration 022): per registration month, how many app
 // lives started and how many were still paid for 30/90/180 days later.
 export async function getAppCohorts(startDate, endDate, today) {

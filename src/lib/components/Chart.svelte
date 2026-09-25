@@ -113,11 +113,7 @@
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
         { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
         { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
-        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true },
-        // Issue #263: each payment spread over the days it bought (migration 021). Levels,
-        // not flows -- weekly/monthly views average them instead of summing.
-        { id: 'run_rate_usd', label: 'Run-rate (MRR, $)', field: 'mrr_usd', format: 'usd', runRate: true, level: true },
-        { id: 'deferred_usd', label: 'Prepaid, not yet used ($)', field: 'deferred_usd', format: 'usd', runRate: true, level: true }
+        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
       ]
     },
     nodes: {
@@ -176,22 +172,24 @@
       label: 'Applications',
       color: 'rgb(255, 100, 255)',
       metrics: [
-        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number' },
-        { id: 'apps_deployed_today', label: 'New/Updated Today', field: 'apps_deployed_today', format: 'number' },
-        { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number' },
+        { id: 'total_apps', label: 'Total Applications', field: 'total_apps', format: 'number', group: 'Daily' },
+        { id: 'apps_deployed_today', label: 'New/Updated Today', field: 'apps_deployed_today', format: 'number', group: 'Daily' },
+        { id: 'apps_expiring_today', label: 'Expiring Today', field: 'apps_expiring_today', format: 'number', group: 'Daily' },
         // Issue #209. dropNulls for the same reason as unique_wallets: every snapshot
         // predating this feature stores NULL, and plotting those as 0 would draw a
         // network with no app operators rather than a gap in the record.
-        { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true },
+        { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true, group: 'Daily' },
         // Issue #264: retention cohorts, by the month an app was registered (migration 022).
         // Survival counts only apps old enough to know, so a young cohort shows a gap (null,
-        // dropped) rather than 0%. Monthly only -- a cohort is a calendar month.
-        { id: 'cohort_new_apps', label: 'New apps registered (per month)', field: 'new_apps', format: 'number', aggregateAsSum: true, monthlyOnly: true, source: 'cohorts' },
-        { id: 'cohort_survival_30', label: 'Still paid after 30 days (% of new apps)', field: 'survival_30_percent', format: 'percent', ratioFields: { numerator: 'survived_30', denominator: 'eligible_30' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
-        { id: 'cohort_survival_90', label: 'Still paid after 90 days (% of new apps)', field: 'survival_90_percent', format: 'percent', ratioFields: { numerator: 'survived_90', denominator: 'eligible_90' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
-        { id: 'cohort_survival_180', label: 'Still paid after 180 days (% of new apps)', field: 'survival_180_percent', format: 'percent', ratioFields: { numerator: 'survived_180', denominator: 'eligible_180' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
-        { id: 'cohort_paid_again', label: 'Paid again (% of new apps)', field: 'paid_again_percent', format: 'percent', ratioFields: { numerator: 'paid_again', denominator: 'new_apps' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
-        { id: 'cohort_still_active', label: 'Still active today (% of new apps)', field: 'still_active_percent', format: 'percent', ratioFields: { numerator: 'still_active', denominator: 'new_apps' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' }
+        // dropped) rather than 0%. Monthly only -- a cohort is a calendar month. The owner's
+        // review (2026-09-25) cut 30/180-day survival, "paid again" and "still active today":
+        // 30 days measured plan length (a 1-month plan survives it automatically), and the
+        // others were confounded by cohort age or too sparse to read.
+        { id: 'cohort_new_apps', label: 'New apps registered (per month)', field: 'new_apps', format: 'number', aggregateAsSum: true, monthlyOnly: true, source: 'cohorts', group: 'By month registered',
+          description: 'Apps registered for the first time each month. A name reused after it expired counts again.' },
+        { id: 'cohort_survival_90', label: 'Still running after 3 months (%)', field: 'survival_90_percent', format: 'percent', ratioFields: { numerator: 'survived_90', denominator: 'eligible_90' }, dropNulls: true, monthlyOnly: true, source: 'cohorts', group: 'By month registered',
+          description: 'Of the apps registered each month, the share still paid for 3 months later. Months less than 3 months ago are not shown yet.',
+          emptyMessage: 'No month in this period is 3 months old yet. Choose a longer period (6 months or more).' }
       ]
     },
     decentralization: {
@@ -227,36 +225,32 @@
       label: 'Revenue Sources',
       color: 'rgb(255, 215, 0)',
       metrics: [
-        { id: 'organic_usd', label: 'Organic ($)', field: 'organic_usd', format: 'usd', aggregateAsSum: true },
-        { id: 'organic_flux', label: 'Organic (FLUX)', field: 'organic_flux', format: 'flux', aggregateAsSum: true },
-        { id: 'organic_percent', label: 'Organic (% of Revenue)', field: 'organic_percent', format: 'percent', ratioFields: { numerator: 'organic_flux', denominator: 'total_flux' } },
-        { id: 'fiat_usd', label: 'Fiat on-ramp ($)', field: 'fiat_usd', format: 'usd', aggregateAsSum: true },
-        { id: 'fiat_flux', label: 'Fiat on-ramp (FLUX)', field: 'fiat_flux', format: 'flux', aggregateAsSum: true },
-        { id: 'fiat_percent', label: 'Fiat on-ramp (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' } },
-        { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true },
-        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true },
-        // Issue #267: organic paying wallets (team and fiat gateway excluded). Counted per
-        // calendar month -- distinct wallets cannot be summed from daily counts -- so these
-        // force the Monthly view. "New" = the wallet's first payment ever was that month.
-        { id: 'payers_total', label: 'Paying wallets (organic, per month)', field: 'payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
-        { id: 'payers_new', label: 'New paying wallets (per month)', field: 'new_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
-        { id: 'payers_returning', label: 'Returning paying wallets (per month)', field: 'returning_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true },
-        // Weekly/monthly must sum team_funded_flux and total_flux separately and divide
-        // afterwards, not average the daily percentages -- see the fetchAllData comment on
-        // total_flux and the aggregateByWeek/aggregateByMonth ratioFields handling.
-        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' } },
-        // Issue #262: what the payment bought, from its permanent message (migration 019).
-        // New apps = registrations; Renewals & updates = everything that extended or changed
-        // an existing app. Shares are of total FLUX; the ~3% of payments never matched to a
-        // message sit in the total only, so New + Renewals is a little under 100%.
-        { id: 'mix_new_usd', label: 'New apps ($)', field: 'new_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
-        { id: 'mix_new_percent', label: 'New apps (% of Revenue)', field: 'mix_new_percent', format: 'percent', ratioFields: { numerator: 'new_flux', denominator: 'total_flux' }, needsMix: true },
-        { id: 'mix_update_usd', label: 'Renewals & updates ($)', field: 'update_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
-        { id: 'mix_update_percent', label: 'Renewals & updates (% of Revenue)', field: 'mix_update_percent', format: 'percent', ratioFields: { numerator: 'update_flux', denominator: 'total_flux' }, needsMix: true },
-        { id: 'mix_enterprise_usd', label: 'Enterprise ($)', field: 'enterprise_usd', format: 'usd', aggregateAsSum: true, needsMix: true },
-        { id: 'mix_enterprise_percent', label: 'Enterprise (% of Revenue)', field: 'mix_enterprise_percent', format: 'percent', ratioFields: { numerator: 'enterprise_flux', denominator: 'total_flux' }, needsMix: true },
-        // Days bought per payment; weekly/monthly divide summed days by summed payments.
-        { id: 'mix_commitment_days', label: 'Average commitment (days per payment)', field: 'mix_commitment_days', format: 'number', ratioFields: { numerator: 'commitment_days_sum', denominator: 'commitment_payments', scale: 1 }, needsMix: true }
+        // Who paid (issue #261): organic is the remainder, so the three add up to total revenue.
+        // Percentages are shares of total FLUX. Weekly/monthly % views sum numerator and
+        // denominator separately and divide afterwards (ratioFields), never average daily %.
+        { id: 'organic_usd', label: 'Organic ($)', field: 'organic_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
+        { id: 'organic_flux', label: 'Organic (FLUX)', field: 'organic_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
+        { id: 'organic_percent', label: 'Organic (% of Revenue)', field: 'organic_percent', format: 'percent', ratioFields: { numerator: 'organic_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by ordinary customer wallets -- everyone except the Flux team and the fiat on-ramp.' },
+        { id: 'fiat_usd', label: 'Fiat on-ramp ($)', field: 'fiat_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
+        { id: 'fiat_flux', label: 'Fiat on-ramp (FLUX)', field: 'fiat_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
+        { id: 'fiat_percent', label: 'Fiat on-ramp (% of Revenue)', field: 'fiat_percent', format: 'percent', ratioFields: { numerator: 'fiat_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid through the fiat on-ramp, which buys FLUX for customers paying by card.' },
+        { id: 'team_funded_usd', label: 'Team Funded ($)', field: 'team_funded_usd', format: 'usd', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        { id: 'team_funded_flux', label: 'Team Funded (FLUX)', field: 'team_funded_flux', format: 'flux', aggregateAsSum: true, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        { id: 'team_funded_percent', label: 'Team Funded (% of Revenue)', field: 'team_funded_percent', format: 'percent', ratioFields: { numerator: 'team_funded_flux', denominator: 'total_flux' }, group: 'Who paid', description: 'Paid by Flux team addresses. Already included in total revenue, never subtracted.' },
+        // What was bought (issue #262), from each payment's permanent message (migration 019).
+        // The ~3% of payments never matched to a message sit in the total only.
+        { id: 'mix_new_usd', label: 'New deployments ($)', field: 'new_usd', format: 'usd', aggregateAsSum: true, needsMix: true, group: 'What was bought', description: 'Payments that registered a brand-new app.' },
+        { id: 'mix_new_percent', label: 'New deployments (% of Revenue)', field: 'mix_new_percent', format: 'percent', ratioFields: { numerator: 'new_flux', denominator: 'total_flux' }, needsMix: true, group: 'What was bought', description: 'Payments that registered a brand-new app. Share of revenue that day; about 3% of payments cannot be classified, so the shares add up to just under 100%.' },
+        { id: 'mix_update_usd', label: 'Renewals & updates ($)', field: 'update_usd', format: 'usd', aggregateAsSum: true, needsMix: true, group: 'What was bought', description: 'Payments that renewed or changed an app that was already running.' },
+        { id: 'mix_update_percent', label: 'Renewals & updates (% of Revenue)', field: 'mix_update_percent', format: 'percent', ratioFields: { numerator: 'update_flux', denominator: 'total_flux' }, needsMix: true, group: 'What was bought', description: 'Payments that renewed or changed an app that was already running. Share of revenue that day; about 3% of payments cannot be classified, so the shares add up to just under 100%.' },
+        { id: 'mix_enterprise_usd', label: 'Private (enterprise) apps ($)', field: 'enterprise_usd', format: 'usd', aggregateAsSum: true, needsMix: true, group: 'What was bought', description: 'Payments for private (enterprise) apps, whose specs are encrypted.' },
+        { id: 'mix_enterprise_percent', label: 'Private (enterprise) apps (% of Revenue)', field: 'mix_enterprise_percent', format: 'percent', ratioFields: { numerator: 'enterprise_flux', denominator: 'total_flux' }, needsMix: true, group: 'What was bought', description: 'Payments for private (enterprise) apps, whose specs are encrypted. Share of revenue that day.' },
+        // Paying customers (issue #267): distinct wallets, team and fiat on-ramp excluded.
+        // Counted per calendar month -- distinct wallets cannot be summed from daily counts --
+        // so these force the Monthly view.
+        { id: 'payers_total', label: 'Paying customers (per month)', field: 'payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Distinct wallets that paid for apps that month, not counting the Flux team or the fiat on-ramp.' },
+        { id: 'payers_new', label: 'New paying customers (per month)', field: 'new_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Wallets whose first-ever payment was that month.' },
+        { id: 'payers_returning', label: 'Returning paying customers (per month)', field: 'returning_payers', format: 'number', aggregateAsSum: true, monthlyOnly: true, group: 'Paying customers', description: 'Wallets that paid that month and had paid before.' }
       ]
     }
   };
@@ -317,7 +311,6 @@
   // chart says so instead of plotting a row of zeros.
   let payersAvailable = null;
   let cohortsAvailable = null; // the same, for retention cohorts and migration 022 (#264)
-  let runRateAvailable = null; // the same, for run-rate and migration 021 (#263)
   let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
   $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
@@ -325,19 +318,26 @@
     ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
     : currentMetric?.needsMix && mixAvailable === false
       ? 'Revenue mix data is not available yet (database migration 020 not applied)'
-      : currentMetric?.runRate && runRateAvailable === false
-        ? 'Run-rate data is not available yet (database migration 021 not applied)'
-        : currentMetric?.source === 'cohorts' && cohortsAvailable === false
-          ? 'Retention data is not available yet (database migration 022 not applied)'
-          : null;
+      : currentMetric?.source === 'cohorts' && cohortsAvailable === false
+        ? 'Retention data is not available yet (database migration 022 not applied)'
+        : null;
 
   // True when this metric's data needs a migration the database does not have yet.
   function awaitingMigration(metric) {
     return (metric?.monthlyOnly && !metric.source && payersAvailable === false)
       || (metric?.needsMix && mixAvailable === false)
-      || (metric?.runRate && runRateAvailable === false)
       || (metric?.source === 'cohorts' && cohortsAvailable === false);
   }
+
+  // The metric dropdown in groups (<optgroup>), in order of first appearance. Metrics with no
+  // group render as plain options, so categories that never set one look as before.
+  $: metricGroups = availableMetrics.reduce((groups, metric) => {
+    const name = metric.group ?? null;
+    let group = groups.find(g => g.name === name);
+    if (!group) groups.push(group = { name, metrics: [] });
+    group.metrics.push(metric);
+    return groups;
+  }, []);
 
   $: isProjection = selectedMetric === PROJECTION_METRIC;
   $: displayTitle = isProjection ? 'Utilization Projection' : title;
@@ -368,11 +368,11 @@
 
   // When metric changes, check if we need to re-fetch (FLUX vs USD uses different endpoints)
   let lastMetric = selectedMetric;
-  // A revenue metric that came back empty (run-rate before migration 021) still has to be
+  // A metric that came back empty (cohorts before migration 022) still has to be
   // able to switch away -- otherwise the next metric draws whatever chartData was left over.
   const metricSource = id => {
     const metric = Object.values(categories).flatMap(c => c.metrics).find(m => m.id === id);
-    return metric?.runRate ? 'runRate' : (metric?.source ?? null);
+    return metric?.source ?? null;
   };
   $: if (selectedMetric !== lastMetric && (allSnapshots.length > 0 || (metricSource(lastMetric) && !loading))) {
     // Check if switching between FLUX and USD revenue (requires re-fetch)
@@ -380,7 +380,7 @@
     const usdMetrics = ['daily_revenue_usd', 'cumulative_revenue_usd'];
     const wasUSD = usdMetrics.includes(lastMetric);
     const isNowUSD = usdMetrics.includes(selectedMetric);
-    // Run-rate and cohort metrics have their own endpoints: switching into or out of one
+    // Cohort metrics have their own endpoint: switching into or out of one
     // re-fetches, whatever the category.
     const needsRefetch = (selectedCategory === 'revenue' && wasUSD !== isNowUSD)
       || metricSource(lastMetric) !== metricSource(selectedMetric);
@@ -497,22 +497,6 @@
         const metric = availableMetrics.find(m => m.id === selectedMetric);
         const isUSD = metric && (metric.id === 'daily_revenue_usd' || metric.id === 'cumulative_revenue_usd');
 
-        if (metric?.runRate) {
-          // Run-rate (#263) has its own endpoint; available:false = migration 021 missing.
-          const endDateStr = new Date().toISOString().split('T')[0];
-          const start = new Date();
-          start.setDate(start.getDate() - (limitParam - 1));
-          const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
-          const response = await fetch(`${API_URL}/api/history/revenue/run-rate/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
-          if (!response.ok) throw new Error(`API error: ${response.status}`);
-          const result = await response.json();
-          runRateAvailable = result.available !== false;
-          allSnapshots = result.data || [];
-          if (runRateAvailable && allSnapshots.length === 0) throw new Error('No historical data available');
-          processChartData();
-          loading = false;
-          return;
-        }
 
         const endpoint = isUSD
           ? `${API_URL}/api/history/revenue/daily-usd?limit=${limitParam}`
@@ -810,7 +794,7 @@
     if (rows.length === 0) {
       chartData = { labels: [], data: [], rawDates: [] };
       if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
-      error = `No data recorded for ${metric.label} in this period`;
+      error = metric.emptyMessage ?? `No data recorded for ${metric.label} in this period`;
       return;
     }
     error = null;
@@ -1421,7 +1405,7 @@
       <h3 class="chart-title">{displayTitle}</h3>
       {#if !loading && !error}
         <span class="chart-subtitle">
-          {isProjection ? projectionSummary : availableMetrics.find(m => m.id === selectedMetric)?.label || ''}
+          {isProjection ? projectionSummary : (currentMetric?.description ?? currentMetric?.label ?? '')}
         </span>
       {/if}
     </div>
@@ -1525,8 +1509,18 @@
             on:change={handleMetricChange}
             class="chart-select"
           >
-            {#each availableMetrics as metric}
-              <option value={metric.id}>{metric.label}</option>
+            {#each metricGroups as group}
+              {#if group.name}
+                <optgroup label={group.name}>
+                  {#each group.metrics as metric}
+                    <option value={metric.id}>{metric.label}</option>
+                  {/each}
+                </optgroup>
+              {:else}
+                {#each group.metrics as metric}
+                  <option value={metric.id}>{metric.label}</option>
+                {/each}
+              {/if}
             {/each}
           </select>
         </div>

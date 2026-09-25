@@ -7,8 +7,6 @@ import {
     getRevenueForDateRange,
     getPaymentCountForDateRange,
     getRevenueFromAddressesForDateRange,
-    getDailyRevenueUSDInRange,
-    getDailyRunRateInRange,
     getTxidCount,
     getTransactionsByDate,
     getTransactionsPaginated
@@ -16,8 +14,6 @@ import {
 
 import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { getToDateRanges, TIMEFRAMES } from '../../lib/kpi/periods.js';
-import { computeDemandSplit, sumUsd } from '../../lib/utils/revenueSources.js';
-import { shapeRunRateRows } from '../../lib/utils/runRate.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 
@@ -28,19 +24,6 @@ const router = express.Router();
 // five periods on load and again on DASHBOARD_REFRESH_MS. 60s is under that interval, so
 // a burst of viewers shares one set of reads without the numbers visibly lagging.
 const periodCache = createCache(60_000);
-
-// #263: today's run-rate for the Revenue card. The same for every period, so it is read once
-// per cache window, and it never fails the card: null before migration 021, or on any error.
-async function readRunRateToday() {
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-        const [row] = shapeRunRateRows(await getDailyRunRateInRange(today, today));
-        return row ? { mrrUsd: row.mrr_usd, deferredUsd: row.deferred_usd } : null;
-    } catch (error) {
-        log.warn(`run-rate unavailable: ${error.message}`);
-        return null;
-    }
-}
 
 // Largest page /api/transactions/paginated will serve. The CSV export pages at this size.
 //
@@ -123,10 +106,7 @@ router.get('/revenue/:period', async (req, res) => {
             currentPayments,
             previousRevenue,
             previousPayments,
-            selfFunded,
-            currentUsdRows,
-            previousUsdRows,
-            runRate
+            selfFunded
         ] = await Promise.all([
             getCurrentMetrics(),
             getRevenueForDateRange(currentStart, currentEnd),
@@ -135,12 +115,7 @@ router.get('/revenue/:period', async (req, res) => {
             getPaymentCountForDateRange(previousStart, previousEnd),
             // Self-funded share: revenue paid by Flux team addresses. Reported alongside
             // the headline total, never subtracted from it -- the total stays primary.
-            getRevenueFromAddressesForDateRange(currentStart, currentEnd, FLUX_TEAM_ADDRESSES),
-            // #266: what was actually paid in USD at the time, both periods -- the demand
-            // signal the FLUX change hides whenever the token price moves.
-            getDailyRevenueUSDInRange(currentStart, currentEnd),
-            getDailyRevenueUSDInRange(previousStart, previousEnd),
-            readRunRateToday()
+            getRevenueFromAddressesForDateRange(currentStart, currentEnd, FLUX_TEAM_ADDRESSES)
         ]);
 
         const fluxPrice = currentMetrics?.flux_price_usd || 0;
@@ -190,16 +165,6 @@ router.get('/revenue/:period', async (req, res) => {
                 change: changePercent,
                 trend: trend
             },
-            // #266: the FLUX change split into demand (USD at the time of payment) and price
-            // (average USD paid per FLUX). Null when either period has nothing to compare.
-            demand: computeDemandSplit({
-                fluxCurrent: currentRevenue,
-                fluxPrevious: previousRevenue,
-                usdCurrent: sumUsd(currentUsdRows),
-                usdPrevious: sumUsd(previousUsdRows)
-            }),
-            // #263: amortised monthly revenue and prepaid-but-unconsumed, as of today.
-            runRate,
             selfFunded: {
                 flux: selfFunded.revenue,
                 usd: selfFunded.revenue * fluxPrice,
