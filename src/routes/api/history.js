@@ -14,6 +14,7 @@ import {
     getMonthlyPayerStats,
     getDailyRevenueMixInRange,
     getDailyRunRateInRange,
+    getAppCohorts,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -25,6 +26,7 @@ import {
 import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
 import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { shapeRunRateRows } from '../../lib/utils/runRate.js';
+import { shapeCohortRows } from '../../lib/utils/appCohorts.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
@@ -193,6 +195,30 @@ router.get('/revenue/run-rate/daily', async (req, res) => {
         } catch (error) {
             if (isMissingFunctionError(error, 'get_daily_run_rate')) {
                 return { available: false, reason: 'Apply supabase/migrations/021_run_rate.sql', data: [] };
+            }
+            throw error;
+        }
+    });
+});
+
+// App retention cohorts (issue #264): per registration month, how many apps started and how
+// many were still paid for 30/90/180 days later. available:false until migration 022.
+router.get('/apps/cohorts', async (req, res) => {
+    const { start_date, end_date } = req.query;
+    if (!start_date || !end_date) {
+        return res.status(400).json({ error: 'start_date and end_date query parameters are required' });
+    }
+    if (parseRangeQuery(req.query).error) {
+        return res.status(400).json({ error: 'start_date and end_date must be YYYY-MM-DD' });
+    }
+    const today = new Date().toISOString().slice(0, 10);
+
+    return withDbFallback(revenueCache, `cohorts:${start_date}:${end_date}:${today}`, res, async () => {
+        try {
+            return { available: true, data: shapeCohortRows(await getAppCohorts(start_date, end_date, today)) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_app_cohorts')) {
+                return { available: false, reason: 'Apply supabase/migrations/022_app_cohorts.sql', data: [] };
             }
             throw error;
         }

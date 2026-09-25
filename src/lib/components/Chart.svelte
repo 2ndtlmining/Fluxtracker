@@ -182,7 +182,16 @@
         // Issue #209. dropNulls for the same reason as unique_wallets: every snapshot
         // predating this feature stores NULL, and plotting those as 0 would draw a
         // network with no app operators rather than a gap in the record.
-        { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true }
+        { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true },
+        // Issue #264: retention cohorts, by the month an app was registered (migration 022).
+        // Survival counts only apps old enough to know, so a young cohort shows a gap (null,
+        // dropped) rather than 0%. Monthly only -- a cohort is a calendar month.
+        { id: 'cohort_new_apps', label: 'New apps registered (per month)', field: 'new_apps', format: 'number', aggregateAsSum: true, monthlyOnly: true, source: 'cohorts' },
+        { id: 'cohort_survival_30', label: 'Still paid after 30 days (% of new apps)', field: 'survival_30_percent', format: 'percent', ratioFields: { numerator: 'survived_30', denominator: 'eligible_30' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
+        { id: 'cohort_survival_90', label: 'Still paid after 90 days (% of new apps)', field: 'survival_90_percent', format: 'percent', ratioFields: { numerator: 'survived_90', denominator: 'eligible_90' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
+        { id: 'cohort_survival_180', label: 'Still paid after 180 days (% of new apps)', field: 'survival_180_percent', format: 'percent', ratioFields: { numerator: 'survived_180', denominator: 'eligible_180' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
+        { id: 'cohort_paid_again', label: 'Paid again (% of new apps)', field: 'paid_again_percent', format: 'percent', ratioFields: { numerator: 'paid_again', denominator: 'new_apps' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' },
+        { id: 'cohort_still_active', label: 'Still active today (% of new apps)', field: 'still_active_percent', format: 'percent', ratioFields: { numerator: 'still_active', denominator: 'new_apps' }, dropNulls: true, monthlyOnly: true, source: 'cohorts' }
       ]
     },
     decentralization: {
@@ -307,17 +316,28 @@
   // Monthly. payersAvailable is false when the database lacks migration 018 -- then the
   // chart says so instead of plotting a row of zeros.
   let payersAvailable = null;
+  let cohortsAvailable = null; // the same, for retention cohorts and migration 022 (#264)
   let runRateAvailable = null; // the same, for run-rate and migration 021 (#263)
   let mixAvailable = null; // the same, for the revenue-mix metrics and migration 020 (#262)
   $: currentMetric = availableMetrics.find(m => m.id === selectedMetric);
   $: if (currentMetric?.monthlyOnly && selectedAggregation !== 'monthly') selectedAggregation = 'monthly';
-  $: payerError = currentMetric?.monthlyOnly && payersAvailable === false
+  $: payerError = currentMetric?.monthlyOnly && !currentMetric.source && payersAvailable === false
     ? 'Paying-wallet data is not available yet (database migration 018 not applied)'
     : currentMetric?.needsMix && mixAvailable === false
       ? 'Revenue mix data is not available yet (database migration 020 not applied)'
       : currentMetric?.runRate && runRateAvailable === false
         ? 'Run-rate data is not available yet (database migration 021 not applied)'
-        : null;
+        : currentMetric?.source === 'cohorts' && cohortsAvailable === false
+          ? 'Retention data is not available yet (database migration 022 not applied)'
+          : null;
+
+  // True when this metric's data needs a migration the database does not have yet.
+  function awaitingMigration(metric) {
+    return (metric?.monthlyOnly && !metric.source && payersAvailable === false)
+      || (metric?.needsMix && mixAvailable === false)
+      || (metric?.runRate && runRateAvailable === false)
+      || (metric?.source === 'cohorts' && cohortsAvailable === false);
+  }
 
   $: isProjection = selectedMetric === PROJECTION_METRIC;
   $: displayTitle = isProjection ? 'Utilization Projection' : title;
@@ -350,15 +370,20 @@
   let lastMetric = selectedMetric;
   // A revenue metric that came back empty (run-rate before migration 021) still has to be
   // able to switch away -- otherwise the next metric draws whatever chartData was left over.
-  $: if (selectedMetric !== lastMetric && (allSnapshots.length > 0 || (selectedCategory === 'revenue' && !loading))) {
+  const metricSource = id => {
+    const metric = Object.values(categories).flatMap(c => c.metrics).find(m => m.id === id);
+    return metric?.runRate ? 'runRate' : (metric?.source ?? null);
+  };
+  $: if (selectedMetric !== lastMetric && (allSnapshots.length > 0 || (metricSource(lastMetric) && !loading))) {
     // Check if switching between FLUX and USD revenue (requires re-fetch)
     const fluxMetrics = ['daily_revenue', 'cumulative_revenue'];
     const usdMetrics = ['daily_revenue_usd', 'cumulative_revenue_usd'];
     const wasUSD = usdMetrics.includes(lastMetric);
     const isNowUSD = usdMetrics.includes(selectedMetric);
-    const runRateIds = ['run_rate_usd', 'deferred_usd'];
-    const needsRefetch = selectedCategory === 'revenue'
-      && (wasUSD !== isNowUSD || runRateIds.includes(lastMetric) !== runRateIds.includes(selectedMetric));
+    // Run-rate and cohort metrics have their own endpoints: switching into or out of one
+    // re-fetches, whatever the category.
+    const needsRefetch = (selectedCategory === 'revenue' && wasUSD !== isNowUSD)
+      || metricSource(lastMetric) !== metricSource(selectedMetric);
 
     if (needsRefetch) {
       console.log(`🔄 Re-fetching data for metric: ${selectedMetric}`);
@@ -638,6 +663,23 @@
           if (!byDate.has(month)) byDate.set(month, target);
         }
         allSnapshots = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+      } else if (availableMetrics.find(m => m.id === selectedMetric)?.source === 'cohorts') {
+        // Retention cohorts (#264): one row per registration month from their own endpoint.
+        const endDateStr = new Date().toISOString().split('T')[0];
+        const start = new Date();
+        start.setDate(start.getDate() - (limitParam - 1));
+        const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
+        const response = await fetch(`${API_URL}/api/history/apps/cohorts?start_date=${startDateStr}&end_date=${endDateStr}`);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const result = await response.json();
+        cohortsAvailable = result.available !== false;
+        allSnapshots = result.data || [];
+        if (!cohortsAvailable) {
+          chartData = { labels: [], data: [], rawDates: [] };
+          error = null;
+          loading = false;
+          return;
+        }
       } else {
         // For other categories, use snapshot data -- from the cache when this timeframe's
         // rows are already here (issue #303).
@@ -732,6 +774,15 @@
     const metric = availableMetrics.find(m => m.id === selectedMetric);
     if (!metric) {
       console.error('❌ Invalid metric');
+      return;
+    }
+
+    // A metric whose migration is not applied has nothing to plot, and the "not applied"
+    // notice (payerError) explains why. Processing leftover rows here would instead raise a
+    // "No data recorded" error, which outranks that notice and names the wrong metric.
+    if (awaitingMigration(metric)) {
+      chartData = { labels: [], data: [], rawDates: [] };
+      error = null;
       return;
     }
 
