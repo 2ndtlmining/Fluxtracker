@@ -2,6 +2,7 @@
   import { pollWhileVisible } from '$lib/utils/pollWhileVisible.js';
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
+  import { formatBlocksLeft } from '$lib/utils/format.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { TrendingUp, Package, Hourglass, TriangleAlert, Pause, Play } from 'lucide-svelte';
@@ -145,14 +146,9 @@
     return new Intl.NumberFormat('en-US').format(num);
   }
 
-  function formatBlocksAsTime(blocks) {
-    const totalMinutes = Math.round(blocks * 30 / 60);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    if (hours === 0) return `${minutes}m`;
-    if (minutes === 0) return `${hours}h`;
-    return `${hours}h ${minutes}m`;
-  }
+  // Days, months or years once past a day -- a fresh deployment's week read as "167h 59m";
+  // hours and minutes only where they matter, under a day (the Expiring Soon tab).
+  const formatBlocksAsTime = formatBlocksLeft;
 </script>
 
 <div class="carousel-container">
