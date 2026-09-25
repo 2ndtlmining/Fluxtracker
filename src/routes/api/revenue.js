@@ -165,6 +165,9 @@ router.get('/revenue/:period', async (req, res) => {
                 change: changePercent,
                 trend: trend
             },
+            // Median days left on running apps (owner request, 2026-09-26): how far ahead
+            // customers have paid. The same for every period; null before migration 023.
+            medianDaysLeft: currentMetrics?.median_days_left ?? null,
             selfFunded: {
                 flux: selfFunded.revenue,
                 usd: selfFunded.revenue * fluxPrice,

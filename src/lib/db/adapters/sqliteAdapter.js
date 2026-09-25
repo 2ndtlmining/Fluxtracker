@@ -103,6 +103,8 @@ function createSchema() {
             -- Issue #209. No DEFAULT, same reasoning: a 0 would mean "nobody ran an app
             -- that day", not "no reading taken".
             unique_app_owners INTEGER,
+            -- Median days left on running apps (migration 023). No DEFAULT, same reasoning.
+            median_days_left REAL,
             -- Issue #210. No DEFAULT: absent must read back NULL, never a 0 that
             -- would mean "no collateral was locked that day".
             locked_collateral_cumulus REAL,
@@ -214,6 +216,7 @@ function createSchema() {
             node_total INTEGER DEFAULT 0,
             unique_wallets INTEGER,
             unique_app_owners INTEGER,
+            median_days_left REAL,
             locked_collateral_cumulus REAL,
             locked_collateral_nimbus REAL,
             locked_collateral_stratus REAL,
@@ -546,6 +549,9 @@ export async function createDailySnapshot(snapshot) {
         node_total: snapshot.node_total ?? null,
         unique_wallets: snapshot.unique_wallets ?? null,
         unique_app_owners: snapshot.unique_app_owners ?? null,
+        // Always written here: SQLite's schema and schemaMigrator both create the column.
+        // (The Supabase twin writes it only with a value -- see migration 023.)
+        median_days_left: snapshot.median_days_left ?? null,
         locked_collateral_cumulus: snapshot.locked_collateral_cumulus ?? null,
         locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,

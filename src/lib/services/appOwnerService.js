@@ -1,6 +1,7 @@
 import { API_ENDPOINTS, APP_OWNER_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, getAllAppSpecs } from './appSpecsCache.js';
+import { medianDaysLeft } from '../utils/appTimeLeft.js';
 import { updateCurrentMetrics, updateSyncStatus } from '../db/database.js';
 import { createLogger } from '../logger.js';
 
@@ -76,6 +77,10 @@ export async function fetchUniqueAppOwners() {
         }
 
         const ownerData = { unique_app_owners: owners.size };
+        // Median days left on running apps -- the same specs and height, so the two figures
+        // always describe the same set of apps. Omitted (not 0) when nothing is readable.
+        const timeLeft = medianDaysLeft(specs, currentBlock);
+        if (timeLeft) ownerData.median_days_left = timeLeft.medianDays;
 
         await updateCurrentMetrics(ownerData);
         await updateSyncStatus('app-owners', 'completed');

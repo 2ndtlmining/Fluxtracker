@@ -282,6 +282,7 @@ export function buildSnapshotData({
         // layer would average in as a real reading.
         unique_wallets: currentMetrics.unique_wallets ?? null,
         unique_app_owners: currentMetrics.unique_app_owners ?? null,
+        median_days_left: currentMetrics.median_days_left ?? null,
         locked_collateral_cumulus: currentMetrics.locked_collateral_cumulus ?? null,
         locked_collateral_nimbus: currentMetrics.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: currentMetrics.locked_collateral_stratus ?? null,

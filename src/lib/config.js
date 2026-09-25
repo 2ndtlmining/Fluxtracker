@@ -522,6 +522,9 @@ const FIXED_METRIC_COLUMNS = [
     // their expiry block. Apps-per-owner is NOT stored -- it is total_apps / unique_app_owners,
     // derived at read time so the two can never drift apart.
     'unique_app_owners',
+    // Median days left on running apps (owner request, 2026-09-26). Computed in the same
+    // pass as unique_app_owners, over the same unexpired specs. See utils/appTimeLeft.js.
+    'median_days_left',
     // Issue #210. All four persisted: the total is what the graph headlines, the per-tier
     // values are what keep history honest if a collateral rate ever changes.
     'locked_collateral_cumulus', 'locked_collateral_nimbus', 'locked_collateral_stratus',
