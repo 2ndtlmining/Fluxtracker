@@ -25,6 +25,9 @@ let inFlight = null;
 // rather than making its own call to stats.runonflux.io, so the two features share one
 // hourly ~4MB fetch instead of two.
 let networkNodeIps = [];
+// Nodes per continent from the same fetch (issue #268): each node entry carries its own
+// geolocation, so these are NODE counts, unlike the de-duplicated IPs above.
+let networkNodeContinents = null;
 
 /**
  * The APP a running container belongs to (issue #190).
@@ -103,6 +106,16 @@ async function fetchBusiestNode() {
             .map(node => node?.geolocation?.ip || (node?.ip || '').split(':')[0] || null)
             .filter(Boolean)
     )];
+
+    const continentCounts = {};
+    let located = 0;
+    for (const node of nodes) {
+        const code = node?.geolocation?.continentCode;
+        if (!code) continue;
+        continentCounts[code] = (continentCounts[code] ?? 0) + 1;
+        located++;
+    }
+    networkNodeContinents = { counts: continentCounts, located, total: nodes.length };
 
     // Busiest by CONTAINER count, which is the node's actual workload: a compose app's five
     // components are five running containers competing for that node's CPU, RAM and disk, and
@@ -220,10 +233,16 @@ export function getCachedNetworkNodeIps() {
     return networkNodeIps;
 }
 
+/** Nodes per continent from the last fetch ({ counts, located, total }), or null. */
+export function getCachedNodeContinents() {
+    return networkNodeContinents;
+}
+
 /** Test hook — drops the cached result. */
 export function clearBusiestNodeCache() {
     cache = null;
     cacheFetchedAt = 0;
     inFlight = null;
     networkNodeIps = [];
+    networkNodeContinents = null;
 }

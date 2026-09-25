@@ -1,6 +1,7 @@
 <script>
   import { Globe, Info } from 'lucide-svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
+  import { getApiUrl } from '$lib/config.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
   //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
@@ -22,6 +23,36 @@
     return `${num.toFixed(1)}%`;
   }
 
+  // Demand vs supply (issue #268): a second view of this card, fetched the first time it is
+  // opened and again if it is reopened after 10 minutes (both inputs refresh hourly).
+  let view = 'datacenters';
+  let demand = null;          // /api/decentralization/demand response
+  let demandError = false;
+  let demandLoading = false;
+  let demandFetchedAt = 0;
+
+  // Highlighted when a continent's share of demand is at least 1.5x its share of nodes --
+  // and at least 1% of demand, so a 0.3% vs 0.2% difference is not called out.
+  const isUnderSupplied = c => c.demandPercent >= 1 && c.demandPercent >= 1.5 * c.nodePercent;
+
+  async function showView(next) {
+    view = next;
+    if (next !== 'demand' || demandLoading || Date.now() - demandFetchedAt < 10 * 60_000) return;
+    demandLoading = true;
+    try {
+      const response = await fetch(`${getApiUrl()}/api/decentralization/demand`);
+      const data = response.ok ? await response.json() : null;
+      demand = data?.available ? data : null;
+      demandError = !demand;
+      demandFetchedAt = demand ? Date.now() : 0;
+    } catch (err) {
+      console.error('Error fetching demand vs supply:', err);
+      demandError = true;
+    } finally {
+      demandLoading = false;
+    }
+  }
+
   // Coverage moved off the card and into the header's live IPs counter (issue #120) --
   // this tooltip is what's left to explain the number where a reader might expect it.
   $: coverageTooltip = hasData
@@ -34,9 +65,43 @@
   <div class="card-header">
     <div class="card-icon"><Globe size={24} strokeWidth={2} /></div>
     <div class="card-title">Decentralization</div>
+    {#if !loading}
+      <div class="view-switch" role="group" aria-label="Decentralization view">
+        <button type="button" class:active={view === 'datacenters'} aria-pressed={view === 'datacenters'} on:click={() => showView('datacenters')}>Datacenters</button>
+        <button type="button" class:active={view === 'demand'} aria-pressed={view === 'demand'} on:click={() => showView('demand')}>Demand</button>
+      </div>
+    {/if}
   </div>
 
-  {#if loading}
+  {#if !loading && view === 'demand'}
+    {#if demandLoading && !demand}
+      <div class="card-empty-state">Loading demand vs supply...</div>
+    {:else if demandError || !demand}
+      <div class="card-empty-state">Not available right now</div>
+    {:else}
+      <div class="datacenters-section">
+        <div class="section-label">Where apps want to run vs where nodes are</div>
+        <div class="demand-row demand-head">
+          <span class="datacenter-org">Continent</span>
+          <span class="demand-col">Apps</span>
+          <span class="demand-col">Nodes</span>
+        </div>
+        <div class="datacenters-list">
+          {#each demand.continents as c (c.code)}
+            <div class="demand-row" title="{c.name}: {c.demandPercent}% of region-locked app demand, {c.nodePercent}% of nodes ({formatNumber(c.nodes)})">
+              <span class="datacenter-org">{c.name}</span>
+              <span class="demand-col demand-value" class:under={isUnderSupplied(c)}>{formatPercent(c.demandPercent)}</span>
+              <span class="demand-col">{formatPercent(c.nodePercent)}</span>
+            </div>
+          {/each}
+        </div>
+        <div class="other-providers-note">
+          Apps: {formatNumber(demand.restrictedApps)} of {formatNumber(demand.runningApps)} running apps limit where they run.
+          <span class="under-key">Orange</span> = demand well above its share of nodes.
+        </div>
+      </div>
+    {/if}
+  {:else if loading}
     <div class="card-empty-state">Loading decentralization data...</div>
   {:else if error || !stats}
     <div class="card-empty-state">Not available right now</div>
@@ -115,6 +180,7 @@
   .card-header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap; /* the view switch drops to its own line on a narrow card (#268) */
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-md);
   }
@@ -315,6 +381,78 @@
     font-variant-numeric: tabular-nums;
     min-width: 3.2em;
     text-align: right;
+  }
+
+  /* Issue #268: the Datacenters / Demand switch. Small text buttons so the header keeps its
+     height; overrides app.css's global button fill and lift. */
+  .view-switch {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
+
+  .view-switch button {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .view-switch button:hover,
+  .view-switch button:focus-visible {
+    background: transparent;
+    color: var(--text-white);
+    border-color: var(--accent-cyan);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .view-switch button.active {
+    color: var(--text-primary);
+    border-color: var(--accent-cyan);
+  }
+
+  .demand-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .demand-head {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .demand-head .datacenter-org {
+    color: var(--text-muted);
+  }
+
+  .demand-col {
+    min-width: 3.6em;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+  }
+
+  .demand-value {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  .demand-value.under,
+  .under-key {
+    color: var(--accent-orange);
   }
 
   .other-providers-note {

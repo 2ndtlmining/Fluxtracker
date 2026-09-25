@@ -9,12 +9,16 @@ import {
     getDecentralizationContinentSnapshotHistory
 } from '../../lib/db/database.js';
 import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getCachedMissingDeployments, getFluxCloudActivity } from '../../lib/services/carouselService.js';
-import { getBusiestNode } from '../../lib/services/busiestNodeService.js';
+import { getBusiestNode, getCachedNodeContinents } from '../../lib/services/busiestNodeService.js';
+import { getSharedFluxApiData } from '../../lib/services/carouselService.js';
+import { continentDemand, demandVsSupply } from '../../lib/utils/geoDemand.js';
+import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { createLogger } from '../../lib/logger.js';
 
 const log = createLogger('server');
 const router = express.Router();
+const demandCache = createCache(10 * 60_000); // 10 min -- both inputs refresh hourly
 
 router.get('/carousel/stats', (req, res) => {
     try {
@@ -69,6 +73,34 @@ router.get('/decentralization', async (req, res) => {
             message: error.message
         });
     }
+});
+
+// Geographic demand vs supply (issue #268): where region-locked apps are allowed to run,
+// beside where the nodes are, per continent. Both inputs are already fetched and cached
+// (the app registry, the hourly node list), so this makes no upstream call of its own
+// beyond warming those caches. available:false when the node list has never loaded.
+router.get('/decentralization/demand', async (req, res) => {
+    return withDbFallback(demandCache, 'demand', res, async () => {
+        try {
+            await getBusiestNode();
+        } catch (error) {
+            log.warn('Node list unavailable for demand vs supply: %s', error.message);
+        }
+        const nodes = getCachedNodeContinents();
+        if (!nodes || nodes.located === 0) return { available: false };
+        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
+        const demand = continentDemand(appsData, currentBlockHeight);
+        return {
+            available: true,
+            continents: demandVsSupply(demand.instances, nodes.counts),
+            restrictedApps: demand.restrictedApps,
+            runningApps: demand.runningApps,
+            excludeOnlyApps: demand.excludeOnlyApps,
+            nodesLocated: nodes.located,
+            nodesTotal: nodes.total,
+            generatedAt: Date.now()
+        };
+    });
 });
 
 // Decentralization historical data (issue #108 Phase 3, country/continent added in #138)
