@@ -125,9 +125,9 @@ router.get('/revenue/team-funded/daily', async (req, res) => {
     });
 });
 
-// Revenue sources (issue #261): per day, total / team-funded / fiat on-ramp / organic, in
-// FLUX and in USD at the time of payment. Organic is the remainder, so the three always add
-// up to the total. Six existing range queries in parallel -- no new collection, and full
+// Revenue sources (issue #261, #373): per day, total / team-funded / fiat on-ramp / organic /
+// crypto, in FLUX and in USD at the time of payment. Two independent splits of the total:
+// organic + team (who paid) and fiat + crypto (how they paid) -- see mergeRevenueSources. Six existing range queries in parallel -- no new collection, and full
 // history is available because it is transaction-based.
 router.get('/revenue/sources/daily', async (req, res) => {
     const { start_date, end_date } = req.query;

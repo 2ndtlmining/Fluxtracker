@@ -11,10 +11,14 @@ describe('mergeRevenueSources (#261)', () => {
     fiatUsd: [{ date: '2026-09-02', daily_revenue_usd: 10 }]
   });
 
-  it('organic is the remainder, so the three sources always add up to the total', () => {
-    expect(rows[0]).toMatchObject({ date: '2026-09-01', team_flux: 600, fiat_flux: 0, organic_flux: 400, organic_usd: 20 });
-    expect(rows[1]).toMatchObject({ date: '2026-09-02', team_flux: 0, fiat_flux: 200, organic_flux: 300, organic_usd: 15 });
-    for (const r of rows) expect(r.team_flux + r.fiat_flux + r.organic_flux).toBe(r.total_flux);
+  it('splits who paid (organic + team) and how (fiat + FLUX) independently, each adding up to the total (#373)', () => {
+    expect(rows[0]).toMatchObject({ date: '2026-09-01', team_flux: 600, fiat_flux: 0, organic_flux: 400, crypto_flux: 1000 });
+    // A card payment is still an organic customer: fiat is a payment method, not a payer.
+    expect(rows[1]).toMatchObject({ date: '2026-09-02', team_flux: 0, fiat_flux: 200, organic_flux: 500, crypto_flux: 300 });
+    for (const r of rows) {
+      expect(r.organic_flux + r.team_flux).toBe(r.total_flux);
+      expect(r.crypto_flux + r.fiat_flux).toBe(r.total_flux);
+    }
   });
 
   it('keeps days with no team or fiat payments, in date order', () => {
