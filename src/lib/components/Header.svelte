@@ -1,4 +1,5 @@
 <script>
+  import { formatBytes } from '$lib/utils/format.js';
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
   import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
@@ -9,6 +10,7 @@
 
   // Network stats
   let fluxPrice = null;
+  let dbSizeBytes = null; // database size, shown right of the price; null = not shown
   let blockHeight = null;
   let totalNodes = 0;
   let totalApps = 0;
@@ -123,6 +125,7 @@
 
       // Network
       fluxPrice = data.network.fluxPriceUsd;
+      dbSizeBytes = data.tracker?.dbSizeBytes ?? null;
       const newBlockHeight = data.network.blockHeight;
       totalNodes = data.network.totalNodes;
       totalApps = data.network.totalApps;
@@ -259,6 +262,12 @@
         <span class="system-stat">
           FLUX <span class="system-stat-value">${formatPrice(fluxPrice)}</span>
         </span>
+        {#if dbSizeBytes}
+          <span class="stat-separator">|</span>
+          <span class="system-stat" title="Size of the tracker's database">
+            DB <span class="system-stat-value">{formatBytes(dbSizeBytes)}</span>
+          </span>
+        {/if}
       </div>
 
       <!-- Row 2: Tracker Health -->

@@ -104,3 +104,11 @@ export function formatBlocksLeft(blocks) {
   const years = Math.round((days / 365) * 10) / 10;
   return `${years} ${years === 1 ? 'year' : 'years'}`;
 }
+
+/** Bytes as a short size for the header: "812 KB", "412 MB", "1.3 GB". */
+export function formatBytes(bytes) {
+  const b = finite(bytes);
+  if (b < 1024 * 1024) return `${Math.max(1, Math.round(b / 1024))} KB`;
+  if (b < 1024 ** 3) return `${Math.round(b / 1024 ** 2)} MB`;
+  return `${formatNumber(b / 1024 ** 3, 1)} GB`;
+}

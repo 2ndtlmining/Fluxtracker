@@ -1320,6 +1320,16 @@ export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
     }
 }
 
+// Database size in bytes for the header: the database file plus its write-ahead log, which
+// holds recent writes until the next checkpoint. See the Supabase twin (migration 025).
+export async function getDatabaseSizeBytes() {
+    let bytes = 0;
+    for (const file of [DB_PATH, `${DB_PATH}-wal`]) {
+        try { bytes += fs.statSync(file).size; } catch { /* no WAL file is normal */ }
+    }
+    return bytes > 0 ? bytes : null;
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

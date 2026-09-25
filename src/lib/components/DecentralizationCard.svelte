@@ -1,6 +1,7 @@
 <script>
   import { Globe, Info } from 'lucide-svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
+  import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
@@ -23,9 +24,9 @@
     return `${num.toFixed(1)}%`;
   }
 
-  // Demand vs supply (issue #268): a second view of this card, fetched the first time it is
-  // opened and again if it is reopened after 10 minutes (both inputs refresh hourly).
-  let view = 'datacenters';
+  // Demand vs supply (issue #268): the card's DEFAULT view (owner request, 2026-09-26),
+  // fetched on mount and again when reopened after 10 minutes (both inputs refresh hourly).
+  let view = 'demand';
   let demand = null;          // /api/decentralization/demand response
   let demandError = false;
   let demandLoading = false;
@@ -53,6 +54,8 @@
     }
   }
 
+  onMount(() => { showView('demand'); });
+
   // Coverage moved off the card and into the header's live IPs counter (issue #120) --
   // this tooltip is what's left to explain the number where a reader might expect it.
   $: coverageTooltip = hasData
@@ -67,8 +70,8 @@
     <div class="card-title">Decentralization</div>
     {#if !loading}
       <div class="view-switch" role="group" aria-label="Decentralization view">
-        <button type="button" class:active={view === 'datacenters'} aria-pressed={view === 'datacenters'} on:click={() => showView('datacenters')}>Datacenters</button>
         <button type="button" class:active={view === 'demand'} aria-pressed={view === 'demand'} on:click={() => showView('demand')}>Demand</button>
+        <button type="button" class:active={view === 'datacenters'} aria-pressed={view === 'datacenters'} on:click={() => showView('datacenters')}>Datacenters</button>
       </div>
     {/if}
   </div>
