@@ -1274,6 +1274,51 @@ export async function getDailyRunRateInRange(startDate, endDate) {
     }
 }
 
+// App retention cohorts (issue #264) -- the SQLite twin of migration 022 (see it for the
+// definitions). Days are julianday numbers.
+export async function getAppCohorts(startDate, endDate, today) {
+    try {
+        return getDb().prepare(`
+            WITH p AS (
+                SELECT app_name, date, msg_type, expire_blocks,
+                       SUM(CASE WHEN msg_type = 'register' THEN 1 ELSE 0 END) OVER (
+                           PARTITION BY app_name ORDER BY date, block_height, txid
+                           ROWS UNBOUNDED PRECEDING) AS life
+                FROM revenue_transactions
+                WHERE app_name IS NOT NULL AND msg_type IS NOT NULL AND date <= @today
+            ),
+            lives AS (
+                SELECT MIN(date) AS s,
+                       julianday(MIN(date)) AS s_num,
+                       MAX(julianday(date) + expire_blocks / 2880.0) AS e_num,
+                       SUM(CASE WHEN msg_type = 'update' THEN 1 ELSE 0 END) AS updates
+                FROM p
+                WHERE life > 0
+                GROUP BY app_name, life
+            ),
+            t AS (SELECT julianday(@today) AS t)
+            SELECT strftime('%Y-%m-01', s) AS month,
+                   COUNT(*) AS new_apps,
+                   SUM(s_num + 30 <= t) AS eligible_30,
+                   SUM(s_num + 30 <= t AND e_num >= s_num + 30) AS survived_30,
+                   SUM(s_num + 90 <= t) AS eligible_90,
+                   SUM(s_num + 90 <= t AND e_num >= s_num + 90) AS survived_90,
+                   SUM(s_num + 180 <= t) AS eligible_180,
+                   SUM(s_num + 180 <= t AND e_num >= s_num + 180) AS survived_180,
+                   SUM(updates > 0) AS paid_again,
+                   SUM(e_num > t) AS still_active
+            FROM lives, t
+            WHERE e_num IS NOT NULL
+              AND s >= strftime('%Y-%m-01', @start) AND s <= @end
+            GROUP BY month
+            ORDER BY month ASC
+        `).all({ start: startDate, end: endDate, today });
+    } catch (error) {
+        log.error(`getAppCohorts error: ${error.message}`);
+        throw new Error(`getAppCohorts failed: ${error.message}`);
+    }
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

@@ -1124,6 +1124,19 @@ export async function getDailyRunRateInRange(startDate, endDate) {
     return data;
 }
 
+// App retention cohorts (issue #264, migration 022): per registration month, how many app
+// lives started and how many were still paid for 30/90/180 days later.
+export async function getAppCohorts(startDate, endDate, today) {
+    let data;
+    try {
+        data = await pagedRpc('get_app_cohorts', { p_start: startDate, p_end: endDate, p_today: today });
+    } catch (error) {
+        log.error(`getAppCohorts error: ${error.message}`);
+        throw new Error(`getAppCohorts failed: ${error.message}`);
+    }
+    return data;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

@@ -81,6 +81,8 @@ export const {
     getDailyRevenueMixInRange,
     // Run-rate (issue #263)
     getDailyRunRateInRange,
+    // App retention cohorts (issue #264)
+    getAppCohorts,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,
