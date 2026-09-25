@@ -83,6 +83,8 @@ export const {
     getAppCohorts,
     // Game-server revenue (issue #265)
     getDailyGameRevenueInRange,
+    // Header database size (migration 025)
+    getDatabaseSizeBytes,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatNumber, formatCompact, formatFlux, formatUsd, formatCount } from './format.js';
+import { formatNumber, formatCompact, formatFlux, formatUsd, formatCount, formatBytes } from './format.js';
 
 describe('formatNumber', () => {
   it('groups with commas and fixes the decimals', () => {
@@ -103,5 +103,14 @@ describe('formatBlocksLeft (time left, owner request)', async () => {
   it('never negative, never NaN', () => {
     expect(formatBlocksLeft(-5)).toBe('0m');
     expect(formatBlocksLeft(null)).toBe('0m');
+  });
+});
+
+describe('formatBytes', () => {
+  it('reads as KB, MB or GB', () => {
+    expect(formatBytes(500)).toBe('1 KB');
+    expect(formatBytes(812 * 1024)).toBe('812 KB');
+    expect(formatBytes(412 * 1024 ** 2)).toBe('412 MB');
+    expect(formatBytes(1.34 * 1024 ** 3)).toBe('1.3 GB');
   });
 });

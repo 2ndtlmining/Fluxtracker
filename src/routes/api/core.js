@@ -6,6 +6,7 @@ import os from 'os';
 import {
     getCurrentMetrics,
     getDatabaseStats,
+    getDatabaseSizeBytes,
     getLastNSnapshots,
     getSyncStatus,
     isDbReady,
@@ -36,6 +37,22 @@ const router = express.Router();
 // means at most one miss per 90s however many people are watching, and the header's
 // freshest fields (block height, uptime) move on a slower scale than that anyway.
 const headerCache = createCache(90_000); // 90s
+
+// Database size changes slowly, so it is read at most every 10 minutes rather than on every
+// header refresh. null (not shown) before migration 025 or when the read fails.
+const DB_SIZE_TTL_MS = 10 * 60_000;
+let dbSizeCache = { bytes: null, at: 0 };
+async function readDatabaseSize() {
+    if (Date.now() - dbSizeCache.at < DB_SIZE_TTL_MS) return dbSizeCache.bytes;
+    let bytes = null;
+    try {
+        bytes = await getDatabaseSizeBytes();
+    } catch {
+        // Not applied yet (migration 025) or unreachable: the header just leaves it out.
+    }
+    dbSizeCache = { bytes, at: Date.now() };
+    return bytes;
+}
 
 // Liveness probe — always 200 if process is running (Docker HEALTHCHECK target)
 router.get('/health/live', (_req, res) => {
@@ -187,7 +204,7 @@ router.get('/header', async (req, res) => {
         // getTxidCount() used to run here too (issue #221). It is the same exact count over
         // revenue_transactions that getDatabaseStats() already performs -- two full counts
         // of a 23k-row table per cache miss, for one number.
-        const [metrics, stats, lastSnapshots, syncStatus, snapshotStatus, dbReachable, decentralizationStats] = await Promise.all([
+        const [metrics, stats, lastSnapshots, syncStatus, snapshotStatus, dbReachable, decentralizationStats, dbSizeBytes] = await Promise.all([
             getCurrentMetrics(),
             getDatabaseStats({ lean: true }), // only snapshots + transactions are shown (#301)
             getLastNSnapshots(1),
@@ -196,7 +213,8 @@ router.get('/header', async (req, res) => {
             probeDb(),
             // Issue #120: header's live IPs counter. Rides getDecentralizationStats()'s own
             // in-memory cache (decentralizationService.js) -- no new fetch, no new endpoint.
-            getDecentralizationStats().catch(() => null)
+            getDecentralizationStats().catch(() => null),
+            readDatabaseSize()
         ]);
 
         // Block height and ArcaneOS codename in parallel (external API calls).
@@ -242,7 +260,8 @@ router.get('/header', async (req, res) => {
                 lastSnapshotDate: lastSnapshots?.[0]?.snapshot_date || null,
                 snapshotHealthy: snapshotStatus?.isHealthy ?? true,
                 transactions: stats?.transactions || 0,
-                lastSyncBlock: syncStatus?.last_sync_block || null
+                lastSyncBlock: syncStatus?.last_sync_block || null,
+                dbSizeBytes
             },
             host: {
                 platform: os.platform(),

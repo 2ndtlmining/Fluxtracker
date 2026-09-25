@@ -70,12 +70,12 @@ describe('Adapter contract', () => {
         expect(sqliteFns).toEqual(supabaseFns);
     });
 
-    it('SQLite adapter exports exactly 100 functions', () => {
-        expect(sqliteFns).toHaveLength(100);
+    it('SQLite adapter exports exactly 101 functions', () => {
+        expect(sqliteFns).toHaveLength(101);
     });
 
-    it('Supabase adapter exports exactly 100 functions', () => {
-        expect(supabaseFns).toHaveLength(100);
+    it('Supabase adapter exports exactly 101 functions', () => {
+        expect(supabaseFns).toHaveLength(101);
     });
 
     it('no adapter has extra functions the other lacks', () => {
@@ -98,7 +98,7 @@ describe('database.js router', () => {
         expect(extraInRouter).toEqual([]);
     });
 
-    it('re-exports exactly 100 functions', () => {
-        expect(routerFns).toHaveLength(100);
+    it('re-exports exactly 101 functions', () => {
+        expect(routerFns).toHaveLength(101);
     });
 });

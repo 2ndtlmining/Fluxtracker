@@ -1142,6 +1142,16 @@ export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
     return data;
 }
 
+// Database size in bytes for the header (migration 025): pg_database_size, the figure
+// Supabase's own dashboard shows. Throws when the function is missing so the caller can
+// tell "not applied yet" from a real size.
+export async function getDatabaseSizeBytes() {
+    const { data, error } = await supabase.rpc('get_database_size');
+    if (error) throw new Error(`getDatabaseSizeBytes failed: ${error.message}`);
+    const bytes = Number(data);
+    return Number.isFinite(bytes) && bytes > 0 ? bytes : null;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
