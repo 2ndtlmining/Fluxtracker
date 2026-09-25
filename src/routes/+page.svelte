@@ -478,11 +478,9 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     }
   }
   
-  // Select a comparison period (issue #327). Was a single "vs D" button that cycled
-  // D -> W -> M -> Q -> Y and was disabled during every fetch, so fast clicks were dropped and
-  // the other options were invisible. Every period is now its own button; a click during a
-  // fetch still lands, and a late response for a period no longer selected is ignored by the
-  // cards because revenuePeriodLoaded/comparisonCache are keyed by period.
+  // Select a comparison period. A click during a fetch still lands, and a late response for
+  // a period no longer selected is ignored by the cards because revenuePeriodLoaded /
+  // comparisonCache are keyed by period (issue #327).
   async function selectPeriod(nextPeriod) {
     if (nextPeriod === comparisonPeriod) return;
     comparisonPeriod = nextPeriod;
@@ -496,6 +494,16 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     ]);
   }
   
+  // One compact button that cycles D -> W -> M -> Q -> Y (owner request, #367). #327 had
+  // replaced it with five buttons, which took far more room; the cycle is back, keeping
+  // #327's fixes: never disabled mid-fetch, and a label that says what the next click does.
+  $: nextPeriodEntry = periods[(periods.findIndex(p => p.key === comparisonPeriod) + 1) % periods.length];
+  $: currentPeriodLabel = periods.find(p => p.key === comparisonPeriod)?.label ?? comparisonPeriod;
+
+  function cyclePeriod() {
+    selectPeriod(nextPeriodEntry.key);
+  }
+
   // Helper to get trend from comparison data
   function getTrend(changeData) {
     if (!changeData) return 'neutral';
@@ -532,21 +540,20 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     <!-- Title with Comparison Toggle -->
     <div class="page-header">
       <h2 class="page-title">Performance Overview</h2>
-      <div class="period-control" role="group" aria-label="Compare against the previous period">
-        <span class="period-label">Compare vs previous</span>
-        {#each periods as p (p.key)}
-          <button
-            type="button"
-            class="period-option"
-            class:active={comparisonPeriod === p.key}
-            aria-pressed={comparisonPeriod === p.key}
-            on:click={() => selectPeriod(p.key)}
-          >{p.label.toLowerCase()}</button>
-        {/each}
+      <button
+        type="button"
+        class="period-toggle"
+        class:loading={comparisonLoading}
+        on:click={cyclePeriod}
+        title="Comparing with the previous {currentPeriodLabel.toLowerCase()}. Click for {nextPeriodEntry.label.toLowerCase()}."
+        aria-label="Comparing with the previous {currentPeriodLabel.toLowerCase()}. Switch to {nextPeriodEntry.label.toLowerCase()}."
+      >
+        <span class="toggle-label">vs</span>
+        <span class="toggle-value">{comparisonPeriod}</span>
         {#if comparisonLoading}
           <span class="loading-spinner" aria-hidden="true">⟳</span>
         {/if}
-      </div>
+      </button>
     </div>
     
     <!-- Hero Stats Grid (3 cards) -->
@@ -688,48 +695,46 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     margin: 0;
   }
   
-  .period-control {
-    display: flex;
+  .period-toggle {
+    display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-  }
-
-  .period-label {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    text-transform: lowercase;
-    margin-right: 0.25rem;
-  }
-
-  .period-option {
+    gap: 0.375rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    color: var(--text-dim);
-    padding: 0.375rem 0.625rem;
+    padding: 0.5rem 0.75rem;
     cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease;
     border-radius: var(--radius-sm);
     font-family: var(--font-mono);
-    font-size: 0.8125rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
   /* Overrides app.css's global button:hover (cyan fill + lift), which would put white text
      on a cyan block here */
-  .period-option:hover,
-  .period-option:focus-visible {
-    border-color: var(--accent-cyan);
-    color: var(--text-white);
+  .period-toggle:hover,
+  .period-toggle:focus-visible {
     background: var(--bg-secondary);
-    box-shadow: none;
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 10px var(--border-glow);
     transform: none;
   }
 
-  .period-option.active {
-    border-color: var(--accent-cyan);
-    color: var(--text-primary);
+  .toggle-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: lowercase;
+  }
+
+  .toggle-value {
+    font-size: 0.875rem;
     font-weight: 700;
-    box-shadow: 0 0 10px var(--border-glow);
+    color: var(--text-primary);
+    text-shadow: var(--glow-cyan);
+    min-width: 1.25rem;
+    text-align: center;
+  }
+
+  .period-toggle.loading .toggle-value {
+    opacity: 0.5;
   }
   
   .loading-spinner {
@@ -801,7 +806,7 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
       font-size: 1.25rem;
     }
     
-    .period-control {
+    .period-toggle {
       align-self: flex-start;
     }
   }
