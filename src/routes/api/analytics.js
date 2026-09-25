@@ -36,10 +36,13 @@ const router = express.Router();
 const metricsCache = createCache(60_000);     // 60s
 const analyticsCache = createCache(300_000);  // 5 min
 const categoryCache = createCache(300_000);   // 5 min
-// Matches the running-apps payload's own ~60s TTL -- caching longer here would just serve
-// a stale copy of data the provider has already refreshed.
-const gamesCache = createCache(60_000);       // 60s
-const fillCache = createCache(60_000);        // 60s -- issue #200
+// Tied to the running-apps payload's own read-path TTL (issue #391): these are computed from
+// that payload, so a shorter cache only recomputed the same snapshot over and over.
+const gamesCache = createCache(READ_PATH_TTL_MS);
+const fillCache = createCache(READ_PATH_TTL_MS);  // issue #200
+// Game revenue over 30 days (issue #265) is a database aggregate that barely moves minute to
+// minute; it had shared the 60s games cache.
+const gameRevenueCache = createCache(15 * 60_000);
 const projectionCache = createCache(600_000); // 10 min -- issue #347; expiries move by the day
 // Comparison (issue #295). The page asks for D on load, prefetches W and M, and refetches on
 // every refresh -- and each call ran six reads. 60s means a viewer's burst is one run.
@@ -188,7 +191,7 @@ router.get('/metrics/category/:category/top', async (req, res) => {
  * available:false until migration 024 is applied.
  */
 router.get('/games/revenue', async (req, res) => {
-    return withDbFallback(gamesCache, 'revenue:30', res, async () => {
+    return withDbFallback(gameRevenueCache, 'revenue:30', res, async () => {
         // The last 30 days, today included -- the same window whatever the dashboard's
         // period toggle says, because the card labels it "last 30 days".
         const end = new Date();

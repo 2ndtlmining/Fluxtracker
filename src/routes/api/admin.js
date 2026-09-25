@@ -134,19 +134,29 @@ router.post('/sync-price-history', async (_req, res) => {
     }
 });
 
+const REVENUE_COUNTS_TTL_MS = 30_000;
+let revenueCounts = { value: null, at: 0 };
+async function readRevenueCounts() {
+    if (revenueCounts.value && Date.now() - revenueCounts.at < REVENUE_COUNTS_TTL_MS) return revenueCounts.value;
+    const [txCount, syncStatus] = await Promise.all([getTxidCount(), getSyncStatus('revenue')]);
+    revenueCounts = { value: { txCount, syncStatus }, at: Date.now() };
+    return revenueCounts.value;
+}
+
 // Revenue sync status endpoint (used by footer)
 router.get('/revenue-status', async (req, res) => {
     try {
         const schedulerStatus = getRevenueSyncSchedulerStatus();
         const syncState = getRevenueSyncState();
-        const txCount = await getTxidCount();
-        const syncStatus = await getSyncStatus('revenue');
-
-        // Fetch current block height (cached internally, fast)
-        let currentBlock = null;
-        try {
-            currentBlock = await fetchCurrentBlockHeight();
-        } catch (_) { /* non-critical */ }
+        // Issue #388: the exact transaction count and the sync row were read one after the
+        // other on every page view with no cache. They change at most once per sync (every
+        // 5 min), so they are read together and kept 30s; the scheduler/sync state above
+        // stays live so the footer's "syncing" indicator is never stale.
+        const [counts, currentBlock] = await Promise.all([
+            readRevenueCounts(),
+            fetchCurrentBlockHeight().catch(() => null) // cached internally; non-critical
+        ]);
+        const { txCount, syncStatus } = counts;
 
         res.json({
             ...schedulerStatus,

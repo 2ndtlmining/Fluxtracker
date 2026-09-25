@@ -70,6 +70,12 @@
   const CAROUSEL_FETCH_TIMEOUT_MS = 25000;
   let isPolling = false;
 
+  // The deployed/expiring lists change when the server refreshes them (every 10 min), but were
+  // re-downloaded on every 30s header poll -- ~50 KB of JSON per viewer each time (issue #383).
+  // They now refresh every 2 minutes; the header stats keep their 30s poll.
+  const APPS_POLL_MS = 120_000;
+  let lastAppsPollAt = 0;
+
   function fetchWithTimeout(url, timeoutMs = FETCH_TIMEOUT_MS) {
     const controller = new AbortController();
     const timeoutId = setTimeout(
@@ -103,7 +109,11 @@
     if (isPolling) return;
     isPolling = true;
     try {
-      await Promise.all([fetchHeaderStats(), pollLatestApps()]);
+      const appsDue = Date.now() - lastAppsPollAt >= APPS_POLL_MS;
+      await Promise.all([
+        fetchHeaderStats(),
+        appsDue ? pollLatestApps().then(() => { lastAppsPollAt = Date.now(); }) : null
+      ]);
     } finally {
       isPolling = false;
     }

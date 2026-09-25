@@ -365,6 +365,9 @@ export function getCachedCarouselData() {
         stats: cachedCarouselData || [],
         cached: !!cachedCarouselData,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
+        // A fixed time, not a moving age, so identical data serializes identically and the
+        // browser's ETag revalidation can answer 304 (issue #383).
+        fetchedAt: lastFetchTime || null,
         fresh: isFresh
     };
 }
@@ -486,6 +489,9 @@ export async function getCachedDeployedApps() {
         stats: cachedDeployedApps || [],
         cached: !!cachedDeployedApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
+        // A fixed time, not a moving age, so identical data serializes identically and the
+        // browser's ETag revalidation can answer 304 (issue #383).
+        fetchedAt: lastDeployedFetchTime || null,
         fresh: isFresh
     };
 }
@@ -511,6 +517,9 @@ export async function getCachedExpiringApps() {
         stats: cachedExpiringApps || [],
         cached: !!cachedExpiringApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
+        // A fixed time, not a moving age, so identical data serializes identically and the
+        // browser's ETag revalidation can answer 304 (issue #383).
+        fetchedAt: lastExpiringFetchTime || null,
         fresh: isFresh
     };
 }
@@ -625,6 +634,9 @@ export async function getCachedMissingDeployments() {
         stats: cachedMissingApps || [],
         cached: !!cachedMissingApps,
         cacheAge: Math.floor(cacheAge / 1000), // seconds
+        // A fixed time, not a moving age, so identical data serializes identically and the
+        // browser's ETag revalidation can answer 304 (issue #383).
+        fetchedAt: lastMissingFetchTime || null,
         fresh: isFresh
     };
 }

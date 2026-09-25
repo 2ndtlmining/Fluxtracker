@@ -99,7 +99,10 @@
 
       // The API already reports how old its cache is — the badge used to ignore it
       // and claim LIVE regardless (issue #54).
-      cacheAge = typeof data.cacheAge === 'number' ? data.cacheAge : 0;
+      // The API now sends when its data was fetched (issue #383); older servers sent the age.
+      cacheAge = typeof data.fetchedAt === 'number'
+        ? Math.max(0, Math.floor((Date.now() - data.fetchedAt) / 1000))
+        : (typeof data.cacheAge === 'number' ? data.cacheAge : 0);
 
       if (data && data.stats && data.stats.length > 0) {
         stats = data.stats;
