@@ -1285,6 +1285,41 @@ export async function getAppCohorts(startDate, endDate, today) {
     }
 }
 
+// Game-server revenue (issue #265) -- the SQLite twin of migration 024. SQLite has no
+// regular expressions of its own, so the adapter registers one (compiled once per pattern).
+const regexCache = new Map();
+let appMatchRegisteredOn = null;
+function ensureAppMatchFunction(db) {
+    if (appMatchRegisteredOn === db) return;
+    db.function('app_name_matches', { deterministic: true }, (name, pattern) => {
+        if (name == null) return 0;
+        let re = regexCache.get(pattern);
+        if (!re) regexCache.set(pattern, re = new RegExp(pattern));
+        return re.test(String(name).toLowerCase()) ? 1 : 0;
+    });
+    appMatchRegisteredOn = db;
+}
+
+export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
+    try {
+        const db = getDb();
+        ensureAppMatchFunction(db);
+        return db.prepare(`
+            SELECT date,
+                   SUM(amount) AS total_flux,
+                   COALESCE(SUM(CASE WHEN app_name_matches(app_name, @pattern) THEN amount END), 0) AS game_flux,
+                   COALESCE(SUM(CASE WHEN app_name_matches(app_name, @pattern) THEN COALESCE(amount_usd, 0) END), 0) AS game_usd
+            FROM revenue_transactions
+            WHERE date BETWEEN @start AND @end
+            GROUP BY date
+            ORDER BY date ASC
+        `).all({ start: startDate, end: endDate, pattern });
+    } catch (error) {
+        log.error(`getDailyGameRevenueInRange error: ${error.message}`);
+        throw new Error(`getDailyGameRevenueInRange failed: ${error.message}`);
+    }
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

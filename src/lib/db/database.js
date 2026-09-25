@@ -81,6 +81,8 @@ export const {
     getDailyRevenueMixInRange,
     // App retention cohorts (issue #264)
     getAppCohorts,
+    // Game-server revenue (issue #265)
+    getDailyGameRevenueInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

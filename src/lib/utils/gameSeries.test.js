@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from './gameSeries.js';
+import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC, GAME_REVENUE_METRICS } from './gameSeries.js';
 
 describe('buildGameMetrics', () => {
+    const instances = metrics => metrics.filter(m => !m.source);
+
     it('always leads with the total, then one entry per game in the given order', () => {
-        const metrics = buildGameMetrics(['Palworld', 'Valheim', 'FiveM']);
+        const metrics = instances(buildGameMetrics(['Palworld', 'Valheim', 'FiveM']));
 
         expect(metrics.map(m => m.id)).toEqual([
             'gaming_instances_total',
@@ -14,16 +16,23 @@ describe('buildGameMetrics', () => {
         expect(metrics.map(m => m.label)).toEqual(['All Game Instances', 'Palworld', 'Valheim', 'FiveM']);
     });
 
-    it('reads the same field for every metric, so the chart needs no gaming branch', () => {
-        for (const metric of buildGameMetrics(['Palworld'])) {
+    it('reads the same field for every instance metric, so the chart needs no gaming branch', () => {
+        for (const metric of instances(buildGameMetrics(['Palworld']))) {
             expect(metric.field).toBe('game_instances');
             expect(metric.format).toBe('number');
         }
     });
 
     it('is just the total when no games have been collected yet', () => {
-        expect(buildGameMetrics([])).toEqual([GAMING_TOTAL_METRIC]);
-        expect(buildGameMetrics()).toEqual([GAMING_TOTAL_METRIC]);
+        expect(instances(buildGameMetrics([]))).toEqual([GAMING_TOTAL_METRIC]);
+        expect(instances(buildGameMetrics())).toEqual([GAMING_TOTAL_METRIC]);
+    });
+
+    it('always ends with the game-revenue metrics (#265), on their own source', () => {
+        const metrics = buildGameMetrics(['Palworld']);
+        expect(metrics.slice(-GAME_REVENUE_METRICS.length)).toEqual(GAME_REVENUE_METRICS);
+        expect(GAME_REVENUE_METRICS.every(m => m.source === 'gameRevenue' && m.description)).toBe(true);
+        expect(buildGameMetrics([])).toHaveLength(1 + GAME_REVENUE_METRICS.length);
     });
 });
 

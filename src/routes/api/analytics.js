@@ -15,7 +15,8 @@ import {
     getLastNSnapshots,
     getGameSnapshotsByDate,
     getSnapshotByDate,
-    getRevenueForDateRange
+    getRevenueForDateRange,
+    getDailyGameRevenueInRange
 } from '../../lib/db/database.js';
 
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
@@ -24,7 +25,8 @@ import { computeUtilizationProjection } from '../../lib/utils/utilizationProject
 import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, computeDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
-import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG } from '../../lib/config.js';
+import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN } from '../../lib/config.js';
+import { summarizeGameRevenue } from '../../lib/utils/gameRevenue.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
 
@@ -176,6 +178,29 @@ router.get('/metrics/category/:category/top', async (req, res) => {
             previousRepos,
             days
         };
+    });
+});
+
+/**
+ * GET /api/games/revenue -- issue #265. What game servers earned over the last 30 days: $ at
+ * the time of payment, FLUX, and share of all revenue. Recognised by app name
+ * (GAME_APP_NAME_PATTERN), so it covers game servers deployed through Flux's game sites.
+ * available:false until migration 024 is applied.
+ */
+router.get('/games/revenue', async (req, res) => {
+    return withDbFallback(gamesCache, 'revenue:30', res, async () => {
+        // The last 30 days, today included -- the same window whatever the dashboard's
+        // period toggle says, because the card labels it "last 30 days".
+        const end = new Date();
+        const start = new Date(end);
+        start.setUTCDate(start.getUTCDate() - 29);
+        try {
+            const rows = await getDailyGameRevenueInRange(start.toISOString().slice(0, 10), end.toISOString().slice(0, 10), GAME_APP_NAME_PATTERN);
+            return { available: true, days: 30, ...summarizeGameRevenue(rows) };
+        } catch (error) {
+            if (isMissingFunctionError(error, 'get_daily_game_revenue')) return { available: false };
+            throw error;
+        }
     });
 });
 
