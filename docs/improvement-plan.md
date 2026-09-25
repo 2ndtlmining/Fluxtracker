@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-23, end of day** (v1.09; review PRs 1-8 shipped)
+**Last reviewed: 2026-09-25, end of day** (v1.11; #262, #263, #264, #267 analytics shipped)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,9 +13,13 @@ rule links to an issue.
 
 ## Next up, in order
 
-**Status at end of 2026-09-23 (v1.09):** PRs 1-8 of the review plan are merged, deployed to the
-owner's instance and verified there. 31 issues closed. What is left is polish, the header work,
-and the analytics features.
+**Status at end of 2026-09-25:** the analytics built on the permanent-message metadata are live
+on the owner's instance: revenue mix (#262, migration 020), run-rate (#263, migration 021),
+retention cohorts (#264, migration 022), payer base (#267, migration 018). All four
+migrations are applied.
+
+**Owner review, 2026-09-25:** some of the new data points raised more questions than they
+answered. The next working day starts with cleanup, not new analytics.
 
 **How we work:** one themed PR at a time. The owner merges and deploys to their local instance;
 Claude verifies it there (health, the behaviour the PR changed, a headless-browser load with
@@ -26,10 +30,64 @@ working day, so a version change on production confirms that day's work landed.
 
 | # | PR | Issues | Notes |
 |---|----|--------|-------|
-| 17 | Permanent-message metadata + back-fill | #262 | Needs an authorised live back-fill |
-| 18 | Built on #262 | #263 #264 #265 | |
-| 19 | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
+| A | Analytics cleanup | #262 #263 #264 | Display only. No database change; see the list below |
+| B | Median time left on running apps | new issue | New daily snapshot column, Revenue card line and a Revenue chart metric |
+| C | Game-server revenue, with stated coverage | #265 | Was next before the review |
+| D | Remaining analytics + cleanup | #268 #269 #270 #317 #318 | |
 | -- | Version bump | -- | Last PR of each working day |
+
+### PR A: analytics cleanup (decided with the owner, 2026-09-25)
+
+**Remove**
+- Revenue card: the `vs last day USD x% · FLUX price y%` line (#266). It repeats the % already
+  shown above it, and it compares today-so-far with all of yesterday.
+- Revenue card: the `Run-rate $X/mo · $Y prepaid` line.
+- Revenue chart: `Run-rate (MRR, $)` and `Prepaid, not yet used ($)`. The owner's reasoning:
+  Flux payments are one-off prepayments for a week up to a year, not subscriptions, so
+  "monthly recurring revenue" misleads.
+- The run-rate endpoint (`/api/history/revenue/run-rate/daily`), `getDailyRunRateInRange` in
+  both adapters and `runRate.js` (adapter contract 100 -> 99). **Keep** the database function
+  from migration 021: unused and harmless, so no new migration.
+- Applications: `Still paid after 30 days` (it measures plan length, not loyalty: the dips are
+  the months when about half of new apps bought 1-week plans, Feb 47% and Jun 53%),
+  `Still paid after 180 days` (too few points), `Paid again` (mixes renewals with paid spec
+  edits) and `Still active today` (recent months always read high because they are young).
+- Revenue Sources: `Average commitment (days per payment)`.
+
+**Rename**
+- `Still paid after 90 days` -> `Still running after 3 months (%)`.
+- Revenue Sources `New apps ($/%)` -> `New deployments ($/%)`. It clashed with Applications'
+  `New apps registered`, which counts apps, not dollars.
+- `Enterprise ($/%)` -> `Private (enterprise) apps ($/%)`.
+- `Paying wallets (organic, per month)` -> `Paying customers (per month)`, and the new/returning
+  pair to match.
+
+**Reorganise**
+- Revenue Sources dropdown in groups (`<optgroup>`): *Who paid* (organic / fiat / team), *What
+  was bought* (new deployments / renewals / private apps), *Paying customers*.
+- Each new metric gets a one-line plain explanation in the chart subtitle, which today only
+  repeats the metric name. Example: "Each point is the apps first registered that month; the
+  share still paid for 3 months later." It has to work without hover, for phones.
+
+**Check before calling it done:** every remaining metric draws in each view (the "not applied"
+guard from #365 must still hold), and the card still renders with the lines removed.
+
+### PR B: median time left on running apps (decided with the owner, 2026-09-25)
+
+- **Measure:** for each running app, days until it expires; take the **median** (the owner
+  chose it over the mean so a few 1-year apps can't drag it up). Each app counts once, whatever
+  its instance count. Source: the live app registry (`getSharedFluxApiData`), the same specs
+  the Utilization Projection reads: remaining = (registered height + expire - current height)
+  / 2,880 days.
+- **Revenue card:** replaces the run-rate line, e.g. `Median time left: 21 days (running
+  apps)`. The owner asked for "Avg Remaining Duration" and then chose the median, so the label
+  says median; confirm the exact wording before shipping.
+- **History:** a new `daily_snapshots` column, written with the daily snapshot **from ship day
+  only**. No estimated backfill. Add it via `schemaMigrator` `FIXED_COLUMNS` with no DEFAULT,
+  so earlier days read NULL (dropped from the chart as a gap, never plotted as 0).
+- **Chart:** Revenue -> `Median time left (days)`, a level (weekly/monthly views average it).
+- **Open question for the owner:** include Flux's own system apps? They may carry very long
+  expiries. The median limits their pull, but decide deliberately.
 
 ### Waiting on the owner
 
