@@ -180,7 +180,7 @@
           </ul>
         {/if}
         {#if gameRevenue}
-          <div class="game-revenue" title="Payments for game servers deployed through the Flux game sites, recognised by app name, over the last 30 days. USD at the price on the day of each payment.">
+          <div class="game-revenue" title="Payments for game servers over the last 30 days, recognised by the game sites' app names or, for servers deployed by hand, the game image. Private (encrypted) apps count only with a game-site name. USD at the price on the day of each payment.">
             <span class="game-revenue-label">Game revenue</span>
             <span class="game-revenue-value">${formatCount(gameRevenue.usd)}</span>
             <span class="game-revenue-note">last 30 days</span>

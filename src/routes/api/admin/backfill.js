@@ -8,6 +8,7 @@ import {
     backfillAppTypes,
     backfillAppNames,
     backfillMessageMetadata,
+    backfillGameNames,
     auditRecentTransactions
 } from '../../../lib/services/revenueService.js';
 import { backfillNullUsdAmounts } from '../../../lib/services/priceHistoryService.js';
@@ -80,6 +81,20 @@ router.post('/backfill-message-metadata', async (req, res) => {
         res.json({ success: true, ...result });
     } catch (error) {
         log.error({ err: error }, 'message metadata backfill failed');
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// Issue #395: record which game each stored payment was for (game-site name, or a game image
+// in its message), so game revenue reaches back before the game sites. Writes; only rows with
+// no game yet; safe to re-run. Needs migration 026 on Supabase.
+router.post('/backfill-game-names', async (req, res) => {
+    try {
+        log.info('game-name backfill triggered via API');
+        const result = await backfillGameNames();
+        res.json({ success: true, ...result });
+    } catch (error) {
+        log.error({ err: error }, 'game-name backfill failed');
         res.status(500).json({ success: false, error: error.message });
     }
 });

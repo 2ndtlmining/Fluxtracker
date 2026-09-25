@@ -1,8 +1,10 @@
 // Game-server revenue (issue #265). Pure.
 //
-// Rows from getDailyGameRevenueInRange (migration 024): per day, all revenue in FLUX and the
-// part paid for game servers, recognised by app name (GAME_APP_NAME_PATTERN). Coverage is
-// game servers deployed through Flux's game sites -- stated wherever the figure is shown.
+// Rows from getDailyGameRevenueInRange (migrations 024, 026): per day, all revenue in FLUX and
+// the part paid for game servers -- recognised by the game-site app name
+// (GAME_APP_NAME_PATTERN) or, for servers deployed by hand, the game image recorded in
+// `game_name` (#395). Private (encrypted) specs hide their image, so those count only with a
+// game-site name -- stated wherever the figure is shown.
 
 export function shapeGameRevenueRows(rows) {
   const num = v => Number(v) || 0;

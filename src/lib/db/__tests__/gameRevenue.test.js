@@ -55,6 +55,25 @@ describe('GAME_APP_NAME_PATTERN', () => {
     });
 });
 
+describe('hand-deployed game servers (#395)', () => {
+    it('counts a payment once game_name is recorded, even without a game-site name', async () => {
+        adapter.getDb().prepare(`
+            INSERT INTO revenue_transactions (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name)
+            VALUES ('tx-rust', 'dest', 'payer', 25, 2, 1000, 0, '2026-08-15', 'rustserver')
+        `).run();
+        const before = shapeGameRevenueRows(await adapter.getDailyGameRevenueInRange('2026-08-15', '2026-08-15', GAME_APP_NAME_PATTERN));
+        expect(before[0].game_flux).toBe(0);
+
+        const updated = await adapter.updateTransactionGameBatch([{ txid: 'tx-rust', game_name: 'Rust' }, { txid: 'tx-rust', game_name: null }]);
+        expect(updated).toBe(1);
+        const after = shapeGameRevenueRows(await adapter.getDailyGameRevenueInRange('2026-08-15', '2026-08-15', GAME_APP_NAME_PATTERN));
+        expect(after[0]).toMatchObject({ game_flux: 25, game_usd: 2 });
+
+        // Only rows with no game yet are touched: re-running never overwrites.
+        expect(await adapter.updateTransactionGameBatch([{ txid: 'tx-rust', game_name: 'Other' }])).toBe(0);
+    });
+});
+
 describe('getDailyGameRevenueInRange (#265)', () => {
     it('sums game-site app names per day, beside the day total', async () => {
         const rows = shapeGameRevenueRows(await adapter.getDailyGameRevenueInRange('2026-09-01', '2026-09-30', GAME_APP_NAME_PATTERN));

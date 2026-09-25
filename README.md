@@ -93,10 +93,12 @@ Game revenue  $9,840  last 30 days
 - **Gaming**: running game-server instances, recognised by app name as well as image, so private
   (encrypted) game deployments are included. The top 3 games are listed with an arrow against
   the comparison period.
-- **Game revenue**: what was paid for game servers deployed through the Flux game sites over the
-  **last 30 days**, whatever the comparison period, in USD at the price on the day of each
-  payment. A game deployed by hand under another name is not counted. Needs migration 024 on
-  Supabase; hidden otherwise.
+- **Game revenue**: what was paid for game servers over the **last 30 days**, whatever the
+  comparison period, in USD at the price on the day of each payment. A game server is
+  recognised by its game-site app name (`palworld1790087212677`) or, for servers deployed by
+  hand (`rustserver`, `vrising`), by the game image in its payment's on-chain message.
+  Private (encrypted) apps hide their image, so they count only with a game-site name. Needs
+  migration 024 (and 026 for the hand-deployed servers) on Supabase; hidden otherwise.
 
 ### Busiest Node card
 
@@ -416,6 +418,9 @@ file run manually:
 24. `024_game_revenue.sql` -- read-only daily game-server revenue (Apps card "Game revenue",
     Gaming -> Revenue)
 25. `025_database_size.sql` -- read-only database size for the header (`DB 411 MB`)
+26. `026_game_name.sql` -- `game_name` column on `revenue_transactions` so game revenue also
+    counts hand-deployed game servers (by their image). **After running it, call
+    `POST /api/admin/backfill-game-names` once** to fill existing payments
 
 Skipping 011-016 is not a partial degradation: a fresh project without them has no
 `game_snapshots` table, no payer filter, and none of the newer snapshot columns, so several
@@ -718,6 +723,7 @@ Example responses (trimmed; values illustrative):
 | POST   | `/api/admin/backfill-collateral`      | Backfill `locked_collateral*` columns from node-tier history |
 | POST   | `/api/admin/reclassify-datacenters`   | Re-derive `is_datacenter` for every classified IP against the current `DATACENTER_ORG_KEYWORDS`. Needed after changing that list -- the flag is decided at classification time and never re-derived. Idempotent, no external lookups; returns `{checked, changed}`. |
 | POST   | `/api/admin/backfill-message-metadata` | Fill `msg_type`/`enterprise`/`expire_blocks`/`instances` on stored payments from one download of the permanent messages. Only touches rows with no metadata yet; safe to re-run. Needs migration 019 on Supabase |
+| POST   | `/api/admin/backfill-game-names`      | Record which game each stored payment was for (game-site name, or a game image in its message) so game revenue covers hand-deployed servers. Only rows with no game yet; safe to re-run. Needs migration 026 on Supabase |
 | POST   | `/api/admin/repair-snapshot-revenue`  | Correct `daily_snapshots.daily_revenue` on past days that stored a partial start-of-day figure. `?dryRun=1` first; never touches today, never lowers a figure. Body `{ from?, to? }` |
 | POST   | `/api/admin/repair-game-columns`      | Bring the per-game `gaming_*` columns onto the app-name definition: rewrite the days `game_snapshots` covers, NULL the ones before it. `?dryRun=1` reports without writing. Idempotent. |
 
