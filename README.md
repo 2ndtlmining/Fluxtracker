@@ -718,10 +718,49 @@ curl -X POST localhost:3000/api/admin/backfill-usd       # then fill in the NULL
 
 ## KPI Report
 
-A **KPI** button in the footer (between GitHub and Refresh) opens a dialog where you pick a time
-frame and a Discord webhook, and FluxTracker posts a formatted report of Revenue, Nodes, Resource
-Utilization, Applications and Flux Cloud comparing two completed periods. Daily reports can also
-send themselves on a schedule (see [Scheduled reports](#scheduled-reports)).
+A **KPI** button in the footer opens a dialog where you pick a time frame and a Discord webhook,
+and FluxTracker posts an **executive scorecard** comparing two completed periods. Reports can
+also send themselves on a schedule (see [Scheduled reports](#scheduled-reports)).
+
+The scorecard is one Discord message, written for an executive reader: a headline in plain words,
+then nine tiles -- three rows of money, network and apps. Discord shows the tiles three to a row
+on desktop and stacks them on a phone. A real daily report (24 Sep 2026) reads:
+
+```
+Flux Network · Daily KPIs · Sep 24, 2026
+Revenue up 27% on Wednesday; nodes steady.
+Most deployed: RuneScape: Dragonwilds 87 · Valheim 6 · Palworld 4 · other 41
+
+Revenue            Game revenue        New vs renewal
+$777               $489                51% / 49%
+▲ 27.0%            62.8% of revenue    of revenue
+
+Nodes              CPU in use          In datacenters
+6,508              26.7%               54.5%
+▼ 0.9%             ▲ 0.5 pts           ▲ 0.7 pts
+
+Apps running       Deployed / expiring Median time left
+7,908              138 / 40            15 days
+▼ 0.4%             last 24 hours       running apps
+
+vs Sep 23, 2026 · data complete
+```
+
+- The colour bar is **green** when revenue rose and **red** when it fell.
+- Weekly, monthly, quarterly and yearly reports add a **revenue trend line** under the headline,
+  drawn with block characters -- by day for a week or month, by week for a quarter, by month for
+  a year -- e.g. ``Revenue by day: `▁▄█▂▂▂▅`  ($101 to $1,127)``. On those reports, nodes and
+  apps are period **averages** and say so (`Nodes (average)`), and deployments are the period's
+  total (`Deployed / expired`).
+- **Game revenue**, **New vs renewal** and **Median time left** come from the newer data
+  (migrations 019-024). Anything that cannot be backed with data for the whole period shows
+  **`n/a`** on its tile -- never a made-up zero -- and the footer says some figures lack full data.
+- No emoji: direction is shown by plain ▲ / ▼ triangles. Percentages change in **points**
+  (`▲ 0.5 pts`), other figures in percent.
+
+The detailed metric set below is still what the report computes; the scorecard shows the headline
+subset of it. The full numbers are available without sending anything from
+`GET /api/kpi/preview?timeframe=`.
 
 ### Time frames
 
@@ -753,20 +792,17 @@ Two aggregation rules, chosen to match the live dashboard:
 | Applications | Total Apps | **Average of daily snapshots** | `daily_snapshots` |
 | Flux Cloud | Deployed (24h), Expiring (24h) — **Daily reports only** | **Point-in-time at report generation** | live app data (same registry the carousel reads) |
 
-The **Flux Cloud** rows are the one part of the report with no comparison column. Both are 24h
-windows read when the report is generated; we never snapshot them per day, so yesterday's
-figure cannot be known and a +/- column would be invented. They render as a two-column table
-(`Metric | Qty`). **The daily report is followed by a second Discord message, "Flux Cloud
-Activity"**, which is the detail behind those two numbers: per-app tables
-(`Inst | Name | CPU | RAM | SSD`) for the apps deployed in the last 24 hours and the apps
-expiring within them — and the section's counts equal the Activity message's totals exactly,
-since both come from the same deduped lists.
+The **Flux Cloud** figures (deployed and expiring in the last 24 hours) have no comparison: both
+are read when the report is generated and never snapshotted per day, so yesterday's figure
+cannot be known and a change would be invented. On the scorecard they are the *Deployed /
+expiring* tile, and the day's deployments are summarised by game in one **Most deployed** line.
+The daily report used to follow with a second "Flux Cloud Activity" message of per-app tables;
+the scorecard redesign (2026-09-26) replaced it with that one line.
 
-**Daily reports read differently from the rest.** A daily report covers single days — nothing
-is summed or averaged — so it drops the `- SUM`/`- AVERAGE` heading suffixes and aggregation
-notes the other timeframes carry, shows the two dates plainly (`2026-09-04 | 2026-09-03`), and
-renders the price row as that day's price rather than an average. Weekly/monthly/quarterly/
-yearly reports are unchanged.
+**Daily reports read differently from the rest.** A daily report compares two single days, so
+nothing is summed or averaged: nodes and apps are that day's readings (the tiles say `Nodes`, not
+`Nodes (average)`), and it carries the live *Deployed / expiring* counts and the *Most deployed*
+line instead of a trend line.
 
 **FLUX price is the one averaged row in a summed section.** It is there because without it the
 two rows above it cannot be read: FLUX revenue flat while USD revenue falls is a price move, not
@@ -889,14 +925,10 @@ misleading report.
 
 ### Delivery
 
-**Discord** — posted to a user-supplied incoming webhook as a rich embed, one field per section,
-each wrapped in a code block so the Qty / +/- / +/-% columns stay aligned on desktop and mobile.
-Weekly and longer reports state their aggregation twice — in the field name (`Revenue - SUM`,
-`Nodes - AVERAGE`) and in a line above the table. Daily reports read single-day snapshots and
-drop both, so the heading is just the section name. Daily is also two messages: the report
-followed by the "Flux Cloud Activity" detail message.
-Deliberately plain: **no emoji anywhere**, direction carried by explicit `+`/`-` signs, a single
-restrained accent color on the embed border.
+**Discord** — posted to a user-supplied incoming webhook as one rich embed: the scorecard shown
+at the top of this section (`src/lib/kpi/scorecard.js`). Tiles are inline embed fields, so there
+are no code-block tables to wrap badly on a phone. Deliberately plain: **no emoji**, direction
+carried by ▲ / ▼, and the embed colour is green or red by revenue direction.
 
 **Email** — designed for but not yet enabled: this instance has no mail transport configured, so
 the option is disabled in the dialog and the API rejects `medium: "email"`.
