@@ -77,6 +77,8 @@ export const {
     // Payer base (issue #267) -- aggregates only
     getMonthlyPayerStats,
     getAppRevenueConcentration,
+    // Revenue mix (issue #262 part 2)
+    getDailyRevenueMixInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

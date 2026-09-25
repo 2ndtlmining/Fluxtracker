@@ -1209,6 +1209,31 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
 // an address-list filter -- mirrors getRevenueFromAddressesForDateRange()'s placeholder
 // pattern, just grouped by day instead of summed over the whole range.
 // RPC equivalent: get_daily_revenue_from_addresses_in_range
+// Daily revenue mix (issue #262 part 2) -- the SQLite twin of migration 020.
+export async function getDailyRevenueMixInRange(startDate, endDate) {
+    try {
+        return getDb().prepare(`
+            SELECT date,
+                   SUM(amount) AS total_flux,
+                   COALESCE(SUM(CASE WHEN msg_type = 'register' THEN amount END), 0) AS new_flux,
+                   COALESCE(SUM(CASE WHEN msg_type = 'register' THEN COALESCE(amount_usd, 0) END), 0) AS new_usd,
+                   COALESCE(SUM(CASE WHEN msg_type = 'update' THEN amount END), 0) AS update_flux,
+                   COALESCE(SUM(CASE WHEN msg_type = 'update' THEN COALESCE(amount_usd, 0) END), 0) AS update_usd,
+                   COALESCE(SUM(CASE WHEN enterprise = 1 THEN amount END), 0) AS enterprise_flux,
+                   COALESCE(SUM(CASE WHEN enterprise = 1 THEN COALESCE(amount_usd, 0) END), 0) AS enterprise_usd,
+                   COALESCE(SUM(expire_blocks / 2880.0), 0) AS commitment_days_sum,
+                   COUNT(expire_blocks) AS commitment_payments
+            FROM revenue_transactions
+            WHERE date BETWEEN ? AND ?
+            GROUP BY date
+            ORDER BY date ASC
+        `).all(startDate, endDate);
+    } catch (error) {
+        log.error(`getDailyRevenueMixInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueMixInRange failed: ${error.message}`);
+    }
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

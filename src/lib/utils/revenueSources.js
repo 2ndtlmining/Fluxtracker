@@ -80,6 +80,53 @@ export function shapePayerRows(rows) {
   }));
 }
 
+/**
+ * #262 -- daily revenue mix rows as the chart needs them: new apps (registrations) vs
+ * renewals and updates, enterprise, and the days bought per payment as a sum and a count
+ * (so a week or month averages over payments, not over daily averages). Numbers only --
+ * Postgres can return bigint/numeric as strings. A payment with no message metadata counts
+ * in total_flux only, so the shares never claim more than the data knows.
+ */
+export function shapeMixRows(rows) {
+  const num = v => Number(v) || 0;
+  return (rows ?? []).filter(row => row?.date).map(row => ({
+    date: String(row.date).slice(0, 10),
+    total_flux: num(row.total_flux),
+    new_flux: num(row.new_flux),
+    new_usd: num(row.new_usd),
+    update_flux: num(row.update_flux),
+    update_usd: num(row.update_usd),
+    enterprise_flux: num(row.enterprise_flux),
+    enterprise_usd: num(row.enterprise_usd),
+    commitment_days_sum: num(row.commitment_days_sum),
+    commitment_payments: num(row.commitment_payments)
+  }));
+}
+
+/**
+ * #262 -- one day's revenue-mix chart fields. The ratio numerators/denominators ride along
+ * so weekly/monthly views divide sums instead of averaging daily ratios. A day with no mix
+ * row (no metadata) contributes zeros, never a fake share.
+ */
+export function mixFields(mix, totalFlux) {
+  const m = mix ?? {};
+  const share = part => (totalFlux > 0 ? ((part || 0) / totalFlux) * 100 : 0);
+  return {
+    new_flux: m.new_flux || 0,
+    new_usd: m.new_usd || 0,
+    update_flux: m.update_flux || 0,
+    update_usd: m.update_usd || 0,
+    enterprise_flux: m.enterprise_flux || 0,
+    enterprise_usd: m.enterprise_usd || 0,
+    commitment_days_sum: m.commitment_days_sum || 0,
+    commitment_payments: m.commitment_payments || 0,
+    mix_new_percent: share(m.new_flux),
+    mix_update_percent: share(m.update_flux),
+    mix_enterprise_percent: share(m.enterprise_flux),
+    mix_commitment_days: m.commitment_payments > 0 ? m.commitment_days_sum / m.commitment_payments : 0
+  };
+}
+
 /** #267 -- the concentration row as shares of the total. */
 export function shapeConcentration(row) {
   const total = Number(row?.total_revenue) || 0;
