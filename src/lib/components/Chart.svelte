@@ -6,6 +6,7 @@
   import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
+  import { fromColumnar } from '$lib/utils/columnar.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
 
   // Props
@@ -734,7 +735,7 @@
         if (cached) {
           allSnapshots = snapshotCache.rows;
         } else {
-          const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}`);
+          const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}&format=columns`);
 
           if (!response.ok) {
             throw new Error(`API error: ${response.status}`);
@@ -745,6 +746,8 @@
           // Handle response format
           if (Array.isArray(result)) {
             allSnapshots = result;
+          } else if (Array.isArray(result.columns)) {
+            allSnapshots = fromColumnar(result); // issue #389
           } else if (result.data && Array.isArray(result.data)) {
             allSnapshots = result.data;
           } else {

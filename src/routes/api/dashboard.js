@@ -140,7 +140,10 @@ router.get('/decentralization/history', async (req, res) => {
                 log.warn({ err: error }, 'decentralization continent history unavailable, continuing without it');
                 return [];
             }),
-            getSnapshotsInRange(startDate, endDate).catch(error => {
+            getSnapshotsInRange(startDate, endDate, [
+                'snapshot_date', 'decentralization_datacenter_count', 'decentralization_independent_count',
+                'decentralization_datacenter_percent', 'node_total'
+            ]).catch(error => {
                 log.warn({ err: error }, 'decentralization headline snapshots unavailable, continuing without it');
                 return [];
             })

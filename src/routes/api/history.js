@@ -28,11 +28,18 @@ import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESS
 import { shapeGameRevenueRows } from '../../lib/utils/gameRevenue.js';
 import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { shapeCohortRows } from '../../lib/utils/appCohorts.js';
+import { toColumnar } from '../../lib/utils/columnar.js';
 import { createCache, withDbFallback, parseRangeQuery } from '../../lib/serverHelpers.js';
 import { createLogger } from '../../lib/logger.js';
 
 const router = express.Router();
 const log = createLogger('server');
+
+// The only columns /snapshots reads (issue #389) -- not all ~64.
+const SUMMARY_COLUMNS = [
+    'snapshot_date', 'daily_revenue', 'node_total', 'node_cumulus', 'node_nimbus',
+    'total_apps', 'gaming_apps_total', 'crypto_nodes_total', 'gitapps_count', 'dockerapps_count'
+];
 
 const revenueCache = createCache(300_000); // 5 min
 
@@ -45,18 +52,19 @@ const revenueCache = createCache(300_000); // 5 min
 router.get('/snapshots/full', async (req, res) => {
     const q = parseRangeQuery(req.query);
     if (q.error) return res.status(400).json({ error: q.error });
-    const cacheKey = `full:${q.key}`;
+    const columnar = req.query.format === 'columns';
+    const cacheKey = `full:${q.key}${columnar ? ':columns' : ''}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
         const snapshots = q.start
             ? await getSnapshotsInRange(q.start, q.end)
             : await getLastNSnapshots(q.limit);
 
-        // Return FULL snapshot data (not summarized)
-        return {
-            count: snapshots.length,
-            data: snapshots
-        };
+        // Return FULL snapshot data (not summarized). `?format=columns` (issue #389) names each
+        // key once instead of on every row -- the chart asks for it; rows stay the default.
+        return columnar
+            ? { count: snapshots.length, ...toColumnar(snapshots) }
+            : { count: snapshots.length, data: snapshots };
     });
 });
 
@@ -272,7 +280,7 @@ router.get('/snapshots', async (req, res) => {
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
         const snapshots = q.start
-            ? await getSnapshotsInRange(q.start, q.end)
+            ? await getSnapshotsInRange(q.start, q.end, SUMMARY_COLUMNS)
             : await getLastNSnapshots(q.limit);
 
         return {
@@ -321,7 +329,7 @@ router.get('/games', async (req, res) => {
                 log.warn({ err: error }, 'per-game history unavailable, continuing without it');
                 return [];
             }),
-            getSnapshotsInRange(startDate, endDate).catch(error => {
+            getSnapshotsInRange(startDate, endDate, ['snapshot_date', 'gaming_instances_total']).catch(error => {
                 log.warn({ err: error }, 'gaming total history unavailable, continuing without it');
                 return [];
             })

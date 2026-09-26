@@ -708,6 +708,15 @@ export async function getLastNSnapshots(n = 30) {
     }
 }
 
+// Column names for getSnapshotsInRange (issue #389) are code constants, but they end up in
+// SQL text, so anything that is not a plain identifier is refused rather than trusted.
+function assertColumnNames(columns) {
+    for (const c of columns) {
+        if (!/^[a-z_][a-z0-9_]*$/.test(c)) throw new Error(`Invalid column name: ${c}`);
+    }
+    return columns;
+}
+
 /**
  * Read failures on these four throw rather than returning an empty result.
  *
@@ -717,10 +726,12 @@ export async function getLastNSnapshots(n = 30) {
  * -12,400.00, -100.0%" -- and get posted to Discord as fact. Every caller either sits inside
  * a try/catch or is a write path where aborting beats persisting a false zero.
  */
-export async function getSnapshotsInRange(startDate, endDate) {
+export async function getSnapshotsInRange(startDate, endDate, columns = null) {
+    // `columns` (issue #389): callers that use a handful of the ~64 columns name them.
+    const select = columns?.length ? assertColumnNames(columns).join(', ') : '*';
     try {
         return getDb().prepare(
-            'SELECT * FROM daily_snapshots WHERE snapshot_date >= ? AND snapshot_date <= ? ORDER BY snapshot_date ASC'
+            `SELECT ${select} FROM daily_snapshots WHERE snapshot_date >= ? AND snapshot_date <= ? ORDER BY snapshot_date ASC`
         ).all(startDate, endDate);
     } catch (error) {
         log.error(`getSnapshotsInRange error: ${error.message}`);
