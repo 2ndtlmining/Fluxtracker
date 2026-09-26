@@ -19,6 +19,9 @@ import { createLogger } from '../../lib/logger.js';
 const log = createLogger('server');
 const router = express.Router();
 const demandCache = createCache(10 * 60_000); // 10 min -- both inputs refresh hourly
+// Issue #384: the history is written once a day, so 10 minutes is plenty; it was the only
+// history read with no cache at all, paging three tables 1,000 rows at a time per request.
+const decentralizationHistoryCache = createCache(10 * 60_000);
 
 router.get('/carousel/stats', (req, res) => {
     try {
@@ -27,9 +30,10 @@ router.get('/carousel/stats', (req, res) => {
         res.json({
             stats: result.stats || [],  // ✅ New field name
             cached: result.cached,
-            cacheAge: result.cacheAge,
-            fresh: result.fresh,
-            timestamp: new Date().toISOString()
+            // fetchedAt, not a per-request cacheAge/timestamp: a body that changes on every
+            // request can never match its ETag, so every poll was a full 200 (issue #383).
+            fetchedAt: result.fetchedAt,
+            fresh: result.fresh
         });
 
     } catch (error) {
@@ -49,7 +53,7 @@ router.get('/carousel/stats', (req, res) => {
 router.get('/busiest-node', async (req, res) => {
     try {
         const node = await getBusiestNode();
-        res.json({ node, timestamp: new Date().toISOString() });
+        res.json({ node });
     } catch (error) {
         log.error({ err: error }, 'busiest node API error');
         res.status(500).json({
@@ -65,7 +69,7 @@ router.get('/busiest-node', async (req, res) => {
 router.get('/decentralization', async (req, res) => {
     try {
         const stats = await getDecentralizationStats();
-        res.json({ ...stats, timestamp: new Date().toISOString() });
+        res.json(stats);
     } catch (error) {
         log.error({ err: error }, 'decentralization stats API error');
         res.status(500).json({
@@ -111,6 +115,9 @@ router.get('/decentralization/history', async (req, res) => {
         const days = Math.min(Math.max(1, parseInt(req.query.days) || 90), 3650); // bounded (#295)
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - (days - 1) * 86400000).toISOString().split('T')[0];
+        const cacheKey = `history:${days}:${endDate}`;
+        const hit = decentralizationHistoryCache.get(cacheKey);
+        if (hit) return res.json(hit);
 
         // Each read isolated in its own try/catch: a Supabase instance where migration
         // 009_decentralization_country_continent.sql hasn't been applied yet would throw
@@ -148,12 +155,14 @@ router.get('/decentralization/history', async (req, res) => {
                 totalNodes: s.node_total
             }));
 
-        res.json({
+        const body = {
             history: breakdown.map(r => ({ date: r.snapshot_date, org: r.org, count: r.node_count })),
             countryHistory: countryBreakdown.map(r => ({ date: r.snapshot_date, country: r.country, countryCode: r.country_code, count: r.node_count })),
             continentHistory: continentBreakdown.map(r => ({ date: r.snapshot_date, continent: r.continent, continentCode: r.continent_code, count: r.node_count })),
             headline
-        });
+        };
+        decentralizationHistoryCache.set(cacheKey, body);
+        res.json(body);
     } catch (error) {
         log.error({ err: error }, 'decentralization history API error');
         res.status(500).json({ error: 'Failed to fetch decentralization history', message: error.message });
@@ -168,9 +177,10 @@ router.get('/carousel/deployed', async (req, res) => {
         res.json({
             stats: result.stats || [],
             cached: result.cached,
-            cacheAge: result.cacheAge,
-            fresh: result.fresh,
-            timestamp: new Date().toISOString()
+            // fetchedAt, not a per-request cacheAge/timestamp: a body that changes on every
+            // request can never match its ETag, so every poll was a full 200 (issue #383).
+            fetchedAt: result.fetchedAt,
+            fresh: result.fresh
         });
 
     } catch (error) {
@@ -192,9 +202,10 @@ router.get('/carousel/missing', async (req, res) => {
         res.json({
             stats: result.stats || [],
             cached: result.cached,
-            cacheAge: result.cacheAge,
-            fresh: result.fresh,
-            timestamp: new Date().toISOString()
+            // fetchedAt, not a per-request cacheAge/timestamp: a body that changes on every
+            // request can never match its ETag, so every poll was a full 200 (issue #383).
+            fetchedAt: result.fetchedAt,
+            fresh: result.fresh
         });
     } catch (error) {
         log.error({ err: error }, 'missing deployments API error');
@@ -209,9 +220,10 @@ router.get('/carousel/expiring', async (req, res) => {
         res.json({
             stats: result.stats || [],
             cached: result.cached,
-            cacheAge: result.cacheAge,
-            fresh: result.fresh,
-            timestamp: new Date().toISOString()
+            // fetchedAt, not a per-request cacheAge/timestamp: a body that changes on every
+            // request can never match its ETag, so every poll was a full 200 (issue #383).
+            fetchedAt: result.fetchedAt,
+            fresh: result.fresh
         });
     } catch (error) {
         log.error({ err: error }, 'expiring apps API error');
@@ -233,8 +245,7 @@ router.get('/apps/activity', async (req, res) => {
             expiring24h: {
                 cached: activity.expiring24h.cached,
                 count: activity.expiring24h.cached ? activity.expiring24h.apps.length : null
-            },
-            timestamp: new Date().toISOString()
+            }
         });
     } catch (error) {
         log.error({ err: error }, 'apps activity API error');
