@@ -1350,6 +1350,35 @@ export async function getDatabaseSizeBytes() {
     return bytes > 0 ? bytes : null;
 }
 
+// Revenue Sources in one query (issue #386) -- the SQLite twin of migration 027.
+export async function getDailyRevenueSourcesInRange(startDate, endDate, teamAddresses, fiatAddresses) {
+    const team = teamAddresses ?? [];
+    const fiat = fiatAddresses ?? [];
+    // IN () with no values is a syntax error in SQLite; IN (NULL) is valid and matches nothing.
+    const list = (prefix, values) => (values.length ? values.map((_, i) => `@${prefix}${i}`).join(', ') : 'NULL');
+    const params = { start: startDate, end: endDate };
+    team.forEach((a, i) => { params[`t${i}`] = a; });
+    fiat.forEach((a, i) => { params[`f${i}`] = a; });
+    try {
+        return getDb().prepare(`
+            SELECT date,
+                   SUM(amount) AS total_flux,
+                   SUM(COALESCE(amount_usd, 0)) AS total_usd,
+                   COALESCE(SUM(CASE WHEN from_address IN (${list('t', team)}) THEN amount END), 0) AS team_flux,
+                   COALESCE(SUM(CASE WHEN from_address IN (${list('t', team)}) THEN COALESCE(amount_usd, 0) END), 0) AS team_usd,
+                   COALESCE(SUM(CASE WHEN from_address IN (${list('f', fiat)}) THEN amount END), 0) AS fiat_flux,
+                   COALESCE(SUM(CASE WHEN from_address IN (${list('f', fiat)}) THEN COALESCE(amount_usd, 0) END), 0) AS fiat_usd
+            FROM revenue_transactions
+            WHERE date BETWEEN @start AND @end
+            GROUP BY date
+            ORDER BY date ASC
+        `).all(params);
+    } catch (error) {
+        log.error(`getDailyRevenueSourcesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueSourcesInRange failed: ${error.message}`);
+    }
+}
+
 // Payer base (issue #267) -- see the Supabase adapter / migration 018 for the definitions.
 // "New" = the wallet's first payment ever (over the whole table) falls in that month.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {

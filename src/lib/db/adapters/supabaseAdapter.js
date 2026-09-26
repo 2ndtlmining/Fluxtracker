@@ -1171,6 +1171,21 @@ export async function getDatabaseSizeBytes() {
     return Number.isFinite(bytes) && bytes > 0 ? bytes : null;
 }
 
+// Revenue Sources in one call (issue #386, migration 027): per day, total / team / fiat in FLUX
+// and USD. Throws when the migration is missing so the caller can fall back to the six calls.
+export async function getDailyRevenueSourcesInRange(startDate, endDate, teamAddresses, fiatAddresses) {
+    let data;
+    try {
+        data = await pagedRpc('get_daily_revenue_sources', {
+            p_start: startDate, p_end: endDate, p_team: teamAddresses ?? [], p_fiat: fiatAddresses ?? []
+        });
+    } catch (error) {
+        log.error(`getDailyRevenueSourcesInRange error: ${error.message}`);
+        throw new Error(`getDailyRevenueSourcesInRange failed: ${error.message}`);
+    }
+    return data;
+}
+
 // Payer base (issue #267): paying wallets per month, new vs returning, excluding the given
 // addresses (team + fiat on-ramp). Aggregates only -- the RPC never returns an address.
 export async function getMonthlyPayerStats(startDate, endDate, excludeAddresses = []) {
