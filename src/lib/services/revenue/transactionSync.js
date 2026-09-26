@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC } from '../../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC, resolveGameFromAppName } from '../../config.js';
 import { resilientFetch } from '../resilientFetch.js';
 import { ensureGlobalSpecsCache, getAppNameByHash, getAppTypeByName, determineAppType } from '../appSpecsCache.js';
 import { createLogger } from '../../logger.js';
@@ -447,7 +447,10 @@ export function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, ap
                     msg_type: meta?.msg_type ?? null,
                     enterprise: meta?.enterprise ?? null,
                     expire_blocks: meta?.expire_blocks ?? null,
-                    instances: meta?.instances ?? null
+                    instances: meta?.instances ?? null,
+                    // Issue #395: the game this payment was for. The message knows (name or
+                    // image); before it is cached, the game-site name alone still does.
+                    game_name: meta?.game_name ?? resolveGameFromAppName(appName) ?? null
                 });
             }
         }

@@ -29,7 +29,7 @@ export {
     initialSync
 } from './revenue/transactionSync.js';
 
-export { backfillAppTypes, backfillAppNames, backfillMessageMetadata } from './revenue/revenueBackfill.js';
+export { backfillAppTypes, backfillAppNames, backfillMessageMetadata, backfillGameNames } from './revenue/revenueBackfill.js';
 
 export {
     getRevenueBreakdown,

@@ -85,6 +85,8 @@ export const {
     getDailyGameRevenueInRange,
     // Header database size (migration 025)
     getDatabaseSizeBytes,
+    // Game-name back-fill (issue #395)
+    updateTransactionGameBatch,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

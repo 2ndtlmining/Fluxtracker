@@ -565,6 +565,9 @@ export async function insertTransaction(tx) {
 // remembers not to send them again this process: new payments keep landing either way.
 const METADATA_FIELDS = ['msg_type', 'enterprise', 'expire_blocks', 'instances'];
 let metadataColumnsMissing = false;
+// game_name (issue #395, migration 026) has its own flag: a database with 019 but not yet 026
+// must keep writing the four metadata columns -- only game_name is left out.
+let gameNameColumnMissing = false;
 
 function isMissingColumnError(error) {
     return error?.code === 'PGRST204' || /column .* (does not exist|of 'revenue_transactions')/i.test(error?.message ?? '');
@@ -587,10 +590,16 @@ export async function insertTransactionsBatch(transactions) {
         msg_type: tx.msg_type ?? null,
         enterprise: tx.enterprise ?? null,
         expire_blocks: tx.expire_blocks ?? null,
-        instances: tx.instances ?? null
+        instances: tx.instances ?? null,
+        game_name: tx.game_name ?? null
     }));
-    const withoutMetadata = row => {
+    const withoutGameName = row => {
         const copy = { ...row };
+        delete copy.game_name;
+        return copy;
+    };
+    const withoutMetadata = row => {
+        const copy = withoutGameName(row);
         for (const field of METADATA_FIELDS) delete copy[field];
         return copy;
     };
@@ -600,9 +609,19 @@ export async function insertTransactionsBatch(transactions) {
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
         let chunk = rows.slice(i, i + CHUNK_SIZE);
         if (metadataColumnsMissing) chunk = chunk.map(withoutMetadata);
+        else if (gameNameColumnMissing) chunk = chunk.map(withoutGameName);
         let { error } = await supabase
             .from('revenue_transactions')
             .upsert(chunk, { onConflict: 'txid', ignoreDuplicates: true });
+
+        if (error && !gameNameColumnMissing && !metadataColumnsMissing && isMissingColumnError(error) && /game_name/.test(error.message ?? '')) {
+            gameNameColumnMissing = true;
+            log.warn('revenue_transactions has no game_name column yet -- inserting without it (apply migration 026)');
+            chunk = chunk.map(withoutGameName);
+            ({ error } = await supabase
+                .from('revenue_transactions')
+                .upsert(chunk, { onConflict: 'txid', ignoreDuplicates: true }));
+        }
 
         if (error && !metadataColumnsMissing && isMissingColumnError(error)) {
             metadataColumnsMissing = true;
@@ -1588,6 +1607,26 @@ export async function updateTransactionMetadataBatch(updates) {
         if (error) {
             log.error(`updateTransactionMetadataBatch error: ${error.message}`);
             throw new Error(`updateTransactionMetadataBatch failed: ${error.message}`);
+        }
+        updated += Number(data) || 0;
+    }
+    return updated;
+}
+
+/**
+ * Game-name back-fill (issue #395): one statement per 500-row chunk via the RPC from migration
+ * 026, which only touches rows with no game yet. Throws when the migration is missing.
+ */
+export async function updateTransactionGameBatch(updates) {
+    const rows = (updates ?? []).filter(u => u?.txid && u.game_name).map(u => ({ txid: u.txid, game_name: u.game_name }));
+    if (rows.length === 0) return 0;
+    const CHUNK_SIZE = 500;
+    let updated = 0;
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const { data, error } = await supabase.rpc('update_transaction_game_batch', { p_updates: rows.slice(i, i + CHUNK_SIZE) });
+        if (error) {
+            log.error(`updateTransactionGameBatch error: ${error.message}`);
+            throw new Error(`updateTransactionGameBatch failed: ${error.message}`);
         }
         updated += Number(data) || 0;
     }

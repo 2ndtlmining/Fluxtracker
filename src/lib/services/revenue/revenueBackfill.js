@@ -7,7 +7,8 @@ import {
     updateAppNameForTxid,
     upsertFailedTxid,
     isFailedTxid,
-    updateTransactionMetadataBatch
+    updateTransactionMetadataBatch,
+    updateTransactionGameBatch
 } from '../../db/database.js';
 import {
     ensurePermanentMessagesCache,
@@ -50,6 +51,30 @@ export async function backfillMessageMetadata() {
     }
     log.info({ messages: index.size, updated }, 'Message metadata back-fill complete: %d transactions updated', updated);
     return { messages: index.size, updated };
+}
+
+/**
+ * Issue #395: record which game each stored payment was for, from one download of
+ * /apps/permanentmessages -- the game-site name, or else a game image in the payment's spec.
+ * Only rows with no game yet are touched; safe to re-run. Needs migration 026 on Supabase.
+ */
+export async function backfillGameNames() {
+    await fetchPermanentMessages();
+    const index = getMessageMetadataIndex();
+    if (index.size === 0) {
+        throw new Error('No permanent messages loaded -- the API did not answer; nothing was changed');
+    }
+
+    const updates = [...index.values()]
+        .filter(meta => meta.game_name)
+        .map(meta => ({ txid: meta.txid, game_name: meta.game_name }));
+    const CHUNK = 5000;
+    let updated = 0;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+        updated += await updateTransactionGameBatch(updates.slice(i, i + CHUNK));
+    }
+    log.info({ messages: index.size, games: updates.length, updated }, 'Game-name back-fill complete: %d transactions updated', updated);
+    return { messages: index.size, gameMessages: updates.length, updated };
 }
 
 // ============================================

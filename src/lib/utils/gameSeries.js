@@ -20,7 +20,7 @@ export const GAMING_TOTAL_METRIC = {
 // Issue #265: what game servers earn, from revenue_transactions (migration 024) rather than
 // the per-game snapshots, hence their own source. Recognised by app name, so the
 // explanation says what is and is not counted.
-const GAME_REVENUE_NOTE = 'Payments for game servers deployed through the Flux game sites (Palworld, Minecraft, Valheim and others), recognised by app name.';
+const GAME_REVENUE_NOTE = 'Payments for game servers (Palworld, Minecraft, Rust, Valheim and others), recognised by the game sites\' app names or, for servers deployed by hand, the game image.';
 export const GAME_REVENUE_METRICS = [
     {
         id: 'game_revenue_usd', label: 'Game server revenue ($)', field: 'game_usd', format: 'usd',

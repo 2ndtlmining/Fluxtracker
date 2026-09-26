@@ -135,12 +135,13 @@ function createSchema() {
             msg_type TEXT DEFAULT NULL,
             enterprise INTEGER DEFAULT NULL,
             expire_blocks INTEGER DEFAULT NULL,
-            instances INTEGER DEFAULT NULL
+            instances INTEGER DEFAULT NULL,
+            game_name TEXT DEFAULT NULL
         )
     `);
     // Message metadata (issue #262) on a database created before it: same "ALTER, swallow
     // duplicate-column" self-healing as node_ip_classification below.
-    for (const [col, type] of [['msg_type', 'TEXT'], ['enterprise', 'INTEGER'], ['expire_blocks', 'INTEGER'], ['instances', 'INTEGER']]) {
+    for (const [col, type] of [['msg_type', 'TEXT'], ['enterprise', 'INTEGER'], ['expire_blocks', 'INTEGER'], ['instances', 'INTEGER'], ['game_name', 'TEXT']]) {
         try {
             d.exec(`ALTER TABLE revenue_transactions ADD COLUMN ${col} ${type} DEFAULT NULL`);
         } catch (error) {
@@ -804,12 +805,29 @@ export async function updateTransactionMetadataBatch(updates) {
     }
 }
 
+/** Game-name back-fill (issue #395): only rows with no game yet. Returns rows updated. */
+export async function updateTransactionGameBatch(updates) {
+    const rows = (updates ?? []).filter(u => u?.txid && u.game_name);
+    if (rows.length === 0) return 0;
+    const stmt = getDb().prepare('UPDATE revenue_transactions SET game_name = @game_name WHERE txid = @txid AND game_name IS NULL');
+    try {
+        let updated = 0;
+        getDb().transaction(list => {
+            for (const u of list) updated += stmt.run({ txid: u.txid, game_name: u.game_name }).changes;
+        })(rows);
+        return updated;
+    } catch (error) {
+        log.error(`updateTransactionGameBatch error: ${error.message}`);
+        throw new Error(`updateTransactionGameBatch failed: ${error.message}`);
+    }
+}
+
 export async function insertTransactionsBatch(transactions) {
     if (!transactions || transactions.length === 0) return true;
 
     const stmt = getDb().prepare(`
-        INSERT OR IGNORE INTO revenue_transactions (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type, msg_type, enterprise, expire_blocks, instances)
-        VALUES (@txid, @address, @from_address, @amount, @amount_usd, @block_height, @timestamp, @date, @app_name, @app_type, @msg_type, @enterprise, @expire_blocks, @instances)
+        INSERT OR IGNORE INTO revenue_transactions (txid, address, from_address, amount, amount_usd, block_height, timestamp, date, app_name, app_type, msg_type, enterprise, expire_blocks, instances, game_name)
+        VALUES (@txid, @address, @from_address, @amount, @amount_usd, @block_height, @timestamp, @date, @app_name, @app_type, @msg_type, @enterprise, @expire_blocks, @instances, @game_name)
     `);
 
     try {
@@ -829,7 +847,8 @@ export async function insertTransactionsBatch(transactions) {
                     msg_type: tx.msg_type ?? null,
                     enterprise: tx.enterprise == null ? null : (tx.enterprise ? 1 : 0),
                     expire_blocks: tx.expire_blocks ?? null,
-                    instances: tx.instances ?? null
+                    instances: tx.instances ?? null,
+                    game_name: tx.game_name ?? null
                 });
             }
         });
@@ -1285,7 +1304,8 @@ export async function getAppCohorts(startDate, endDate, today) {
     }
 }
 
-// Game-server revenue (issue #265) -- the SQLite twin of migration 024. SQLite has no
+// Game-server revenue (issue #265, #395) -- the SQLite twin of migrations 024 and 026: a
+// payment counts when it has a game_name or its app name matches the game-site pattern. SQLite has no
 // regular expressions of its own, so the adapter registers one (compiled once per pattern).
 const regexCache = new Map();
 let appMatchRegisteredOn = null;
@@ -1307,8 +1327,8 @@ export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
         return db.prepare(`
             SELECT date,
                    SUM(amount) AS total_flux,
-                   COALESCE(SUM(CASE WHEN app_name_matches(app_name, @pattern) THEN amount END), 0) AS game_flux,
-                   COALESCE(SUM(CASE WHEN app_name_matches(app_name, @pattern) THEN COALESCE(amount_usd, 0) END), 0) AS game_usd
+                   COALESCE(SUM(CASE WHEN game_name IS NOT NULL OR app_name_matches(app_name, @pattern) THEN amount END), 0) AS game_flux,
+                   COALESCE(SUM(CASE WHEN game_name IS NOT NULL OR app_name_matches(app_name, @pattern) THEN COALESCE(amount_usd, 0) END), 0) AS game_usd
             FROM revenue_transactions
             WHERE date BETWEEN @start AND @end
             GROUP BY date
