@@ -288,6 +288,10 @@ ${DONATION_ADDRESSES[0]}`}
     margin: 0 auto;
     font-size: 0.875rem;
     gap: var(--spacing-lg);
+    /* Between the phone layout (<=768px) and a wide desktop the three groups don't fit one
+       row, and the unwrapped row pushed the page ~300px sideways at tablet widths (#392). */
+    flex-wrap: wrap;
+    row-gap: var(--spacing-xs);
   }
 
   .footer-left,
@@ -493,6 +497,10 @@ ${DONATION_ADDRESSES[0]}`}
     .footer-right {
       width: 100%;
       justify-content: space-between;
+      /* Each stat stays on one line (nowrap, #328), so on a narrow phone the row itself has
+         to wrap -- otherwise "Next Sync" pushed the page sideways at 360px (#392). */
+      flex-wrap: wrap;
+      row-gap: var(--spacing-xs);
     }
 
     .footer-btn,

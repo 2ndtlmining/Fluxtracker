@@ -762,11 +762,13 @@
     payments = { ...payments, [name]: { status: 'loading', at: Date.now() } };
     let result;
     try {
-      const params = new URLSearchParams({ page: '1', limit: '1', search: name });
+      // Exact app name (issue #382): uses the app_name index instead of a six-column
+      // substring scan, and cannot return a different app whose name merely contains this one.
+      const params = new URLSearchParams({ page: '1', limit: '1', appName: name });
       const response = await fetch(`${getApiUrl()}/api/transactions/paginated?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const body = await response.json();
-      // The search is a substring match; only an exact app-name row counts as its payment.
+      // Belt and braces: only an exact app-name row counts as its payment.
       const tx = body.transactions?.find(t => t.app_name === name);
       result = tx
         ? { status: 'ok', amount: tx.amount, usd: tx.amount_usd, date: tx.date, total: body.total }

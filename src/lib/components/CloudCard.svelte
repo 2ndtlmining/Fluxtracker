@@ -231,7 +231,9 @@
   
   .cloud-metrics {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    /* minmax(0, 1fr), not 1fr: a 1fr track never shrinks below its content, so at ~1024px
+       the three columns pushed the whole page 93px sideways (#392). */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--spacing-md);
   }
   
@@ -239,6 +241,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-xs);
+    min-width: 0;
   }
   
   .metric-row {
@@ -263,7 +266,8 @@
   }
   
   .metric-value {
-    font-size: 1.75rem;
+    /* Scales down between tablet and desktop widths so "26.75%" fits a third of the card. */
+    font-size: clamp(1.25rem, 2.1vw, 1.75rem);
     font-weight: 700;
     color: var(--text-white);
     font-variant-numeric: tabular-nums;
