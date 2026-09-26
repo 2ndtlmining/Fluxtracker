@@ -42,3 +42,6 @@ export {
     calculateYesterdayRevenue,
     getYesterdayPaymentCount
 } from './revenue/revenueReporting.js';
+
+// Issue #400: new vs updated apps among today's deployments.
+export { classifyDeployment } from './revenue/transactionSync.js';

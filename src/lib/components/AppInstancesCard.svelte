@@ -31,6 +31,10 @@
   // on ANY spec change -- a resource resize or redeploy of an existing app gets the same
   // fresh height as a genuinely new deployment, so this count is never purely "new".
   export let deployedToday = null;
+  // Issue #400: of today's deployments, brand-new apps vs renewals/updates of running ones.
+  // Both null when the split is unknown -- then only the total is shown.
+  export let deployedNew = null;
+  export let deployedUpdated = null;
   export let deployedComparison = null;
   export let expiringToday = null;
   export let expiringComparison = null;
@@ -130,6 +134,11 @@
         <div class="activity-metric">
           <div class="activity-label">New/Updated Today</div>
           <div class="activity-value">{formatNumber(deployedToday)}</div>
+          {#if deployedNew != null && deployedUpdated != null}
+            <div class="activity-split" title="New: apps registered for the first time. Renewed: apps already running that were extended or changed.">
+              {formatNumber(deployedNew)} new · {formatNumber(deployedUpdated)} renewed
+            </div>
+          {/if}
           {#if deployedComparison && deployedComparison.change !== undefined}
             <div class="metric-change" class:up={deployedComparison.trend === 'up'} class:down={deployedComparison.trend === 'down'} class:neutral={deployedComparison.trend === 'neutral'}>
               {#if deployedComparison.trend === 'up'}<span class="trend-arrow">↑</span>{:else if deployedComparison.trend === 'down'}<span class="trend-arrow">↓</span>{/if}
@@ -287,6 +296,12 @@
 
   /* Stacked, so both labels get a full line and neither has to wrap or truncate --
      "New/Updated Today" does not fit beside "Expiring Today" at this card width. */
+  .activity-split {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
   .activity-stack {
     display: flex;
     flex-direction: column;

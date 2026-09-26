@@ -616,6 +616,8 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         totalApps={loading ? 0 : totalApps}
         totalComparison={comparison ? { change: comparison.changes.apps?.change || 0, trend: getTrend(comparison.changes.apps) } : null}
         deployedToday={appsActivity?.deployedToday?.cached ? appsActivity.deployedToday.count : null}
+        deployedNew={appsActivity?.deployedToday?.newCount ?? null}
+        deployedUpdated={appsActivity?.deployedToday?.updatedCount ?? null}
         deployedComparison={appsDeployedComparison}
         expiringToday={appsActivity?.expiring24h?.cached ? appsActivity.expiring24h.count : null}
         expiringComparison={appsExpiringComparison}
