@@ -2,6 +2,7 @@ import { supabase } from '../supabaseClient.js';
 import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 import { resolveDimension } from '../../decentralizationDimensions.js';
+import { splitDateRange } from '../../utils/dateWindows.js';
 
 const log = createLogger('supabaseAdapter');
 
@@ -832,6 +833,24 @@ async function pagedRpc(name, params) {
     return rows;
 }
 
+// Per-day RPCs over a long range (issue #390): one call per date window short enough to fit
+// in a single page, instead of .range() paging, which re-runs the whole aggregation for
+// every page. Only for functions that filter `date BETWEEN p_start AND p_end` and GROUP BY
+// date, so the windows add up to exactly the single-range answer. pagedRpc inside is only a
+// safety net -- a window returns at most RPC_WINDOW_DAYS rows per group.
+const RPC_WINDOW_DAYS = 800;
+async function windowedRpc(name, params) {
+    const windows = splitDateRange(params.p_start, params.p_end, RPC_WINDOW_DAYS);
+    const parts = await Promise.all(
+        windows.map(([p_start, p_end]) => pagedRpc(name, { ...params, p_start, p_end }))
+    );
+    return parts.flat();
+}
+
+// The start-only per-day RPCs (002) have in-range twins with identical rows; an open end is
+// this sentinel, so they can share windowedRpc.
+const OPEN_END = '9999-12-31';
+
 export async function getRevenueForDateRange(startDate, endDate) {
     // Server-side aggregation, PAGED (issue #227). The RPC returns one row per day, and
     // an RPC response is capped at db-max-rows and truncated silently exactly like a
@@ -839,7 +858,7 @@ export async function getRevenueForDateRange(startDate, endDate) {
     // revenue figure that the dashboard, the KPI report and every snapshot read from.
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
+        data = await windowedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
     } catch (error) {
         log.error(`getRevenueForDateRange error: ${error.message}`);
         throw new Error(`getRevenueForDateRange failed: ${error.message}`);
@@ -864,7 +883,7 @@ export async function getRevenueFromAddressesForDateRange(startDate, endDate, ad
     // per day. The payment count comes from a head request, which transfers no rows at all.
     try {
         const [daily, { count, error: countError }] = await Promise.all([
-            pagedRpc('get_daily_revenue_from_addresses_in_range', {
+            windowedRpc('get_daily_revenue_from_addresses_in_range', {
                 p_start: startDate, p_end: endDate, p_addresses: addresses
             }),
             supabase
@@ -1071,7 +1090,7 @@ export async function getDailyRevenueFromTransactions(days = 30) {
     // call silently drops the NEWEST days, which is exactly what the "All" chart shows.
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue', { start_date: startDate });
+        data = await windowedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: OPEN_END });
     } catch (error) {
         throw readFailed('getDailyRevenueFromTransactions', error);
     }
@@ -1082,7 +1101,7 @@ export async function getDailyRevenueFromTransactions(days = 30) {
 export async function getDailyRevenueInRange(startDate, endDate) {
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
+        data = await windowedRpc('get_daily_revenue_in_range', { p_start: startDate, p_end: endDate });
     } catch (error) {
         throw readFailed('getDailyRevenueInRange', error);
     }
@@ -1102,7 +1121,7 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
     // call silently drops the NEWEST days, which is exactly what the "All" chart shows.
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_usd', { start_date: startDate });
+        data = await windowedRpc('get_daily_revenue_usd_in_range', { p_start: startDate, p_end: OPEN_END });
     } catch (error) {
         throw readFailed('getDailyRevenueUSDFromTransactions', error);
     }
@@ -1113,7 +1132,7 @@ export async function getDailyRevenueUSDFromTransactions(days = 30) {
 export async function getDailyRevenueUSDInRange(startDate, endDate) {
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_usd_in_range', { p_start: startDate, p_end: endDate });
+        data = await windowedRpc('get_daily_revenue_usd_in_range', { p_start: startDate, p_end: endDate });
     } catch (error) {
         log.error(`getDailyRevenueUSDInRange error: ${error.message}`);
         throw new Error(`getDailyRevenueUSDInRange failed: ${error.message}`);
@@ -1127,7 +1146,7 @@ export async function getDailyRevenueUSDInRange(startDate, endDate) {
 export async function getDailyRevenueMixInRange(startDate, endDate) {
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_mix', { p_start: startDate, p_end: endDate });
+        data = await windowedRpc('get_daily_revenue_mix', { p_start: startDate, p_end: endDate });
     } catch (error) {
         log.error(`getDailyRevenueMixInRange error: ${error.message}`);
         throw new Error(`getDailyRevenueMixInRange failed: ${error.message}`);
@@ -1153,7 +1172,7 @@ export async function getAppCohorts(startDate, endDate, today) {
 export async function getDailyGameRevenueInRange(startDate, endDate, pattern) {
     let data;
     try {
-        data = await pagedRpc('get_daily_game_revenue', { p_start: startDate, p_end: endDate, p_pattern: pattern });
+        data = await windowedRpc('get_daily_game_revenue', { p_start: startDate, p_end: endDate, p_pattern: pattern });
     } catch (error) {
         log.error(`getDailyGameRevenueInRange error: ${error.message}`);
         throw new Error(`getDailyGameRevenueInRange failed: ${error.message}`);
@@ -1176,7 +1195,7 @@ export async function getDatabaseSizeBytes() {
 export async function getDailyRevenueSourcesInRange(startDate, endDate, teamAddresses, fiatAddresses) {
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_sources', {
+        data = await windowedRpc('get_daily_revenue_sources', {
             p_start: startDate, p_end: endDate, p_team: teamAddresses ?? [], p_fiat: fiatAddresses ?? []
         });
     } catch (error) {
@@ -1233,7 +1252,7 @@ export async function getDailyRevenueFromAddressesInRange(startDate, endDate, ad
 
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_from_addresses_in_range', {
+        data = await windowedRpc('get_daily_revenue_from_addresses_in_range', {
             p_start: startDate, p_end: endDate, p_addresses: addresses
         });
     } catch (error) {
@@ -1249,7 +1268,7 @@ export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate,
 
     let data;
     try {
-        data = await pagedRpc('get_daily_revenue_usd_from_addresses_in_range', {
+        data = await windowedRpc('get_daily_revenue_usd_from_addresses_in_range', {
             p_start: startDate, p_end: endDate, p_addresses: addresses
         });
     } catch (error) {
