@@ -2,11 +2,16 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
   import { triggerRefresh } from '$lib/stores/refresh.js';
-  import KpiModal from './KpiModal.svelte';
   import { Heart, FileBarChart } from 'lucide-svelte';
   import { formatCount } from '$lib/utils/format.js';
 
   let showKpiModal = false;
+  // The KPI dialog only opens on a click, so it is downloaded then, not with the page (#387).
+  let KpiModal = null;
+  async function openKpiModal() {
+    if (!KpiModal) KpiModal = (await import('./KpiModal.svelte')).default;
+    showKpiModal = true;
+  }
 
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   let API_URL = '';
@@ -240,7 +245,7 @@ ${DONATION_ADDRESSES[0]}`}
         </svg>
         <span>GitHub</span>
       </a>
-      <button class="footer-btn kpi-btn" on:click={() => (showKpiModal = true)} title="Send a KPI report">
+      <button class="footer-btn kpi-btn" on:click={openKpiModal} title="Send a KPI report">
         <FileBarChart size={14} strokeWidth={2} />
         <span>KPI</span>
       </button>
@@ -262,8 +267,8 @@ ${DONATION_ADDRESSES[0]}`}
   </div>
 </footer>
 
-{#if showKpiModal}
-  <KpiModal on:close={() => (showKpiModal = false)} />
+{#if showKpiModal && KpiModal}
+  <svelte:component this={KpiModal} on:close={() => (showKpiModal = false)} />
 {/if}
 
 <style>

@@ -11,8 +11,7 @@
   import CloudCard from '$lib/components/CloudCard.svelte';
   import NodeCard from '$lib/components/NodeCard.svelte';
   import RevenueCard from '$lib/components/RevenueCard.svelte';
-  import Chart from '$lib/components/Chart.svelte';
-  import RevenueTransactions from '$lib/components/RevenueTransactions.svelte';
+  // Chart and RevenueTransactions are loaded right after mount (issue #387) -- see onMount.
   import CarouselCard from '$lib/components/CarouselCard.svelte';
   import BusiestNodeCard from '$lib/components/BusiestNodeCard.svelte';
   import DecentralizationCard from '$lib/components/DecentralizationCard.svelte';
@@ -192,8 +191,17 @@
   // undercounted number split by category is misleading, not just incomplete.
   $: totalApps = metrics?.apps?.total || 0;
   
+// Issue #387: the chart (2,100 lines) and the transactions section were in the page's own
+// bundle, so every visitor downloaded and compiled them before the top cards could hydrate.
+// They are imported straight after mount instead -- not on scroll: the header's click-through
+// needs RevenueTransactions mounted to filter and scroll to the table.
+let ChartSection = null;
+let TransactionsSection = null;
+
  onMount(async () => {
   API_URL = getApiUrl();
+  import('$lib/components/Chart.svelte').then(m => { ChartSection = m.default; });
+  import('$lib/components/RevenueTransactions.svelte').then(m => { TransactionsSection = m.default; });
 
   // Issue #385: the server-rendered load already fetched metrics and Daily revenue into the
   // HTML. Re-fetching both on mount doubled those requests on every page load; skip them
@@ -654,15 +662,25 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
          Chart.js's 150px default regardless. 525 is ~3.5x what was actually on
          screen before, and keeps a ~2.4:1 plot -- a time series, not a square.
          Raising this further is fine; it now has an effect. -->
-    <Chart
-      title="Historical Performance"
-      height={525}
-      defaultCategory="revenue"
-      defaultTimeframe="30d"
-    />
+    {#if ChartSection}
+      <svelte:component
+        this={ChartSection}
+        title="Historical Performance"
+        height={525}
+        defaultCategory="revenue"
+        defaultTimeframe="30d"
+      />
+    {:else}
+      <!-- Holds the chart's space while it loads, so the page does not jump (#387). -->
+      <div class="lazy-placeholder chart-placeholder terminal-border" aria-busy="true"></div>
+    {/if}
     
     <!-- Revenue Transactions Table -->
-    <RevenueTransactions />
+    {#if TransactionsSection}
+      <svelte:component this={TransactionsSection} />
+    {:else}
+      <div class="lazy-placeholder transactions-placeholder" aria-busy="true"></div>
+    {/if}
   </main>
   
   <Footer />
@@ -813,6 +831,28 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     
     .period-toggle {
       align-self: flex-start;
+    }
+  }
+
+  /* Space held for the lazily loaded sections (issue #387): the chart card measures 715px on
+     desktop and ~900px on a phone once rendered. */
+  .lazy-placeholder {
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .chart-placeholder {
+    min-height: 715px;
+    background: var(--bg-secondary);
+  }
+
+  .transactions-placeholder {
+    min-height: 400px;
+  }
+
+  @media (max-width: 768px) {
+    .chart-placeholder {
+      min-height: 900px;
     }
   }
 </style>
