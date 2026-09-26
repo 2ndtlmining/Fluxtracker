@@ -15,6 +15,7 @@ import {
     getDailyRevenueMixInRange,
     getAppCohorts,
     getDailyGameRevenueInRange,
+    getDailyRevenueSourcesInRange,
     getDistinctRepos,
     getRepoHistory,
     getLatestRepoSnapshot,
@@ -139,6 +140,20 @@ router.get('/revenue/sources/daily', async (req, res) => {
     }
 
     return withDbFallback(revenueCache, `sources:${start_date}:${end_date}`, res, async () => {
+        // One query when migration 027 is applied (issue #386); the six separate reads below
+        // until then. Both feed mergeRevenueSources the same shapes, so the output is identical.
+        try {
+            const rows = await getDailyRevenueSourcesInRange(start_date, end_date, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES);
+            const col = (field, as) => rows.map(r => ({ date: String(r.date).slice(0, 10), [as]: Number(r[field]) || 0 }));
+            const data = mergeRevenueSources({
+                total: col('total_flux', 'daily_revenue'), totalUsd: col('total_usd', 'daily_revenue_usd'),
+                team: col('team_flux', 'daily_revenue'), teamUsd: col('team_usd', 'daily_revenue_usd'),
+                fiat: col('fiat_flux', 'daily_revenue'), fiatUsd: col('fiat_usd', 'daily_revenue_usd')
+            });
+            return { count: data.length, data };
+        } catch (error) {
+            if (!isMissingFunctionError(error, 'get_daily_revenue_sources')) throw error;
+        }
         const [total, totalUsd, team, teamUsd, fiat, fiatUsd] = await Promise.all([
             getDailyRevenueInRange(start_date, end_date),
             getDailyRevenueUSDInRange(start_date, end_date),

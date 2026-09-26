@@ -87,6 +87,8 @@ export const {
     getDatabaseSizeBytes,
     // Game-name back-fill (issue #395)
     updateTransactionGameBatch,
+    // Revenue Sources in one query (issue #386)
+    getDailyRevenueSourcesInRange,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,
