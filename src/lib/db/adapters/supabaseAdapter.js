@@ -442,6 +442,15 @@ export async function getLastNSnapshots(n = 30) {
     return rows;
 }
 
+// Column names for getSnapshotsInRange (issue #389) are code constants, but they end up in
+// SQL text, so anything that is not a plain identifier is refused rather than trusted.
+function assertColumnNames(columns) {
+    for (const c of columns) {
+        if (!/^[a-z_][a-z0-9_]*$/.test(c)) throw new Error(`Invalid column name: ${c}`);
+    }
+    return columns;
+}
+
 /**
  * Read failures on these four throw rather than returning an empty result.
  *
@@ -451,7 +460,9 @@ export async function getLastNSnapshots(n = 30) {
  * -12,400.00, -100.0%" -- and get posted to Discord as fact. Every caller either sits inside
  * a try/catch or is a write path where aborting beats persisting a false zero.
  */
-export async function getSnapshotsInRange(startDate, endDate) {
+export async function getSnapshotsInRange(startDate, endDate, columns = null) {
+    // `columns` (issue #389): callers that use a handful of the ~64 columns name them.
+    const select = columns?.length ? assertColumnNames(columns).join(',') : '*';
     const rows = [];
     const PAGE_SIZE = 1000;
     let offset = 0;
@@ -462,7 +473,7 @@ export async function getSnapshotsInRange(startDate, endDate) {
     while (true) {
         const { data, error } = await supabase
             .from('daily_snapshots')
-            .select('*')
+            .select(select)
             .gte('snapshot_date', startDate)
             .lte('snapshot_date', endDate)
             .order('snapshot_date', { ascending: true })
