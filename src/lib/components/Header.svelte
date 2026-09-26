@@ -26,6 +26,11 @@
   // (raw node-instance count) -- see DecentralizationCard.svelte's tooltip.
   let ipsClassified = 0;
   let ipsTotal = 0;
+  // Issue #404: until the first /api/header answer, row 2 used to read "IPs 0/0 | 0 snapshots |
+  // last: N/A" -- far shorter than the real line, which then wrapped onto a second line on a
+  // phone and pushed the whole page down 21px (CLS 0.2). The header font is monospaced, so
+  // placeholders with the real values' character count keep the line the same length.
+  let headerLoaded = false;
 
   // Host stats
   let platform = '...';
@@ -122,6 +127,7 @@
 
       apiStatus = 'online';
       dbStatus = data.dbStatus === 'online' ? 'online' : 'offline';
+      headerLoaded = true;
 
       // Network
       fluxPrice = data.network.fluxPriceUsd;
@@ -277,15 +283,15 @@
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          IPs <span class="system-stat-value">{formatNumber(ipsClassified)}/{formatNumber(ipsTotal)}</span>
+          IPs <span class="system-stat-value">{headerLoaded ? `${formatNumber(ipsClassified)}/${formatNumber(ipsTotal)}` : '–,–––/–,–––'}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          <span class="system-stat-value">{snapshotCount}</span> snapshots
+          <span class="system-stat-value">{headerLoaded ? snapshotCount : '–––'}</span> snapshots
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          last: <span class="system-stat-value">{lastSnapshotDate}</span>
+          last: <span class="system-stat-value">{headerLoaded ? lastSnapshotDate : '––––-––-––'}</span>
         </span>
         <span class="status-indicators">
           <span class="status-label">API</span>

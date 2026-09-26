@@ -59,6 +59,9 @@
             {/if}
             {cumulusComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(cumulusComparison.change))}
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives, so the card does not jump (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0</div>
         {/if}
       </div>
       
@@ -79,6 +82,9 @@
             {/if}
             {nimbusComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(nimbusComparison.change))}
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives, so the card does not jump (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0</div>
         {/if}
       </div>
       
@@ -99,6 +105,9 @@
             {/if}
             {stratusComparison.change >= 0 ? '+' : ''}{formatNumber(Math.abs(stratusComparison.change))}
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives, so the card does not jump (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0</div>
         {/if}
       </div>
     </div>
@@ -238,6 +247,10 @@
     margin-top: var(--spacing-xs);
   }
   
+  .metric-change.placeholder {
+    visibility: hidden;
+  }
+
   .metric-change.up {
     color: var(--accent-green);
     background: rgba(0, 255, 65, 0.1);

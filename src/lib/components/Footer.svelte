@@ -27,7 +27,7 @@
 
   // Next sync countdown
   let lastCompleted = null;
-  let nextSyncText = '...';
+  let nextSyncText = '–:––';
   const SYNC_INTERVAL_S = 5 * 60; // 5 minutes in seconds
 
   let interval;
@@ -134,7 +134,9 @@
 
   // Commas, like the transaction table's BLOCK column (issue #323) -- this used spaces.
   function formatBlock(num) {
-    if (num === null || num === undefined) return '---';
+    // Same width as a real block height (issue #404): a shorter placeholder made the wrapped
+    // footer row reflow when the numbers arrived.
+    if (num === null || num === undefined) return '–,–––,–––';
     return formatCount(num);
   }
 
@@ -203,9 +205,7 @@
       <span class="status-dot {syncDot.color}" role="img" aria-label={syncDot.text} title={syncDot.text}></span>
       <span class="footer-stat">
         Synced: <span class="footer-value">{formatBlock(lastSyncBlock)}</span>
-        {#if currentBlock}
-          <span class="footer-dim"> / </span><span class="footer-value">{formatBlock(currentBlock)}</span>
-        {/if}
+        <span class="footer-dim"> / </span><span class="footer-value">{formatBlock(currentBlock)}</span>
       </span>
       <span class="footer-divider">|</span>
       <span class="footer-stat">
@@ -217,7 +217,7 @@
     <!-- Center: Transaction Count & Donation -->
     <div class="footer-center">
       <span class="footer-stat">
-        <span class="footer-value cyan">{formatCount(totalTransactions)}</span> transactions
+        <span class="footer-value cyan">{syncStatus === 'success' ? formatCount(totalTransactions) : '––,–––'}</span> transactions
       </span>
       <span class="footer-divider">|</span>
       <button

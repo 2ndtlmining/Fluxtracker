@@ -83,6 +83,9 @@
             {/if}
             {cpuComparison.change >= 0 ? '+' : ''}{formatDecimal(cpuComparison.change)}%
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0.00%</div>
         {/if}
       </div>
       
@@ -104,6 +107,9 @@
             {/if}
             {ramComparison.change >= 0 ? '+' : ''}{formatDecimal(ramComparison.change)}%
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0.00%</div>
         {/if}
       </div>
       
@@ -125,6 +131,9 @@
             {/if}
             {storageComparison.change >= 0 ? '+' : ''}{formatDecimal(storageComparison.change)}%
           </div>
+        {:else}
+          <!-- Holds the badge's space until the comparison arrives (#404). -->
+          <div class="metric-change placeholder" aria-hidden="true"><span class="trend-arrow">↑</span>+0.00%</div>
         {/if}
       </div>
     </div>
@@ -298,6 +307,10 @@
     margin-top: var(--spacing-xs);
   }
   
+  .metric-change.placeholder {
+    visibility: hidden;
+  }
+
   .metric-change.up {
     color: var(--accent-green);
     background: rgba(0, 255, 65, 0.1);
