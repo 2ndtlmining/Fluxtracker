@@ -84,10 +84,12 @@ vi.mock('../supabaseClient.js', () => {
 
     // RPC results are capped exactly like table reads -- this mock used to hand back the whole
     // distinct-image list in one go, which is how #304 passed its own regression test.
-    const rpc = (name) => {
-        const rows = name === 'get_distinct_repos'
+    const rpc = (name, params) => {
+        let rows = name === 'get_distinct_repos'
             ? distinctRepos.map(image_name => ({ image_name }))
             : rpcRows[name];
+        // Date-range RPCs filter like the SQL does, so date windows (issue #390) are real.
+        if (rows && params?.p_start) rows = rows.filter(r => r.date >= params.p_start && r.date <= params.p_end);
         const result = (data) => rows === undefined
             ? { data: null, error: { message: `unmocked rpc ${name}` } }
             : { data, error: null };
@@ -224,8 +226,9 @@ describe('repo category writes cover every distinct image (issue #222)', () => {
 });
 
 describe('set-returning RPCs page past the cap (issues #304, #306)', () => {
+    // Real dates ending today, so the date-windowed daily RPCs (issue #390) see them.
     const days = (n) => Array.from({ length: n }, (_, i) => ({
-        date: `d-${String(i).padStart(4, '0')}`, daily_revenue: 1, daily_revenue_usd: 1
+        date: new Date(Date.now() - (n - 1 - i) * 86400000).toISOString().slice(0, 10), daily_revenue: 1, daily_revenue_usd: 1
     }));
 
     it('getDistinctRepos returns every image, not the first 1000', async () => {
@@ -238,16 +241,16 @@ describe('set-returning RPCs page past the cap (issues #304, #306)', () => {
     });
 
     it('getDailyRevenueFromTransactions keeps the NEWEST days past 1000 (ascending RPC)', async () => {
-        rpcRows.get_daily_revenue = days(1200);
+        rpcRows.get_daily_revenue_in_range = days(1200);
 
         const rows = await adapter.getDailyRevenueFromTransactions(9999);
 
         expect(rows).toHaveLength(1200);
-        expect(rows.at(-1).date).toBe('d-1199');
+        expect(rows.at(-1).date).toBe(new Date().toISOString().slice(0, 10));
     });
 
     it('getDailyRevenueUSDFromTransactions keeps the newest days too', async () => {
-        rpcRows.get_daily_revenue_usd = days(1200);
+        rpcRows.get_daily_revenue_usd_in_range = days(1200);
 
         const rows = await adapter.getDailyRevenueUSDFromTransactions(9999);
 

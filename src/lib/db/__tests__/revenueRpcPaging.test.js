@@ -26,16 +26,20 @@ let selectCalls = [];
 
 vi.mock('../supabaseClient.js', () => {
     const rpc = (name, params, opts) => {
+        // Filter by date like the SQL does, so date windows (issue #390) are exercised for real.
+        const rows = () => (params?.p_start
+            ? rpcRows.filter(r => r.date >= params.p_start && r.date <= params.p_end)
+            : rpcRows);
         const chain = {
             range: (from, to) => {
                 rpcCalls.push({ name, params, from, to });
                 const width = Math.min(to - from + 1, HARD_CAP);
-                return Promise.resolve({ data: rpcRows.slice(from, from + width), error: null });
+                return Promise.resolve({ data: rows().slice(from, from + width), error: null });
             },
             // Awaiting without .range() is the silent-truncation case.
             then: (resolve) => {
                 rpcCalls.push({ name, params, from: null, to: null });
-                return Promise.resolve({ data: rpcRows.slice(0, HARD_CAP), error: null }).then(resolve);
+                return Promise.resolve({ data: rows().slice(0, HARD_CAP), error: null }).then(resolve);
             }
         };
         return chain;
@@ -60,8 +64,10 @@ vi.mock('../supabaseClient.js', () => {
 
 const adapter = await import('../adapters/supabaseAdapter.js');
 
+// One row per day from 2020-01-01 -- real dates, because the daily RPCs are asked for in
+// date windows (issue #390) and each window only sees its own days.
 const days = (n, key = 'daily_revenue') =>
-    Array.from({ length: n }, (_, i) => ({ date: `day-${i}`, [key]: 10 }));
+    Array.from({ length: n }, (_, i) => ({ date: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString().slice(0, 10), [key]: 10 }));
 
 beforeEach(() => {
     rpcRows = [];
@@ -72,10 +78,10 @@ beforeEach(() => {
 
 describe('daily-revenue RPCs page past the 1000-row cap (issue #227)', () => {
     const cases = [
-        ['getDailyRevenueInRange', 'daily_revenue', (a) => a.getDailyRevenueInRange('2024-01-01', '2026-12-31')],
-        ['getDailyRevenueUSDInRange', 'daily_revenue_usd', (a) => a.getDailyRevenueUSDInRange('2024-01-01', '2026-12-31')],
-        ['getDailyRevenueFromAddressesInRange', 'daily_revenue', (a) => a.getDailyRevenueFromAddressesInRange('2024-01-01', '2026-12-31', ['addr'])],
-        ['getDailyRevenueUSDFromAddressesInRange', 'daily_revenue_usd', (a) => a.getDailyRevenueUSDFromAddressesInRange('2024-01-01', '2026-12-31', ['addr'])]
+        ['getDailyRevenueInRange', 'daily_revenue', (a) => a.getDailyRevenueInRange('2020-01-01', '2026-12-31')],
+        ['getDailyRevenueUSDInRange', 'daily_revenue_usd', (a) => a.getDailyRevenueUSDInRange('2020-01-01', '2026-12-31')],
+        ['getDailyRevenueFromAddressesInRange', 'daily_revenue', (a) => a.getDailyRevenueFromAddressesInRange('2020-01-01', '2026-12-31', ['addr'])],
+        ['getDailyRevenueUSDFromAddressesInRange', 'daily_revenue_usd', (a) => a.getDailyRevenueUSDFromAddressesInRange('2020-01-01', '2026-12-31', ['addr'])]
     ];
 
     for (const [name, key, call] of cases) {
@@ -90,12 +96,29 @@ describe('daily-revenue RPCs page past the 1000-row cap (issue #227)', () => {
         });
     }
 
-    it('stops after a short page rather than looping forever', async () => {
-        rpcRows = days(1200);
+    it('asks for date windows that each fit in one page, so no aggregation is re-run (issue #390)', async () => {
+        rpcRows = days(2400);
 
-        await adapter.getDailyRevenueInRange('2024-01-01', '2026-12-31');
+        const rows = await adapter.getDailyRevenueInRange('2020-01-01', '2026-12-31');
 
-        expect(rpcCalls).toHaveLength(2);
+        expect(rows).toHaveLength(2400);
+        // .range() paging re-executes the whole RETURN QUERY for every page. Every call here
+        // is the first page of its own window, and the windows do not overlap.
+        expect(rpcCalls.every(c => c.from === 0)).toBe(true);
+        const windows = rpcCalls.map(c => [c.params.p_start, c.params.p_end]).sort();
+        for (let i = 1; i < windows.length; i++) expect(windows[i][0] > windows[i - 1][1]).toBe(true);
+        expect(windows[0][0]).toBe('2020-01-01');
+        expect(windows.at(-1)[1]).toBe('2026-12-31');
+        // Rows come back in date order across the windows.
+        expect(rows.map(r => r.date)).toEqual([...rows.map(r => r.date)].sort());
+    });
+
+    it('a range under the window size is a single call', async () => {
+        rpcRows = days(300);
+
+        await adapter.getDailyRevenueInRange('2020-01-01', '2020-10-26');
+
+        expect(rpcCalls).toHaveLength(1);
     });
 
     it('handles an empty result', async () => {
