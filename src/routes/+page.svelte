@@ -30,6 +30,8 @@
   // IMPORTANT: Don't call getApiUrl() here - it runs during SSR!
   // Initialize empty and set in onMount() when we're in the browser
   let API_URL = '';
+  // How long server-rendered hero data counts as fresh enough to skip the client re-fetch.
+  const SSR_REUSE_MS = 60_000;
   
   // Data from API (seeded from the server-rendered load when it answered in time)
   let metrics = data?.metrics ?? null;
@@ -193,10 +195,20 @@
  onMount(async () => {
   API_URL = getApiUrl();
 
+  // Issue #385: the server-rendered load already fetched metrics and Daily revenue into the
+  // HTML. Re-fetching both on mount doubled those requests on every page load; skip them
+  // while that data is fresh (the first poll refreshes them as usual).
+  // Stale server data (the API was serving from its fallback cache) is always re-fetched.
+  const ssrFresh = data?.renderedAt && Date.now() - data.renderedAt < SSR_REUSE_MS;
+  const reuseMetrics = ssrFresh && data?.metrics && data.metrics._stale !== true;
+  const reuseRevenue = ssrFresh && data?.revenue && data.revenue._stale !== true && comparisonPeriod === 'D';
+  if (reuseMetrics) metricsUpdatedAt = data.renderedAt;
+  if (reuseRevenue) revenueUpdatedAt = data.renderedAt;
+
   // Load all data in parallel
   await Promise.all([
-    fetchMetrics(),
-    fetchRevenue(comparisonPeriod),     // NEW - fetch revenue for current period
+    reuseMetrics ? null : fetchMetrics(),
+    reuseRevenue ? null : fetchRevenue(comparisonPeriod),
     fetchComparison(comparisonPeriod),
     fetchBusiestNode(),
     fetchDecentralization(),
@@ -205,8 +217,6 @@
     fetchGameRevenue(),
     fetchDeploymentFill()
   ]);
-
-  prefetchComparisons();
 
   // Auto-refresh on the shared dashboard interval so every card moves together
   // All three pause while the tab is hidden and catch up when it returns (issue #298).
@@ -463,19 +473,12 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     }
   }
   
-  // Prefetch common comparison periods in the background
-  async function prefetchComparisons() {
-    // Wait a bit after initial load
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Prefetch the most common periods (Week and Month) if not already cached
-    for (const period of ['W', 'M']) {
-      if (!comparisonCache[period] && period !== comparisonPeriod) {
-        await fetchComparison(period);
-        // Small delay between requests to avoid overwhelming the server
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
+  // Issue #385: the Week and Month comparisons used to be fetched a second after every page
+  // load, though most visitors never switch period. Now only the period the vs button would
+  // switch to next is fetched, when the pointer or keyboard focus reaches the button.
+  function prefetchNextComparison() {
+    const next = periods[(periods.findIndex(p => p.key === comparisonPeriod) + 1) % periods.length]?.key;
+    if (next && !comparisonCache[next]) fetchComparison(next);
   }
   
   // Select a comparison period. A click during a fetch still lands, and a late response for
@@ -545,6 +548,8 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
         class="period-toggle"
         class:loading={comparisonLoading}
         on:click={cyclePeriod}
+        on:pointerenter={prefetchNextComparison}
+        on:focus={prefetchNextComparison}
         title="Comparing with the previous {currentPeriodLabel.toLowerCase()}. Click for {nextPeriodEntry.label.toLowerCase()}."
         aria-label="Comparing with the previous {currentPeriodLabel.toLowerCase()}. Switch to {nextPeriodEntry.label.toLowerCase()}."
       >
