@@ -13,7 +13,7 @@ import { resolveGameFromAppName, categorizeImage, getCanonicalName } from '../..
 //     game image in its spec (hand-named servers like `rustserver`); null when neither says
 
 /** 'fluxappregister' -> 'register', 'fluxappupdate' -> 'update', anything else -> null. */
-function messageType(type) {
+export function messageType(type) {
   const t = String(type ?? '').toLowerCase();
   if (t.includes('register')) return 'register';
   if (t.includes('update')) return 'update';

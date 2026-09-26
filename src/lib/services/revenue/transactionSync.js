@@ -19,7 +19,7 @@ import {
     setRevenueSyncError,
     getFailedTxStats
 } from './revenueSyncState.js';
-import { messageMetadata, indexMetadataByTxid } from './messageMetadata.js';
+import { messageMetadata, indexMetadataByTxid, messageType } from './messageMetadata.js';
 
 const log = createLogger('revenueService');
 
@@ -143,6 +143,10 @@ const permanentMessagesCache = {
     // payment txid -> { msg_type, enterprise, expire_blocks, instances } (issue #262): the
     // rest of what each message says, which this cache used to download and throw away.
     metaByTxid: new Map(),
+    // app name (lowercase) -> height of its most recent REGISTER message (issue #400): an
+    // app deployed today is new when that registration is inside the day, even if it was
+    // updated or renewed again afterwards.
+    registerHeightByName: new Map(),
     lastFetched: 0,
     TTL: 60 * 60 * 1000  // 1 hour
 };
@@ -168,6 +172,14 @@ export async function fetchPermanentMessages() {
                 }
             }
             permanentMessagesCache.metaByTxid = indexMetadataByTxid(body.data);
+            const registered = new Map();
+            for (const m of body.data) {
+                const name = (m.appSpecifications || m.zelAppSpecification)?.name;
+                if (!name || messageType(m.type) !== 'register' || !Number.isFinite(Number(m.height))) continue;
+                const key = name.toLowerCase();
+                registered.set(key, Math.max(registered.get(key) ?? 0, Number(m.height)));
+            }
+            permanentMessagesCache.registerHeightByName = registered;
             permanentMessagesCache.lastFetched = Date.now();
             log.info({ count: permanentMessagesCache.map.size }, 'Loaded %d app names from permanent messages', permanentMessagesCache.map.size);
         }
@@ -179,6 +191,21 @@ export async function fetchPermanentMessages() {
 // The globalappsspecifications half of this cache now lives in appSpecsCache.js, shared
 // with runningAppsProvider.js. permanentMessages stays here — it's only needed for
 // historical/undeployed-app transaction lookups, not live categorization.
+/**
+ * Issue #400: was an app deployed in the window a NEW app, or a renewal/update of one already
+ * running? New when its most recent registration is at or after `sinceHeight` -- including
+ * apps registered and then updated or renewed within the window -- or when the name has never
+ * been registered at all (the cache holds every message, so an unknown name is newer than
+ * the cache). null until the message list has loaded.
+ * @returns {'new'|'updated'|null}
+ */
+export function classifyDeployment(name, sinceHeight) {
+    const registered = permanentMessagesCache.registerHeightByName;
+    if (registered.size === 0 || !name) return null;
+    const height = registered.get(String(name).toLowerCase());
+    return height === undefined || height >= sinceHeight ? 'new' : 'updated';
+}
+
 export async function ensurePermanentMessagesCache() {
     const pmAge = Date.now() - permanentMessagesCache.lastFetched;
     const fetches = [ensureGlobalSpecsCache()];
@@ -315,6 +342,10 @@ export async function fetchPermanentMessageByHash(hash) {
         permanentMessagesCache.typeMap.set(name.toLowerCase(), determineAppType(appSpec));
         const meta = messageMetadata(msg);
         if (meta) permanentMessagesCache.metaByTxid.set(meta.txid, meta);
+        if (messageType(msg.type) === 'register' && Number.isFinite(Number(msg.height))) {
+            const key = name.toLowerCase();
+            permanentMessagesCache.registerHeightByName.set(key, Math.max(permanentMessagesCache.registerHeightByName.get(key) ?? 0, Number(msg.height)));
+        }
         log.info({ hash: hash.substring(0, 10), name }, 'Resolved app name by targeted lookup: %s', name);
         return name;
     } catch (error) {

@@ -10,6 +10,7 @@ import {
 } from '../../lib/db/database.js';
 import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getCachedMissingDeployments, getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getBusiestNode, getCachedNodeContinents } from '../../lib/services/busiestNodeService.js';
+import { classifyDeployment } from '../../lib/services/revenueService.js';
 import { getSharedFluxApiData } from '../../lib/services/carouselService.js';
 import { continentDemand, demandVsSupply } from '../../lib/utils/geoDemand.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
@@ -231,16 +232,40 @@ router.get('/carousel/expiring', async (req, res) => {
     }
 });
 
+// Issue #400: of the apps deployed or updated in the last 24h, how many are brand new (their
+// registration is inside the day, even if updated again since) vs renewals/updates of apps
+// already running. Read from the permanent-message cache the revenue sync keeps warm -- this
+// endpoint is polled by every viewer and never downloads anything itself. Null (no split
+// shown) while that cache is cold, so the two parts always add up to the total.
+function splitNewVsUpdated(apps) {
+    let newCount = 0;
+    let updatedCount = 0;
+    for (const app of apps) {
+        const currentHeight = Number(app.height) + Number(app.blockAge);
+        const kind = classifyDeployment(app.name, currentHeight - BLOCKS_PER_DAY);
+        if (kind === 'new') newCount++;
+        else if (kind === 'updated') updatedCount++;
+        else return null;
+    }
+    return { newCount, updatedCount };
+}
+const BLOCKS_PER_DAY = 2880;
+
 // Deduped deployed/expiring counts for the Total App Instances card (item 3 of the
 // decentralization follow-ups) -- same getFluxCloudActivity() the KPI report and the
 // daily snapshot collector use, so this card's numbers can never disagree with theirs.
 router.get('/apps/activity', async (req, res) => {
     try {
         const activity = await getFluxCloudActivity();
+        const split = activity.deployedToday.cached ? splitNewVsUpdated(activity.deployedToday.apps) : null;
         res.json({
             deployedToday: {
                 cached: activity.deployedToday.cached,
-                count: activity.deployedToday.cached ? activity.deployedToday.apps.length : null
+                count: activity.deployedToday.cached ? activity.deployedToday.apps.length : null,
+                // Issue #400: of those, brand-new apps vs renewals/updates of running ones.
+                // null when the permanent messages could not be read -- never a guess.
+                newCount: split?.newCount ?? null,
+                updatedCount: split?.updatedCount ?? null
             },
             expiring24h: {
                 cached: activity.expiring24h.cached,
