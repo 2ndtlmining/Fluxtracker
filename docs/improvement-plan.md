@@ -33,11 +33,24 @@ before building anything whose definition is ambiguous.
 
 ### Next, in this order
 
-The tracker is empty at v1.13: the sweep and everything it found are done and closed.
+The 2026-09-27 site review filed #414-#447 (label `review-2026-09-27`). The owner settled every
+open question the same day; the decisions are recorded on each issue and summarised below.
+Closed as not planned: #423 (ArcaneOS will be mandatory), #428 (keep all scripts and contract
+functions), #439 (today-so-far on the Revenue card is intended; KPI compares completed periods).
 
 | # | Item | Issues | Notes |
 |---|------|--------|-------|
-| 1 | The 2026-09-27 site review | label `review-2026-09-27` | Performance, header art, new stats, README, dead code, robustness, dependencies, UI/UX. Ordered with the owner at the start of the week |
+| 1 | Correctness and robustness | #429 #430 #441 #432 | #429: a failed `sync_status` read restarts the revenue scan at block 1. #430: revenue sync runs twice per 5 min and its metric writes race the services cycle. #441: 131 Tab stops in the ticker, a regression from #411. #432: an explorer outage trips the DB breaker |
+| 2 | Platform | #434, then #435 #436 | Node 20 has been end-of-life since 2026-04-30 and blocks upgrades. Node 24 first, then the safe dependency batch (drops `date-fns` and `node-cron`), then the lucide swap. Both DB modes and the header harness must pass |
+| 3 | Quick performance win | #415 | Cache the block height: the footer and header wait ~1.3 s on it today |
+| 4 | Header resolver | #416 | Firo masternodes (16% of deployments), Hermes Pro and image-matched games get the crane. Must land before #419 |
+| 5 | Stats | #421 #424 #422 | #421: fill % over **unexpired** specs, and the Apps card switches to the same rule. #424: a private-apps share in the Applications dropdown. #422: FLUX and $ per node per day per tier, **no yearly return or APY** |
+| 6 | UX | #440 #442 #443 #444 #445 #446 #447 | #444: merge the three Hetzner rows live; history is not regrouped. #445: rename to Low / Moderate / High / Very high demand, with a CPU tooltip |
+| 7 | Robustness follow-ups | #431 #433 | #433: keep the once-a-year "not enough data" notice; stop the 10-minute retry and show it in health as skipped |
+| 8 | Performance | #414 | Full permanent-messages refresh daily instead of hourly. Re-tune #412's `isUnregisteredSpec` freshness check in the same PR |
+| 9 | Header art | #417 #418 #419 #420 | Rotation fatigue, then new scenes. Move the harness's "game without art" fixture off Enshrouded when #418 lands |
+| 10 | Docs and cleanup | #425 #426 #427 | README and KPI docs; safe dead-code deletions. Update the README's Node references with #434 |
+| 11 | Dependency majors | #437 #438 | After #434 |
 | -- | Version bump | -- | Last PR of each working day |
 
 ### Owner action
