@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-26, end of day** (v1.12; the 2026-09-23 review plan is complete)
+**Last reviewed: 2026-09-27** (v1.13)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,20 +13,16 @@ rule links to an issue.
 
 ## Next up, in order
 
-**Status at end of 2026-09-26 (v1.12):** every row of the 2026-09-23 review plan has shipped
-and been verified on the owner's instance.
-- **Analytics cleanup after the owner's review** (#370): removed MRR/prepaid, the demand line,
-  and four confusing cohort metrics; renamed and grouped the rest; plain explanations under
-  the chart title.
-- **Median time left on running apps** (#371, migration 023).
-- **Game-server revenue** (#374, migration 024).
-- **Revenue Sources fix** (#375, #373): fiat is a payment method, not a payer. Who paid
-  (organic + team) and how they paid (card + FLUX) each add up to 100%.
-- **Compact vs D toggle restored** (#376, #367).
-- **Demand vs supply by continent** in the Decentralization card (#378, #268).
-- **Opt-in Discord anomaly alerts** (#379, #269).
-- **Dead code removed** (#377, #317 #318).
-- **Closed:** #270 (owner decision), #364 #366 (fixed by #370), #327 (superseded by #367).
+**Status at 2026-09-27 (v1.13):** everything below is merged and verified on the owner's instance.
+- **Performance review follow-ups** (2026-09-26): cacheable responses and three missing caches
+  (#398: #383 #384 #388 #391), SSR data reused on load (#399: #385), lazy sections (#401: #387),
+  Revenue Sources in one query (#403: #386), column lists for snapshot reads (#406: #389), date
+  windows for per-day RPCs (#407: #390), no layout shift as data loads (#405: #404).
+- **New vs renewed apps** (#402: #400) and game revenue back to 2024 (#395).
+- **V Rising** counted as a game, with its own header art (#410: #409).
+- **Carousel click-through**: an app in the ticker filters the transactions table (#411: #408).
+- **Unregistered spec**: payments for a spec Flux never accepted are labelled instead of blank,
+  and a parked-row retry loop in the sync is fixed (#412). The history backfill labelled 25.
 
 **How we work:** one themed PR at a time. The owner merges and deploys to their local instance;
 Claude verifies it there (health, the behaviour the PR changed, a headless-browser load with
@@ -37,11 +33,11 @@ before building anything whose definition is ambiguous.
 
 ### Next, in this order
 
+The tracker is empty at v1.13: the sweep and everything it found are done and closed.
+
 | # | Item | Issues | Notes |
 |---|------|--------|-------|
-| 1 | Tracker sweep | #261 #262 #266 #272-#289 #320-#331 #181 #182 #368 | Many are shipped but still open. Check each against the code and the live site; close with a one-line "shipped in #PR" note, and list anything genuinely unfinished. The owner confirms before the batch close |
-| 2 | Whatever the sweep finds unfinished | -- | Ordered with the owner |
-| 3 | Older features | #155 #156 | #61 (email) stays parked |
+| 1 | The 2026-09-27 site review | label `review-2026-09-27` | Performance, header art, new stats, README, dead code, robustness, dependencies, UI/UX. Ordered with the owner at the start of the week |
 | -- | Version bump | -- | Last PR of each working day |
 
 ### Owner action
