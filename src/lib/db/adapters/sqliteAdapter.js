@@ -467,26 +467,26 @@ export async function getCurrentMetrics() {
     }
 }
 
+/**
+ * Writes only the metric columns the caller gave a value for (#430) -- see the Supabase
+ * adapter. No read of the row first, and no await in between, so overlapping writers
+ * cannot put each other's columns back. A null or missing value leaves the stored one alone.
+ */
 export async function updateCurrentMetrics(metrics) {
-    const current = await getCurrentMetrics();
-    if (!current) return;
-
-    const merged = { last_update: Date.now() };
+    const changes = { last_update: Date.now() };
 
     // Only persist columns that actually exist — METRIC_COLUMNS grows with the repo config,
     // and schemaMigrator may not have run yet on a database from an older build.
     const existing = new Set(getDb().pragma('table_info(current_metrics)').map(c => c.name));
-    const metricKeys = METRIC_COLUMNS.filter(k => existing.has(k));
-
-    for (const key of metricKeys) {
-        merged[key] = metrics[key] ?? current[key] ?? null;
+    for (const key of METRIC_COLUMNS) {
+        if (existing.has(key) && metrics[key] != null) changes[key] = metrics[key];
     }
 
-    const setClauses = Object.keys(merged).map(k => `${k} = @${k}`).join(', ');
+    const setClauses = Object.keys(changes).map(k => `${k} = @${k}`).join(', ');
     // Throws rather than logs-and-returns (issue #220): callers follow this with
     // updateSyncStatus(..., 'completed'), so swallowing the error records a sync that
     // wrote nothing.
-    getDb().prepare(`UPDATE current_metrics SET ${setClauses} WHERE id = 1`).run(merged);
+    getDb().prepare(`UPDATE current_metrics SET ${setClauses} WHERE id = 1`).run(changes);
     log.info('Current metrics updated');
 }
 

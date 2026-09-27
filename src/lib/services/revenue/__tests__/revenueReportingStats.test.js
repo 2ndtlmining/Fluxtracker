@@ -105,6 +105,25 @@ describe('getRevenueBreakdown', () => {
 });
 
 describe('fetchRevenueStats', () => {
+    it('a call during a run joins it instead of starting a second scan (issue #430)', async () => {
+        let release;
+        mockProgressiveSync.mockImplementation(() => new Promise(r => { release = r; }));
+        mockGetRevenueForDateRange.mockResolvedValue(5);
+
+        const first = fetchRevenueStats();
+        const second = fetchRevenueStats();
+        expect(second).toBe(first);
+        await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+        release();
+        await Promise.all([first, second]);
+        expect(mockProgressiveSync).toHaveBeenCalledTimes(1);
+
+        // Once it has finished, the next call starts a fresh run
+        mockProgressiveSync.mockResolvedValue();
+        await fetchRevenueStats();
+        expect(mockProgressiveSync).toHaveBeenCalledTimes(2);
+    });
+
     it('returns today\'s revenue with the price it fetched', async () => {
         mockFetchFluxPrice.mockResolvedValue(0.0625);
         mockGetRevenueForDateRange.mockResolvedValue(1234.5);

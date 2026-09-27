@@ -168,22 +168,40 @@ export async function getCurrentMetrics() {
     return data;
 }
 
-export async function updateCurrentMetrics(metrics) {
+// Which METRIC_COLUMNS the table really has -- schemaMigrator may not have added the newest
+// ones yet. Cached so a metrics write needs no read of the row (#430); the TTL picks up a
+// column the migrator adds while the process is running.
+const METRIC_COLUMNS_TTL_MS = 10 * 60 * 1000;
+let metricColumnsCache = { columns: null, at: 0 };
+
+async function existingMetricColumns() {
+    if (metricColumnsCache.columns && Date.now() - metricColumnsCache.at < METRIC_COLUMNS_TTL_MS) {
+        return metricColumnsCache.columns;
+    }
     const current = await getCurrentMetrics();
-    if (!current) return;
+    if (!current) return null; // no row yet: nothing to update
+    metricColumnsCache = { columns: new Set(Object.keys(current)), at: Date.now() };
+    return metricColumnsCache.columns;
+}
 
-    const mergedMetrics = { last_update: Date.now() };
+/**
+ * Writes only the metric columns the caller gave a value for (#430). It used to read the
+ * whole row and write every column back, so two writers that overlapped put each other's
+ * columns back to their old values. A null or missing value leaves the stored one alone,
+ * as before.
+ */
+export async function updateCurrentMetrics(metrics) {
+    const columns = await existingMetricColumns();
+    if (!columns) return;
 
-    // Only touch columns the table actually has — METRIC_COLUMNS grows with the repo config
-    // and schemaMigrator may not have added the newest ones yet.
+    const changes = { last_update: Date.now() };
     for (const key of METRIC_COLUMNS) {
-        if (!(key in current)) continue;
-        mergedMetrics[key] = metrics[key] ?? current[key] ?? null;
+        if (columns.has(key) && metrics[key] != null) changes[key] = metrics[key];
     }
 
     const { error } = await supabase
         .from('current_metrics')
-        .update(mergedMetrics)
+        .update(changes)
         .eq('id', 1);
 
     // Throws rather than logs-and-returns (issue #220): callers follow this with

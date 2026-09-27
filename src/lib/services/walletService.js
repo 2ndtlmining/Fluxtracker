@@ -74,11 +74,10 @@ export async function fetchUniqueWallets() {
  * within an hour, so the fetch is gated to WALLET_CONFIG.updateInterval and the step is a
  * cheap no-op in between.
  *
- * The gate lives here rather than on its own setInterval for a specific reason:
- * updateCurrentMetrics() is a read-modify-write of the single current_metrics row, so a
- * wallet refresh firing on its own timer could land between another service's read and
- * write and silently drop that service's columns. Staying inside the sequential cycle is
- * what makes that impossible.
+ * The gate lives here rather than on its own setInterval so every metrics service shares
+ * one timer. (It used to be required: updateCurrentMetrics() was a read-modify-write of the
+ * row, so an off-cycle write could drop another service's columns. Since #430 it writes
+ * only the columns it is given.)
  */
 export async function refreshUniqueWalletsIfStale() {
     const age = Date.now() - lastSuccessMs;
