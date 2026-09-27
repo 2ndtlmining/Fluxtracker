@@ -66,8 +66,13 @@ describe('testAllServices', () => {
         expect(result.allSucceeded).toBe(true);
         expect(result.failed).toEqual([]);
         expect(result.succeeded).toEqual([
-            'nodes', 'wallets', 'appOwners', 'cloud', 'gaming', 'crypto', 'wordpress', 'revenue', 'repoSnapshot'
+            'nodes', 'wallets', 'appOwners', 'cloud', 'gaming', 'crypto', 'wordpress', 'repoSnapshot'
         ]);
+    });
+
+    it('leaves revenue to its own scheduler (issue #430)', async () => {
+        await testAllServices();
+        expect(fetchRevenueStats).not.toHaveBeenCalled();
     });
 
     it('runs every remaining service when the first one throws', async () => {
@@ -80,7 +85,6 @@ describe('testAllServices', () => {
         expect(fetchGamingStats).toHaveBeenCalled();
         expect(fetchCryptoStats).toHaveBeenCalled();
         expect(fetchWordPressStats).toHaveBeenCalled();
-        expect(fetchRevenueStats).toHaveBeenCalled();
 
         expect(result.allSucceeded).toBe(false);
         expect(result.failed).toEqual([{ name: 'nodes', error: 'nodes API down' }]);
@@ -89,11 +93,11 @@ describe('testAllServices', () => {
 
     it('names every failure when several services fail', async () => {
         fetchGamingStats.mockRejectedValue(new Error('gaming boom'));
-        fetchRevenueStats.mockRejectedValue(new Error('revenue boom'));
+        fetchWordPressStats.mockRejectedValue(new Error('wordpress boom'));
 
         const result = await testAllServices();
 
-        expect(result.failed.map(f => f.name)).toEqual(['gaming', 'revenue']);
+        expect(result.failed.map(f => f.name)).toEqual(['gaming', 'wordpress']);
         expect(result.succeeded).toContain('cloud');
         expect(result.succeeded).toContain('repoSnapshot');
     });

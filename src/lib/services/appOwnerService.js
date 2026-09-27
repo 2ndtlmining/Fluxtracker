@@ -108,10 +108,7 @@ export async function fetchUniqueAppOwners() {
  * is gated to APP_OWNER_CONFIG.updateInterval and the step is a cheap no-op in between.
  *
  * The gate lives here rather than on its own setInterval for the same reason as
- * walletService's: updateCurrentMetrics() is a read-modify-write of the single
- * current_metrics row, so a refresh firing on its own timer could land between another
- * service's read and write and silently drop that service's columns. Staying inside the
- * sequential cycle is what makes that impossible.
+ * walletService's: every metrics service shares one timer.
  */
 export async function refreshUniqueAppOwnersIfStale() {
     const age = Date.now() - lastSuccessMs;

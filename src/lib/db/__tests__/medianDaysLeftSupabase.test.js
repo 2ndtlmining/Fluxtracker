@@ -31,6 +31,7 @@ vi.mock('../supabaseClient.js', () => {
 const adapter = await import('../adapters/supabaseAdapter.js');
 
 beforeEach(() => {
+    vi.restoreAllMocks();
     lastUpsert = null;
     lastUpdate = null;
     currentRow = { id: 1, node_total: 3 };
@@ -56,6 +57,10 @@ describe('median_days_left before and after migration 023', () => {
 
     it('updateCurrentMetrics writes it once the column exists', async () => {
         currentRow = { id: 1, node_total: 3, unique_app_owners: 1, median_days_left: null };
+        // The column list is cached for 10 minutes (#430); a column added by the migration
+        // while the process runs is picked up on the next refresh.
+        const realNow = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(realNow + 11 * 60 * 1000);
         await adapter.updateCurrentMetrics({ unique_app_owners: 3, median_days_left: 15.5 });
         expect(lastUpdate.median_days_left).toBe(15.5);
     });

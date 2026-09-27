@@ -110,11 +110,25 @@ export async function getRevenueBreakdown() {
     }
 }
 
+let inFlight = null;
+
 /**
  * Fetch all revenue metrics (price + revenue)
  * MAIN ENTRY POINT - Called every 5 minutes by scheduler
+ *
+ * A call made while a run is in flight joins that run instead of starting a second one
+ * (#430). The scheduler, the admin refresh and (until #430) the services cycle all called
+ * this, and the scheduler's own isRunning flag only guarded its timer -- so every 5 minutes
+ * the app ran two block-range scans and two back-fills against the public Flux API.
  */
-export async function fetchRevenueStats() {
+export function fetchRevenueStats() {
+    if (!inFlight) {
+        inFlight = runRevenueStats().finally(() => { inFlight = null; });
+    }
+    return inFlight;
+}
+
+async function runRevenueStats() {
     setRevenueSyncRunning(true);
 
     try {

@@ -5,7 +5,6 @@ import { fetchCloudStats } from './cloudService.js';
 import { fetchGamingStats } from './gamingService.js';
 import { fetchCryptoStats } from './cryptoService.js';
 import { fetchWordPressStats } from './wordpressService.js';
-import { fetchRevenueStats } from './revenueService.js';
 import { getRunningApps, toRepoCounts } from './runningAppsProvider.js';
 import { getCurrentMetrics, createRepoSnapshots } from '../db/database.js';
 import { createLogger } from '../logger.js';
@@ -46,10 +45,10 @@ async function refreshTodayRepoSnapshot() {
  * previous version awaited all six sequentially inside a single try, so the first failure
  * silently skipped everything after it for the whole cycle.
  *
- * Steps stay sequential on purpose. updateCurrentMetrics() is a read-modify-write of the
- * single current_metrics row, so running these concurrently would let one service's write
- * clobber another's columns. The shared runningAppsProvider already collapses their network
- * calls into one fetch, so sequential costs almost nothing.
+ * Steps stay sequential. updateCurrentMetrics() now writes only the columns it is given
+ * (#430), so concurrent writers no longer clobber each other -- but the shared
+ * runningAppsProvider already collapses the network calls into one fetch, so sequential
+ * costs almost nothing and keeps the load on the Flux API flat.
  */
 async function testAllServices() {
     log.info('Running all services...');
@@ -69,7 +68,8 @@ async function testAllServices() {
         ['gaming', fetchGamingStats],
         ['crypto', fetchCryptoStats],
         ['wordpress', fetchWordPressStats],
-        ['revenue', fetchRevenueStats],
+        // No 'revenue' step (#430): revenueScheduler owns it on its own 5-minute timer.
+        // Running it here as well doubled every scan and back-fill.
         ['repoSnapshot', refreshTodayRepoSnapshot]
     ];
 
