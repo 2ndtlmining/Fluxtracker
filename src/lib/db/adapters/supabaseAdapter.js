@@ -1349,11 +1349,16 @@ export async function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
     }
 }
 
+// Only 'fetch_failed' rows: the retry pass exists to recover payments whose fetch failed and
+// so were never stored. no_hash / fluxdrive / unregistered rows are PARKED rows that already
+// have their revenue row; handing them to the retry pass marked them resolved, which let the
+// app-name backfill re-fetch and re-park them, forever, two raw-tx fetches per row per cycle.
 export async function getUnresolvedFailedTxids(limit = 200) {
     const { data, error } = await supabase
         .from('failed_txids')
         .select('txid, address, failure_reason, attempt_count, first_seen, last_attempt')
         .eq('resolved', 0)
+        .eq('failure_reason', 'fetch_failed')
         .order('attempt_count', { ascending: true })
         .order('last_attempt', { ascending: true })
         .limit(limit);

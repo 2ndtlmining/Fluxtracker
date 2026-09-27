@@ -169,3 +169,61 @@ describe('resolveAppName', () => {
         await expect(resolveAppName(HASH, nowSeconds())).resolves.toBeNull();
     });
 });
+
+/**
+ * "Unregistered spec" (owner-approved 2026-09-26): a payment whose spec hash Flux has no
+ * message for. The label must never land on a row that is merely not resolved YET.
+ */
+describe('isUnregisteredSpec', () => {
+    const OTHER = 'a'.repeat(64);
+    const dumpWith = hash => ({ status: 'success', data: [{ hash, appSpecifications: { name: 'someapp', compose: [] } }] });
+    const twoDaysAgo = () => nowSeconds() - 2 * 86400;
+
+    it('labels a day-old hash that a freshly loaded dump does not contain', async () => {
+        resilientFetch.mockResolvedValue(dumpWith(OTHER));
+        const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
+        await fetchPermanentMessages();
+
+        expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(true);
+    });
+
+    it('never labels a hash the dump or globalappsspecifications knows', async () => {
+        resilientFetch.mockResolvedValue(dumpWith(HASH));
+        const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
+        await fetchPermanentMessages();
+        expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(false);
+
+        getAppNameByHash.mockReturnValue('from-specs');
+        expect(isUnregisteredSpec(OTHER, twoDaysAgo())).toBe(false);
+    });
+
+    it('leaves a transaction under a day old unlabelled -- it may still be registering', async () => {
+        resilientFetch.mockResolvedValue(dumpWith(OTHER));
+        const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
+        await fetchPermanentMessages();
+
+        expect(isUnregisteredSpec(HASH, nowSeconds() - 3600)).toBe(false);
+        expect(isUnregisteredSpec(HASH, null)).toBe(false);
+    });
+
+    it('labels nothing when the dump never loaded -- an outage is not an answer', async () => {
+        resilientFetch.mockRejectedValue(new Error('502 bad gateway'));
+        const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
+        await fetchPermanentMessages();
+
+        expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(false);
+    });
+
+    it('stops labelling once the last successful dump is older than its TTL', async () => {
+        resilientFetch.mockResolvedValue(dumpWith(OTHER));
+        const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
+        await fetchPermanentMessages();
+
+        // Every refresh since has failed, which keeps the old map but not its freshness.
+        vi.setSystemTime(NOW + 2 * 60 * 60_000);
+        resilientFetch.mockRejectedValue(new Error('timeout'));
+        await fetchPermanentMessages();
+
+        expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(false);
+    });
+});

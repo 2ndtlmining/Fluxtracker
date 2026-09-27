@@ -383,6 +383,46 @@ export async function resolveAppName(hash, txTimestamp = null) {
     return name;
 }
 
+// A payment whose app spec Flux never accepted (owner-approved 2026-09-26).
+//
+// The OP_RETURN names a spec hash, but no permanent message carries it: the spec was paid
+// for and never registered, so there is no name to find and there never will be. Seen in
+// practice: two 13.8 FLUX payments for one hash, then the same wallet's accepted update six
+// blocks later under a different hash. These rows used to render as a blank name, which
+// reads as "lookup broken" rather than "nothing to look up".
+//
+// Display only: the row keeps app_name NULL (so a late resolution can still name it, and
+// App Analytics does not grow a synthetic app) and the revenue totals do not change.
+//
+// "Flux has no message" must not be confused with "not resolved yet", so all three hold:
+//   - the transaction is over a day old. A registration's message is permanent within
+//     minutes of its payment confirming, and a temporary message that never became
+//     permanent has long expired by then, so a day-old hash absent from permanentmessages
+//     was never accepted. Younger rows stay unlabelled and keep the targeted lookup.
+//   - the full permanentmessages dump loaded SUCCESSFULLY within its TTL. A failed fetch
+//     keeps the previous maps and does not move lastFetched, so an outage cannot age into
+//     a false label, and an empty map (never loaded) never labels anything.
+//   - neither that dump nor globalappsspecifications knows the hash.
+/** Value stored in revenue_transactions.app_type for a payment with no accepted spec. */
+export const UNREGISTERED_APP_TYPE = 'unregistered';
+
+/**
+ * Is this hash definitively one Flux never accepted? False whenever that cannot be said
+ * with confidence -- see the conditions above.
+ *
+ * @param {?string} hash app spec hash from the transaction's OP_RETURN
+ * @param {?number} txTimestamp unix seconds of the transaction
+ */
+export function isUnregisteredSpec(hash, txTimestamp) {
+    if (!hash || !Number.isFinite(txTimestamp)) return false;
+    if (Date.now() - txTimestamp * 1000 <= TARGETED_LOOKUP_MAX_TX_AGE_MS) return false;
+
+    const { map, lastFetched, TTL } = permanentMessagesCache;
+    if (map.size === 0 || Date.now() - lastFetched > TTL) return false;
+
+    return lookupAppName(hash) === null;
+}
+
 /** Message metadata by payment txid (issue #262); null when no message names it. */
 export function lookupMessageMetadata(txid) {
     return permanentMessagesCache.metaByTxid.get(txid) || null;
