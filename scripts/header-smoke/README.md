@@ -73,6 +73,9 @@ exactly as before. Takes ~70s.
   resumes the rotation.
 - **App click (#284):** clicking an app frame puts that app's name in the transaction search
   and scrolls the section into view.
+- **Ticker keyboard (#441):** the ticker is one Tab stop (the stub's Missing Deployments
+  list has 40 apps to prove it). The arrow keys, Home and End move between names, the
+  marquee is paused while one has focus, and Tabbing back in returns to the last name.
 - **Logo click:** clicking the logo replays the last intro. The frame after it holds a full
   dwell, which proves a click restarts the rotation chain instead of starting a second one.
 - **Attract mode (#288):** typing `flux` starts a run through every piece of art with a

@@ -147,6 +147,14 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Ticker only -- the header never reads this list. 40 apps, so check-interaction.mjs can
+  // count Tab stops across a ticker with more than one name in it (#441).
+  if (req.url.startsWith('/api/carousel/missing')) {
+    const stats = Array.from({ length: 40 }, (_, i) => ({ name: `missing-app-${i + 1}`, instances: 3, cpu: 1, ram: 1024, hdd: 10 }));
+    send(res, JSON.stringify({ stats, cached: true, cacheAge: 0, fresh: true }));
+    return;
+  }
+
   if (req.url.startsWith('/api/carousel/expiring')) {
     expiringCalls++;
     const app = expiringCalls === 1 ? INITIAL_EXPIRING : UPDATED_EXPIRING;
