@@ -5,6 +5,7 @@
   import { formatBlocksLeft } from '$lib/utils/format.js';
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
+  import { focusApp } from '$lib/stores/appFocus.js';
   import { TrendingUp, Package, Hourglass, TriangleAlert, Pause, Play } from 'lucide-svelte';
 
   let API_URL = '';
@@ -52,6 +53,12 @@
     { mode: 'missing', label: 'Missing Deployments' },
     { mode: 'network', label: 'Top Network Stats' }
   ];
+
+  // Issue #408: in the three app tabs a name is an app, and clicking it shows that app's
+  // payments -- the same click-through the header's app frames have (#284). Network stats
+  // name nodes and IPs, not apps, so they stay plain text.
+  const APP_MODES = new Set(['deployed', 'expiring', 'missing']);
+  $: namesAreApps = APP_MODES.has(viewMode);
 
   // Dynamic duration based on item count for consistent visual speed
   $: scrollDuration = stats.length > 0 ? stats.length * SECONDS_PER_ITEM : 90;
@@ -241,7 +248,18 @@
               </span>
             {/if}
 
-            <span class="item-name">{stat.name}</span>
+            {#if namesAreApps}
+              <!-- The visual duplicate is aria-hidden, so its copy is kept out of the tab order. -->
+              <button
+                type="button"
+                class="item-name item-link"
+                title="Show payments for {stat.name}"
+                tabindex={index >= stats.length ? -1 : undefined}
+                on:click={() => focusApp(stat.name)}
+              >{stat.name}</button>
+            {:else}
+              <span class="item-name">{stat.name}</span>
+            {/if}
 
             {#if stat.value !== undefined}
               <span class="item-value">
@@ -594,6 +612,30 @@
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* A button that reads like the name it replaces, until pointed at. */
+  .item-link {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: underline dotted transparent;
+    text-underline-offset: 3px;
+    transition: color 0.15s, text-decoration-color 0.15s;
+  }
+
+  .item-link:hover,
+  .item-link:focus-visible {
+    color: var(--accent-cyan);
+    text-decoration-color: currentColor;
+  }
+
+  .item-link:focus-visible {
+    outline: 1px solid var(--accent-cyan);
+    outline-offset: 2px;
   }
 
   .item-value {

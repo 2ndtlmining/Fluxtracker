@@ -165,6 +165,44 @@ const run = async () => {
     });
     check('click app frame: transaction search is that app', afterClick.search === appFrame.name, afterClick.search);
     check('click app frame: transaction section scrolled into view', afterClick.logOnScreen);
+
+    // ---- click a name in the carousel -> the same transaction search (#408) ----
+    // A name other than the one the header just searched for, where the ticker has one, so
+    // the search changing proves this click set it. Hovering pauses the marquee first.
+    // Only names inside the ticker's visible window: the marquee clips the rest. The stub's
+    // Latest Deployed list is the app the header just searched for, so switch to Expiring
+    // Soon, whose names differ -- that also covers a second tab.
+    await page.evaluate(() => {
+      document.querySelector('.carousel-track-container')?.scrollIntoView({ block: 'center' });
+      [...document.querySelectorAll('.toggle-btn')].find(b => b.textContent.includes('Expiring'))?.click();
+    });
+    await sleep(2000);
+    await page.evaluate(current => {
+      const frame = document.querySelector('.carousel-track-container').getBoundingClientRect();
+      const links = [...document.querySelectorAll('.carousel-item .item-link')].filter(l => {
+        const r = l.getBoundingClientRect();
+        return r.width > 0 && r.left >= frame.left && r.right <= frame.right;
+      });
+      const link = links.find(l => l.textContent.trim() !== current) || links[0];
+      if (link) link.dataset.harness = 'carousel-target';
+    }, afterClick.search);
+    const carouselLink = await page.$('[data-harness="carousel-target"]');
+    if (!carouselLink) {
+      check('click carousel name: an app name is clickable', false, 'no visible .item-link in the ticker');
+    } else {
+      const carouselName = await carouselLink.evaluate(l => l.textContent.trim());
+      await carouselLink.hover();
+      await sleep(300);
+      await carouselLink.click();
+      await sleep(1500);
+      const afterCarousel = await page.evaluate(() => {
+        const r = document.querySelector('.transaction-log').getBoundingClientRect();
+        return { search: document.querySelector('.search-input')?.value, logOnScreen: r.top < window.innerHeight && r.bottom > 0 };
+      });
+      check('click carousel name: transaction search is that app', afterCarousel.search === carouselName,
+        `${afterCarousel.search}${carouselName === afterClick.search ? ' (same name as the header click)' : ''}`);
+      check('click carousel name: transaction section scrolled into view', afterCarousel.logOnScreen);
+    }
     await page.mouse.move(700, 880);
     await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(500);
