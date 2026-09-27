@@ -1,5 +1,5 @@
 // Header intro art, batch 1 (issues #272-#275): Deploy with Git (Orbit), Project Zomboid,
-// Folding@home and crypto nodes.
+// Folding@home and crypto nodes. V Rising (#409) joined later.
 //
 // Same contract as every intro in terminalAnimation.js:
 //   - a frame is BOOT_LINE_COUNT rows of exactly LOGO_WIDTH columns, built by rotating
@@ -146,6 +146,67 @@ const ZOMBIE_DEPART = [16, 18, 20, 22, 24, 26, 28, 30];
 
 export function formatZomboidOutro(step = 0, ctx = {}) {
   return formatZomboidFrame(step, ctx, ZOMBIE_DEPART);
+}
+
+// =======================================================================================
+// #409 V Rising: bats cross a moonlit sky while a caped vampire walks over the graveyard
+// to the castle door. The outro is the game's one rule: the sun comes up, and the vampire
+// turns and flees while the bats scatter.
+// =======================================================================================
+
+// Spires, battlements, windows and the arched door, then the gate. Rows 1-4.
+const VRISING_CASTLE = [
+  ' /' + BSLASH + '     /' + BSLASH,
+  '/__' + BSLASH + '___/__' + BSLASH,
+  '|[]  n  []|',
+  '|___|_|___|'
+];
+const VRISING_CASTLE_COLUMN = 21;       // spans 21-31; the door arch is column 26
+const VRISING_MOON_COLUMN = 29;
+// 40 columns is a whole number of periods, so rotating then slicing to 34 has no seam.
+const VRISING_GRAVEYARD = '__+_.__,'.repeat(5);
+// Head, cape, legs. The cape and the legs each alternate between two poses of equal width,
+// so the sprite's footprint is the same in every frame.
+const VAMPIRE_HEAD = ' o ';
+const VAMPIRE_CAPE = ['/V' + BSLASH, '(V)'];
+const VAMPIRE_LEGS = ['/ ' + BSLASH, '|' + BSLASH + ' '];
+const BAT_WINGS = ['^v^', 'v^v'];
+// Two steps nearer each frame, then waiting at the gate (the wall starts at column 21).
+const VAMPIRE_COLUMNS = [5, 7, 9, 11, 13, 15, 17, 17];
+// Both bats fly right, level, three columns apart so they never touch the moon.
+const BAT_COLUMNS = [[2, 12], [4, 14], [6, 16], [8, 18], [10, 20], [12, 22], [14, 24], [16, 25]];
+
+export const VRISING_FRAME_COUNT = FRAME_COUNT;
+
+function vrisingScene(index, { vampire, bats, sky }) {
+  const rows = blankRows();
+  rows[0] = overlayAt(rows[0], VRISING_MOON_COLUMN, sky);
+  for (const column of bats) rows[0] = overlayAt(rows[0], column, BAT_WINGS[index % 2]);
+  VRISING_CASTLE.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], VRISING_CASTLE_COLUMN, art); });
+  rows[BOOT_LINE_COUNT - 1] = rotateStrip(VRISING_GRAVEYARD, index).slice(0, LOGO_WIDTH);
+
+  const sprite = [VAMPIRE_HEAD, VAMPIRE_CAPE[index % 2], VAMPIRE_LEGS[index % 2]];
+  sprite.forEach((art, i) => { rows[2 + i] = overlayAt(rows[2 + i], vampire, art); });
+  return rows;
+}
+
+export function formatVRisingFrame(step = 0) {
+  const index = wrap(step);
+  return vrisingScene(index, { vampire: VAMPIRE_COLUMNS[index], bats: BAT_COLUMNS[index], sky: '( )' });
+}
+
+// A game: the green deployment accent, like every other game intro.
+export const vrisingFrameKinds = kindsOf(ROW_KIND_DEPLOYED);
+
+// Issue #182 outro: sunrise. The moon becomes the sun, the vampire runs back the way it came
+// and the bats scatter left, ahead of it.
+const VAMPIRE_FLEE = [17, 15, 13, 11, 9, 7, 5, 3];
+const BAT_FLEE = [[16, 25], [13, 22], [10, 19], [7, 16], [4, 13], [1, 10], [0, 7], [0, 4]];
+
+export function formatVRisingOutro(step = 0, ctx = {}) {
+  const index = wrap(step);
+  const sun = (ctx?.sky ?? PLAIN_SKY).sun;
+  return vrisingScene(index, { vampire: VAMPIRE_FLEE[index], bats: BAT_FLEE[index], sky: sun });
 }
 
 // =======================================================================================

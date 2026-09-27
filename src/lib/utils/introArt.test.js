@@ -3,6 +3,7 @@ import { LOGO_WIDTH, BOOT_LINE_COUNT } from './terminalAnimation.js';
 import {
   formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT,
   formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT,
+  formatVRisingFrame, vrisingFrameKinds, VRISING_FRAME_COUNT, formatVRisingOutro,
   formatFoldingFrame, foldingFrameKinds, FOLDING_FRAME_COUNT,
   formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT,
   ROW_KIND_PURPLE, ROW_KIND_BLUE, ROW_KIND_GOLD
@@ -13,6 +14,7 @@ const ctx = { blockHeight: 2_976_770, app: { name: 'x', instances: 2 } };
 const INTROS = [
   ['orbit (#272)', formatOrbitFrame, orbitFrameKinds, ORBIT_FRAME_COUNT, ROW_KIND_PURPLE],
   ['zomboid (#273)', formatZomboidFrame, zomboidFrameKinds, ZOMBOID_FRAME_COUNT, 'deployed'],
+  ['v rising (#409)', formatVRisingFrame, vrisingFrameKinds, VRISING_FRAME_COUNT, 'deployed'],
   ['folding (#274)', formatFoldingFrame, foldingFrameKinds, FOLDING_FRAME_COUNT, ROW_KIND_BLUE],
   ['crypto (#275)', formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT, ROW_KIND_GOLD]
 ];
@@ -59,6 +61,22 @@ describe('zomboid specifics', () => {
     expect(headColumn(0)).toBeGreaterThan(headColumn(5));
     expect(headColumn(6)).toBe(headColumn(7));
     for (let s = 0; s < ZOMBOID_FRAME_COUNT; s++) expect(headColumn(s)).toBeGreaterThan(14);
+  });
+});
+
+describe('v rising specifics', () => {
+  const cape = (frame) => frame[3].search(/\/V\\|\(V\)/);
+
+  it('the vampire walks to the castle and waits at the gate, never inside', () => {
+    expect(cape(formatVRisingFrame(0))).toBeLessThan(cape(formatVRisingFrame(5)));
+    expect(cape(formatVRisingFrame(6))).toBe(cape(formatVRisingFrame(7)));
+    for (let s = 0; s < VRISING_FRAME_COUNT; s++) expect(cape(formatVRisingFrame(s)) + 3).toBeLessThanOrEqual(21);
+  });
+
+  it('the intro is moonlit; the outro is sunrise, with the vampire fleeing left', () => {
+    expect(formatVRisingFrame(0)[0]).toContain('( )');
+    expect(formatVRisingOutro(0)[0]).toContain('(*)');
+    expect(cape(formatVRisingOutro(7))).toBeLessThan(cape(formatVRisingOutro(0)));
   });
 });
 

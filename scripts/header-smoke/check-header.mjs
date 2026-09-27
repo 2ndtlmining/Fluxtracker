@@ -84,6 +84,12 @@ const GAME_ART_BY_NAME = {
   zomboid: {
     signature: /\|=\|=\|=\|/,
     movingRows: rows => rows.filter(r => r.text.includes('_o_'))
+  },
+  // Issue #409: the castle's windows and door, and the vampire's cape moving along the row
+  // beside it -- its column changes every step until it reaches the gate.
+  vrising: {
+    signature: /\|\[\]  n  \[\]\|/,
+    movingRows: rows => rows.filter(r => /\/V\\|\(V\)/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -93,7 +99,8 @@ const UPDATED_DEPLOYED_NAME = {
   minecraft: 'minecraftj1789155733041',
   dragonwilds: 'dragonwilds1789155733041',
   palworld: 'palworld1789155733041',
-  zomboid: 'projectzomboid1789155733041'
+  zomboid: 'projectzomboid1789155733041',
+  vrising: 'vrising1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

@@ -275,7 +275,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'terraria', name: 'Terraria' },
     // Issue #162. Flux's games hub lists this as "Dragonwilds"; the full title is
     // "RuneScape: Dragonwilds". Named for the hub, which is also what the site's art says.
-    { prefix: 'dragonwilds', name: 'RuneScape: Dragonwilds' }
+    { prefix: 'dragonwilds', name: 'RuneScape: Dragonwilds' },
+    // Issue #409. The hub's deploy dialog lowercases the marketplace app name ("VRising"),
+    // giving vrising1790277053099 and the like. Enterprise-encrypted, so no image to match.
+    { prefix: 'vrising', name: 'V Rising' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -489,6 +492,7 @@ export const TRACKED_GAMES = [
     { name: 'RuneScape: Dragonwilds', dbKey: 'gaming_dragonwilds' },
     { name: 'FiveM', dbKey: 'gaming_fivem' },
     { name: 'Project Zomboid', dbKey: 'gaming_project_zomboid' },
+    { name: 'V Rising', dbKey: 'gaming_vrising' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1056,6 +1060,7 @@ const DISPLAY_NAME_OVERRIDES = {
     'littlestache/terraria': 'Terraria',
     'lloesche/valheim-server': 'Valheim',
     'indifferentbroccoli/windrose-server-docker': 'Windrose',
+    'trueosiris/vrising': 'V Rising',
 };
 
 // Canonical product name — collapses the variants of one game/product into a single row.
@@ -1074,6 +1079,9 @@ export const CANONICAL_NAME_OVERRIDES = {
     'jktuned/enshrouded-server': 'Enshrouded',
     'littlestache/rust-server': 'Rust',
     'pfeiffermax/rust-game-server': 'Rust',
+    // The usual community image. The hub's deployments are encrypted and counted by app
+    // name (issue #409); this puts a hand-deployed image in the same row, not a "Vrising" one.
+    'trueosiris/vrising': 'V Rising',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
