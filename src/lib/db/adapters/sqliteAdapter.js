@@ -1583,10 +1583,14 @@ export async function upsertFailedTxid(txid, address, reason = 'fetch_failed') {
     }
 }
 
+// Only 'fetch_failed' rows: the retry pass exists to recover payments whose fetch failed and
+// so were never stored. no_hash / fluxdrive / unregistered rows are PARKED rows that already
+// have their revenue row; handing them to the retry pass marked them resolved, which let the
+// app-name backfill re-fetch and re-park them, forever, two raw-tx fetches per row per cycle.
 export async function getUnresolvedFailedTxids(limit = 200) {
     try {
         return getDb().prepare(
-            'SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt FROM failed_txids WHERE resolved = 0 ORDER BY attempt_count ASC, last_attempt ASC LIMIT ?'
+            "SELECT txid, address, failure_reason, attempt_count, first_seen, last_attempt FROM failed_txids WHERE resolved = 0 AND failure_reason = 'fetch_failed' ORDER BY attempt_count ASC, last_attempt ASC LIMIT ?"
         ).all(limit);
     } catch (error) {
         throw readFailed('getUnresolvedFailedTxids', error);

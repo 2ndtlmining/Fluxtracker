@@ -17,6 +17,8 @@ import {
     lookupAppType,
     fetchRawTransaction,
     FLUXDRIVE_APP_TYPE,
+    UNREGISTERED_APP_TYPE,
+    isUnregisteredSpec,
     fetchPermanentMessages,
     getMessageMetadataIndex
 } from './transactionSync.js';
@@ -145,6 +147,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
     let noName = 0;
     let fetchErrors = 0;
     let fluxDrive = 0;
+    let unregistered = 0;
 
     const BATCH = 10;
     for (let i = 0; i < txids.length; i += BATCH) {
@@ -187,7 +190,19 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
             // Same targeted fallback as the sync path: a recent registration the cached
             // map has not seen yet is resolved on this pass instead of the next hour's.
             const appName = await resolveAppName(opReturn.value, tx.blocktime);
-            if (!appName) { noName++; continue; }
+            if (!appName) {
+                // A spec Flux never accepted: say so instead of leaving a blank name, and
+                // park it like FluxDrive so the auto pass stops re-fetching it. app_name
+                // stays NULL, so the manual backfill can still name it if it ever resolves.
+                if (isUnregisteredSpec(opReturn.value, tx.blocktime)) {
+                    await updateAppNameForTxid(txid, null, UNREGISTERED_APP_TYPE);
+                    await upsertFailedTxid(txid, '', 'unregistered');
+                    unregistered++;
+                } else {
+                    noName++;
+                }
+                continue;
+            }
 
             const appType = lookupAppType(appName);
             await updateAppNameForTxid(txid, appName, appType);
@@ -199,7 +214,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
         }
     }
 
-    const remaining = total - updated - fluxDrive;
-    log.info({ updated, fluxDrive, noHash, noName, fetchErrors, remaining }, 'app_name backfill complete: %d updated, %d FluxDrive, %d no OP_RETURN hash, %d hash not in cache, %d fetch errors, ~%d remaining', updated, fluxDrive, noHash, noName, fetchErrors, remaining);
-    return { total, processed: txids.length, updated, fluxDrive, noHash, noName, fetchErrors, remaining };
+    const remaining = total - updated - fluxDrive - unregistered;
+    log.info({ updated, fluxDrive, unregistered, noHash, noName, fetchErrors, remaining }, 'app_name backfill complete: %d updated, %d FluxDrive, %d unregistered spec, %d no OP_RETURN hash, %d hash not in cache, %d fetch errors, ~%d remaining', updated, fluxDrive, unregistered, noHash, noName, fetchErrors, remaining);
+    return { total, processed: txids.length, updated, fluxDrive, unregistered, noHash, noName, fetchErrors, remaining };
 }

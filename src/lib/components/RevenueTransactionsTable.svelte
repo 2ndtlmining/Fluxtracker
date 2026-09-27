@@ -220,6 +220,8 @@
     // Issue #188: not an app at all -- a FluxDrive storage payment. "Unknown" was actively
     // wrong for these; we know exactly what they are, they just have no app to name.
     if (appType === 'fluxdrive') return 'FluxDrive';
+    // Paid for a spec Flux never accepted -- there is no app, so no Git/Docker either.
+    if (appType === 'unregistered') return 'Unregistered spec';
     return 'Unknown';
   }
 
@@ -298,7 +300,7 @@
         tx.txid,
         tx.from_address || 'Unknown',
         isFluxTeamAddress(tx.from_address) ? 'Team' : isFluxFiatAddress(tx.from_address) ? 'Fiat' : '',
-        tx.app_name || '-',
+        tx.app_name || (tx.app_type === 'unregistered' ? 'Unregistered spec' : '-'),
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
         tx.date,
@@ -487,6 +489,8 @@
                       <path d="M4 5h16a1 1 0 0 1 1 1v5H3V6a1 1 0 0 1 1-1zm-1 8h18v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5zm2.5 1.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2zm0-7a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/>
                     </svg>
                   </span>
+                {:else if tx.app_type === 'unregistered'}
+                  <span class="type-unknown" title="Unregistered spec: no app type to show">?</span>
                 {:else}
                   <span class="type-unknown" title="Unknown">?</span>
                 {/if}
@@ -515,6 +519,11 @@
                        classification of the payment, not the name of a deployed app, and
                        App Analytics groups by app_name. See issue #188. -->
                   <span class="fluxdrive-badge" title="FluxDrive storage payment — identified from the payment's OP_RETURN, not from an app specification">FLUXDRIVE</span>
+                {:else if tx.app_type === 'unregistered' && !tx.app_name}
+                  <!-- Paid for an app spec that Flux never accepted: the payment names a spec
+                       hash with no message on the network, so there is no app to name. A
+                       badge, like FluxDrive's, because it describes the payment, not an app. -->
+                  <span class="unregistered-badge" title="Payment for an app specification that Flux never accepted: the network has no message for the spec this payment names, so there is no app name to show. It still counts towards revenue.">UNREGISTERED SPEC</span>
                 {:else}
                   {tx.app_name || '-'}
                 {/if}
@@ -988,6 +997,22 @@
 
   .icon-fluxdrive {
     color: var(--accent-green);
+  }
+
+  /* Muted on purpose (--text-dim, like the unknown-type '?'): an unregistered spec is a
+     fact about the payment, not a warning -- the FLUX was still paid and still counts. And
+     not cyan, which is this component's interactive colour. */
+  .unregistered-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: var(--text-dim);
+    border: 1px dashed var(--text-dim);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    letter-spacing: 0.5px;
+    vertical-align: middle;
+    white-space: nowrap;
   }
 
   .flux-fiat-row {
