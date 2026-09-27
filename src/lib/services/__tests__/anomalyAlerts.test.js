@@ -96,6 +96,16 @@ describe('sync outage', () => {
         expect(recovered).toHaveLength(1);
     });
 
+    it('does not re-post the outage alert while its receipt cannot be read (issue #429)', async () => {
+        newestTimestampSec = hoursAgo(7);
+        await alerts.runAnomalyTick(NOW);                  // alert sent, receipt 'open'
+        const { getSyncStatus } = await import('../../db/database.js');
+        getSyncStatus.mockRejectedValueOnce(new Error('getSyncStatus failed')).mockRejectedValueOnce(new Error('getSyncStatus failed'));
+        await alerts.runAnomalyTick(NOW + 600_000);
+        await alerts.runAnomalyTick(NOW + 1_200_000);
+        expect(postToDiscordWebhook).toHaveBeenCalledTimes(1);
+    });
+
     it('stays quiet while payments keep arriving', async () => {
         await alerts.runAnomalyTick(NOW);
         expect(postToDiscordWebhook.mock.calls.filter(c => JSON.stringify(c[1]).includes('synced'))).toHaveLength(0);

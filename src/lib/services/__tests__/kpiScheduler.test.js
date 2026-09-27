@@ -252,6 +252,33 @@ describe('scheduled delivery', () => {
 });
 
 describe('failures', () => {
+    it('an unreadable receipt sends nothing (issue #429)', async () => {
+        getSyncStatus.mockRejectedValue(new Error('getSyncStatus failed: fetch failed'));
+        boot();
+        await runSchedulerTick();
+        await runSchedulerTick();
+
+        expect(buildKpiReport).not.toHaveBeenCalled();
+        expect(sendToDiscord).not.toHaveBeenCalled();
+        expect(sendSchedulerFailureNotice).not.toHaveBeenCalled();
+        expect(updateSyncStatus).not.toHaveBeenCalled();
+    });
+
+    it('an unreadable failure receipt skips the notice instead of posting every tick (issue #429)', async () => {
+        sendToDiscord.mockRejectedValue(new Error('down'));
+        getSyncStatus.mockImplementation(async type => {
+            if (type.endsWith('_failed')) throw new Error('getSyncStatus failed: fetch failed');
+            return receipts.get(type) ?? null;
+        });
+        boot();
+        await runSchedulerTick();
+        Date.now.mockReturnValue(Date.parse('2026-09-05T03:10:00Z'));
+        await runSchedulerTick();
+
+        expect(sendSchedulerFailureNotice).not.toHaveBeenCalled();
+        expect(getKpiSchedulerState().lastRuns.daily.ok).toBe(false);
+    });
+
     it('an empty dataset is treated as a failure: notice sent, nothing delivered', async () => {
         buildKpiReport.mockResolvedValue({ ...REPORT, dataset: { empty: true } });
         boot();

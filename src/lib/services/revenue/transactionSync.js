@@ -571,6 +571,8 @@ export async function progressiveSync() {
         // highest block we have a transaction for). This prevents re-scanning a growing gap
         // when there are no recent transactions.
         // NOTE: Block 0 is not supported by getaddresstxids API — always start at 1 minimum.
+        // A failed read throws (#429) and aborts the pass here, before anything is fetched or
+        // written: only a genuinely missing row may mean "scan the whole chain".
         const syncStatus = await getSyncStatus('revenue');
         const lastSyncedBlock = syncStatus?.last_sync_block || null;
         const startBlock = lastSyncedBlock

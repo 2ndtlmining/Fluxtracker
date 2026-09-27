@@ -1642,11 +1642,12 @@ export async function isFailedTxid(txid) {
 // ============================================
 
 export async function getSyncStatus(syncType) {
+    // null only for "no row"; a failed read (SQLITE_BUSY, a missing table) throws (#429),
+    // see the Supabase adapter.
     try {
         return getDb().prepare('SELECT * FROM sync_status WHERE sync_type = ?').get(syncType) || null;
     } catch (error) {
-        log.error(`getSyncStatus error: ${error.message}`);
-        return null;
+        throw readFailed('getSyncStatus', error);
     }
 }
 

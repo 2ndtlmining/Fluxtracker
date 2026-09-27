@@ -97,3 +97,16 @@ describe('failed-txid retry resolves only after the write lands (issue #315)', (
             .toBeLessThan(resolveFailedTxid.mock.invocationCallOrder[0]);
     });
 });
+
+describe('an unreadable sync cursor aborts the pass (issue #429)', () => {
+    it('never scans from block 1 when the cursor read fails', async () => {
+        getSyncStatus.mockRejectedValue(new Error('getSyncStatus failed: SQLITE_BUSY'));
+
+        await expect(runSync()).rejects.toThrow(/getSyncStatus failed/);
+
+        const fromBlockOne = resilientFetch.mock.calls.filter(([url]) => /getaddresstxids\/[^/]+\/1\//.test(String(url)));
+        expect(fromBlockOne).toHaveLength(0);
+        expect(insertTransactionsBatch).not.toHaveBeenCalled();
+        expect(updateSyncStatus).not.toHaveBeenCalledWith('revenue', 'completed', null, expect.anything());
+    });
+});
