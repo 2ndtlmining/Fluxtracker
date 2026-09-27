@@ -179,7 +179,15 @@ function receiptToMs(value) {
  */
 async function runForTimeframe(timeframe) {
     const receiptType = `${RECEIPT_PREFIX}${timeframe}`;
-    const receipt = await getSyncStatus(receiptType).catch(() => null);
+    // An unreadable receipt is not a missing one (#429): treating it as "never sent" re-sent
+    // the report. Skip this timeframe until the next tick; the others still run.
+    let receipt;
+    try {
+        receipt = await getSyncStatus(receiptType);
+    } catch (error) {
+        log.warn({ err: error, timeframe }, 'KPI receipt unreadable -- skipping this tick');
+        return { sent: false, reason: 'receipt unreadable' };
+    }
     const lastSyncMs = receiptToMs(receipt?.last_sync);
 
     if (!isDue(timeframe, Date.now(), schedulerState.hourUtc, lastSyncMs)) {
@@ -218,10 +226,18 @@ async function recordFailureAndNotice(timeframe, error) {
     // Date.now() (number), not new Date(): keeps the period-key comparison on a plain
     // epoch value in both backends and test environments.
     const nowMs = Date.now();
-    const failureReceipt = await getSyncStatus(failureType).catch(() => null);
-    const lastFailureMs = receiptToMs(failureReceipt?.last_sync);
-    const noticedThisPeriod = lastFailureMs !== null
-        && periodKey(timeframe, lastFailureMs) === periodKey(timeframe, nowMs);
+    // If the failure receipt cannot be read, we cannot know whether this period was already
+    // noticed -- stay quiet rather than post a notice every tick while the DB is down (#429).
+    let noticedThisPeriod;
+    try {
+        const failureReceipt = await getSyncStatus(failureType);
+        const lastFailureMs = receiptToMs(failureReceipt?.last_sync);
+        noticedThisPeriod = lastFailureMs !== null
+            && periodKey(timeframe, lastFailureMs) === periodKey(timeframe, nowMs);
+    } catch (readError) {
+        log.warn({ err: readError, timeframe }, 'KPI failure receipt unreadable -- notice skipped');
+        noticedThisPeriod = true;
+    }
 
     if (!noticedThisPeriod) {
         try {

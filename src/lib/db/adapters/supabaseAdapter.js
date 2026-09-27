@@ -1432,12 +1432,15 @@ export async function getSyncStatus(syncType) {
         .from('sync_status')
         .select('*')
         .eq('sync_type', syncType)
-        .single();
+        // maybeSingle: no row is "never synced" (null). A failed read must throw (#429) --
+        // returning null for it too made one transient error restart the revenue scan at
+        // block 1 and re-send KPI reports whose receipt could not be read.
+        .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
-        log.error(`getSyncStatus error: ${error.message}`);
+    if (error) {
+        throw readFailed('getSyncStatus', error);
     }
-    return data || null;
+    return data;
 }
 
 export async function updateSyncStatus(syncType, status, errorMessage = null, lastBlock = null) {

@@ -116,7 +116,9 @@ async function checkOutage(nowMs) {
     const newest = (await getTransactionsPaginated(1, 1))?.transactions?.[0];
     const hours = hoursSinceLastPayment(newest?.timestamp, nowMs);
     if (hours === null) return; // nothing synced yet (fresh install): nothing to judge
-    const receipt = await getSyncStatus(OUTAGE_RECEIPT).catch(() => null);
+    // No .catch here (#429): an unreadable receipt read as "no alert open" and re-posted the
+    // outage alert every tick. A throw skips the tick (tick() logs it).
+    const receipt = await getSyncStatus(OUTAGE_RECEIPT);
     const open = receipt?.status === 'open';
 
     if (hours >= state.outageHours && !open) {
@@ -135,7 +137,7 @@ async function checkSpike(nowMs) {
     const yesterday = new Date(nowMs - 86_400_000).toISOString().slice(0, 10);
 
     // One check per completed day: the receipt's message holds the last day judged.
-    const receipt = await getSyncStatus(SPIKE_RECEIPT).catch(() => null);
+    const receipt = await getSyncStatus(SPIKE_RECEIPT); // throws skip the tick (#429)
     if (receipt?.error_message === yesterday) return;
 
     const from = new Date(Date.parse(`${yesterday}T00:00:00Z`) - SPIKE_LOOKBACK_DAYS * 86_400_000).toISOString().slice(0, 10);
