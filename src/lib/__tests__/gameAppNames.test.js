@@ -13,6 +13,9 @@ describe('resolveGameFromAppName', () => {
     it('identifies a game that has no readable image at all (the whole point)', () => {
         expect(resolveGameFromAppName('fivem1787211516616')).toBe('FiveM');
         expect(resolveGameFromAppName('dragonwilds1789155733040')).toBe('RuneScape: Dragonwilds');
+        // Issue #409: live names from the games hub, 2026-09-27.
+        expect(resolveGameFromAppName('vrising1790333632959')).toBe('V Rising');
+        expect(resolveGameFromAppName('vrising1790277053099')).toBe('V Rising');
     });
 
     it('totals every plan of one game under the canonical name', () => {

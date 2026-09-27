@@ -12,6 +12,7 @@ import {
 } from './terminalAnimation.js';
 import {
   formatZomboidOutro,
+  formatVRisingOutro,
   formatFuseFrame,
   fuseFrameKinds,
   formatCraneFrame,
@@ -27,6 +28,7 @@ const SEQUENCES = [
   ['minecraft outro (#182)', formatMinecraftOutro, {}],
   ['palworld outro (#182)', formatPalworldOutro, {}],
   ['zomboid outro (#182)', formatZomboidOutro, {}],
+  ['v rising outro (#409)', formatVRisingOutro, {}],
   ['fuse (#182 fallback)', formatFuseFrame, expiring],
   ['crane x1 (#181)', formatCraneFrame, { app: { instances: 1 } }],
   ['crane x3 (#181)', formatCraneFrame, { app: { instances: 3 } }]

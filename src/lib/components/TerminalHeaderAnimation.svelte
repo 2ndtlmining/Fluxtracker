@@ -74,6 +74,7 @@
     formatFoldingFrame, foldingFrameKinds, FOLDING_FRAME_COUNT,
     formatCryptoFrame, cryptoFrameKinds, CRYPTO_FRAME_COUNT,
     formatZomboidOutro,
+    formatVRisingFrame, vrisingFrameKinds, VRISING_FRAME_COUNT, formatVRisingOutro,
     formatFuseFrame, fuseFrameKinds, FUSE_FRAME_COUNT,
     formatCraneFrame, craneFrameKinds, CRANE_FRAME_COUNT
   } from '$lib/utils/introArt.js';
@@ -167,7 +168,9 @@
       frameCount: ZOMBOID_FRAME_COUNT,
       format: formatZomboidFrame,
       kinds: zomboidFrameKinds
-    }
+    },
+    // Issue #409. The key is what resolveGameFromAppName() returns for the 'vrising' prefix.
+    'V Rising': { frameCount: VRISING_FRAME_COUNT, format: formatVRisingFrame, kinds: vrisingFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -195,7 +198,8 @@
     Minecraft: outro(formatMinecraftOutro),
     Palworld: outro(formatPalworldOutro),
     'RuneScape: Dragonwilds': outro(formatDragonOutro),
-    'Project Zomboid': outro(formatZomboidOutro)
+    'Project Zomboid': outro(formatZomboidOutro),
+    'V Rising': outro(formatVRisingOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
