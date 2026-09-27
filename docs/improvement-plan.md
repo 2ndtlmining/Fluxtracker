@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-26, end of day** (v1.12; the 2026-09-23 review plan is complete)
+**Last reviewed: 2026-09-27** (v1.13)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,20 +13,16 @@ rule links to an issue.
 
 ## Next up, in order
 
-**Status at end of 2026-09-26 (v1.12):** every row of the 2026-09-23 review plan has shipped
-and been verified on the owner's instance.
-- **Analytics cleanup after the owner's review** (#370): removed MRR/prepaid, the demand line,
-  and four confusing cohort metrics; renamed and grouped the rest; plain explanations under
-  the chart title.
-- **Median time left on running apps** (#371, migration 023).
-- **Game-server revenue** (#374, migration 024).
-- **Revenue Sources fix** (#375, #373): fiat is a payment method, not a payer. Who paid
-  (organic + team) and how they paid (card + FLUX) each add up to 100%.
-- **Compact vs D toggle restored** (#376, #367).
-- **Demand vs supply by continent** in the Decentralization card (#378, #268).
-- **Opt-in Discord anomaly alerts** (#379, #269).
-- **Dead code removed** (#377, #317 #318).
-- **Closed:** #270 (owner decision), #364 #366 (fixed by #370), #327 (superseded by #367).
+**Status at 2026-09-27 (v1.13):** everything below is merged and verified on the owner's instance.
+- **Performance review follow-ups** (2026-09-26): cacheable responses and three missing caches
+  (#398: #383 #384 #388 #391), SSR data reused on load (#399: #385), lazy sections (#401: #387),
+  Revenue Sources in one query (#403: #386), column lists for snapshot reads (#406: #389), date
+  windows for per-day RPCs (#407: #390), no layout shift as data loads (#405: #404).
+- **New vs renewed apps** (#402: #400) and game revenue back to 2024 (#395).
+- **V Rising** counted as a game, with its own header art (#410: #409).
+- **Carousel click-through**: an app in the ticker filters the transactions table (#411: #408).
+- **Unregistered spec**: payments for a spec Flux never accepted are labelled instead of blank,
+  and a parked-row retry loop in the sync is fixed (#412). The history backfill labelled 25.
 
 **How we work:** one themed PR at a time. The owner merges and deploys to their local instance;
 Claude verifies it there (health, the behaviour the PR changed, a headless-browser load with
@@ -37,11 +33,24 @@ before building anything whose definition is ambiguous.
 
 ### Next, in this order
 
+The 2026-09-27 site review filed #414-#447 (label `review-2026-09-27`). The owner settled every
+open question the same day; the decisions are recorded on each issue and summarised below.
+Closed as not planned: #423 (ArcaneOS will be mandatory), #428 (keep all scripts and contract
+functions), #439 (today-so-far on the Revenue card is intended; KPI compares completed periods).
+
 | # | Item | Issues | Notes |
 |---|------|--------|-------|
-| 1 | Tracker sweep | #261 #262 #266 #272-#289 #320-#331 #181 #182 #368 | Many are shipped but still open. Check each against the code and the live site; close with a one-line "shipped in #PR" note, and list anything genuinely unfinished. The owner confirms before the batch close |
-| 2 | Whatever the sweep finds unfinished | -- | Ordered with the owner |
-| 3 | Older features | #155 #156 | #61 (email) stays parked |
+| 1 | Correctness and robustness | #429 #430 #441 #432 | #429: a failed `sync_status` read restarts the revenue scan at block 1. #430: revenue sync runs twice per 5 min and its metric writes race the services cycle. #441: 131 Tab stops in the ticker, a regression from #411. #432: an explorer outage trips the DB breaker |
+| 2 | Platform | #434, then #435 #436 | Node 20 has been end-of-life since 2026-04-30 and blocks upgrades. Node 24 first, then the safe dependency batch (drops `date-fns` and `node-cron`), then the lucide swap. Both DB modes and the header harness must pass |
+| 3 | Quick performance win | #415 | Cache the block height: the footer and header wait ~1.3 s on it today |
+| 4 | Header resolver | #416 | Firo masternodes (16% of deployments), Hermes Pro and image-matched games get the crane. Must land before #419 |
+| 5 | Stats | #421 #424 #422 | #421: fill % over **unexpired** specs, and the Apps card switches to the same rule. #424: a private-apps share in the Applications dropdown. #422: FLUX and $ per node per day per tier, **no yearly return or APY** |
+| 6 | UX | #440 #442 #443 #444 #445 #446 #447 | #444: merge the three Hetzner rows live; history is not regrouped. #445: rename to Low / Moderate / High / Very high demand, with a CPU tooltip |
+| 7 | Robustness follow-ups | #431 #433 | #433: keep the once-a-year "not enough data" notice; stop the 10-minute retry and show it in health as skipped |
+| 8 | Performance | #414 | Full permanent-messages refresh daily instead of hourly. Re-tune #412's `isUnregisteredSpec` freshness check in the same PR |
+| 9 | Header art | #417 #418 #419 #420 | Rotation fatigue, then new scenes. Move the harness's "game without art" fixture off Enshrouded when #418 lands |
+| 10 | Docs and cleanup | #425 #426 #427 | README and KPI docs; safe dead-code deletions. Update the README's Node references with #434 |
+| 11 | Dependency majors | #437 #438 | After #434 |
 | -- | Version bump | -- | Last PR of each working day |
 
 ### Owner action
