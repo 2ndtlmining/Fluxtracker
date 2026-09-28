@@ -42,9 +42,3 @@ export function cpuDemandVsSupply(cpu) {
     .filter(row => row.cores > 0 || row.lockedCores > 0);
   return { continents, networkInUsePercent: pct(totals.locked, totals.cores) };
 }
-
-/**
- * Highlighted when a continent's share of demand is at least 1.5x its share of capacity, and
- * at least 1% of demand, so a 0.4% vs 0.3% difference is not called out.
- */
-export const isUnderSupplied = row => row.demandPercent >= 1 && row.demandPercent >= 1.5 * row.capacityPercent;

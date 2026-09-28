@@ -2,6 +2,7 @@
   import CardNotice from '$lib/components/CardNotice.svelte';
   import { Cloud } from '@lucide/svelte';
   import { formatNumber } from '$lib/utils/format.js';
+  import { demandLevel } from '$lib/utils/demandLevel.js';
   
   export let cpu = { total: 0, used: 0, utilization: 0 };
   export let ram = { total: 0, used: 0, utilization: 0 };
@@ -24,25 +25,9 @@
   const formatWhole = (n) => formatNumber(n, 0);
   const formatDecimal = (n) => formatNumber(n, 2);
   
-  // Determine demand level based on CPU utilization
-  $: demandLevel = getDemandLevel(cpu.utilization);
-  
-  function getDemandLevel(utilization) {
-    if (utilization < 25) return 'poor';
-    if (utilization < 50) return 'mediocre';
-    if (utilization < 75) return 'high';
-    return 'extreme';
-  }
-  
-  function getDemandLabel(level) {
-    switch(level) {
-      case 'poor': return '⚪ Poor Demand';
-      case 'mediocre': return '🟡 Mediocre Demand';
-      case 'high': return '🟠 High Demand';
-      case 'extreme': return '🔴 Extreme Demand';
-      default: return '';
-    }
-  }
+  // Demand level from CPU in use -- the shared rule and the owner's names (#445), the same
+  // levels the Geolocation Demand card colours each continent by (#463).
+  $: level = demandLevel(cpu.utilization);
 </script>
 
 <div class="cloud-card terminal-border" class:loading>
@@ -54,12 +39,11 @@
     
     <!-- Overall demand indicator (based on CPU) -->
     {#if !loading && !unavailable}
-      <div class="overall-demand" class:poor={demandLevel === 'poor'} 
-           class:mediocre={demandLevel === 'mediocre'} 
-           class:high={demandLevel === 'high'} 
-           class:extreme={demandLevel === 'extreme'}>
-        {getDemandLabel(demandLevel)}
-      </div>
+      {#if level}
+        <div class="overall-demand level-{level.key}" title="Based on CPU in use ({formatDecimal(cpu.utilization)}%)">
+          {level.icon} {level.label}
+        </div>
+      {/if}
     {/if}
   </div>
   
@@ -208,25 +192,25 @@
     white-space: nowrap;
   }
   
-  .overall-demand.poor {
+  .overall-demand.level-low {
     color: var(--text-dim);
     background: rgba(139, 146, 176, 0.1);
     border: 1px solid rgba(139, 146, 176, 0.3);
   }
   
-  .overall-demand.mediocre {
+  .overall-demand.level-moderate {
     color: var(--accent-yellow);
     background: rgba(255, 235, 59, 0.1);
     border: 1px solid rgba(255, 235, 59, 0.3);
   }
   
-  .overall-demand.high {
+  .overall-demand.level-high {
     color: #ff9800;
     background: rgba(255, 152, 0, 0.1);
     border: 1px solid rgba(255, 152, 0, 0.3);
   }
   
-  .overall-demand.extreme {
+  .overall-demand.level-very-high {
     color: var(--accent-red);
     background: rgba(255, 68, 68, 0.1);
     border: 1px solid rgba(255, 68, 68, 0.3);

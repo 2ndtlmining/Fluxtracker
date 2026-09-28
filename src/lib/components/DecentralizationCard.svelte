@@ -3,7 +3,7 @@
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
   import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
-  import { isUnderSupplied } from '$lib/utils/geoDemand.js';
+  import { demandLevel, DEMAND_LEVELS } from '$lib/utils/demandLevel.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
   //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
@@ -84,26 +84,28 @@
     {:else}
       <!-- Issue #463: demand vs supply in CPU cores, not app and node counts. -->
       <div class="datacenters-section">
-        <div class="section-label">CPU by continent: capacity vs demand</div>
+        <div class="section-label">CPU by continent</div>
         <div class="demand-row demand-head">
           <span class="datacenter-org">Continent</span>
-          <span class="demand-col" title="Share of the network's CPU cores on this continent">Capacity</span>
-          <span class="demand-col" title="Share of the CPU apps have locked that is on this continent">Demand</span>
-          <span class="demand-col" title="How much of this continent's own CPU apps have locked">In use</span>
+          <span class="demand-col" title="This continent's share of all CPU cores on the network, used or not">Share of CPU</span>
+          <span class="demand-col" title="This continent's share of all the CPU apps are using on the network">Share of load</span>
+          <span class="demand-col" title="How much of this continent's own CPU apps are using">In use</span>
         </div>
         <div class="datacenters-list">
           {#each demand.continents as c (c.code)}
-            <div class="demand-row" title="{c.name}: {formatPercent(c.capacityPercent)} of the network's CPU, {formatPercent(c.demandPercent)} of the CPU in use; {formatNumber(c.lockedCores)} of {formatNumber(c.cores)} cores in use there ({formatPercent(c.inUsePercent)})">
+            {@const level = demandLevel(c.inUsePercent)}
+            <div class="demand-row" title="{c.name}: {formatPercent(c.capacityPercent)} of the network's CPU and {formatPercent(c.demandPercent)} of its load. {formatNumber(c.lockedCores)} of {formatNumber(c.cores)} cores in use there ({formatPercent(c.inUsePercent)}){level ? ` -- ${level.label.toLowerCase()}` : ''}">
               <span class="datacenter-org">{c.name}</span>
               <span class="demand-col">{formatPercent(c.capacityPercent)}</span>
-              <span class="demand-col demand-value" class:under={isUnderSupplied(c)}>{formatPercent(c.demandPercent)}</span>
-              <span class="demand-col">{formatPercent(c.inUsePercent)}</span>
+              <span class="demand-col">{formatPercent(c.demandPercent)}</span>
+              <span class="demand-col demand-value level-{level?.key ?? 'none'}">{formatPercent(c.inUsePercent)}</span>
             </div>
           {/each}
         </div>
+        <!-- #463: coloured by how full each continent is, on the Cloud Resources levels (#445). -->
         <div class="other-providers-note">
           Network: {formatPercent(demand.networkInUsePercent)} of CPU in use.
-          <span class="under-key">Orange</span> = demand well above its share of capacity.
+          In use: {#each DEMAND_LEVELS as l, i}<span class="level-{l.key}">{l.short}</span>{i < DEMAND_LEVELS.length - 1 ? ' · ' : ''}{/each}
         </div>
       </div>
     {/if}
@@ -454,10 +456,12 @@
     font-weight: 600;
   }
 
-  .demand-value.under,
-  .under-key {
-    color: var(--accent-orange);
-  }
+  /* Demand levels (#445, #463): the Cloud Resources badge colours. */
+  .level-low { color: var(--text-dim); }
+  .level-moderate { color: var(--accent-yellow); }
+  .level-high { color: #ff9800; }
+  .level-very-high { color: var(--accent-red); }
+  .other-providers-note [class^='level-'] { font-style: normal; }
 
   .other-providers-note {
     font-size: 0.7rem;
