@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { loadChartJs } from '$lib/utils/loadChartJs.js';
-  import { getApiUrl, DECENTRALIZATION_PER_NODE_SINCE } from '$lib/config.js';
+  import { getApiUrl, DECENTRALIZATION_PER_NODE_SINCE, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '$lib/config.js';
   import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
@@ -13,6 +13,26 @@
     .toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
   const DECENTRALIZATION_NOTE = `Counted per node, using each node's hosting flag, from ${methodChangeLabel}. ` +
     'Earlier days counted unique IPs and read higher, so the line steps on that day.';
+
+  // Issue #463: how much of each continent's CPU apps have locked -- demand against supply
+  // there. Weekly/monthly divide the summed cores (ratioFields); a day is derived from its two
+  // stored counts, and days before the counts were recorded are gaps.
+  const CPU_IN_USE_METRICS = CPU_CONTINENTS.map(({ code, name }) => {
+    const cores = cpuCoresColumn(code);
+    const locked = cpuLockedColumn(code);
+    return {
+      id: `cpu_in_use_${code.toLowerCase()}`,
+      label: `CPU in use: ${name} (%)`,
+      field: `cpu_in_use_${code.toLowerCase()}`,
+      format: 'percent',
+      derive: s => (s[cores] > 0 && s[locked] != null ? (s[locked] / s[cores]) * 100 : null),
+      ratioFields: { numerator: locked, denominator: cores },
+      dropNulls: true,
+      group: 'CPU in use by continent',
+      description: `Of the CPU cores on nodes in ${name}, the share apps have locked -- demand against supply there. Recorded daily since September 2026.`,
+      emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.'
+    };
+  });
 
   // Props
   export let title = 'Historical Data';
@@ -222,7 +242,8 @@
         { id: 'indep_count', label: 'Quantity Independent', field: 'decentralization_independent_count', format: 'number', description: DECENTRALIZATION_NOTE },
         { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent', description: DECENTRALIZATION_NOTE },
         { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true, description: DECENTRALIZATION_NOTE },
-        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true, description: DECENTRALIZATION_NOTE }
+        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true, description: DECENTRALIZATION_NOTE },
+        ...CPU_IN_USE_METRICS
       ]
     },
     gaming: {
@@ -852,11 +873,16 @@
     console.log(`📊 Processing data for ${metric.label} (${metric.field}) - Aggregation: ${selectedAggregation}`);
 
     // Sort data by date (oldest first)
-    const sortedSnapshots = [...allSnapshots].sort((a, b) => {
+    const sorted = [...allSnapshots].sort((a, b) => {
       const dateA = new Date(a.date || a.snapshot_date);
       const dateB = new Date(b.date || b.snapshot_date);
       return dateA - dateB;
     });
+    // A metric computed from stored columns (e.g. CPU in use = locked / cores, #463) is
+    // derived here once, so the null filter and the daily view read it like any other field.
+    const sortedSnapshots = metric.derive
+      ? sorted.map(s => ({ ...s, [metric.field]: metric.derive(s) }))
+      : sorted;
 
     // Columns with no DEFAULT read back NULL on every day before their feature shipped --
     // the whole decentralization category, and any metric flagged dropNulls. Those days are

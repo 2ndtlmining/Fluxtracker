@@ -11,8 +11,7 @@ import {
 import { getCachedCarouselData, getCachedDeployedApps, getCachedExpiringApps, getCachedMissingDeployments, getFluxCloudActivity } from '../../lib/services/carouselService.js';
 import { getBusiestNode, getCachedNodeContinents } from '../../lib/services/busiestNodeService.js';
 import { classifyDeployment } from '../../lib/services/revenueService.js';
-import { getSharedFluxApiData } from '../../lib/services/carouselService.js';
-import { continentDemand, demandVsSupply } from '../../lib/utils/geoDemand.js';
+import { cpuDemandVsSupply } from '../../lib/utils/geoDemand.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getDecentralizationStats } from '../../lib/services/decentralizationService.js';
 import { createLogger } from '../../lib/logger.js';
@@ -80,10 +79,10 @@ router.get('/decentralization', async (req, res) => {
     }
 });
 
-// Geographic demand vs supply (issue #268): where region-locked apps are allowed to run,
-// beside where the nodes are, per continent. Both inputs are already fetched and cached
-// (the app registry, the hourly node list), so this makes no upstream call of its own
-// beyond warming those caches. available:false when the node list has never loaded.
+// Geolocation demand vs supply (issues #268, #463), in CPU cores per continent: each
+// continent's share of the network's CPU capacity beside its share of the CPU apps have
+// locked, and how much of its own CPU is in use. From the hourly node list, so no upstream
+// call of its own beyond warming it. available:false when the node list has never loaded.
 router.get('/decentralization/demand', async (req, res) => {
     return withDbFallback(demandCache, 'demand', res, async () => {
         try {
@@ -93,14 +92,11 @@ router.get('/decentralization/demand', async (req, res) => {
         }
         const nodes = getCachedNodeContinents();
         if (!nodes || nodes.located === 0) return { available: false };
-        const { currentBlockHeight, appsData } = await getSharedFluxApiData();
-        const demand = continentDemand(appsData, currentBlockHeight);
+        const { continents, networkInUsePercent } = cpuDemandVsSupply(nodes.cpu);
         return {
             available: true,
-            continents: demandVsSupply(demand.instances, nodes.counts),
-            restrictedApps: demand.restrictedApps,
-            runningApps: demand.runningApps,
-            excludeOnlyApps: demand.excludeOnlyApps,
+            continents,
+            networkInUsePercent,
             nodesLocated: nodes.located,
             nodesTotal: nodes.total,
             generatedAt: Date.now()

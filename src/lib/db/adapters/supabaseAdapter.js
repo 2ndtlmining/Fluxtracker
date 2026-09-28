@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 import { resolveDimension } from '../../decentralizationDimensions.js';
 import { splitDateRange } from '../../utils/dateWindows.js';
@@ -292,6 +292,9 @@ export async function createDailySnapshot(snapshot) {
         locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,
         locked_collateral: snapshot.locked_collateral ?? null,
+        // Issue #463 (migration 029). Named only when there is a reading, so a deploy that
+        // lands before the columns exist cannot lose the daily snapshot (median_days_left's guard).
+        ...Object.fromEntries(CONTINENT_CPU_COLUMNS.filter(c => snapshot[c] != null).map(c => [c, snapshot[c]])),
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

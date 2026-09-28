@@ -16,12 +16,17 @@ vi.mock('../appSpecsCache.js', () => ({
     resolveRunningAppName: vi.fn()
 }));
 
+vi.mock('../../db/database.js', () => ({ updateCurrentMetrics: vi.fn() }));
+
 import axios from 'axios';
 import { resolveRunningAppName } from '../appSpecsCache.js';
+import { updateCurrentMetrics } from '../../db/database.js';
 import {
     getBusiestNode,
     getCachedBusiestNode,
     getCachedNetworkNodes,
+    getCachedNodeContinents,
+    recordContinentCpu,
     clearBusiestNodeCache,
     appNameForContainer
 } from '../busiestNodeService.js';
@@ -341,5 +346,44 @@ describe('appNameForContainer', () => {
         expect(appNameForContainer(null)).toBeNull();
         expect(appNameForContainer('')).toBeNull();
         expect(appNameForContainer('/flux')).toBeNull();
+    });
+});
+
+describe('CPU by continent (issue #463)', () => {
+    // node() leaves continentCode unset; geolocation is overridden per node here.
+    const at = (continentCode, cores, cpuUsed, names = []) => {
+        const n = node({ names, cores, cpuUsed });
+        return { ...n, geolocation: { ...n.geolocation, continentCode } };
+    };
+
+    it('sums benchmarked cores and locked cores per continent, per node', async () => {
+        axios.get.mockResolvedValue(apiResponse([
+            at('EU', 8, 2, ['/fluxfm1_myapp']),
+            at('EU', 4, 1),
+            at('NA', 16, 12)
+        ]));
+
+        await getBusiestNode();
+
+        expect(getCachedNodeContinents().cpu).toEqual({
+            EU: { cores: 12, locked: 3 },
+            NA: { cores: 16, locked: 12 }
+        });
+    });
+
+    it('records every continent, with a real 0 where there are no nodes', async () => {
+        axios.get.mockResolvedValue(apiResponse([at('EU', 8, 2, ['/fluxfm1_myapp']), at('NA', 16, 12)]));
+
+        const row = await recordContinentCpu();
+
+        expect(row).toMatchObject({ cpu_cores_eu: 8, cpu_locked_eu: 2, cpu_cores_na: 16, cpu_locked_na: 12, cpu_cores_af: 0, cpu_locked_af: 0 });
+        expect(updateCurrentMetrics).toHaveBeenCalledWith(row);
+    });
+
+    it('throws rather than recording zeros when the node list is unavailable', async () => {
+        axios.get.mockRejectedValue(new Error('stats.runonflux.io down'));
+
+        await expect(recordContinentCpu()).rejects.toThrow();
+        expect(updateCurrentMetrics).not.toHaveBeenCalled();
     });
 });

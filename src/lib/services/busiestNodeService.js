@@ -9,7 +9,8 @@
 // runningAppsProvider's frequent cache — gaming/crypto/wordpress/cloud don't need the
 // extra resources/benchmark/ip fields this card does.
 
-import { API_ENDPOINTS } from '../config.js';
+import { API_ENDPOINTS, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '../config.js';
+import { updateCurrentMetrics } from '../db/database.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
@@ -115,14 +116,20 @@ async function fetchBusiestNode() {
     });
 
     const continentCounts = {};
+    // CPU supply and demand per continent (issue #463): the cores each node benchmarks, and
+    // the cores apps have locked on it -- the node's own report, so every app counts.
+    const continentCpu = {};
     let located = 0;
     for (const node of nodes) {
         const code = node?.geolocation?.continentCode;
         if (!code) continue;
         continentCounts[code] = (continentCounts[code] ?? 0) + 1;
+        const cpu = (continentCpu[code] ??= { cores: 0, locked: 0 });
+        cpu.cores += Number(node?.benchmark?.bench?.cores) || 0;
+        cpu.locked += Number(node?.apps?.resources?.appsCpusLocked) || 0;
         located++;
     }
-    networkNodeContinents = { counts: continentCounts, located, total: nodes.length };
+    networkNodeContinents = { counts: continentCounts, cpu: continentCpu, located, total: nodes.length };
 
     // Busiest by CONTAINER count, which is the node's actual workload: a compose app's five
     // components are five running containers competing for that node's CPU, RAM and disk, and
@@ -239,9 +246,31 @@ export function getCachedNetworkNodes() {
     return networkNodes;
 }
 
-/** Nodes per continent from the last fetch ({ counts, located, total }), or null. */
+/** Per continent from the last fetch ({ counts, cpu: {code: {cores, locked}}, located, total }), or null. */
 export function getCachedNodeContinents() {
     return networkNodeContinents;
+}
+
+/**
+ * Services-cycle step (issue #463): store CPU cores and locked cores per continent in
+ * current_metrics, so the daily snapshot records them. Reuses the hourly node list (no call
+ * of its own once warm). Throws when the list is unavailable, so the cycle records a failure
+ * and the stored reading is left alone -- never zeros for a failed fetch. A continent with
+ * no nodes is a real 0.
+ */
+export async function recordContinentCpu() {
+    await getBusiestNode();
+    const continents = networkNodeContinents;
+    if (!continents || continents.located === 0) throw new Error('Node list unavailable -- continent CPU not recorded');
+
+    const row = {};
+    for (const { code } of CPU_CONTINENTS) {
+        const cpu = continents.cpu?.[code] ?? { cores: 0, locked: 0 };
+        row[cpuCoresColumn(code)] = Math.round(cpu.cores * 100) / 100;
+        row[cpuLockedColumn(code)] = Math.round(cpu.locked * 100) / 100;
+    }
+    await updateCurrentMetrics(row);
+    return row;
 }
 
 /** Test hook — drops the cached result. */

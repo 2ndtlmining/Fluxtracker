@@ -1,46 +1,46 @@
 import { describe, it, expect } from 'vitest';
-import { allowedContinents, continentDemand, demandVsSupply } from './geoDemand.js';
+import { cpuDemandVsSupply, isUnderSupplied } from './geoDemand.js';
 
-const H = 1_000_000;
-const spec = (geolocation, instances = 3, extra = {}) => ({ height: H - 10, expire: 1000, geolocation, instances, ...extra });
+// Issue #463: demand vs supply in CPU cores, not app and node counts.
 
-describe('allowedContinents', () => {
-  it('reads continent and country/region allow entries, ignoring exclusions', () => {
-    expect(allowedContinents(['acEU', 'acNA_US_Texas', 'acNA', 'a!cAS'])).toEqual(['EU', 'NA']);
-    expect(allowedContinents(['a!cAS'])).toEqual([]);
-    expect(allowedContinents(undefined)).toEqual([]);
+describe('cpuDemandVsSupply', () => {
+  const cpu = {
+    EU: { cores: 750, locked: 150 },   // 75% of capacity, 50% of demand, 20% in use
+    NA: { cores: 200, locked: 120 },   // 20% of capacity, 40% of demand, 60% in use
+    AS: { cores: 50, locked: 30 }
+  };
+
+  it('compares each continent\'s share of capacity with its share of demand', () => {
+    const { continents } = cpuDemandVsSupply(cpu);
+    const na = continents.find(c => c.code === 'NA');
+    expect(na).toMatchObject({ capacityPercent: 20, demandPercent: 40, inUsePercent: 60, cores: 200, lockedCores: 120 });
+    expect(continents.find(c => c.code === 'EU')).toMatchObject({ capacityPercent: 75, demandPercent: 50, inUsePercent: 20 });
+  });
+
+  it('weighs a heavy app on a big node more than a small one (the point of #463)', () => {
+    // Same node count per continent, very different load: counts would call these equal.
+    const { continents } = cpuDemandVsSupply({ EU: { cores: 100, locked: 5 }, NA: { cores: 100, locked: 45 } });
+    expect(continents.map(c => c.demandPercent)).toEqual([10, 90]);
+  });
+
+  it('reports the network-wide share in use', () => {
+    expect(cpuDemandVsSupply(cpu).networkInUsePercent).toBe(30);
+  });
+
+  it('leaves out continents with neither capacity nor demand, in a fixed order', () => {
+    expect(cpuDemandVsSupply(cpu).continents.map(c => c.code)).toEqual(['EU', 'NA', 'AS']);
+  });
+
+  it('is empty, with no network figure, for no data', () => {
+    expect(cpuDemandVsSupply({})).toEqual({ continents: [], networkInUsePercent: null });
+    expect(cpuDemandVsSupply(undefined).continents).toEqual([]);
   });
 });
 
-describe('continentDemand', () => {
-  it('splits each app\'s instances across the continents it allows', () => {
-    const d = continentDemand([spec(['acEU', 'acNA'], 4), spec(['acAS_JP'], 3)], H);
-    expect(d.instances).toEqual({ EU: 2, NA: 2, AS: 3 });
-    expect(d.restrictedApps).toBe(2);
-  });
-
-  it('leaves out unrestricted, exclude-only and expired apps -- and counts what it left out', () => {
-    const d = continentDemand([
-      spec([]),                                      // runs anywhere
-      spec(['a!cAS']),                               // exclude-only
-      spec(['acEU'], 3, { height: H - 2000 }),       // expired
-      spec(['acEU'], 5)
-    ], H);
-    expect(d).toEqual({ instances: { EU: 5 }, restrictedApps: 1, excludeOnlyApps: 1, runningApps: 3 });
-  });
-});
-
-describe('demandVsSupply', () => {
-  it('puts each continent\'s demand share beside its node share', () => {
-    const rows = demandVsSupply({ EU: 5, AS: 5 }, { EU: 90, NA: 10 });
-    expect(rows).toEqual([
-      { code: 'EU', name: 'Europe', demandPercent: 50, nodePercent: 90, nodes: 90 },
-      { code: 'NA', name: 'North America', demandPercent: 0, nodePercent: 10, nodes: 10 },
-      { code: 'AS', name: 'Asia', demandPercent: 50, nodePercent: 0, nodes: 0 }
-    ]);
-  });
-
-  it('is empty with no data rather than dividing by zero', () => {
-    expect(demandVsSupply({}, {})).toEqual([]);
+describe('isUnderSupplied', () => {
+  it('flags demand at least 1.5x its capacity share, and at least 1% of demand', () => {
+    expect(isUnderSupplied({ demandPercent: 34.8, capacityPercent: 21.2 })).toBe(true);
+    expect(isUnderSupplied({ demandPercent: 59.7, capacityPercent: 74.5 })).toBe(false);
+    expect(isUnderSupplied({ demandPercent: 0.7, capacityPercent: 0.3 })).toBe(false);
   });
 });

@@ -31,7 +31,7 @@ import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { dbSuccessCount, isDatabaseError } from './dbCallTracker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
-import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../config.js';
+import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS } from '../config.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('snapshotManager');
@@ -291,6 +291,8 @@ export function buildSnapshotData({
         locked_collateral_nimbus: currentMetrics.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: currentMetrics.locked_collateral_stratus ?? null,
         locked_collateral: currentMetrics.locked_collateral ?? null,
+        // CPU supply/demand per continent (issue #463): null, not 0, when not collected.
+        ...Object.fromEntries(CONTINENT_CPU_COLUMNS.map(c => [c, currentMetrics[c] ?? null])),
 
         // WordPress
         wordpress_count: currentMetrics.wordpress_count || 0,

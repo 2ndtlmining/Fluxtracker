@@ -5,7 +5,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
-import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 import { resolveDimension } from '../../decentralizationDimensions.js';
 
@@ -567,6 +567,8 @@ export async function createDailySnapshot(snapshot) {
         locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,
         locked_collateral: snapshot.locked_collateral ?? null,
+        // Issue #463. Created by schemaMigrator (both modes), like the per-game columns.
+        ...Object.fromEntries(CONTINENT_CPU_COLUMNS.map(c => [c, snapshot[c] ?? null])),
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

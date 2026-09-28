@@ -3,6 +3,7 @@
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
   import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
+  import { isUnderSupplied } from '$lib/utils/geoDemand.js';
 
   // { totalNodes, classifiedCount, datacenterCount, datacenterPercent, coveragePercent,
   //   topDatacenters: [{org, count, percent}], otherProviderCount, updatedAt } | null
@@ -31,10 +32,6 @@
   let demandError = false;
   let demandLoading = false;
   let demandFetchedAt = 0;
-
-  // Highlighted when a continent's share of demand is at least 1.5x its share of nodes --
-  // and at least 1% of demand, so a 0.3% vs 0.2% difference is not called out.
-  const isUnderSupplied = c => c.demandPercent >= 1 && c.demandPercent >= 1.5 * c.nodePercent;
 
   async function showView(next) {
     view = next;
@@ -81,29 +78,32 @@
 
   {#if !loading && view === 'demand'}
     {#if demandLoading && !demand}
-      <div class="card-empty-state">Loading demand vs supply...</div>
+      <div class="card-empty-state">Loading CPU by continent...</div>
     {:else if demandError || !demand}
       <div class="card-empty-state">Not available right now</div>
     {:else}
+      <!-- Issue #463: demand vs supply in CPU cores, not app and node counts. -->
       <div class="datacenters-section">
-        <div class="section-label">Where apps want to run vs where nodes are</div>
+        <div class="section-label">CPU by continent: capacity vs demand</div>
         <div class="demand-row demand-head">
           <span class="datacenter-org">Continent</span>
-          <span class="demand-col">Apps</span>
-          <span class="demand-col">Nodes</span>
+          <span class="demand-col" title="Share of the network's CPU cores on this continent">Capacity</span>
+          <span class="demand-col" title="Share of the CPU apps have locked that is on this continent">Demand</span>
+          <span class="demand-col" title="How much of this continent's own CPU apps have locked">In use</span>
         </div>
         <div class="datacenters-list">
           {#each demand.continents as c (c.code)}
-            <div class="demand-row" title="{c.name}: {c.demandPercent}% of region-locked app demand, {c.nodePercent}% of nodes ({formatNumber(c.nodes)})">
+            <div class="demand-row" title="{c.name}: {formatPercent(c.capacityPercent)} of the network's CPU, {formatPercent(c.demandPercent)} of the CPU in use; {formatNumber(c.lockedCores)} of {formatNumber(c.cores)} cores in use there ({formatPercent(c.inUsePercent)})">
               <span class="datacenter-org">{c.name}</span>
+              <span class="demand-col">{formatPercent(c.capacityPercent)}</span>
               <span class="demand-col demand-value" class:under={isUnderSupplied(c)}>{formatPercent(c.demandPercent)}</span>
-              <span class="demand-col">{formatPercent(c.nodePercent)}</span>
+              <span class="demand-col">{formatPercent(c.inUsePercent)}</span>
             </div>
           {/each}
         </div>
         <div class="other-providers-note">
-          Apps: {formatNumber(demand.restrictedApps)} of {formatNumber(demand.runningApps)} running apps limit where they run.
-          <span class="under-key">Orange</span> = demand well above its share of nodes.
+          Network: {formatPercent(demand.networkInUsePercent)} of CPU in use.
+          <span class="under-key">Orange</span> = demand well above its share of capacity.
         </div>
       </div>
     {/if}
