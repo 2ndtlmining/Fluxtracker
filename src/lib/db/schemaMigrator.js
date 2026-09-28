@@ -56,6 +56,10 @@ const FIXED_COLUMNS = [
     // CPU cores and locked cores per continent (issue #463, migration 029). No DEFAULT: a 0
     // would read as "no capacity there" for days that predate the feature.
     ...CONTINENT_CPU_COLUMNS.map(name => ({ name, type: 'DOUBLE PRECISION' })),
+    // Private (enterprise) apps (issue #424, migration 030). No DEFAULT: a 0 would read as
+    // "no private apps" for days that predate the feature.
+    { name: 'enterprise_apps', type: 'INTEGER' },
+    { name: 'enterprise_apps_percent', type: 'DOUBLE PRECISION' },
 ];
 
 // ============================================

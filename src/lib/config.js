@@ -579,7 +579,9 @@ export const METRIC_COLUMNS = [
     ...TRACKED_GAMES.map(g => g.dbKey),
     ...CRYPTO_REPOS.map(r => r.dbKey),
     // CPU supply and demand per continent (issue #463)
-    ...CONTINENT_CPU_COLUMNS
+    ...CONTINENT_CPU_COLUMNS,
+    // Private (enterprise) apps among unexpired specs, and their share (issue #424)
+    'enterprise_apps', 'enterprise_apps_percent'
 ];
 
 // ============================================

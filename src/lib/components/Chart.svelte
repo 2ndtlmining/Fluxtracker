@@ -212,6 +212,10 @@
         // predating this feature stores NULL, and plotting those as 0 would draw a
         // network with no app operators rather than a gap in the record.
         { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true, group: 'Daily' },
+        // Issue #424 (owner, 2026-09-27): recorded from now on, no backfill.
+        { id: 'enterprise_apps_percent', label: 'Private (enterprise) apps (% of running apps)', field: 'enterprise_apps_percent', format: 'percent', dropNulls: true, group: 'Daily',
+          description: 'Of the apps with an unexpired registration, the share deployed as private (enterprise) apps, whose settings are encrypted. Recorded daily since September 2026.',
+          emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' },
         // Issue #421: the Apps card's fill figure, recorded daily. Over unexpired specs only,
         // like the card and the Missing Deployments carousel. Weekly/monthly divide summed
         // counts (ratioFields) rather than averaging daily percentages.

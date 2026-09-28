@@ -293,6 +293,8 @@ export function buildSnapshotData({
         locked_collateral: currentMetrics.locked_collateral ?? null,
         // CPU supply/demand per continent (issue #463): null, not 0, when not collected.
         ...Object.fromEntries(CONTINENT_CPU_COLUMNS.map(c => [c, currentMetrics[c] ?? null])),
+        enterprise_apps: currentMetrics.enterprise_apps ?? null,               // issue #424
+        enterprise_apps_percent: currentMetrics.enterprise_apps_percent ?? null,
 
         // WordPress
         wordpress_count: currentMetrics.wordpress_count || 0,
