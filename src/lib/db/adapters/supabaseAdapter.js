@@ -282,6 +282,12 @@ export async function createDailySnapshot(snapshot) {
         // applied, and current_metrics can only hold a value after that -- so a deploy that
         // lands before the migration never names a column the table lacks.
         ...(snapshot.median_days_left != null ? { median_days_left: snapshot.median_days_left } : {}),
+        // Same guard for deployment fill (migration 028): named only once it has a value.
+        ...(snapshot.deployment_fill_percent != null ? {
+            deployments_ordered: snapshot.deployments_ordered,
+            deployments_running: snapshot.deployments_running,
+            deployment_fill_percent: snapshot.deployment_fill_percent
+        } : {}),
         locked_collateral_cumulus: snapshot.locked_collateral_cumulus ?? null,
         locked_collateral_nimbus: snapshot.locked_collateral_nimbus ?? null,
         locked_collateral_stratus: snapshot.locked_collateral_stratus ?? null,

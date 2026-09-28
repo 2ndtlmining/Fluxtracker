@@ -192,6 +192,13 @@
         // predating this feature stores NULL, and plotting those as 0 would draw a
         // network with no app operators rather than a gap in the record.
         { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true, group: 'Daily' },
+        // Issue #421: the Apps card's fill figure, recorded daily. Over unexpired specs only,
+        // like the card and the Missing Deployments carousel. Weekly/monthly divide summed
+        // counts (ratioFields) rather than averaging daily percentages.
+        { id: 'deployment_fill_percent', label: 'Deployments running (% of ordered)', field: 'deployment_fill_percent', format: 'percent',
+          ratioFields: { numerator: 'deployments_running', denominator: 'deployments_ordered' }, dropNulls: true, group: 'Daily',
+          description: 'Of the deployments ordered by apps that have not expired, the share actually running. The same figure as the Apps card. Recorded daily since September 2026.',
+          emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' },
         // Issue #264: retention cohorts, by the month an app was registered (migration 022).
         // Survival counts only apps old enough to know, so a young cohort shows a gap (null,
         // dropped) rather than 0%. Monthly only -- a cohort is a calendar month. The owner's

@@ -77,5 +77,7 @@ describe('createDailySnapshot column parity (issue #229)', () => {
         expect(stored.unique_app_owners).toBeNull();
         expect(stored.locked_collateral).toBeNull();
         expect(stored.median_days_left).toBeNull();
+        expect(stored.deployment_fill_percent).toBeNull();
+        expect(stored.deployments_ordered).toBeNull();
     });
 });

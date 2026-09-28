@@ -39,6 +39,11 @@ const FIXED_COLUMNS = [
     // Median days left on running apps (migration 023). No DEFAULT: a 0 would read as
     // "every app is about to expire" for days that simply predate the feature.
     { name: 'median_days_left', type: 'DOUBLE PRECISION' },
+    // Deployment fill (issue #421, migration 028). No DEFAULT: a 0% would read as "nothing
+    // ordered was running" for days that predate the feature.
+    { name: 'deployments_ordered', type: 'INTEGER' },
+    { name: 'deployments_running', type: 'INTEGER' },
+    { name: 'deployment_fill_percent', type: 'DOUBLE PRECISION' },
     // Issue #210. DOUBLE PRECISION and no DEFAULT: a 0 would read as "no collateral was
     // locked that day", false for every row predating this feature. Node collection is
     // all-or-nothing, so these four are written together or not at all.

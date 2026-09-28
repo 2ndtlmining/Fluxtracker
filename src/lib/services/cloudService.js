@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
-import { getRunningApps } from './runningAppsProvider.js';
+import { getRunningApps, getDeploymentFill } from './runningAppsProvider.js';
 import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
@@ -253,6 +253,11 @@ export async function fetchCloudStats() {
         
         // Fetch app count (includes Git/Docker app breakdown)
         const appCountData = await fetchAppCount();
+
+        // Deployment fill over unexpired specs (issue #421), stored so the chart has history.
+        // Unavailable -> the fields stay null and updateCurrentMetrics() leaves the stored
+        // reading alone; never a 0% that would read as nothing running.
+        const { fill } = await getDeploymentFill().catch(() => ({ fill: null }));
         
         const cloudData = {
             total_cpu_cores: Math.round(totalCores),
@@ -275,6 +280,10 @@ export async function fetchCloudStats() {
             dockerapps_count: appCountData.dockerappsCount,
             gitapps_percent: appCountData.gitappsPercent,
             dockerapps_percent: appCountData.dockerappsPercent,
+
+            deployments_ordered: fill?.ordered ?? null,
+            deployments_running: fill?.running ?? null,
+            deployment_fill_percent: fill ? parseFloat(fill.fillPct.toFixed(2)) : null,
             
             _cached: false
         };
