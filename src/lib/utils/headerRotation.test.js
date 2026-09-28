@@ -43,8 +43,34 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('kas', 1, 'kaspanet/rusty-kaspad:latest'))).toBe('service:crypto');
   });
 
+  it('resolves the families that fell through to the crane (issue #416)', () => {
+    // Firo masternodes: enterprise-encrypted, so the name is all there is
+    expect(resolveIntroKey(app('firomn21', 1))).toBe('service:crypto');
+    expect(resolveIntroKey(app('firoalpha', 1))).toBe('service:crypto');
+    expect(resolveIntroKey(app('firospare', 1))).toBe('service:crypto');
+    expect(resolveIntroKey(app('hermesagentpro1790380328449', 1))).toBe('service:ai-agent');
+    expect(resolveIntroKey(app('foldingatrunonflux3', 1))).toBe('service:folding');
+    expect(resolveIntroKey(app('cumulusvpn12', 1))).toBe('service:vpn');
+    expect(resolveIntroKey(app('proxy1', 1, 'holdroot/proxymsg-agent:latest'))).toBe('service:vpn');
+  });
+
+  it('resolves games by image, with the rule /api/games/live counts by (issue #416)', () => {
+    expect(resolveIntroKey(app('myvalheim', 1, 'mbround18/valheim:latest'))).toBe('game:Valheim');
+    expect(resolveIntroKey(app('mc', 1, 'itzg/minecraft-server:latest'))).toBe('game:Minecraft');
+    expect(resolveIntroKey(app('mcbe', 1, 'itzg/minecraft-bedrock-server:latest'))).toBe('game:Minecraft');
+    expect(resolveIntroKey(app('t', 1, 'littlestache/terraria:latest'))).toBe('game:Terraria');
+    expect(resolveIntroKey(app('s', 1, 'wolveix/satisfactory-server:latest'))).toBe('game:Satisfactory');
+    expect(resolveIntroKey(app('a', 1, 'thmhoag/arkserver:latest'))).toBe('game:ARK Survival');
+  });
+
+  it('does not give a game helper its game\'s art (CATEGORY_EXCLUDE)', () => {
+    expect(resolveIntroKey(app('ping', 1, 'wirewrex/flux-dns-fdm:minecraft-ping'))).toBeNull();
+    expect(resolveIntroKey(app('site', 1, 'runonflux/palworld-server-website:latest'))).toBeNull();
+  });
+
   it('returns null for anything unrecognised', () => {
     expect(resolveIntroKey(app('geap', 1))).toBeNull();
+    expect(resolveIntroKey(app('firewall', 1))).toBeNull();   // ^firo, not ^fir
     expect(resolveIntroKey(null)).toBeNull();
   });
 });
