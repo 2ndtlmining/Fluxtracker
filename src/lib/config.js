@@ -364,20 +364,28 @@ export function resolveGameFromAppName(appName) {
 // so they are prefix matches rather than the anchored GAME_PREFIX_MATCHERS form.
 export const SERVICE_INTRO_RULES = [
     { key: 'orbit', repo: /^runonflux\/orbit(:|$)/ },
-    { key: 'folding', repo: /folding-at-home/ },
+    // Name rules for folding and VPN (#416): their encrypted deploys carry no repo.
+    { key: 'folding', name: /^foldingatrunonflux/, repo: /folding-at-home/ },
     { key: 'wordpress', name: /^wordpress[0-9]{13,}$/, repo: /^(runonflux\/wp-nginx|wordpress)(:|$)/ },
-    { key: 'ai-agent', name: /^(hermesagent[0-9]{13,}|openclaw|ownllm)/ },
-    { key: 'vpn', repo: /(softethervpn|cumulusvpn-gateway|shadowsocks|outline-ss-server|socks5|tor-socks-proxy|http-proxy)/ },
+    // hermesagentpro<timestamp> is half the Hermes specs (#416)
+    { key: 'ai-agent', name: /^(hermesagent(pro)?[0-9]{13,}|openclaw|ownllm)/ },
+    { key: 'vpn', name: /^cumulusvpn/, repo: /(softethervpn|cumulusvpn-gateway|shadowsocks|outline-ss-server|socks5|tor-socks-proxy|http-proxy|proxymsg-agent)/ },
     { key: 'probe', name: /^probeamericas|probe$/, repo: /(globalping-probe|outposts-probe)/ },
-    { key: 'crypto', name: /^(presearchnode|streamrnode|kaspanode|blockbook)/ }
+    // ^firo: the Firo masternodes (firomn21..., firoalpha, firospare) are enterprise-encrypted,
+    // so the name is all there is -- 16% of a day's deployments got the crane before #416.
+    { key: 'crypto', name: /^(presearchnode|streamrnode|kaspanode|blockbook|firo)/ }
 ];
 
 /**
  * Which header intro an app gets (issue #271): `game:<name>`, `service:<key>`, or null.
  *
  * Order matters: a game always wins over a service, so a game server whose image happens to
- * trip a service rule still gets its game's art. After the explicit rules, any image that
- * categorizeImage() files as crypto is a crypto node -- the same rule the category cards use.
+ * trip a service rule still gets its game's art. A game is recognised by app name first, then
+ * by image (#416) with the rule /api/games/live counts by -- categorizeImage() says gaming
+ * (which honours CATEGORY_EXCLUDE, so a `:minecraft-ping` sidecar is not Minecraft) and
+ * getCanonicalName() names it, so mbround18/valheim gets the longship and an image with no
+ * art of its own gets the gamepad rather than the crane. After the explicit service rules,
+ * any image categorizeImage() files as crypto is a crypto node.
  *
  * @param {{name?: string, repo?: string}} app a /api/carousel/deployed or /expiring entry
  */
@@ -388,6 +396,7 @@ export function resolveIntroKey(app) {
 
     const name = String(app.name || '').toLowerCase();
     const repo = String(app.repo || '').toLowerCase();
+    if (repo && categorizeImage(repo) === 'gaming') return `game:${getCanonicalName(repo)}`;
     for (const rule of SERVICE_INTRO_RULES) {
         if ((rule.name && name && rule.name.test(name)) || (rule.repo && repo && rule.repo.test(repo))) {
             return `service:${rule.key}`;
