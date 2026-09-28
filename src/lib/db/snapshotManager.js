@@ -29,6 +29,7 @@ import {
 } from '../services/decentralizationService.js';
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
+import { dbSuccessCount, isDatabaseError } from './dbCallTracker.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
 import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS } from '../config.js';
 import { createLogger } from '../logger.js';
@@ -530,7 +531,9 @@ async function takeSnapshot() {
         
         return {
             success: false,
-            error: error.message
+            error: error.message,
+            // Lets runCheck tell a database failure from an upstream one (#432)
+            dbError: isDatabaseError(error)
         };
     }
 }
@@ -572,13 +575,16 @@ async function runCheck() {
         return;
     }
 
+    // Only database outcomes reach the database breaker (#432): an upstream API failing a
+    // snapshot says nothing about Supabase. Same attribution as withDbFallback (#219).
+    const dbCallsBefore = dbSuccessCount();
     try {
         state.isRunning = true;
 
         const check = await shouldTakeSnapshot();
 
         if (!check.should) {
-            recordSuccess(); // DB was reachable even if no snapshot needed
+            if (dbSuccessCount() > dbCallsBefore) recordSuccess(); // DB was reachable even if no snapshot needed
             log.info(`[SNAPSHOT] ${check.reason}`);
 
             // Daily snapshot exists, but check if repo snapshots are missing
@@ -627,10 +633,10 @@ async function runCheck() {
         const result = await takeSnapshot();
 
         if (result.success) {
-            recordSuccess();
+            if (dbSuccessCount() > dbCallsBefore) recordSuccess();
         } else {
             log.error(`[SNAPSHOT] Snapshot failed: ${result.error}`);
-            recordFailure();
+            if (result.dbError) recordFailure();
 
             if (state.consecutiveFailures >= 3) {
                 log.error(`[ALERT] ${state.consecutiveFailures} consecutive failures!`);
@@ -640,7 +646,7 @@ async function runCheck() {
     } catch (error) {
         log.error({ err: error }, '[SNAPSHOT] Check error');
         state.consecutiveFailures++;
-        recordFailure();
+        if (isDatabaseError(error)) recordFailure();
     } finally {
         state.isRunning = false;
     }

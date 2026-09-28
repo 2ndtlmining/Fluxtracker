@@ -45,6 +45,12 @@ vi.mock('../circuitBreaker.js', () => ({
     recordFailure: vi.fn(),
 }));
 
+// Breaker attribution (#432): only a tagged database error counts against the database.
+vi.mock('../dbCallTracker.js', () => ({
+    dbSuccessCount: () => 0,
+    isDatabaseError: error => Boolean(error?.isDatabaseError)
+}));
+
 vi.mock('../../services/backupService.js', () => ({
     isBackupEnabled: vi.fn(() => false),
     performBackup: vi.fn(() => Promise.resolve({ success: true })),
@@ -76,6 +82,7 @@ import {
 } from '../database.js';
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
+import { recordFailure } from '../circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../../services/backupService.js';
 import {
     getDecentralizationStats,
@@ -693,6 +700,37 @@ describe('snapshotManager', () => {
             await takeManualSnapshot();
 
             expect(getSnapshotState().consecutiveFailures).toBe(before + 1);
+        });
+    });
+    // ------------------------------------------
+    // Breaker attribution in the scheduled check (issue #432)
+    // ------------------------------------------
+    describe('scheduled check and the database breaker', () => {
+        beforeEach(() => {
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+        });
+
+        afterEach(() => stopSnapshotChecker());
+
+        it('an upstream failure during a snapshot does not count against the database', async () => {
+            createDailySnapshot.mockRejectedValue(new Error('fetch failed: api.runonflux.io'));
+
+            startSnapshotChecker();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(createDailySnapshot).toHaveBeenCalled();
+            expect(recordFailure).not.toHaveBeenCalled();
+        });
+
+        it('a database failure during a snapshot still does', async () => {
+            createDailySnapshot.mockRejectedValue(Object.assign(new Error('permission denied'), { isDatabaseError: true }));
+
+            startSnapshotChecker();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(recordFailure).toHaveBeenCalledTimes(1);
         });
     });
 });
