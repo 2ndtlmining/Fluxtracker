@@ -21,9 +21,8 @@
   let lastSnapshotDate = 'N/A';
   let lastSyncBlock = null;
 
-  // Decentralization coverage counter (issue #120): unique node-IP classification
-  // progress, next to uptime in Row 2. A different denominator than totalNodes above
-  // (raw node-instance count) -- see DecentralizationCard.svelte's tooltip.
+  // Decentralization coverage counter (issue #120): nodes with hosting data out of all
+  // nodes in the node list, next to uptime in Row 2. Per node since #457 (it was per IP).
   let ipsClassified = 0;
   let ipsTotal = 0;
   // Issue #404: until the first /api/header answer, row 2 used to read "IPs 0/0 | 0 snapshots |
@@ -283,7 +282,8 @@
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">
-          IPs <span class="system-stat-value">{headerLoaded ? `${formatNumber(ipsClassified)}/${formatNumber(ipsTotal)}` : '–,–––/–,–––'}</span>
+          <!-- "geo", not "IPs": same 3 characters, so the line length (#404) is unchanged -->
+          <span title="Nodes with hosting data / all nodes (decentralization coverage)">geo</span> <span class="system-stat-value">{headerLoaded ? `${formatNumber(ipsClassified)}/${formatNumber(ipsTotal)}` : '–,–––/–,–––'}</span>
         </span>
         <span class="stat-separator">|</span>
         <span class="system-stat">

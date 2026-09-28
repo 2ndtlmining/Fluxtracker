@@ -3,14 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 /**
  * Issue #151. Two claims to hold onto:
  *
- * 1. One snapshot cycle reads node_ip_classification ONCE. It used to read the whole table up
- *    to four times -- once per breakdown plus once for the cold-start stats -- because each
- *    consumer fetched for itself.
+ * 1. One snapshot cycle reads its source ONCE. It used to read the whole classification table
+ *    up to four times -- once per breakdown plus once for the cold-start stats. Since #457 the
+ *    source is busiestNodeService's node list, and the claim still holds for it.
  * 2. Country and continent are one implementation, not two copies, and a new dimension is one
  *    entry in the registry.
  */
 
-const mockGetAllNodeIpClassifications = vi.fn();
 const mockGetCurrentMetrics = vi.fn();
 vi.mock('../database.js', () => ({
     createDailySnapshot: vi.fn(),
@@ -21,15 +20,13 @@ vi.mock('../database.js', () => ({
     getRevenueForDateRange: vi.fn(() => 123.45),
     createDecentralizationSnapshots: vi.fn(),
     createDecentralizationCountrySnapshots: vi.fn(),
-    createDecentralizationContinentSnapshots: vi.fn(),
-    getAllNodeIpClassifications: (...args) => mockGetAllNodeIpClassifications(...args),
-    upsertNodeIpClassifications: vi.fn()
+    createDecentralizationContinentSnapshots: vi.fn()
 }));
 
-const mockGetCachedNetworkNodeIps = vi.fn();
+const mockGetCachedNetworkNodes = vi.fn();
 vi.mock('../../services/busiestNodeService.js', () => ({
     getBusiestNode: vi.fn(),
-    getCachedNetworkNodeIps: (...args) => mockGetCachedNetworkNodeIps(...args)
+    getCachedNetworkNodes: (...args) => mockGetCachedNetworkNodes(...args)
 }));
 
 vi.mock('../../services/cloudService.js', () => ({ getLatestRepoCounts: vi.fn(() => null) }));
@@ -46,7 +43,7 @@ vi.mock('../../services/backupService.js', () => ({
 }));
 
 // The decentralization service is deliberately NOT mocked here: the point is to count what
-// the real one asks the database for during one real snapshot cycle.
+// the real one reads during one real snapshot cycle.
 import { takeManualSnapshot } from '../snapshotManager.js';
 import {
     loadClassificationContext,
@@ -57,18 +54,21 @@ import {
 } from '../../services/decentralizationService.js';
 import { BREAKDOWN_DIMENSIONS, resolveDimension } from '../../decentralizationDimensions.js';
 
-const CLASSIFICATIONS = [
-    { ip: '1.1.1.1', org: 'Hetzner', isDatacenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
-    { ip: '2.2.2.2', org: 'Hetzner', isDatacenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
-    { ip: '3.3.3.3', org: 'OVH', isDatacenter: true, country: 'France', countryCode: 'FR', continent: 'Europe', continentCode: 'EU' },
-    { ip: '4.4.4.4', org: 'Comcast', isDatacenter: false, country: 'United States', countryCode: 'US', continent: 'North America', continentCode: 'NA' },
-    // Classified, but neither provider returned a location.
-    { ip: '5.5.5.5', org: 'Unknown ISP', isDatacenter: false, country: null, countryCode: null, continent: null, continentCode: null },
-    // Not a candidate node: must be filtered out of every breakdown.
-    { ip: '9.9.9.9', org: 'Hetzner', isDatacenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' }
+const node = (ip, org, dataCenter, country = null, countryCode = null, continent = null, continentCode = null) =>
+    ({ ip, org, isp: org, dataCenter, country, countryCode, continent, continentCode });
+
+const NODES = [
+    node('1.1.1.1', 'Hetzner Online GmbH', true, 'Germany', 'DE', 'Europe', 'EU'),
+    node('1.1.1.1', 'Hetzner', true, 'Germany', 'DE', 'Europe', 'EU'),       // same IP, second node: counts
+    node('3.3.3.3', 'OVH SAS', true, 'France', 'FR', 'Europe', 'EU'),
+    node('4.4.4.4', 'Comcast', false, 'United States', 'US', 'North America', 'NA'),
+    // Flagged, but no location reported.
+    node('5.5.5.5', 'Unknown ISP', false),
+    // No flag at all: unknown, so left out of every breakdown.
+    node('9.9.9.9', '', null, 'Germany', 'DE', 'Europe', 'EU')
 ];
 
-const CANDIDATE_IPS = ['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4', '5.5.5.5'];
+const CLASSIFIED = 5;
 
 beforeEach(() => {
     vi.clearAllMocks();
@@ -76,8 +76,7 @@ beforeEach(() => {
     // Midday UTC: takeSnapshot() refuses to run inside the after-midnight grace period.
     vi.setSystemTime(new Date('2026-03-19T12:00:00.000Z'));
     clearDecentralizationStatsCache();
-    mockGetAllNodeIpClassifications.mockResolvedValue(CLASSIFICATIONS);
-    mockGetCachedNetworkNodeIps.mockReturnValue(CANDIDATE_IPS);
+    mockGetCachedNetworkNodes.mockReturnValue(NODES);
     mockGetCurrentMetrics.mockResolvedValue({
         last_update: Date.now(),
         node_total: 12800,
@@ -92,12 +91,12 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-describe('one snapshot cycle, one classification read', () => {
-    it('reads node_ip_classification exactly once per snapshot', async () => {
+describe('one snapshot cycle, one read of the node list', () => {
+    it('reads the node list exactly once per snapshot', async () => {
         // Before #151 this was four: the stats cold start, then one per breakdown.
         await takeManualSnapshot();
 
-        expect(mockGetAllNodeIpClassifications).toHaveBeenCalledTimes(1);
+        expect(mockGetCachedNetworkNodes).toHaveBeenCalledTimes(1);
     });
 
     it('still produces every breakdown from that single read', async () => {
@@ -112,11 +111,9 @@ describe('one snapshot cycle, one classification read', () => {
     });
 
     it('falls back to loading for itself when called without a context', async () => {
-        // The getters stay usable standalone, which is what let the refactor land without
-        // touching their other callers.
         await getFullCountryBreakdown();
 
-        expect(mockGetAllNodeIpClassifications).toHaveBeenCalledTimes(1);
+        expect(mockGetCachedNetworkNodes).toHaveBeenCalledTimes(1);
     });
 
     it('does not read again for each breakdown when a context is shared', async () => {
@@ -125,16 +122,16 @@ describe('one snapshot cycle, one classification read', () => {
         await getFullCountryBreakdown(context);
         await getFullContinentBreakdown(context);
 
-        expect(mockGetAllNodeIpClassifications).toHaveBeenCalledTimes(1);
+        expect(mockGetCachedNetworkNodes).toHaveBeenCalledTimes(1);
     });
 });
 
-describe('breakdowns are unchanged by the refactor', () => {
-    it('groups countries with their codes, counting only candidate nodes', async () => {
+describe('breakdowns count classified nodes', () => {
+    it('groups countries with their codes, counting every classified node', async () => {
         const context = await loadClassificationContext();
 
         expect(await getFullCountryBreakdown(context)).toEqual([
-            { country: 'Germany', countryCode: 'DE', count: 2 },   // 9.9.9.9 is not a candidate
+            { country: 'Germany', countryCode: 'DE', count: 2 },   // two nodes on one IP; 9.9.9.9 has no flag
             { country: 'France', countryCode: 'FR', count: 1 },
             { country: 'United States', countryCode: 'US', count: 1 },
             { country: '(unknown)', countryCode: null, count: 1 }
@@ -157,7 +154,7 @@ describe('breakdowns are unchanged by the refactor', () => {
         const countries = await getFullCountryBreakdown(context);
 
         const total = countries.reduce((sum, row) => sum + row.count, 0);
-        expect(total).toBe(CANDIDATE_IPS.length);
+        expect(total).toBe(CLASSIFIED);
         expect(countries.find(row => row.country === '(unknown)').countryCode).toBeNull();
     });
 
@@ -167,7 +164,7 @@ describe('breakdowns are unchanged by the refactor', () => {
         expect(await getFullDatacenterBreakdown(context)).toEqual([
             { org: 'Hetzner', count: 2 },
             { org: 'OVH', count: 1 },
-            { org: '(independent)', count: 2 }   // Comcast + Unknown ISP
+            { org: '(independent)', count: 2 }   // Comcast + Unknown ISP; the unflagged node is in neither
         ]);
     });
 });

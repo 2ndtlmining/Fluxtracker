@@ -1,142 +1,86 @@
 // src/lib/services/decentralizationService.js
 //
-// Decentralization metric (issue #108): what share of node-hosting IPs are in known
-// datacenters/cloud providers vs. not. Classified gradually via the free ipwho.is/ip-api.com
-// chain (the same one hostLocationService.js already uses for the server's own location) --
-// no key, no bulk-download database to maintain, no paid API. A batch of unclassified/stale
-// IPs is looked up every DECENTRALIZATION_CONFIG.updateInterval; a classification is cached
-// in the DB and reused for DECENTRALIZATION_CONFIG.staleAfterMs before being re-checked,
-// since an IP's ASN/org rarely changes.
+// Decentralization metric (issue #108): what share of Flux NODES are hosted in datacenters.
 //
-// The candidate node-IP set is read from busiestNodeService's cache rather than fetched
-// independently, so this feature adds zero extra calls to stats.runonflux.io.
+// Since #457 everything here is derived from the node list busiestNodeService already fetches
+// hourly (stats.runonflux.io/fluxinfo, `geolocation`), so this feature makes no calls of its
+// own. It used to look each unique IP up on ipwho.is/ip-api.com, 20 every 5 minutes, and
+// decide "datacenter" from a hand-kept keyword list. Two things were wrong with that:
+//
+//   - The unit was the IP, not the node. Several nodes share one IP (UPnP, ip:port) -- 843
+//     IPs ran more than one node when this changed, up to 11 each -- and those are mostly
+//     home operators, so one IP running 8 home nodes weighed the same as one Hetzner node.
+//     52.9% of IPs read as datacenter where 34.5% of nodes did on the same list.
+//   - The keyword list second-guessed nothing and missed a lot (GHOSTnet's 499 nodes).
+//
+// Now: a node is in a datacenter when its own geolocation says so (`dataCenter`, which
+// FluxOS sets from ip-api.com's `hosting` flag), or when its provider is on
+// DATACENTER_OVERRIDES. Nodes with no flag are unknown -- left out of the percentage and
+// reported as coverage, never counted as independent. PROVIDER_GROUPS join the spellings of
+// one company (Hetzner Online GmbH / Hetzner / HETZNER-DC) for display and snapshots.
 
-import { resilientFetch } from './resilientFetch.js';
-import { getBusiestNode, getCachedNetworkNodeIps } from './busiestNodeService.js';
-import { getAllNodeIpClassifications, upsertNodeIpClassifications } from '../db/database.js';
-import { DECENTRALIZATION_CONFIG, DATACENTER_ORG_KEYWORDS } from '../config.js';
+import { getBusiestNode, getCachedNetworkNodes } from './busiestNodeService.js';
+import { PROVIDER_GROUPS, DATACENTER_OVERRIDES } from '../config.js';
 import { BREAKDOWN_DIMENSIONS } from '../decentralizationDimensions.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('decentralizationService');
 
-const LOOKUP_TIMEOUT_MS = 8000;
-
 let statsCache = null;
-let statsCacheAt = 0;
 
-/** "1.2.3.4:16127" -> "1.2.3.4" -- the fluxinfo IP field carries the app port. */
-function normalizeIp(rawIp) {
-    if (typeof rawIp !== 'string' || rawIp.length === 0) return null;
-    return rawIp.split(':')[0] || null;
+const lowerMatch = (text, fragments) => {
+    if (!text) return false;
+    const lower = text.toLowerCase();
+    return fragments.some(fragment => lower.includes(fragment));
+};
+
+/**
+ * The display name for a node's host: its PROVIDER_GROUPS name when one matches, otherwise the
+ * org as reported (isp when org is empty), or null when the node reports neither.
+ */
+export function providerName(org, isp) {
+    const raw = (org || isp || '').trim();
+    if (!raw) return null;
+    const group = PROVIDER_GROUPS.find(g => lowerMatch(raw, g.match));
+    return group ? group.name : raw;
 }
 
-/** "AS15169 Google LLC" -> 15169 */
-function parseAsn(asField) {
-    if (typeof asField !== 'string') return null;
-    const match = asField.match(/^AS(\d+)/i);
-    return match ? parseInt(match[1], 10) : null;
-}
-
-/** Case-insensitive substring match against the maintained provider keyword list. */
-export function isKnownDatacenterOrg(orgOrIsp) {
-    if (!orgOrIsp || typeof orgOrIsp !== 'string') return false;
-    const lower = orgOrIsp.toLowerCase();
-    return DATACENTER_ORG_KEYWORDS.some(keyword => lower.includes(keyword));
+/** True when the node's org or isp is on DATACENTER_OVERRIDES. */
+export function isDatacenterOverride(org, isp) {
+    return lowerMatch(org, DATACENTER_OVERRIDES) || lowerMatch(isp, DATACENTER_OVERRIDES);
 }
 
 /**
- * The stored classifications with `isDatacenter` re-derived from the CURRENT keyword list
- * (issue #314). The stored flag was decided once, when the IP was classified, so editing
- * DATACENTER_ORG_KEYWORDS changed nothing already in the table until someone remembered
- * POST /api/admin/reclassify-datacenters -- DataVex's 105 nodes read as independent for
- * exactly that reason (#196). `org` is stored, so deriving costs nothing. This matches how
- * repo categories are re-validated against config at read time.
+ * One node, classified. `classified` is false only when there is no flag and no override:
+ * such a node is unknown, not independent.
  */
-export async function loadCurrentClassifications() {
-    const stored = await getAllNodeIpClassifications();
-    return stored.map(row => ({ ...row, isDatacenter: isKnownDatacenterOrg(row.org) }));
-}
-
-async function classifyViaIpwhois(ip) {
-    const data = await resilientFetch(`https://ipwho.is/${ip}`, {
-        timeout: LOOKUP_TIMEOUT_MS,
-        breakerKey: 'decentralization-ipwhois'
-    });
-    if (!data?.success) throw new Error(data?.message || 'ipwho.is returned success=false');
-    const conn = data.connection || {};
+export function classifyNode(node) {
+    const override = isDatacenterOverride(node.org, node.isp);
+    const flag = node.dataCenter;
     return {
-        asn: Number.isFinite(conn.asn) ? conn.asn : null,
-        org: conn.org || conn.isp || null,
-        // Issue #138: already present in ipwho.is's default (non-paid) response, unused
-        // until now -- same fields hostLocationService.js already reads for the server's
-        // own location lookup.
-        country: data.country || null,
-        countryCode: data.country_code || null,
-        continent: data.continent || null,
-        continentCode: data.continent_code || null
+        ip: node.ip,
+        org: providerName(node.org, node.isp),
+        isDatacenter: override || flag === true,
+        classified: override || typeof flag === 'boolean',
+        country: node.country,
+        countryCode: node.countryCode,
+        continent: node.continent,
+        continentCode: node.continentCode
     };
 }
 
-async function classifyViaIpApi(ip) {
-    const data = await resilientFetch(
-        // Issue #138: country/continent added to the requested fields -- confirmed live
-        // that ip-api.com's free tier returns them (e.g. {"continent":"Oceania",
-        // "continentCode":"OC","country":"Australia","countryCode":"AU"}), no key needed.
-        `http://ip-api.com/json/${ip}?fields=status,message,as,isp,org,country,countryCode,continent,continentCode,query`,
-        { timeout: LOOKUP_TIMEOUT_MS, breakerKey: 'decentralization-ipapi' }
-    );
-    if (data?.status !== 'success') throw new Error(data?.message || 'ip-api.com lookup failed');
-    return {
-        asn: parseAsn(data.as),
-        org: data.org || data.isp || null,
-        country: data.country || null,
-        countryCode: data.countryCode || null,
-        continent: data.continent || null,
-        continentCode: data.continentCode || null
-    };
-}
-
-/**
- * Classify one IP's ASN/org/country/continent and whether it's a known datacenter/cloud
- * provider. Tries ipwho.is first, falls back to ip-api.com — same two-provider chain
- * hostLocationService.js uses, same reasoning: one provider's outage or rate-limit
- * shouldn't stall classification.
- */
-export async function classifyIp(rawIp) {
-    const ip = normalizeIp(rawIp);
-    if (!ip) throw new Error(`Invalid IP: ${rawIp}`);
-
-    const providers = [['ipwho.is', classifyViaIpwhois], ['ip-api.com', classifyViaIpApi]];
-    const errors = [];
-
-    for (const [name, fn] of providers) {
-        try {
-            const { asn, org, country, countryCode, continent, continentCode } = await fn(ip);
-            return { asn, org, isDatacenter: isKnownDatacenterOrg(org), country, countryCode, continent, continentCode };
-        } catch (error) {
-            errors.push(`${name}: ${error.message}`);
-        }
-    }
-
-    throw new Error(errors.join('; '));
-}
-
-// Issue #120: raised from 3 to fill the card's stretched height now that the coverage-row
-// (moved to the header's IPs counter) freed up vertical space -- see DecentralizationCard's
-// .datacenters-section flex:1.
+// Issue #120: raised from 3 to fill the card's stretched height.
 const TOP_DATACENTERS_LIMIT = 6;
 
 /**
- * Groups the classified-as-datacenter rows by org, sorted by count. `percent` on each
- * entry is share of ALL classified nodes (not just the datacenter subset), so these
- * entries are directly comparable to and roughly sum toward the card's headline
- * datacenterPercent -- "Hetzner: 24%" reads against the same 100% as "62% datacenter".
+ * Groups the datacenter nodes by provider, sorted by count. `percent` on each entry is a share
+ * of ALL classified nodes (not just the datacenter subset), so "Hetzner: 25%" reads against the
+ * same 100% as the headline "46% datacenter".
  */
 function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
-    const datacenterRows = relevant.filter(row => row.isDatacenter);
     const counts = new Map();
-    for (const row of datacenterRows) {
+    for (const row of relevant) {
+        if (!row.isDatacenter) continue;
         const key = row.org || 'Unknown';
         counts.set(key, (counts.get(key) || 0) + 1);
     }
@@ -153,58 +97,36 @@ function computeTopDatacenters(relevant, limit = TOP_DATACENTERS_LIMIT) {
 }
 
 /**
- * The candidate IPs and their classifications, fetched once (issue #151).
- *
- * Every breakdown needs the same two things, and each getFull*Breakdown() used to fetch them
- * for itself -- so one snapshot cycle paginated the whole node_ip_classification table up to
- * four times. Callers that need more than one breakdown load this once and pass it in; the
- * getters still load it themselves when called alone, so nothing else had to change.
+ * Every node, classified, from the node list (issue #151: loaded once and passed to each
+ * breakdown). `relevant` is the classified subset every figure is computed over.
  */
 export async function loadClassificationContext() {
-    // Warm the node list first (issue #249). getCachedNetworkNodeIps() returns [] until
-    // busiestNodeService's first successful fetch and deliberately never triggers one, so
-    // on a freshly restarted process this used to read an empty candidate set: nothing
-    // "relevant", classifiedCount 0, and a daily snapshot whose decentralization columns
-    // were all null. One null day disqualifies the KPI metric for every window containing
-    // it, so a deploy shortly before the snapshot silently cost a whole day.
-    //
-    // Cheap: getBusiestNode() is TTL-cached, so this is a no-op whenever anything else has
-    // fetched recently. Same call runDecentralizationCycle() already makes for the same
-    // reason.
+    // Warm the node list first (issue #249). getCachedNetworkNodes() returns [] until
+    // busiestNodeService's first successful fetch and never triggers one itself, so on a
+    // freshly restarted process this used to read an empty set and record a null day.
+    // Cheap: getBusiestNode() is TTL-cached.
     try {
         await getBusiestNode();
     } catch (error) {
         log.warn('Could not warm the network node list: %s', error.message);
     }
 
-    const candidateIps = getCachedNetworkNodeIps();
-    const candidateSet = new Set(candidateIps);
-    const allClassifications = await loadCurrentClassifications();
+    const nodes = getCachedNetworkNodes().map(classifyNode);
 
-    if (candidateIps.length === 0) {
+    if (nodes.length === 0) {
         // Loud on purpose. Everything downstream degrades to null rather than failing, so
         // without this the only trace is a null column noticed weeks later in a report.
-        log.warn(
-            { storedClassifications: allClassifications.length },
-            'No candidate node IPs available -- every breakdown will be empty and the ' +
-            'snapshot will record null decentralization columns for this run'
-        );
+        log.warn('No network nodes available -- every breakdown will be empty and the ' +
+            'snapshot will record null decentralization columns for this run');
     }
 
-    return {
-        candidateIps,
-        allClassifications,
-        relevant: allClassifications.filter(row => candidateSet.has(row.ip))
-    };
+    return { nodes, relevant: nodes.filter(row => row.classified) };
 }
 
 /**
- * Group classified nodes by one named dimension (country, continent, ...).
- *
- * Pure, and the single implementation behind what used to be two identical functions
- * differing only in field name. A row with no value for the dimension groups under the
- * sentinel rather than being dropped, so the counts still sum to the classified total; its
- * code is deliberately null, since '(unknown)' has no ISO code.
+ * Group classified nodes by one named dimension (country, continent, ...). A row with no value
+ * groups under the sentinel rather than being dropped, so the counts still sum to the
+ * classified total; its code is deliberately null, since '(unknown)' has no ISO code.
  */
 function computeNamedBreakdown(relevant, { nameField, codeField, sentinel }) {
     const counts = new Map();
@@ -229,13 +151,8 @@ function computeNamedBreakdown(relevant, { nameField, codeField, sentinel }) {
 }
 
 /**
- * Every distinct datacenter org's count, uncapped (unlike topDatacenters, which caps at
- * 3 for the live card), plus the non-datacenter classified count under the reserved
- * '(independent)' sentinel org. Used only by the daily snapshot collector -- the live
- * card's getDecentralizationStats() is unaffected by this function.
- *
- * Not a plain group-by like the named dimensions above: rows split on isDatacenter first,
- * and the whole non-datacenter side collapses into one bucket.
+ * Every datacenter provider's node count, uncapped, plus every non-datacenter classified node
+ * under the reserved '(independent)' sentinel. Used by the daily snapshot collector.
  *
  * @param {object} [context] a context from loadClassificationContext(); loaded here if omitted
  */
@@ -277,150 +194,63 @@ export async function getFullContinentBreakdown(context) {
     return computeNamedBreakdown(relevant, BREAKDOWN_DIMENSIONS.continent);
 }
 
-
-/** Recomputes and caches the stats snapshot from an in-memory classification list. */
-function computeAndCacheStats(allClassifications, candidateIps) {
-    const candidateSet = new Set(candidateIps);
-    const relevant = allClassifications.filter(row => candidateSet.has(row.ip));
+/** Computes and caches the stats snapshot from a classification context. */
+function computeAndCacheStats({ nodes, relevant }) {
     const datacenterCount = relevant.filter(row => row.isDatacenter).length;
     const classifiedCount = relevant.length;
-    const totalNodes = candidateIps.length;
+    const totalNodes = nodes.length;
     const { top: topDatacenters, otherProviderCount } = computeTopDatacenters(relevant);
 
     statsCache = {
         totalNodes,
         classifiedCount,
         datacenterCount,
-        // Share of the CLASSIFIED subset that's a known datacenter -- null (not 0) with
-        // nothing classified yet, so the UI can tell "0% datacenter" apart from "no data".
+        // Share of the CLASSIFIED nodes that are in a datacenter -- null (not 0) with nothing
+        // classified, so the UI can tell "0% datacenter" apart from "no data".
         datacenterPercent: classifiedCount > 0 ? (datacenterCount / classifiedCount) * 100 : null,
-        // Share of all candidate nodes classified so far -- how much to trust datacenterPercent.
+        // Share of all nodes that carry a flag or an override -- how much to trust the above.
         coveragePercent: totalNodes > 0 ? (classifiedCount / totalNodes) * 100 : 0,
         topDatacenters,
         otherProviderCount,
         updatedAt: Date.now()
     };
-    statsCacheAt = Date.now();
     return statsCache;
 }
 
 /**
- * One scheduler tick: classify up to DECENTRALIZATION_CONFIG.batchSize node IPs that are
- * new or stale, then refresh the cached stats snapshot. Never throws -- a classification
- * failure for one IP just leaves it to retry next cycle; the batch continues past it.
+ * One scheduler tick: recompute the live card from the node list. No external calls of its
+ * own -- getBusiestNode() refreshes the list at most hourly. Never throws.
  */
 export async function runDecentralizationCycle() {
-    // Cheap no-op once busiestNodeService's own hourly cache is warm -- this is how the
-    // node-IP list gets seeded/refreshed without a second network call of our own.
     try {
-        await getBusiestNode();
+        const context = await loadClassificationContext();
+        if (context.nodes.length === 0) {
+            log.info('No network nodes cached yet — skipping this cycle');
+            return;
+        }
+        const stats = computeAndCacheStats(context);
+        log.info(
+            { nodes: stats.totalNodes, classified: stats.classifiedCount, datacenter: stats.datacenterCount },
+            'Decentralization: %d of %d classified nodes in datacenters',
+            stats.datacenterCount, stats.classifiedCount
+        );
     } catch (error) {
-        log.warn('Could not warm the network node list this cycle: %s', error.message);
+        log.warn({ err: error }, 'Decentralization cycle failed');
     }
-
-    const candidateIps = getCachedNetworkNodeIps();
-    if (candidateIps.length === 0) {
-        log.info('No network node IPs cached yet — skipping this cycle');
-        return;
-    }
-
-    const allClassifications = await loadCurrentClassifications();
-    const known = new Map(allClassifications.map(row => [row.ip, row]));
-    const staleBefore = Date.now() - DECENTRALIZATION_CONFIG.staleAfterMs;
-
-    const toClassify = [];
-    for (const ip of candidateIps) {
-        const existing = known.get(ip);
-        if (!existing || existing.classifiedAt < staleBefore) toClassify.push(ip);
-        if (toClassify.length >= DECENTRALIZATION_CONFIG.batchSize) break;
-    }
-
-    const results = [];
-    for (const ip of toClassify) {
-        try {
-            const { asn, org, isDatacenter, country, countryCode, continent, continentCode } = await classifyIp(ip);
-            results.push({ ip, asn, org, isDatacenter, country, countryCode, continent, continentCode, classifiedAt: Date.now() });
-        } catch (error) {
-            log.warn('Classification failed for %s: %s', ip, error.message);
-        }
-    }
-
-    if (results.length > 0) {
-        await upsertNodeIpClassifications(results);
-        for (const row of results) {
-            known.set(row.ip, {
-                ip: row.ip,
-                org: row.org,
-                isDatacenter: row.isDatacenter,
-                country: row.country,
-                countryCode: row.countryCode,
-                continent: row.continent,
-                continentCode: row.continentCode,
-                classifiedAt: row.classifiedAt
-            });
-        }
-    }
-
-    computeAndCacheStats([...known.values()], candidateIps);
-    log.info(
-        { attempted: toClassify.length, classified: results.length, candidates: candidateIps.length },
-        'Decentralization batch: %d/%d classified (%d candidate nodes)',
-        results.length, toClassify.length, candidateIps.length
-    );
 }
 
 /**
- * Re-applies the current DATACENTER_ORG_KEYWORDS to every already-classified row and writes
- * back only the ones whose flag changed (issue #196).
- *
- * `is_datacenter` is decided once, at classification time, and read back verbatim -- unlike
- * the repo-category system, which re-validates stored rows against current config on every
- * read. So editing the keyword list does nothing to what's already in the table: a row is
- * only re-derived when it goes stale at staleAfterMs (30 days), at batchSize per cycle across
- * the whole network. This makes a keyword edit take effect immediately instead.
- *
- * Costs nothing externally -- `org` is already stored, so no IP is looked up again. The rows
- * come from getAllNodeIpClassifications(), which carries asn for exactly this reason: they go
- * straight back through upsertNodeIpClassifications(), which writes every column.
- * classifiedAt is deliberately left alone so this doesn't reset the staleness clock.
- */
-export async function reclassifyStoredDatacenterFlags() {
-    const stored = await getAllNodeIpClassifications();
-
-    const changed = stored
-        .map(row => ({ row, isDatacenter: isKnownDatacenterOrg(row.org) }))
-        .filter(({ row, isDatacenter }) => isDatacenter !== row.isDatacenter)
-        .map(({ row, isDatacenter }) => ({ ...row, isDatacenter }));
-
-    if (changed.length > 0) {
-        await upsertNodeIpClassifications(changed);
-        // Drop the memoised snapshot so the card reflects the correction on the next read
-        // rather than at the next scheduler tick (or restart).
-        clearDecentralizationStatsCache();
-    }
-
-    log.info(
-        { checked: stored.length, changed: changed.length },
-        'Reclassified stored datacenter flags: %d of %d row(s) changed',
-        changed.length, stored.length
-    );
-
-    return { checked: stored.length, changed: changed.length };
-}
-
-/**
- * The current decentralization stats, computed on demand if the scheduler hasn't run yet
- * (cold start) rather than returning nothing.
+ * The current decentralization stats. Given a context (the daily snapshot passes one), they
+ * are computed from it, so the snapshot and its breakdowns describe the same node list;
+ * otherwise the last computed stats, or computed on demand on a cold start.
  */
 export async function getDecentralizationStats(context) {
+    if (context) return computeAndCacheStats(context);
     if (statsCache) return statsCache;
-
-    const { allClassifications, candidateIps } = context ?? await loadClassificationContext();
-    return computeAndCacheStats(allClassifications, candidateIps);
+    return computeAndCacheStats(await loadClassificationContext());
 }
 
-/** Invalidates the memoised snapshot. Used by reclassifyStoredDatacenterFlags() and by tests. */
+/** Invalidates the memoised stats. Used by tests. */
 export function clearDecentralizationStatsCache() {
     statsCache = null;
-    statsCacheAt = 0;
 }

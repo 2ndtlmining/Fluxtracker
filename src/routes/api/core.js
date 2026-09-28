@@ -245,10 +245,9 @@ router.get('/header', async (req, res) => {
                 totalNodes: metrics?.node_total || 0,
                 totalApps: metrics?.total_apps || 0,
                 arcaneOsCodename,
-                // Issue #120: unique-IP classification progress, shown next to uptime in
-                // Header.svelte's Row 2. Deliberately a different denominator than totalNodes
-                // above (node-instance count) -- see decentralizationService.js's own comment
-                // on classifiedCount/totalNodes and the card's tooltip that explains the split.
+                // Issue #120: how many nodes carry hosting data (the decentralization
+                // denominator) out of all nodes in the node list, shown next to uptime in
+                // Header.svelte's Row 2. Counted per node since #457.
                 decentralizationCoverage: {
                     classified: decentralizationStats?.classifiedCount ?? 0,
                     total: decentralizationStats?.totalNodes ?? 0

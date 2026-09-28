@@ -2,12 +2,17 @@
   import { onMount, onDestroy } from 'svelte';
   import { cssomStyle } from '$lib/actions/cssomStyle.js';
   import { loadChartJs } from '$lib/utils/loadChartJs.js';
-  import { getApiUrl } from '$lib/config.js';
+  import { getApiUrl, DECENTRALIZATION_PER_NODE_SINCE } from '$lib/config.js';
   import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
   import { fromColumnar } from '$lib/utils/columnar.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
+
+  const methodChangeLabel = new Date(`${DECENTRALIZATION_PER_NODE_SINCE}T00:00:00Z`)
+    .toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const DECENTRALIZATION_NOTE = `Counted per node, using each node's hosting flag, from ${methodChangeLabel}. ` +
+    'Earlier days counted unique IPs and read higher, so the line steps on that day.';
 
   // Props
   export let title = 'Historical Data';
@@ -203,12 +208,14 @@
     decentralization: {
       label: 'Decentralization',
       color: 'rgb(255, 180, 0)',
+      // #457: the method changed, so the line steps on that day. Said on every metric of the
+      // category rather than rewriting history the old node lists can no longer support.
       metrics: [
-        { id: 'dc_count', label: 'Quantity Datacenters', field: 'decentralization_datacenter_count', format: 'number' },
-        { id: 'indep_count', label: 'Quantity Independent', field: 'decentralization_independent_count', format: 'number' },
-        { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent' },
-        { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true },
-        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true }
+        { id: 'dc_count', label: 'Quantity Datacenters', field: 'decentralization_datacenter_count', format: 'number', description: DECENTRALIZATION_NOTE },
+        { id: 'indep_count', label: 'Quantity Independent', field: 'decentralization_independent_count', format: 'number', description: DECENTRALIZATION_NOTE },
+        { id: 'dc_percent', label: '% Datacenter', field: 'decentralization_datacenter_percent', format: 'percent', description: DECENTRALIZATION_NOTE },
+        { id: 'indep_percent', label: '% Independent', field: 'decentralization_datacenter_percent', format: 'percent', invert: true, description: DECENTRALIZATION_NOTE },
+        { id: 'decentralization_percent', label: 'Decentralization %', field: 'decentralization_datacenter_percent', format: 'percent', invert: true, description: DECENTRALIZATION_NOTE }
       ]
     },
     gaming: {

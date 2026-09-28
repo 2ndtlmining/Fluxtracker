@@ -131,10 +131,15 @@ anywhere, so it is left out. A continent turns orange when its share of demand i
 and at least 1.5 times its share of nodes -- a region where more nodes would be used. "Nodes"
 counts nodes (not IP addresses) from the node list's own location data.
 
-**Datacenters**: the share of node IPs in known datacenters, with a bar, the change against the
-comparison period, and the top datacenter operators. The info icon shows how many node IPs have
-been classified so far; classification runs gradually in the background, so a fresh install
-fills in over a few hours.
+**Datacenters**: the share of Flux **nodes** hosted in a datacenter, with a bar, the change against
+the comparison period, and the top datacenter providers. Several nodes on one IP (UPnP, `ip:port`)
+each count. A node is in a datacenter when its own hosting flag in Flux's node list says so
+(`geolocation.dataCenter`, which FluxOS sets from ip-api.com's `hosting` flag), or when its
+provider is on `DATACENTER_OVERRIDES` in `config.js`. `PROVIDER_GROUPS` there join spellings of one
+company (Hetzner Online GmbH / Hetzner / HETZNER-DC). Nodes with no hosting data are left out of
+the percentage; the header's `geo` counter shows how many have it. Until #457 (the date is
+`DECENTRALIZATION_PER_NODE_SINCE`) this counted unique IPs on a keyword list, which read higher --
+the chart notes the step.
 
 ### Historical Performance chart
 
@@ -510,7 +515,7 @@ upsert -- no in-memory txid sets needed.
 | `flux_price_history`   | `date` (DATE)    | Daily FLUX/USD closes from Binance, falling back to CoinGecko, then CryptoCompare (with a key) |
 | `sync_status`          | `id` (BIGSERIAL) | Tracks last sync time, block height, and status per service. Unique on `sync_type`. |
 | `repo_snapshots`       | `id` (BIGSERIAL) | Daily Docker image instance counts with category labels. Unique on `(snapshot_date, image_name)`. |
-| `node_ip_classification` | `ip` (TEXT) | Per-IP datacenter/independent classification, cached indefinitely (an IP's org rarely changes) and re-checked once stale. |
+| `node_ip_classification` | `ip` (TEXT) | Per-IP classification from the old method. No longer written since #457 (decentralization reads the node list); kept as history. |
 | `decentralization_snapshots` | `id` (BIGSERIAL) | Daily node count per datacenter/org. Unique on `(snapshot_date, org)`. |
 | `decentralization_country_snapshots` | `id` (BIGSERIAL) | Daily node count per country. Unique on `(snapshot_date, country)`. |
 | `decentralization_continent_snapshots` | `id` (BIGSERIAL) | Daily node count per continent. Unique on `(snapshot_date, continent)`. |
@@ -721,7 +726,6 @@ Example responses (trimmed; values illustrative):
 | POST   | `/api/admin/failover`                 | Manually switch between primary/failover DB    |
 | GET    | `/api/admin/failover-status`          | Active instance and circuit breaker state      |
 | POST   | `/api/admin/backfill-collateral`      | Backfill `locked_collateral*` columns from node-tier history |
-| POST   | `/api/admin/reclassify-datacenters`   | Re-derive `is_datacenter` for every classified IP against the current `DATACENTER_ORG_KEYWORDS`. Needed after changing that list -- the flag is decided at classification time and never re-derived. Idempotent, no external lookups; returns `{checked, changed}`. |
 | POST   | `/api/admin/backfill-message-metadata` | Fill `msg_type`/`enterprise`/`expire_blocks`/`instances` on stored payments from one download of the permanent messages. Only touches rows with no metadata yet; safe to re-run. Needs migration 019 on Supabase |
 | POST   | `/api/admin/backfill-game-names`      | Record which game each stored payment was for (game-site name, or a game image in its message) so game revenue covers hand-deployed servers. Only rows with no game yet; safe to re-run. Needs migration 026 on Supabase |
 | POST   | `/api/admin/repair-snapshot-revenue`  | Correct `daily_snapshots.daily_revenue` on past days that stored a partial start-of-day figure. `?dryRun=1` first; never touches today, never lowers a figure. Body `{ from?, to? }` |
@@ -915,7 +919,7 @@ blockchain or an external API, so all of them are backed up. The list lives in o
 |---|---|
 | `daily_snapshots`, `repo_snapshots` | yes -- a restore without them fails before writing anything |
 | `game_snapshots`, `flux_price_history` | no |
-| `node_ip_classification` | no -- re-deriving it means looking every node IP up again against rate-limited geo APIs |
+| `node_ip_classification` | no -- history of the per-IP method, no longer written (#457) |
 | `decentralization_snapshots`, `decentralization_country_snapshots`, `decentralization_continent_snapshots` | no |
 
 - **Trigger**: Automatically after each successful daily snapshot (fire-and-forget, never blocks the snapshot)
@@ -1475,7 +1479,7 @@ src/
       priceHistoryService.js   # FLUX/USD price history sync
       hostLocationService.js   # Server geolocation (6h cache)
       busiestNodeService.js    # Network's busiest node: identity, resources, resolved apps
-      decentralizationService.js # Node IP datacenter/independent classification + snapshots
+      decentralizationService.js # Per-node datacenter share from the node list's geolocation + snapshots
       carouselService.js       # Carousel feed data (deployed/expiring apps)
       servicesScheduler.js     # Service test and carousel scheduler
 supabase/

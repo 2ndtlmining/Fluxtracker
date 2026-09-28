@@ -692,37 +692,52 @@ export const BUSIEST_NODE_CONFIG = {
     freshnessThreshold: 2 * 60 * 60 * 1000,
 };
 
-// Decentralization metric (issue #108): what share of node-hosting IPs are in known
-// datacenters/cloud providers vs. not. Classified gradually via the free ipwho.is/ip-api.com
-// chain (no key, no bulk-download database to maintain) rather than all at once, to stay
-// well within those free tiers' rate limits at network scale (~6,000+ nodes) — see
+// Decentralization metric (issue #108): what share of nodes are hosted in datacenters. Since
+// #457 it is computed from the node list's own geolocation -- see the section below and
 // decentralizationService.js.
 export const DECENTRALIZATION_CONFIG = {
-    updateInterval: 5 * 60 * 1000,          // classify one batch every 5 minutes
-    batchSize: 20,                          // IPs classified per batch (~4/min average — well under ip-api.com's 45/min free-tier cap)
-    staleAfterMs: 30 * 24 * 60 * 60 * 1000, // 30 days — an IP's ASN/org rarely changes, so a fresh classification is reused rather than re-fetched
+    updateInterval: 5 * 60 * 1000,          // recompute the live card from the node list every 5 minutes (no external calls)
 };
 
-// Known cloud/hosting-provider name fragments, matched case-insensitively against a node's
-// classified org/ISP string. Not exhaustive — covers the providers most commonly seen
-// hosting Flux nodes; a miss just leaves that node unclassified as "datacenter", it doesn't
-// misclassify it as something else. Maintained here the same way GAMING_REPOS/CRYPTO_REPOS
-// are: a plain keyword list, easy to extend as new providers show up in real data.
-export const DATACENTER_ORG_KEYWORDS = [
-    'hetzner', 'ovh', 'amazon', 'aws', 'google', 'microsoft', 'azure',
-    'digitalocean', 'digital ocean', 'vultr', 'choopa', 'linode', 'akamai',
-    'contabo', 'netcup', 'ionos', '1&1', 'scaleway', 'leaseweb', 'm247',
-    'oracle', 'alibaba', 'tencent', 'upcloud', 'phoenixnap', 'datapacket',
-    'psychz', 'colocrossing', 'gcore', 'cloudzy', 'hosthatch',
-    // Issue #196: ipwho.is reports these nodes as org "DataVex" (AS201814) while the isp
-    // field says MEVSPACE -- and only org is matched, so the whole ASN read as independent.
-    // Deliberately keyed on the org string alone: 'mevspace' is not listed, so the handful
-    // of rows on this ASN whose org resolves to "MEVSPACE sp. z o.o." instead of "DataVex"
-    // still count as independent.
+// ============================================
+// DECENTRALIZATION: WHO HOSTS THE NODES
+// ============================================
+// Issue #457. The unit is the NODE: several nodes can share one IP (UPnP, ip:port), and each
+// one counts. Whether a node is in a datacenter comes from Flux's own node list
+// (stats.runonflux.io/fluxinfo geolocation.dataCenter -- FluxOS sets it from ip-api.com's
+// `hosting` flag). The two lists below are the only manual input, and neither second-guesses
+// the flag for anything they don't name.
+
+// The same company under several spellings, grouped for display and for the per-provider
+// snapshot rows. Matched case-insensitively as a substring of the node's org (or isp when
+// org is empty); first match wins. Only list a fragment when every org containing it on
+// the network is that company -- 'ovh' is safe, a bare 'de' would not be.
+export const PROVIDER_GROUPS = [
+    { name: 'Hetzner', match: ['hetzner'] },          // Hetzner Online GmbH, Hetzner, HETZNER-DC
+    { name: 'OVH', match: ['ovh'] },                  // OVH SAS, OVH US LLC, OVH Hosting, OVH.CZ, ...
+    { name: 'netcup', match: ['netcup'] },            // netcup GmbH, NETCUP-GMBH, NETCUP-KVM, ...
+    { name: 'Contabo', match: ['contabo'] },
+    { name: 'IONOS', match: ['ionos'] },              // IONOS SE, IONOS Inc, "De Fra Ionos Cloud Fra"
+    { name: 'Strato', match: ['strato'] },
+    { name: 'Beget', match: ['beget'] },              // Beget LLC, BEGET.RU
+    { name: 'Timeweb', match: ['timeweb'] },          // JSC "TIMEWEB", TimeWeb Ltd
+    { name: 'AWS', match: ['amazon'] },
+    { name: 'Google Cloud', match: ['google'] },
+    { name: 'Azure', match: ['microsoft'] },
+    { name: 'DigitalOcean', match: ['digitalocean', 'digital ocean'] },
+];
+
+// The first daily snapshot counted per node with the flag. Days before it counted unique IPs on
+// a keyword list, which read ~7 points higher; the chart says so rather than rewrite them
+// (the old node lists are gone). Set to the deploy date of #457.
+export const DECENTRALIZATION_PER_NODE_SINCE = '2026-09-30';
+
+// Providers counted as datacenters even where the flag says otherwise. Keep this short and
+// give every entry a reason: it is the one place the published percentage is overridden.
+// Matched like PROVIDER_GROUPS (substring of org or isp, case-insensitive).
+export const DATACENTER_OVERRIDES = [
+    // Issue #196: a hosting company (AS201814) that ip-api does not flag as hosting.
     'datavex',
-    'data center', 'datacenter', 'colocation'
-    // NOT 'colo' alone -- it's a substring of unrelated org names (e.g. "Colombia"),
-    // the same class of false-positive keyword matching CATEGORY_EXCLUDE guards against.
 ];
 
 // ============================================
