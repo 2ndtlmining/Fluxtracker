@@ -32,6 +32,16 @@ vi.mock('../../db/circuitBreaker.js', () => ({
     recordFailure: (...args) => mockRecordFailure(...args)
 }));
 
+// Attribution (#432): a pass counts for the database breaker only through real database
+// calls. dbCalls stands in for dbCallTracker's counter; a DB error carries the tag the
+// instrumented adapter sets.
+let dbCalls = 0;
+vi.mock('../../db/dbCallTracker.js', () => ({
+    dbSuccessCount: () => dbCalls,
+    isDatabaseError: error => Boolean(error?.isDatabaseError)
+}));
+const dbError = message => Object.assign(new Error(message), { isDatabaseError: true });
+
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 const AUDIT_INITIAL_DELAY_MS = 5 * 60 * 1000;
 const AUDIT_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -58,7 +68,7 @@ beforeEach(async () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     mockShouldAllowRequest.mockReturnValue(true);
-    mockFetchRevenueStats.mockResolvedValue(undefined);
+    mockFetchRevenueStats.mockImplementation(async () => { dbCalls++; });
     mockAuditRecentTransactions.mockResolvedValue({ recovered: 0, missingFound: 0 });
     mockBackfillNullUsdAmounts.mockResolvedValue({ updated: 0, skipped: 0 });
     scheduler = await loadScheduler();
@@ -209,14 +219,47 @@ describe('circuit breaker wiring', () => {
         expect(mockRecordFailure).not.toHaveBeenCalled();
     });
 
-    it('records a failure when the sync throws', async () => {
-        mockFetchRevenueStats.mockRejectedValueOnce(new Error('supabase unreachable'));
+    it('records a failure when the sync throws a database error', async () => {
+        mockFetchRevenueStats.mockRejectedValueOnce(dbError('supabase unreachable'));
 
         scheduler.startRevenueSync();
         await vi.advanceTimersByTimeAsync(0);
 
         expect(mockRecordFailure).toHaveBeenCalledTimes(1);
         expect(mockRecordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('does not blame the database for an upstream failure (issue #432)', async () => {
+        // fetchCurrentBlockHeight rethrows when the daemon/explorer is down
+        mockFetchRevenueStats.mockRejectedValue(new Error('Could not fetch current block height'));
+
+        scheduler.startRevenueSync();
+        await vi.advanceTimersByTimeAsync(SYNC_INTERVAL_MS * 5); // six passes
+
+        expect(mockFetchRevenueStats).toHaveBeenCalledTimes(6);
+        expect(mockRecordFailure).not.toHaveBeenCalled();
+    });
+
+    it('does not count a pass that made no database call as a database success', async () => {
+        mockFetchRevenueStats.mockResolvedValue(undefined);
+
+        scheduler.startRevenueSync();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(mockRecordSuccess).not.toHaveBeenCalled();
+    });
+
+    it('audit: an upstream failure is not a database failure; a database one is', async () => {
+        mockAuditRecentTransactions.mockRejectedValueOnce(new Error('explorer 502'));
+        scheduler.startRevenueSync();
+        await vi.advanceTimersByTimeAsync(AUDIT_INITIAL_DELAY_MS);
+        expect(mockAuditRecentTransactions).toHaveBeenCalledTimes(1);
+        expect(mockRecordFailure).not.toHaveBeenCalled();
+
+        mockAuditRecentTransactions.mockRejectedValueOnce(dbError('supabase unreachable'));
+        await vi.advanceTimersByTimeAsync(AUDIT_INTERVAL_MS);
+        expect(mockAuditRecentTransactions).toHaveBeenCalledTimes(2);
+        expect(mockRecordFailure).toHaveBeenCalledTimes(1);
     });
 });
 

@@ -8,6 +8,7 @@
 import { fetchRevenueStats, auditRecentTransactions } from './revenueService.js';
 import { backfillNullUsdAmounts } from './priceHistoryService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from '../db/circuitBreaker.js';
+import { dbSuccessCount, isDatabaseError } from '../db/dbCallTracker.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('revenueScheduler');
@@ -46,6 +47,11 @@ async function runSync() {
         return;
     }
 
+    // The DATABASE breaker hears only about the database (#432, same attribution as
+    // withDbFallback, #219). A pass that fails on the Flux daemon or explorer -- e.g.
+    // fetchCurrentBlockHeight -- says nothing about Supabase, but counting it tripped the
+    // breaker after five quiet passes and could fail over away from a healthy primary.
+    const dbCallsBefore = dbSuccessCount();
     try {
         isRunning = true;
 
@@ -54,14 +60,14 @@ async function runSync() {
 
         lastRun = Date.now();
         consecutiveFailures = 0;
-        recordSuccess();
+        if (dbSuccessCount() > dbCallsBefore) recordSuccess();
 
         log.info('Revenue sync completed');
 
     } catch (error) {
         log.error({ err: error }, 'Revenue sync failed');
         consecutiveFailures++;
-        recordFailure();
+        if (isDatabaseError(error)) recordFailure();
 
         if (consecutiveFailures >= 3) {
             log.error('ALERT: %d consecutive revenue sync failures!', consecutiveFailures);
@@ -93,6 +99,7 @@ async function runAudit() {
         return;
     }
 
+    const dbCallsBefore = dbSuccessCount(); // attribution as in runSync (#432)
     try {
         isRunning = true;
         const result = await auditRecentTransactions();
@@ -103,10 +110,10 @@ async function runAudit() {
         if (backfill.updated > 0) {
             log.info({ updated: backfill.updated, skipped: backfill.skipped }, 'USD backfill');
         }
-        recordSuccess();
+        if (dbSuccessCount() > dbCallsBefore) recordSuccess();
     } catch (error) {
         log.error({ err: error }, 'Daily audit failed');
-        recordFailure();
+        if (isDatabaseError(error)) recordFailure();
     } finally {
         isRunning = false;
     }
