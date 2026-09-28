@@ -60,6 +60,36 @@
   const APP_MODES = new Set(['deployed', 'expiring', 'missing']);
   $: namesAreApps = APP_MODES.has(viewMode);
 
+  // Issue #441: the ticker is ONE tab stop (roving tabindex). #411 made every name its own
+  // stop -- 131 Tabs to get past it at 1440px. Tab lands on the current name; the arrow keys,
+  // Home and End move between names. :focus-within already pauses the marquee (#324).
+  let rovingIndex = 0;
+  let trackContainer;
+  $: if (rovingIndex >= stats.length) rovingIndex = 0;
+
+  function onTickerKeydown(event) {
+    if (!namesAreApps || stats.length === 0) return;
+    let next;
+    if (event.key === 'ArrowRight') next = (rovingIndex + 1) % stats.length;
+    else if (event.key === 'ArrowLeft') next = (rovingIndex - 1 + stats.length) % stats.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = stats.length - 1;
+    else return;
+    event.preventDefault();
+    rovingIndex = next;
+    // Every item in an app tab has a name button, and the real copy comes first in the DOM.
+    trackContainer?.querySelectorAll('.item-link')[next]?.focus();
+  }
+
+  // Focusing a name the marquee had moved out of view scrolls the clipped container to it.
+  // Put it back once focus leaves, or the resumed marquee runs shifted. Not under reduced
+  // motion: there the row is the reader's own to scroll.
+  function onTickerFocusOut(event) {
+    if (trackContainer?.contains(event.relatedTarget)) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    trackContainer.scrollLeft = 0;
+  }
+
   // Dynamic duration based on item count for consistent visual speed
   $: scrollDuration = stats.length > 0 ? stats.length * SECONDS_PER_ITEM : 90;
   $: mobileScrollDuration = stats.length > 0 ? stats.length * MOBILE_SECONDS_PER_ITEM : 60;
@@ -218,6 +248,8 @@
   <div
     class="carousel-track-container"
     class:paused
+    bind:this={trackContainer}
+    on:focusout={onTickerFocusOut}
     use:cssomStyle={{ '--scroll-duration': `${scrollDuration}s`, '--mobile-scroll-duration': `${mobileScrollDuration}s` }}
   >
     {#if loading}
@@ -231,7 +263,12 @@
       </div>
     {:else if stats.length > 0}
       {#key viewMode}
-      <div class="carousel-track">
+      <div
+        class="carousel-track"
+        role={namesAreApps ? 'toolbar' : undefined}
+        aria-label={namesAreApps ? 'Apps in the ticker. Arrow keys move between them' : undefined}
+        on:keydown={onTickerKeydown}
+      >
         {#each duplicatedStats as stat, index (index)}
           <div class="carousel-item" aria-hidden={index >= stats.length ? 'true' : undefined}>
             {#if stat.rank}
@@ -249,12 +286,13 @@
             {/if}
 
             {#if namesAreApps}
-              <!-- The visual duplicate is aria-hidden, so its copy is kept out of the tab order. -->
+              <!-- One tab stop for the whole ticker (#441); the aria-hidden duplicate is never one. -->
               <button
                 type="button"
                 class="item-name item-link"
                 title="Show payments for {stat.name}"
-                tabindex={index >= stats.length ? -1 : undefined}
+                tabindex={index === rovingIndex ? 0 : -1}
+                on:focus={() => { if (index < stats.length) rovingIndex = index; }}
                 on:click={() => focusApp(stat.name)}
               >{stat.name}</button>
             {:else}

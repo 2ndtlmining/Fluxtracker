@@ -8,6 +8,8 @@
  *     resumes the rotation
  *   - clicking an app frame puts that app's name in the transaction search and brings the
  *     transaction section on screen (#284)
+ *   - the ticker is one Tab stop, and the arrow keys move between its names while the
+ *     marquee is paused (#441)
  *   - clicking the logo replays the last intro, and the frame after it holds a full dwell:
  *     one rotation chain, not two (#192's double loop, which a click could otherwise recreate)
  *   - no console errors
@@ -204,6 +206,49 @@ const run = async () => {
       check('click carousel name: transaction section scrolled into view', afterCarousel.logOnScreen);
     }
     await page.mouse.move(700, 880);
+
+    // ---- keyboard: the ticker is ONE Tab stop (#441) ----
+    // The stub's Missing Deployments list has 40 apps. Focus that tab's button, then Tab
+    // until focus leaves the carousel card: the pause button and one name are the only stops.
+    await page.evaluate(() => [...document.querySelectorAll('.toggle-btn')].find(b => b.textContent.includes('Missing'))?.click());
+    await sleep(2000);
+    const tickerNames = await page.$$eval('.carousel-item:not([aria-hidden]) .item-link', l => l.length);
+    await page.evaluate(() => [...document.querySelectorAll('.toggle-btn')].find(b => b.textContent.includes('Missing'))?.focus());
+    const stops = [];
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press('Tab');
+      const where = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el?.closest('.carousel-container')) return null;
+        return el.classList.contains('item-link') ? `name:${el.textContent.trim()}` : el.className.split(' ')[0];
+      });
+      if (!where) break;
+      stops.push(where);
+    }
+    const nameStops = stops.filter(s => s.startsWith('name:'));
+    check('keyboard: the ticker is one Tab stop', tickerNames >= 10 && nameStops.length === 1,
+      `${tickerNames} names, stops after the tab strip: ${stops.join(', ')}`);
+
+    // Arrow keys walk the names, and the marquee holds still while focus is inside.
+    await page.evaluate(() => document.querySelector('.carousel-item .item-link')?.focus());
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    const arrowed = await page.evaluate(() => ({
+      name: document.activeElement?.textContent.trim(),
+      state: getComputedStyle(document.querySelector('.carousel-track')).animationPlayState
+    }));
+    check('keyboard: ArrowRight moves to the next name', arrowed.name === 'missing-app-3', arrowed.name);
+    check('keyboard: the marquee is paused while a name has focus', arrowed.state === 'paused', arrowed.state);
+    await page.keyboard.press('End');
+    const atEnd = await page.evaluate(() => document.activeElement?.textContent.trim());
+    check('keyboard: End jumps to the last name', atEnd === 'missing-app-40', atEnd);
+    // Shift+Tab back in lands on the name last used, not the first one.
+    await page.keyboard.press('Tab');
+    await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+    const back = await page.evaluate(() => document.activeElement?.textContent.trim());
+    check('keyboard: Tab back into the ticker returns to that name', back === 'missing-app-40', back);
+    await page.evaluate(() => document.activeElement?.blur());
+
     await page.evaluate(() => window.scrollTo(0, 0));
     await sleep(500);
 
