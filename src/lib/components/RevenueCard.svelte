@@ -1,6 +1,6 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
-  import { DollarSign } from 'lucide-svelte';
+  import { DollarSign } from '@lucide/svelte';
   import { formatCount, formatFlux, formatUsd } from '$lib/utils/format.js';
   
   export let payments = { count: 0 };

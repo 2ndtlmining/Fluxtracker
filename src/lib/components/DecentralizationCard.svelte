@@ -1,5 +1,5 @@
 <script>
-  import { Globe, Info } from 'lucide-svelte';
+  import { Globe, Info } from '@lucide/svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
   import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';

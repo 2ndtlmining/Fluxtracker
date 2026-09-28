@@ -7,7 +7,7 @@
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
   import { fromColumnar } from '$lib/utils/columnar.js';
-  import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from 'lucide-svelte';
+  import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from '@lucide/svelte';
 
   const methodChangeLabel = new Date(`${DECENTRALIZATION_PER_NODE_SINCE}T00:00:00Z`)
     .toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });

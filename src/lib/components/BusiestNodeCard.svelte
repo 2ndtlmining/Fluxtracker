@@ -1,5 +1,5 @@
 <script>
-  import { Server } from 'lucide-svelte';
+  import { Server } from '@lucide/svelte';
   import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
 
   export let node = null;           // { ip, tier, country, countryCode, containerCount, appCount, appNames, apps, resources } | null
