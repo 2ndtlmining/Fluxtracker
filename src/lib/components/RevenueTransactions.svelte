@@ -1,6 +1,6 @@
 <script>
   import { onDestroy } from 'svelte';
-  import { Download } from 'lucide-svelte';
+  import { Download } from '@lucide/svelte';
   import { appFocus } from '$lib/stores/appFocus.js';
   import RevenueTransactionsTable from '$lib/components/RevenueTransactionsTable.svelte';
   import RevenueAppAnalytics from '$lib/components/RevenueAppAnalytics.svelte';

@@ -1,5 +1,5 @@
 <script>
-  import { Package, Gamepad2 } from 'lucide-svelte';
+  import { Package, Gamepad2 } from '@lucide/svelte';
   import { formatCount } from '$lib/utils/format.js';
 
   // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) --

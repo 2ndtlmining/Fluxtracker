@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, tick, createEventDispatcher } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
-  import { X } from 'lucide-svelte';
+  import { X } from '@lucide/svelte';
 
   const dispatch = createEventDispatcher();
 

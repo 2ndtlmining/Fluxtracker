@@ -1,6 +1,6 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
-  import { Cloud } from 'lucide-svelte';
+  import { Cloud } from '@lucide/svelte';
   import { formatNumber } from '$lib/utils/format.js';
   
   export let cpu = { total: 0, used: 0, utilization: 0 };

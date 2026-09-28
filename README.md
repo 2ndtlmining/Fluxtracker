@@ -228,7 +228,7 @@ Clicking an app in the terminal header switches to this table and searches for t
 | Database   | Supabase (PostgreSQL) or SQLite via `better-sqlite3`  |
 | Backup     | Cloudflare R2 via `@aws-sdk/client-s3`               |
 | Charts     | Chart.js 4                                           |
-| Icons      | Lucide Svelte + custom Simple Icons components       |
+| Icons      | @lucide/svelte + custom Simple Icons components     |
 | Runtime    | Node.js 24 (22.12+ minimum)                          |
 | Deployment | Docker (multi-stage Alpine), Flux Cloud              |
 

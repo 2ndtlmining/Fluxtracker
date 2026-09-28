@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl, DONATION_ADDRESSES } from '$lib/config.js';
   import { triggerRefresh } from '$lib/stores/refresh.js';
-  import { Heart, FileBarChart } from 'lucide-svelte';
+  import { Heart, FileChartColumnIncreasing } from '@lucide/svelte';
   import { formatCount } from '$lib/utils/format.js';
 
   let showKpiModal = false;
@@ -246,7 +246,7 @@ ${DONATION_ADDRESSES[0]}`}
         <span>GitHub</span>
       </a>
       <button class="footer-btn kpi-btn" on:click={openKpiModal} title="Send a KPI report">
-        <FileBarChart size={14} strokeWidth={2} />
+        <FileChartColumnIncreasing size={14} strokeWidth={2} />
         <span>KPI</span>
       </button>
       <!-- "Sync now", not "Refresh [F5]" (issue #330): F5 was never bound and reloads the

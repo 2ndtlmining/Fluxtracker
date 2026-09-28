@@ -1,6 +1,6 @@
 <script>
   import CardNotice from '$lib/components/CardNotice.svelte';
-  import { Server } from 'lucide-svelte';
+  import { Server } from '@lucide/svelte';
   import { formatCount } from '$lib/utils/format.js';
   
   export let cumulus = { count: 0 };

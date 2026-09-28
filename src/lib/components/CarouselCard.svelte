@@ -6,7 +6,7 @@
   import { getApiUrl, CAROUSEL_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { focusApp } from '$lib/stores/appFocus.js';
-  import { TrendingUp, Package, Hourglass, TriangleAlert, Pause, Play } from 'lucide-svelte';
+  import { TrendingUp, Package, Hourglass, TriangleAlert, Pause, Play } from '@lucide/svelte';
 
   let API_URL = '';
   let stats = [];
