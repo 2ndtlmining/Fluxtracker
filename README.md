@@ -224,7 +224,7 @@ Clicking an app in the terminal header switches to this table and searches for t
 | Backup     | Cloudflare R2 via `@aws-sdk/client-s3`               |
 | Charts     | Chart.js 4                                           |
 | Icons      | Lucide Svelte + custom Simple Icons components       |
-| Runtime    | Node.js 20.19+ / 22.12+                              |
+| Runtime    | Node.js 24 (22.12+ minimum)                          |
 | Deployment | Docker (multi-stage Alpine), Flux Cloud              |
 
 ## Architecture
@@ -278,8 +278,8 @@ PRIMARY (local)                          DOCKER/FLUX INSTANCES
 
 ### Prerequisites
 
-- Node.js **20.19+** or **22.12+** — Vite 8 requires `^20.19.0 || >=22.12.0`, so plain
-  Node 20.0-20.18 fails `npm run build`
+- Node.js **24** (22.12+ minimum, enforced by `engines` + `engine-strict`). Node 20 is
+  end-of-life and current supabase-js, vitest and better-sqlite3 need 22+
 - A Supabase project (self-hosted or Supabase Cloud) — **only for the default Supabase
   mode**. `DB_TYPE=sqlite` needs no external database at all (see Database Modes above).
 
@@ -1332,7 +1332,7 @@ docker run -d \
   fluxtracker
 ```
 
-The container uses a multi-stage build (Node 20 Alpine). The `startup.sh` entrypoint:
+The container uses a multi-stage build (Node 24 Alpine). The `startup.sh` entrypoint:
 
 1. Starts the Express API server on port 3000
 2. Waits for the health check to pass (up to 30 seconds)
