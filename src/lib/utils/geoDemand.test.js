@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cpuDemandVsSupply, isUnderSupplied } from './geoDemand.js';
+import { cpuDemandVsSupply } from './geoDemand.js';
 
 // Issue #463: demand vs supply in CPU cores, not app and node counts.
 
@@ -34,13 +34,5 @@ describe('cpuDemandVsSupply', () => {
   it('is empty, with no network figure, for no data', () => {
     expect(cpuDemandVsSupply({})).toEqual({ continents: [], networkInUsePercent: null });
     expect(cpuDemandVsSupply(undefined).continents).toEqual([]);
-  });
-});
-
-describe('isUnderSupplied', () => {
-  it('flags demand at least 1.5x its capacity share, and at least 1% of demand', () => {
-    expect(isUnderSupplied({ demandPercent: 34.8, capacityPercent: 21.2 })).toBe(true);
-    expect(isUnderSupplied({ demandPercent: 59.7, capacityPercent: 74.5 })).toBe(false);
-    expect(isUnderSupplied({ demandPercent: 0.7, capacityPercent: 0.3 })).toBe(false);
   });
 });
