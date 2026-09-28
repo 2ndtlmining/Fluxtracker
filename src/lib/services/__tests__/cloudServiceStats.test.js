@@ -16,8 +16,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 const mockGetRunningApps = vi.fn();
+const mockGetDeploymentFill = vi.fn();
 vi.mock('../runningAppsProvider.js', () => ({
-    getRunningApps: (...args) => mockGetRunningApps(...args)
+    getRunningApps: (...args) => mockGetRunningApps(...args),
+    getDeploymentFill: (...args) => mockGetDeploymentFill(...args)
 }));
 
 const mockResilientFetch = vi.fn();
@@ -78,6 +80,7 @@ beforeEach(() => {
         unresolvedCount: 0
     });
     mockGetCurrentMetrics.mockResolvedValue(null);
+    mockGetDeploymentFill.mockResolvedValue({ fill: { ordered: 9002, running: 7109, missing: 1893, fillPct: 78.9713, shortfalls: [] } });
     serve();
 });
 
@@ -126,6 +129,35 @@ describe('fetchCloudStats unit conversions', () => {
 
         expect(stats.total_apps).toBe(100);       // 120 instances - 20 watchtower
         expect(stats.watchtower_count).toBe(20);
+    });
+
+    it('stores deployment fill with its two counts (issue #421)', async () => {
+        await fetchCloudStats();
+
+        expect(mockUpdateCurrentMetrics).toHaveBeenCalledWith(expect.objectContaining({
+            deployments_ordered: 9002,
+            deployments_running: 7109,
+            deployment_fill_percent: 78.97
+        }));
+    });
+
+    it('stores null, never 0%, when fill is unavailable (issue #421)', async () => {
+        mockGetDeploymentFill.mockResolvedValue({ fill: null });
+
+        await fetchCloudStats();
+
+        const written = mockUpdateCurrentMetrics.mock.calls[0][0];
+        expect(written.deployment_fill_percent).toBeNull();
+        expect(written.deployments_ordered).toBeNull();
+    });
+
+    it('a failing fill lookup does not cost the rest of the cloud stats', async () => {
+        mockGetDeploymentFill.mockRejectedValue(new Error('specs cache down'));
+
+        const stats = await fetchCloudStats();
+
+        expect(stats.total_ram_gb).toBe(64);
+        expect(mockUpdateCurrentMetrics.mock.calls[0][0].deployment_fill_percent).toBeNull();
     });
 });
 

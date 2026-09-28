@@ -24,7 +24,7 @@ import { getFluxCloudActivity, getSharedFluxApiData } from '../../lib/services/c
 import { computeUtilizationProjection } from '../../lib/utils/utilizationProjection.js';
 import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
-import { getRunningApps, computeDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
+import { getRunningApps, getDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
 import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN } from '../../lib/config.js';
 import { summarizeGameRevenue } from '../../lib/utils/gameRevenue.js';
 import { createLogger } from '../../lib/logger.js';
@@ -267,11 +267,11 @@ router.get('/apps/deployment-fill', async (req, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit) || 0, 0), 100);
 
     return withDbFallback(fillCache, `fill:${limit}`, res, async () => {
-        const apps = await getRunningApps({ ttlMs: READ_PATH_TTL_MS });
-        const fill = computeDeploymentFill(apps.deploymentCounts);
+        // Over unexpired specs (#421), the same figure the chart stores and the carousel uses.
+        const { apps, fill } = await getDeploymentFill({ ttlMs: READ_PATH_TTL_MS });
 
-        // null means the specs cache was empty -- a failed fetch, not a network that ordered
-        // nothing. Say so rather than serving a 0% that reads as a total outage.
+        // null means the specs cache was empty or the block height is unavailable -- not a
+        // network that ordered nothing. Say so rather than serving a 0% that reads as an outage.
         if (!fill) {
             return {
                 available: false,

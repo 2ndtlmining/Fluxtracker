@@ -2,6 +2,7 @@ import { API_ENDPOINTS, categorizeImage, getCanonicalName, resolveGameFromAppNam
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName, getAllAppSpecs } from './appSpecsCache.js';
 import { createLogger } from '../logger.js';
+import { fetchCurrentBlockHeight } from './fluxNetworkData.js';
 
 const log = createLogger('runningAppsProvider');
 
@@ -360,6 +361,31 @@ export function computeDeploymentFill(deploymentCounts, { currentBlock } = {}) {
         fillPct: (running / ordered) * 100,
         shortfalls
     };
+}
+
+/**
+ * Deployment fill as every surface shows it (issue #421): over UNEXPIRED specs only (owner
+ * decision 2026-09-27 -- an expired app will never be filled, so it is not "ordered"). The
+ * Apps card, the stored daily figure and the Missing Deployments carousel all come through
+ * here or pass the same block height, so they cannot disagree.
+ *
+ * `fill` is null when the specs cache is empty OR the block height is unavailable (past the
+ * height cache's 5-minute last-good window): without the height the expired specs cannot be
+ * excluded, and falling back to "every spec" would silently restate the figure.
+ *
+ * @param {object} [options] passed to getRunningApps (e.g. { ttlMs })
+ * @returns {Promise<{apps: object, fill: object|null}>}
+ */
+export async function getDeploymentFill(options) {
+    const [apps, currentBlock] = await Promise.all([
+        getRunningApps(options),
+        fetchCurrentBlockHeight().catch(error => {
+            log.warn({ err: error }, 'No block height -- deployment fill unavailable');
+            return null;
+        })
+    ]);
+    const fill = currentBlock ? computeDeploymentFill(apps.deploymentCounts, { currentBlock }) : null;
+    return { apps, fill };
 }
 
 /**

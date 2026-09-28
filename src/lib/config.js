@@ -542,6 +542,10 @@ const FIXED_METRIC_COLUMNS = [
     // Median days left on running apps (owner request, 2026-09-26). Computed in the same
     // pass as unique_app_owners, over the same unexpired specs. See utils/appTimeLeft.js.
     'median_days_left',
+    // Deployment fill (issue #421): of the deployments ordered by UNEXPIRED specs, how many
+    // are running. The two counts are stored so weekly/monthly views divide sums (ratioFields)
+    // rather than averaging a percentage. Computed in the services cycle (cloudService).
+    'deployments_ordered', 'deployments_running', 'deployment_fill_percent',
     // Issue #210. All four persisted: the total is what the graph headlines, the per-tier
     // values are what keep history honest if a collateral rate ever changes.
     'locked_collateral_cumulus', 'locked_collateral_nimbus', 'locked_collateral_stratus',
