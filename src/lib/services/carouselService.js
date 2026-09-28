@@ -2,6 +2,7 @@
 
 import { API_ENDPOINTS, CAROUSEL_CONFIG } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
+import { fetchCurrentBlockHeight } from './fluxNetworkData.js';
 import { ensureGlobalSpecsCache, getAllAppSpecs } from './appSpecsCache.js';
 import { getRunningApps, computeDeploymentFill } from './runningAppsProvider.js';
 import { createLogger } from '../logger.js';
@@ -85,8 +86,9 @@ export async function getSharedFluxApiData() {
         // appSpecsCache's 1-hour one -- two parsed copies that could disagree by an hour.
         // Asking for data no older than the carousel's own refresh keeps "deployed in the
         // last 24h" as fresh as before.
-        const [blockHeightBody] = await Promise.all([
-            resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, { timeout: 15000, breakerKey: 'flux-blockheight' }),
+        // The shared cached height (#415); a failure still reads as 0 here, as before.
+        const [currentBlockHeight] = await Promise.all([
+            fetchCurrentBlockHeight().catch(() => 0),
             ensureGlobalSpecsCache({ maxAgeMs: CAROUSEL_CONFIG.updateInterval })
         ]);
         const appsData = getAllAppSpecs();
@@ -94,7 +96,7 @@ export async function getSharedFluxApiData() {
         // list would overwrite the carousel's last good deployed/expiring data.
         if (appsData.length === 0) throw new Error('app specs unavailable');
         cachedFluxApiData = {
-            currentBlockHeight: blockHeightBody?.data || 0,
+            currentBlockHeight,
             appsData
         };
         lastFluxApiCacheTime = Date.now();

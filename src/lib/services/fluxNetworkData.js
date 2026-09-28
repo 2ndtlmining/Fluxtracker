@@ -128,21 +128,54 @@ export async function fetchFluxPrice() {
 // BLOCKCHAIN DATA FETCHING
 // ============================================
 
+// One cached height for every caller (#415). getblockcount takes ~1.3 s, and the footer,
+// the header, the carousel, the app-owner count and the revenue sync each asked for it on
+// their own, uncached, under three different breaker keys. A block is ~30 s, so 20 s old is
+// as current as the chain; the revenue sync resumes 25 blocks back anyway.
+const BLOCK_HEIGHT_TTL_MS = 20_000;
+// When the daemon fails, a height this recent is still a better answer than none.
+const BLOCK_HEIGHT_LAST_GOOD_MS = 5 * 60_000;
+
+let blockHeight = { value: null, at: 0 };
+let blockHeightInFlight = null;
+
 /**
- * Fetch current block height
+ * Current block height: cached for 20 s, one request in flight at a time, and the last
+ * good height (up to 5 minutes old) if the daemon fails. Throws only when there is none.
+ * A height of 0 or a non-number is rejected: a 0 reaching an expiry filter marks every
+ * spec as expiring in the future (appOwnerService's reason for its stricter check).
  */
 export async function fetchCurrentBlockHeight() {
-    try {
-        const body = await resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, {
-            timeout: 10000,
-            breakerKey: 'flux-explorer-blockheight',
-            validate: d => d?.status === 'success'
-        });
-
-        return body.data;
-
-    } catch (error) {
-        log.error({ err: error }, 'Error fetching block height');
-        throw error;
+    if (blockHeight.value !== null && Date.now() - blockHeight.at < BLOCK_HEIGHT_TTL_MS) {
+        return blockHeight.value;
     }
+    if (blockHeightInFlight) return blockHeightInFlight;
+
+    blockHeightInFlight = (async () => {
+        try {
+            const body = await resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, {
+                timeout: 10000,
+                breakerKey: 'flux-blockheight',
+                validate: d => d?.status === 'success' && typeof d.data === 'number' && d.data > 0
+            });
+            blockHeight = { value: body.data, at: Date.now() };
+            return body.data;
+        } catch (error) {
+            if (blockHeight.value !== null && Date.now() - blockHeight.at < BLOCK_HEIGHT_LAST_GOOD_MS) {
+                log.warn({ err: error, ageMs: Date.now() - blockHeight.at }, 'Block height fetch failed -- using the last good height');
+                return blockHeight.value;
+            }
+            log.error({ err: error }, 'Error fetching block height');
+            throw error;
+        } finally {
+            blockHeightInFlight = null;
+        }
+    })();
+    return blockHeightInFlight;
+}
+
+/** Test hook -- drops the cached height. */
+export function clearBlockHeightCache() {
+    blockHeight = { value: null, at: 0 };
+    blockHeightInFlight = null;
 }

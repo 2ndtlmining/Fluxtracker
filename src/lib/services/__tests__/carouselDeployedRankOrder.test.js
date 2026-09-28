@@ -16,6 +16,7 @@ vi.mock('axios', () => ({
 
 import axios from 'axios';
 import { fetchLatestDeployedApps } from '../carouselService.js';
+import { clearBlockHeightCache } from '../fluxNetworkData.js';
 
 const BLOCK_HEIGHT = 300000;
 // Deliberately out of alphabetical order relative to recency: "aaa-oldest" would sort
@@ -30,9 +31,10 @@ const REGISTRY = [
 ];
 
 beforeEach(() => {
+    clearBlockHeightCache(); // the shared height cache (#415) must not leak between tests
     vi.clearAllMocks();
     axios.get.mockImplementation(async url => {
-        if (String(url).includes('getblockcount')) return { data: { data: BLOCK_HEIGHT } };
+        if (String(url).includes('getblockcount')) return { data: { status: 'success', data: BLOCK_HEIGHT } };
         if (String(url).includes('globalappsspecifications')) return { data: { status: 'success', data: REGISTRY } }; // appSpecsCache checks status (#293)
         throw new Error(`unexpected axios call: ${url}`);
     });

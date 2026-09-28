@@ -1,5 +1,5 @@
 import { API_ENDPOINTS, APP_OWNER_CONFIG } from '../config.js';
-import { resilientFetch } from './resilientFetch.js';
+import { fetchCurrentBlockHeight } from './fluxNetworkData.js';
 import { ensureGlobalSpecsCache, getAllAppSpecs } from './appSpecsCache.js';
 import { medianDaysLeft } from '../utils/appTimeLeft.js';
 import { updateCurrentMetrics, updateSyncStatus } from '../db/database.js';
@@ -34,17 +34,10 @@ export async function fetchUniqueAppOwners() {
 
         // Fetched before the specs so a height failure costs nothing: a stale cache would
         // otherwise be refreshed for a count that is about to be thrown away.
-        const heightBody = await resilientFetch(`${API_ENDPOINTS.DAEMON}/getblockcount`, {
-            timeout: 15000,
-            retries: 2,
-            delayMs: 5000,
-            breakerKey: 'flux-blockheight',
-            // A height of 0 is rejected here rather than downstream. carouselService coerces
-            // a failed height to 0, and a 0 reaching the expiry filter would mark every spec
-            // as expiring in the future -- a silently wrong count instead of an absent one.
-            validate: d => typeof d?.data === 'number' && d.data > 0
-        });
-        const currentBlock = heightBody.data;
+        // The shared cached height (#415). It rejects a height of 0 itself: a 0 reaching the
+        // expiry filter would mark every spec as expiring in the future -- a silently wrong
+        // count instead of an absent one.
+        const currentBlock = await fetchCurrentBlockHeight();
 
         await ensureGlobalSpecsCache();
         const specs = getAllAppSpecs();
