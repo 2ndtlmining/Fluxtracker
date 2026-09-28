@@ -57,11 +57,11 @@ jobs:
       STUB_URL: http://127.0.0.1:3100/api/header
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - name: Install
@@ -69,8 +69,9 @@ jobs:
 
       - name: Install puppeteer-core
         # --no-save, same as the README: it drives the browser already on the machine
-        # rather than downloading its own.
-        run: npm install --no-save puppeteer-core
+        # rather than downloading its own. Pinned so the driver does not drift with each
+        # release (#434); same version the harness is run with locally.
+        run: npm install --no-save puppeteer-core@25.12.0
 
       - name: Locate Chrome
         # The harness's built-in search only knows Windows paths, so Linux needs

@@ -5,7 +5,7 @@
 # ========================================
 # Stage 1: Build
 # ========================================
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 # Build tools for native modules (better-sqlite3)
 RUN apk add --no-cache python3 make g++
@@ -34,7 +34,7 @@ RUN npm prune --omit=dev
 # ========================================
 # Stage 2: Runtime
 # ========================================
-FROM node:20-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
