@@ -729,8 +729,9 @@ export const PROVIDER_GROUPS = [
 
 // The first daily snapshot counted per node with the flag. Days before it counted unique IPs on
 // a keyword list, which read ~7 points higher; the chart says so rather than rewrite them
-// (the old node lists are gone). Set to the deploy date of #457.
-export const DECENTRALIZATION_PER_NODE_SINCE = '2026-09-30';
+// (the old node lists are gone). #457 went live on 2026-09-28 after that day's snapshot, so
+// 2026-09-29 is the first day counted per node.
+export const DECENTRALIZATION_PER_NODE_SINCE = '2026-09-29';
 
 // Providers counted as datacenters even where the flag says otherwise. Keep this short and
 // give every entry a reason: it is the one place the published percentage is overridden.

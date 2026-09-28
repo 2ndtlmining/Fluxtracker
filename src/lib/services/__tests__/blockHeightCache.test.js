@@ -33,12 +33,30 @@ describe('fetchCurrentBlockHeight cache (issue #415)', () => {
         expect(resilientFetch).toHaveBeenCalledTimes(1);
     });
 
-    it('fetches again once the height is older than 20 s', async () => {
+    it('past 20 s answers at once with the cached height and refreshes in the background', async () => {
         resilientFetch.mockResolvedValueOnce(ok(2991000)).mockResolvedValueOnce(ok(2991001));
         await fetchCurrentBlockHeight();
         now += 21_000;
-        expect(await fetchCurrentBlockHeight()).toBe(2991001);
+
+        // No wait on the daemon: this used to cost one caller ~1.2 s every 20 s
+        expect(await fetchCurrentBlockHeight()).toBe(2991000);
         expect(resilientFetch).toHaveBeenCalledTimes(2);
+        await vi.waitFor(() => expect(fetchCurrentBlockHeight()).resolves.toBe(2991001));
+    });
+
+    it('a failed background refresh keeps the cached height and does not throw', async () => {
+        resilientFetch.mockResolvedValueOnce(ok(2991000)).mockRejectedValueOnce(new Error('daemon down'));
+        await fetchCurrentBlockHeight();
+        now += 60_000;
+
+        expect(await fetchCurrentBlockHeight()).toBe(2991000);
+    });
+
+    it('a cold cache, or one older than 5 minutes, waits for the daemon', async () => {
+        resilientFetch.mockResolvedValueOnce(ok(2991000)).mockResolvedValueOnce(ok(2991020));
+        expect(await fetchCurrentBlockHeight()).toBe(2991000);
+        now += 6 * 60_000;
+        expect(await fetchCurrentBlockHeight()).toBe(2991020);
     });
 
     it('shares one request between concurrent callers', async () => {
