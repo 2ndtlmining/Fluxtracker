@@ -738,6 +738,10 @@ export const DECENTRALIZATION_PER_NODE_SINCE = '2026-09-30';
 export const DATACENTER_OVERRIDES = [
     // Issue #196: a hosting company (AS201814) that ip-api does not flag as hosting.
     'datavex',
+    // Datacenter companies whose flag is split: 8 of Hetzner's 1,644 nodes and 1 of Contabo's
+    // 16 were flagged not-hosting on 2026-09-29 (owner decision, #457).
+    'hetzner',
+    'contabo',
 ];
 
 // ============================================

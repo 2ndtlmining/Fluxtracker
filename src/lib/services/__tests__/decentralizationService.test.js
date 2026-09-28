@@ -72,7 +72,7 @@ describe('isDatacenterOverride (DATACENTER_OVERRIDES)', () => {
     });
 
     it('does not match anything it does not name', () => {
-        expect(isDatacenterOverride('Hetzner Online GmbH', 'Hetzner Online GmbH')).toBe(false);
+        expect(isDatacenterOverride('OVH SAS', 'OVH SAS')).toBe(false);
         expect(isDatacenterOverride('', '')).toBe(false);
     });
 });
@@ -84,8 +84,14 @@ describe('classifyNode', () => {
     });
 
     it('does not second-guess the flag for a provider it does not name', () => {
-        // 8 HETZNER-DC nodes are flagged not-datacenter; without an override they stay that way
-        expect(classifyNode(node('HETZNER-DC', false))).toMatchObject({ org: 'Hetzner', isDatacenter: false });
+        // OVH is grouped but not overridden: a node flagged not-hosting stays that way
+        expect(classifyNode(node('OVH SAS', false))).toMatchObject({ org: 'OVH', isDatacenter: false });
+    });
+
+    it('counts every Hetzner and Contabo node, including ones flagged not-hosting', () => {
+        // 8 HETZNER-DC nodes and 1 Contabo node carried a false flag (#457)
+        expect(classifyNode(node('HETZNER-DC', false))).toMatchObject({ org: 'Hetzner', isDatacenter: true });
+        expect(classifyNode(node('Contabo GmbH', false))).toMatchObject({ org: 'Contabo', isDatacenter: true });
     });
 
     it('an override counts the provider as a datacenter whatever the flag says', () => {
