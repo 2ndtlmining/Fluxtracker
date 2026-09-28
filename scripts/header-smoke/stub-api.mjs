@@ -147,6 +147,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Decentralization card's default view (#463): CPU capacity vs demand per continent,
+  // live figures from 2026-09-28, so the card can be checked by eye against the stub.
+  if (req.url.startsWith('/api/decentralization/demand')) {
+    const row = (code, name, cores, lockedCores, capacityPercent, demandPercent) =>
+      ({ code, name, cores, lockedCores, capacityPercent, demandPercent, inUsePercent: Math.round(1000 * lockedCores / cores) / 10 });
+    send(res, JSON.stringify({
+      available: true,
+      continents: [
+        row('EU', 'Europe', 39965, 8648, 74.5, 59.7),
+        row('NA', 'North America', 11379, 5039, 21.2, 34.8),
+        row('AS', 'Asia', 1406, 530, 2.6, 3.7),
+        row('OC', 'Oceania', 252, 107, 0.5, 0.7),
+        row('SA', 'South America', 468, 114, 0.9, 0.8),
+        row('AF', 'Africa', 160, 59, 0.3, 0.4)
+      ],
+      networkInUsePercent: 27, nodesLocated: 6488, nodesTotal: 6563, generatedAt: Date.now()
+    }));
+    return;
+  }
+
   // Ticker only -- the header never reads this list. 40 apps, so check-interaction.mjs can
   // count Tab stops across a ticker with more than one name in it (#441).
   if (req.url.startsWith('/api/carousel/missing')) {

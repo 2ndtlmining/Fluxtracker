@@ -2,6 +2,8 @@
 // Automatically detects when new repos are added to config
 // and creates the necessary database columns.
 
+import { CONTINENT_CPU_COLUMNS } from '../config.js';
+
 const dbType = (process.env.DB_TYPE || 'supabase').toLowerCase();
 
 const FIXED_COLUMNS = [
@@ -46,6 +48,9 @@ const FIXED_COLUMNS = [
     { name: 'locked_collateral_nimbus', type: 'DOUBLE PRECISION' },
     { name: 'locked_collateral_stratus', type: 'DOUBLE PRECISION' },
     { name: 'locked_collateral', type: 'DOUBLE PRECISION' },
+    // CPU cores and locked cores per continent (issue #463, migration 029). No DEFAULT: a 0
+    // would read as "no capacity there" for days that predate the feature.
+    ...CONTINENT_CPU_COLUMNS.map(name => ({ name, type: 'DOUBLE PRECISION' })),
 ];
 
 // ============================================

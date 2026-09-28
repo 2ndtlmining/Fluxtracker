@@ -2,6 +2,7 @@ import { fetchNodeStats } from './nodeService.js';
 import { refreshUniqueWalletsIfStale } from './walletService.js';
 import { refreshUniqueAppOwnersIfStale } from './appOwnerService.js';
 import { fetchCloudStats } from './cloudService.js';
+import { recordContinentCpu } from './busiestNodeService.js';
 import { fetchGamingStats } from './gamingService.js';
 import { fetchCryptoStats } from './cryptoService.js';
 import { fetchWordPressStats } from './wordpressService.js';
@@ -65,6 +66,9 @@ async function testAllServices() {
         // already have warmed, and owns only the cheap block-height call itself.
         ['appOwners', refreshUniqueAppOwnersIfStale],
         ['cloud', fetchCloudStats],
+        // Issue #463: CPU supply/demand per continent from the hourly node list (no fetch of
+        // its own once warm), recorded here so it reaches the daily snapshot.
+        ['continentCpu', recordContinentCpu],
         ['gaming', fetchGamingStats],
         ['crypto', fetchCryptoStats],
         ['wordpress', fetchWordPressStats],

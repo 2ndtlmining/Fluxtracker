@@ -511,6 +511,26 @@ export const TRACKED_GAMES = [
 export const GAME_COLUMN_BY_NAME = new Map(TRACKED_GAMES.map(g => [g.name, g.dbKey]));
 
 // ============================================
+// CPU BY CONTINENT (issue #463)
+// ============================================
+// Geolocation demand vs supply, measured in CPU cores rather than app/node counts: per
+// continent, the cores its nodes benchmark (supply) and the cores apps have locked on them
+// (demand). Both come from each node's own report in the hourly node list, so they cover
+// every app -- encrypted or not, region-locked or not. Stored as counts so weekly/monthly
+// views divide sums; "% in use" is derived (cpu_locked / cpu_cores).
+export const CPU_CONTINENTS = [
+    { code: 'EU', name: 'Europe' },
+    { code: 'NA', name: 'North America' },
+    { code: 'AS', name: 'Asia' },
+    { code: 'OC', name: 'Oceania' },
+    { code: 'SA', name: 'South America' },
+    { code: 'AF', name: 'Africa' }
+];
+export const cpuCoresColumn = code => `cpu_cores_${code.toLowerCase()}`;
+export const cpuLockedColumn = code => `cpu_locked_${code.toLowerCase()}`;
+export const CONTINENT_CPU_COLUMNS = CPU_CONTINENTS.flatMap(c => [cpuCoresColumn(c.code), cpuLockedColumn(c.code)]);
+
+// ============================================
 // CURRENT_METRICS COLUMNS
 // ============================================
 // The single source of truth for which columns updateCurrentMetrics() persists.
@@ -553,7 +573,9 @@ export const METRIC_COLUMNS = [
     // TRACKED_GAMES, not GAMING_REPOS: the per-game columns follow the games we store,
     // which is a superset of the games with a matchable image (issue #231).
     ...TRACKED_GAMES.map(g => g.dbKey),
-    ...CRYPTO_REPOS.map(r => r.dbKey)
+    ...CRYPTO_REPOS.map(r => r.dbKey),
+    // CPU supply and demand per continent (issue #463)
+    ...CONTINENT_CPU_COLUMNS
 ];
 
 // ============================================
