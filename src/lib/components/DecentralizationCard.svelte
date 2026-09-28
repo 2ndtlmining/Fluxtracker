@@ -68,7 +68,9 @@
 <div class="decentralization-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Globe size={24} strokeWidth={2} /></div>
-    <div class="card-title">Decentralization</div>
+    <!-- #456: the title names the view -- demand by location is the default, and the
+         datacenter share is what "Decentralization" means. -->
+    <div class="card-title">{view === 'datacenters' ? 'Decentralization' : 'Geolocation Demand'}</div>
     {#if !loading}
       <div class="view-switch" role="group" aria-label="Decentralization view">
         <button type="button" class:active={view === 'demand'} aria-pressed={view === 'demand'} on:click={() => showView('demand')}>Demand</button>
