@@ -154,7 +154,7 @@ router.get('/revenue-status', async (req, res) => {
         // stays live so the footer's "syncing" indicator is never stale.
         const [counts, currentBlock] = await Promise.all([
             readRevenueCounts(),
-            fetchCurrentBlockHeight().catch(() => null) // cached internally; non-critical
+            fetchCurrentBlockHeight().catch(() => null) // 20 s cache in fluxNetworkData (#415); non-critical
         ]);
         const { txCount, syncStatus } = counts;
 

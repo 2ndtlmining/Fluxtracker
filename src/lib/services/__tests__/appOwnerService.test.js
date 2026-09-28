@@ -25,6 +25,7 @@ vi.mock('../appSpecsCache.js', () => ({
 
 import axios from 'axios';
 import { updateCurrentMetrics, updateSyncStatus } from '../../db/database.js';
+import { clearBlockHeightCache } from '../fluxNetworkData.js';
 import { ensureGlobalSpecsCache, getAllAppSpecs } from '../appSpecsCache.js';
 import {
     fetchUniqueAppOwners,
@@ -51,6 +52,7 @@ const SPECS = [
 ];
 
 beforeEach(() => {
+    clearBlockHeightCache(); // the shared height cache (#415) must not leak between tests
     vi.clearAllMocks();
     __resetAppOwnerCacheForTests();
     ensureGlobalSpecsCache.mockResolvedValue(undefined);
