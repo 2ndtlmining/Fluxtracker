@@ -87,9 +87,10 @@
         <div class="section-label">CPU by continent</div>
         <div class="demand-row demand-head">
           <span class="datacenter-org">Continent</span>
-          <span class="demand-col" title="This continent's share of all CPU cores on the network, used or not">Share of CPU</span>
-          <span class="demand-col" title="This continent's share of all the CPU apps are using on the network">Share of load</span>
-          <span class="demand-col" title="How much of this continent's own CPU apps are using">In use</span>
+          <!-- Owner's headings: Resource | Demand | Used. The hovers say what each is a share of. -->
+          <span class="demand-col" title="Resource: this continent's share of all CPU cores on the network, used or not">Resource</span>
+          <span class="demand-col" title="Demand: this continent's share of all the CPU apps are using on the network">Demand</span>
+          <span class="demand-col" title="Used: how much of this continent's own CPU apps are using">Used</span>
         </div>
         <div class="datacenters-list">
           {#each demand.continents as c (c.code)}
@@ -104,8 +105,8 @@
         </div>
         <!-- #463: coloured by how full each continent is, on the Cloud Resources levels (#445). -->
         <div class="other-providers-note">
-          Network: {formatPercent(demand.networkInUsePercent)} of CPU in use.
-          In use: {#each DEMAND_LEVELS as l, i}<span class="level-{l.key}">{l.short}</span>{i < DEMAND_LEVELS.length - 1 ? ' · ' : ''}{/each}
+          Network: {formatPercent(demand.networkInUsePercent)} of CPU used.
+          Used: {#each DEMAND_LEVELS as l, i}<span class="level-{l.key}">{l.short}</span>{i < DEMAND_LEVELS.length - 1 ? ' · ' : ''}{/each}
         </div>
       </div>
     {/if}
