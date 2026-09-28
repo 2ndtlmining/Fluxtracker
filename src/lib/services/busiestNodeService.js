@@ -21,12 +21,10 @@ const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour, matches BUSIEST_NODE_CONFIG.up
 let cache = null;
 let cacheFetchedAt = 0;
 let inFlight = null;
-// The full network's node IPs from the same fetch -- decentralizationService reuses this
-// rather than making its own call to stats.runonflux.io, so the two features share one
-// hourly ~4MB fetch instead of two.
-let networkNodeIps = [];
-// Nodes per continent from the same fetch (issue #268): each node entry carries its own
-// geolocation, so these are NODE counts, unlike the de-duplicated IPs above.
+// Every node's hosting data from the same fetch -- decentralizationService's whole source
+// (#457), so the two features share one hourly ~4MB fetch instead of two.
+let networkNodes = [];
+// Nodes per continent from the same fetch (issue #268), counted per node.
 let networkNodeContinents = null;
 
 /**
@@ -98,14 +96,23 @@ async function fetchBusiestNode() {
         throw new Error('API_BUSIEST_NODE returned empty or invalid data');
     }
 
-    // Multiple node entries can share one physical IP (a host running several Flux
-    // instances on different ports) -- dedup so a heavily multi-instanced host doesn't
-    // skew the decentralization stats by counting as several nodes.
-    networkNodeIps = [...new Set(
-        nodes
-            .map(node => node?.geolocation?.ip || (node?.ip || '').split(':')[0] || null)
-            .filter(Boolean)
-    )];
+    // One row per NODE for decentralization (#457), which counts every node on a shared IP
+    // (it used to dedupe to IPs). Only the fields it reads are kept, not the ~4 MB payload.
+    networkNodes = nodes.map(node => {
+        const geo = node?.geolocation ?? {};
+        return {
+            ip: geo.ip || (node?.ip || '').split(':')[0] || null,
+            org: typeof geo.org === 'string' ? geo.org.trim() : '',
+            isp: typeof geo.isp === 'string' ? geo.isp.trim() : '',
+            // FluxOS sets this from ip-api.com's `hosting` flag. Absent on nodes without a
+            // lookup -- null there, not false: "unknown" is not "independent".
+            dataCenter: typeof geo.dataCenter === 'boolean' ? geo.dataCenter : null,
+            country: geo.country || null,
+            countryCode: geo.countryCode || null,
+            continent: geo.continent || null,
+            continentCode: geo.continentCode || null
+        };
+    });
 
     const continentCounts = {};
     let located = 0;
@@ -225,12 +232,11 @@ export function getCachedBusiestNode() {
 }
 
 /**
- * The deduped node IPs from the last successful fetch, or [] before the first one lands.
- * Never triggers a network call -- decentralizationService pairs this with its own call to
- * getBusiestNode() (a cheap no-op once the hourly cache is warm) to seed its own fetch.
+ * One row per node from the last successful fetch (hosting org, datacenter flag, country,
+ * continent), or [] before the first one lands. Never triggers a network call (#457).
  */
-export function getCachedNetworkNodeIps() {
-    return networkNodeIps;
+export function getCachedNetworkNodes() {
+    return networkNodes;
 }
 
 /** Nodes per continent from the last fetch ({ counts, located, total }), or null. */
@@ -243,6 +249,6 @@ export function clearBusiestNodeCache() {
     cache = null;
     cacheFetchedAt = 0;
     inFlight = null;
-    networkNodeIps = [];
+    networkNodes = [];
     networkNodeContinents = null;
 }

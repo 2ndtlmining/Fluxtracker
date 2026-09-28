@@ -2240,9 +2240,8 @@ export async function getAllNodeIpClassifications() {
     while (true) {
         const { data, error } = await supabase
             .from('node_ip_classification')
-            // asn is carried for reclassifyStoredDatacenterFlags() (issue #196) -- it writes
-            // these rows straight back through upsertNodeIpClassifications(), which sets
-            // every column, so dropping asn here would null it on every re-flagged row.
+            // No longer written since #457 (kept as the old method's history). asn is carried
+            // so a row written back via upsertNodeIpClassifications() keeps every column.
             .select('ip, asn, org, is_datacenter, classified_at, country, country_code, continent, continent_code')
             // Offset paging with no ORDER BY can skip or repeat rows while the decentralization
             // scheduler upserts into this table (issue #313).

@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * which is why "% Datacenter" read "Insufficient data" in every timeframe on an instance
  * whose live card and chart were both fine.
  *
- * The candidate node-IP list lives in busiestNodeService's in-memory cache.
- * `getCachedNetworkNodeIps()` returns [] until that service's first successful fetch and
+ * The node list lives in busiestNodeService's in-memory cache (since #457 it is also the
+ * whole data source). `getCachedNetworkNodes()` returns [] until that service's first successful fetch and
  * deliberately never triggers one. `runDecentralizationCycle()` knows this and calls
  * `getBusiestNode()` first; `loadClassificationContext()` -- the path the snapshot uses --
  * did not. Cold process -> empty candidate set -> nothing "relevant" -> classifiedCount 0 ->
@@ -18,7 +18,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  * when today's snapshot is still missing hits exactly this.
  */
 
-const mockGetAllNodeIpClassifications = vi.fn();
 const mockGetCurrentMetrics = vi.fn();
 const mockCreateDailySnapshot = vi.fn();
 vi.mock('../database.js', () => ({
@@ -31,17 +30,22 @@ vi.mock('../database.js', () => ({
     createDecentralizationSnapshots: vi.fn(),
     createDecentralizationCountrySnapshots: vi.fn(),
     createDecentralizationContinentSnapshots: vi.fn(),
-    getAllNodeIpClassifications: (...a) => mockGetAllNodeIpClassifications(...a),
-    upsertNodeIpClassifications: vi.fn()
 }));
 
 /**
- * Stands in for busiestNodeService the way the real one behaves: the IP list is empty until
+ * Stands in for busiestNodeService the way the real one behaves: the node list is empty until
  * a fetch lands, and reading it never triggers one.
  */
 let warmed = false;
 let warmFails = false;
-const NODE_IPS = ['1.1.1.1', '2.2.2.2', '3.3.3.3', '4.4.4.4'];
+const node = (ip, org, dataCenter, country, countryCode, continent, continentCode) =>
+    ({ ip, org, isp: org, dataCenter, country, countryCode, continent, continentCode });
+const NODES = [
+    node('1.1.1.1', 'Hetzner Online GmbH', true, 'Germany', 'DE', 'Europe', 'EU'),
+    node('2.2.2.2', 'Hetzner', true, 'Germany', 'DE', 'Europe', 'EU'),
+    node('3.3.3.3', 'Comcast', false, 'United States', 'US', 'North America', 'NA'),
+    node('4.4.4.4', 'Comcast', false, 'United States', 'US', 'North America', 'NA')
+];
 const mockGetBusiestNode = vi.fn(async () => {
     if (warmFails) throw new Error('stats.runonflux.io unreachable');
     warmed = true;
@@ -49,7 +53,7 @@ const mockGetBusiestNode = vi.fn(async () => {
 });
 vi.mock('../../services/busiestNodeService.js', () => ({
     getBusiestNode: (...a) => mockGetBusiestNode(...a),
-    getCachedNetworkNodeIps: () => (warmed ? NODE_IPS : [])
+    getCachedNetworkNodes: () => (warmed ? NODES : [])
 }));
 
 vi.mock('../../services/cloudService.js', () => ({ getLatestRepoCounts: vi.fn(() => null) }));
@@ -72,13 +76,6 @@ import {
     clearDecentralizationStatsCache
 } from '../../services/decentralizationService.js';
 
-const CLASSIFICATIONS = [
-    { ip: '1.1.1.1', org: 'Hetzner', isDatacenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
-    { ip: '2.2.2.2', org: 'Hetzner', isDatacenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
-    { ip: '3.3.3.3', org: 'Comcast', isDatacenter: false, country: 'United States', countryCode: 'US', continent: 'North America', continentCode: 'NA' },
-    { ip: '4.4.4.4', org: 'Comcast', isDatacenter: false, country: 'United States', countryCode: 'US', continent: 'North America', continentCode: 'NA' }
-];
-
 beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
@@ -88,7 +85,6 @@ beforeEach(() => {
     warmed = false;
     warmFails = false;
     clearDecentralizationStatsCache();
-    mockGetAllNodeIpClassifications.mockResolvedValue(CLASSIFICATIONS);
     mockGetCurrentMetrics.mockResolvedValue({
         last_update: Date.now(),
         node_total: 12800,
@@ -108,7 +104,7 @@ describe('loadClassificationContext on a cold process', () => {
         const context = await loadClassificationContext();
 
         expect(mockGetBusiestNode).toHaveBeenCalled();
-        expect(context.candidateIps).toEqual(NODE_IPS);
+        expect(context.nodes).toHaveLength(4);
         expect(context.relevant).toHaveLength(4);
     });
 
@@ -119,18 +115,8 @@ describe('loadClassificationContext on a cold process', () => {
 
         const context = await loadClassificationContext();
 
-        expect(context.candidateIps).toEqual([]);
+        expect(context.nodes).toEqual([]);
         expect(context.relevant).toEqual([]);
-        expect(context.allClassifications).toHaveLength(4);
-    });
-
-    it('does not refetch the list once it is warm', async () => {
-        await loadClassificationContext();
-        await loadClassificationContext();
-
-        // getBusiestNode is itself TTL-cached, so calling it twice is a no-op -- but the
-        // context must not be doing its own extra work on top.
-        expect(mockGetAllNodeIpClassifications).toHaveBeenCalledTimes(2);
     });
 });
 

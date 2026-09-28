@@ -21,7 +21,7 @@ import { resolveRunningAppName } from '../appSpecsCache.js';
 import {
     getBusiestNode,
     getCachedBusiestNode,
-    getCachedNetworkNodeIps,
+    getCachedNetworkNodes,
     clearBusiestNodeCache,
     appNameForContainer
 } from '../busiestNodeService.js';
@@ -153,32 +153,39 @@ describe('getCachedBusiestNode', () => {
     });
 });
 
-describe('getCachedNetworkNodeIps', () => {
+describe('getCachedNetworkNodes (issue #457)', () => {
     it('returns [] when nothing has been fetched yet', () => {
-        expect(getCachedNetworkNodeIps()).toEqual([]);
+        expect(getCachedNetworkNodes()).toEqual([]);
     });
 
-    it('returns every node IP from the last fetch, decentralizationService\'s candidate set', async () => {
+    it('keeps one row per NODE -- two nodes on one IP are two rows', async () => {
         axios.get.mockResolvedValue(apiResponse([
             node({ ip: '1.1.1.1', names: ['/fluxfm1_myapp'] }),
-            node({ ip: '2.2.2.2', names: [] }),
-            node({ ip: '3.3.3.3', names: [] })
+            node({ ip: '1.1.1.1', names: [] }),
+            node({ ip: '2.2.2.2', names: [] })
         ]));
 
         await getBusiestNode();
 
-        expect(getCachedNetworkNodeIps().sort()).toEqual(['1.1.1.1', '2.2.2.2', '3.3.3.3']);
+        expect(getCachedNetworkNodes().map(n => n.ip)).toEqual(['1.1.1.1', '1.1.1.1', '2.2.2.2']);
     });
 
-    it('dedupes IPs shared by multiple node entries (one host running several instances)', async () => {
+    it('carries the hosting org, isp and datacenter flag, and null (not false) for a missing flag', async () => {
+        // One node runs an app: the fetch refuses a network with no busy node at all.
+        const withGeo = (ip, geo) => ({ ...node({ ip, names: ['/fluxfm1_myapp'] }), geolocation: { ip, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU', ...geo } });
         axios.get.mockResolvedValue(apiResponse([
-            node({ ip: '1.1.1.1', names: ['/fluxfm1_myapp'] }),
-            node({ ip: '1.1.1.1', names: [] })
+            withGeo('1.1.1.1', { org: ' Hetzner Online GmbH ', isp: 'Hetzner Online GmbH', dataCenter: true }),
+            withGeo('2.2.2.2', { org: 'Stofa A/S', isp: 'Stofa A/S', dataCenter: false }),
+            withGeo('3.3.3.3', { org: '' })
         ]));
 
         await getBusiestNode();
 
-        expect(getCachedNetworkNodeIps()).toEqual(['1.1.1.1']);
+        expect(getCachedNetworkNodes()).toEqual([
+            { ip: '1.1.1.1', org: 'Hetzner Online GmbH', isp: 'Hetzner Online GmbH', dataCenter: true, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
+            { ip: '2.2.2.2', org: 'Stofa A/S', isp: 'Stofa A/S', dataCenter: false, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
+            { ip: '3.3.3.3', org: '', isp: '', dataCenter: null, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' }
+        ]);
     });
 
     it('is cleared by the test hook alongside the busiest-node cache', async () => {
@@ -187,7 +194,7 @@ describe('getCachedNetworkNodeIps', () => {
 
         clearBusiestNodeCache();
 
-        expect(getCachedNetworkNodeIps()).toEqual([]);
+        expect(getCachedNetworkNodes()).toEqual([]);
     });
 });
 

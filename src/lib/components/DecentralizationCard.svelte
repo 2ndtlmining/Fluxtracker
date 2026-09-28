@@ -56,11 +56,12 @@
 
   onMount(() => { showView('demand'); });
 
-  // Coverage moved off the card and into the header's live IPs counter (issue #120) --
+  // Coverage moved off the card and into the header's "geo" counter (issue #120) --
   // this tooltip is what's left to explain the number where a reader might expect it.
   $: coverageTooltip = hasData
-    ? `${formatPercent(stats.coveragePercent)} coverage — ${formatNumber(stats.classifiedCount)} of ${formatNumber(stats.totalNodes)} unique node IPs classified so far. ` +
-      `Coverage tracks classification progress against unique node IPs, not the node-instance count shown elsewhere on the dashboard (which counts multiple app slots per host separately).`
+    ? `Share of Flux nodes hosted in a datacenter, per node (several nodes on one IP each count). ` +
+      `Datacenter = the node's own hosting flag in Flux's node list, plus a short list of known hosting providers. ` +
+      `${formatNumber(stats.classifiedCount)} of ${formatNumber(stats.totalNodes)} nodes carry hosting data (${formatPercent(stats.coveragePercent)}); the rest are left out.`
     : '';
 </script>
 
@@ -109,17 +110,16 @@
   {:else if error || !stats}
     <div class="card-empty-state">Not available right now</div>
   {:else if !hasData}
-    <!-- Classification runs gradually in the background (issue #108) -- there's
-         genuinely nothing to show yet on a fresh deploy, not a fetch failure. -->
+    <!-- The node list has not been fetched yet (a fresh start) -- not a fetch failure. -->
     <div class="card-empty-state">
-      Classifying node IPs...<br />
-      <span class="empty-sub">Coverage builds up over the next few hours</span>
+      Loading the node list...<br />
+      <span class="empty-sub">Ready within a few minutes of a restart</span>
     </div>
   {:else}
     <div class="metric-row">
       <div class="metric-heading">
         <span class="metric-label-group">
-          <span class="metric-label">In known datacenters</span>
+          <span class="metric-label">Nodes in datacenters</span>
           <span class="info-icon" title={coverageTooltip} tabindex="0" role="img" aria-label={coverageTooltip}>
             <Info size={12} strokeWidth={2} />
           </span>
@@ -247,8 +247,7 @@
   }
 
   /* Coverage info icon (issue #120): the coverage number itself moved to the header's
-     IPs counter -- this is what's left on the card to explain what "% classified"
-     means and why it uses a different denominator than the node-instance count. */
+     "geo" counter -- this is what's left on the card to explain the percentage. */
   .info-icon {
     display: inline-flex;
     align-items: center;
