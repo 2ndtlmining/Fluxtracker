@@ -144,11 +144,25 @@ let blockHeightInFlight = null;
  * good height (up to 5 minutes old) if the daemon fails. Throws only when there is none.
  * A height of 0 or a non-number is rejected: a 0 reaching an expiry filter marks every
  * spec as expiring in the future (appOwnerService's reason for its stricter check).
+ *
+ * Past 20 s the cached height is still returned at once while a refresh runs in the
+ * background (stale-while-revalidate). Waiting for it made one footer request every
+ * ~20 s take the full ~1.2 s the cache exists to avoid. Only a cold cache, or one older
+ * than 5 minutes, waits.
  */
 export async function fetchCurrentBlockHeight() {
-    if (blockHeight.value !== null && Date.now() - blockHeight.at < BLOCK_HEIGHT_TTL_MS) {
+    const age = blockHeight.value === null ? Infinity : Date.now() - blockHeight.at;
+    if (age < BLOCK_HEIGHT_TTL_MS) return blockHeight.value;
+
+    const refresh = refreshBlockHeight();
+    if (age < BLOCK_HEIGHT_LAST_GOOD_MS) {
+        refresh.catch(() => {}); // logged inside; the cached height still stands
         return blockHeight.value;
     }
+    return refresh;
+}
+
+function refreshBlockHeight() {
     if (blockHeightInFlight) return blockHeightInFlight;
 
     blockHeightInFlight = (async () => {
