@@ -36,3 +36,32 @@ describe('per-service health (issue #431)', () => {
         expect(getServiceTestSchedulerStatus().services.cloud.consecutiveFailures).toBe(0);
     });
 });
+
+import { staleServices, staleColumns, __resetServiceHealthForTests, STALE_SOURCE_MS } from '../serviceHealth.js';
+
+describe('stale sources for the daily snapshot (issue #431, option B)', () => {
+    const now = Date.parse('2026-09-30T00:10:00Z');
+    const failing = (name, lastSuccess) => {
+        recordServiceResults({ succeeded: [name], failed: [] }, lastSuccess);
+        recordServiceResults({ succeeded: [], failed: [{ name, error: 'down' }] }, now - 60000);
+    };
+
+    it('a source failing for 6 hours or more is stale; one that failed recently is not', () => {
+        __resetServiceHealthForTests();
+        failing('cloud', now - 7 * 3600000);
+        failing('gaming', now - 30 * 60000);
+        recordServiceResults({ succeeded: ['nodes'], failed: [] }, now - 60000);
+
+        expect(STALE_SOURCE_MS).toBe(6 * 3600000);
+        expect(staleServices(STALE_SOURCE_MS, now)).toEqual(['cloud']);
+    });
+
+    it('maps a stale source to exactly its own columns', () => {
+        __resetServiceHealthForTests();
+        failing('cloud', now - 7 * 3600000);
+        const cols = staleColumns(STALE_SOURCE_MS, now);
+        expect(cols).toEqual(expect.arrayContaining(['total_cpu_cores', 'cpu_utilization_percent', 'total_apps', 'deployment_fill_percent']));
+        expect(cols).not.toContain('node_total');
+        expect(cols).not.toContain('current_revenue');
+    });
+});

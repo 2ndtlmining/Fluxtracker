@@ -5,6 +5,9 @@ import { fetchCarouselData, fetchLatestDeployedApps, fetchExpiringApps } from '.
 import { runDecentralizationCycle } from './decentralizationService.js';
 import { CLOUD_CONFIG, GAMING_CONFIG, WORDPRESS_CONFIG, CAROUSEL_CONFIG, DECENTRALIZATION_CONFIG } from '../config.js';
 import { createLogger } from '../logger.js';
+import { recordServiceResults, getServiceHealth } from './serviceHealth.js';
+
+export { recordServiceResults };
 
 const log = createLogger('servicesScheduler');
 
@@ -36,10 +39,6 @@ let lastRun = null;
 let lastCarouselRun = null;
 let lastDecentralizationRun = null;
 let consecutiveFailures = 0;
-// Per step of the cycle (#431): { lastSuccess, consecutiveFailures, lastError }. testAllServices
-// isolates each step and never throws, so without this a service could fail every cycle while
-// the scheduler reported healthy.
-const serviceHealth = {};
 let consecutiveCarouselFailures = 0;
 let consecutiveDecentralizationFailures = 0;
 
@@ -82,18 +81,6 @@ async function runTests() {
         }
     } finally {
         isRunning = false;
-    }
-}
-
-/** Fold one cycle's { succeeded, failed } into the per-service record (#431). */
-export function recordServiceResults(result, now = Date.now()) {
-    for (const name of result?.succeeded ?? []) {
-        serviceHealth[name] = { lastSuccess: now, consecutiveFailures: 0, lastError: null };
-    }
-    for (const { name, error } of result?.failed ?? []) {
-        const entry = (serviceHealth[name] ??= { lastSuccess: null, consecutiveFailures: 0, lastError: null });
-        entry.consecutiveFailures++;
-        entry.lastError = error;
     }
 }
 
@@ -281,7 +268,7 @@ export function getServiceTestSchedulerStatus() {
         intervalMs: TEST_INTERVAL_MS,
         lastRun,
         consecutiveFailures,
-        isHealthy: consecutiveFailures < 3 && Object.values(serviceHealth).every(s => s.consecutiveFailures < 3),
-        services: { ...serviceHealth }
+        isHealthy: consecutiveFailures < 3 && Object.values(getServiceHealth()).every(s => s.consecutiveFailures < 3),
+        services: getServiceHealth()
     };
 }

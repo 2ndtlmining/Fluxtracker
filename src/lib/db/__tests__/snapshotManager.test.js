@@ -53,6 +53,11 @@ vi.mock('../dbCallTracker.js', () => ({
     isDatabaseError: error => Boolean(error?.isDatabaseError)
 }));
 
+vi.mock('../../services/serviceHealth.js', () => ({
+    staleServices: vi.fn(() => []),
+    staleColumns: vi.fn(() => []),
+}));
+
 vi.mock('../../services/backupService.js', () => ({
     isBackupEnabled: vi.fn(() => false),
     performBackup: vi.fn(() => Promise.resolve({ success: true })),
@@ -86,6 +91,7 @@ import {
 
 import { getLatestRepoCounts } from '../../services/cloudService.js';
 import { recordFailure } from '../circuitBreaker.js';
+import { staleServices, staleColumns } from '../../services/serviceHealth.js';
 import { isBackupEnabled, performBackup } from '../../services/backupService.js';
 import {
     loadClassificationContext,
@@ -792,6 +798,42 @@ describe('snapshotManager', () => {
 
             expect(createDecentralizationSnapshots).not.toHaveBeenCalled();
             expect(fillSnapshotNullColumns).not.toHaveBeenCalledWith('2026-03-19', expect.objectContaining({ decentralization_datacenter_percent: expect.anything() }));
+        });
+    });
+    // ------------------------------------------
+    // A stale source is recorded as a gap (issue #431, option B)
+    // ------------------------------------------
+    describe('stale sources', () => {
+        afterEach(() => {
+            staleServices.mockReturnValue([]);
+            staleColumns.mockReturnValue([]);
+        });
+
+        it("writes a stale source's columns as NULL and keeps everything else", async () => {
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+            staleServices.mockReturnValue(['cloud']);
+            staleColumns.mockReturnValue(['total_cpu_cores', 'cpu_utilization_percent', 'total_apps']);
+
+            const result = await takeManualSnapshot();
+
+            expect(result.success).toBe(true);
+            const row = createDailySnapshot.mock.calls[0][0];
+            expect(row.total_cpu_cores).toBeNull();
+            expect(row.cpu_utilization_percent).toBeNull();
+            expect(row.total_apps).toBeNull();
+            expect(row.node_total).toBe(100);          // a fresh source is recorded as usual
+        });
+
+        it('writes every column when nothing is stale', async () => {
+            getSnapshotByDate.mockResolvedValue(null);
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+
+            await takeManualSnapshot();
+
+            expect(createDailySnapshot.mock.calls[0][0].total_cpu_cores).toBe(1000);
         });
     });
 });
