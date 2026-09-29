@@ -680,6 +680,9 @@ export const CAROUSEL_CONFIG = {
 export const BUSIEST_NODE_CONFIG = {
     updateInterval: 60 * 60 * 1000,      // 1 hour
     freshnessThreshold: 2 * 60 * 60 * 1000,
+    // A node whose geolocation comes back blank keeps its last known hosting data this long
+    // (#494), so it does not flicker out of the decentralization count between fetches.
+    geolocationCarryMs: 7 * 24 * 60 * 60 * 1000,
 };
 
 // Decentralization metric (issue #108): what share of nodes are hosted in datacenters. Since
@@ -725,7 +728,8 @@ export const DECENTRALIZATION_PER_NODE_SINCE = '2026-09-29';
 
 // Providers counted as datacenters even where the flag says otherwise. Keep this short and
 // give every entry a reason: it is the one place the published percentage is overridden.
-// Matched like PROVIDER_GROUPS (substring of org or isp, case-insensitive).
+// Matched like PROVIDER_GROUPS: substring of the org (the isp only when the org is empty),
+// case-insensitive -- so 'datavex' counts only nodes whose org is DataVex (#494).
 export const DATACENTER_OVERRIDES = [
     // Issue #196: a hosting company (AS201814) that ip-api does not flag as hosting.
     'datavex',

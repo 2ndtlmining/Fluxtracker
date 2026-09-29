@@ -9,7 +9,7 @@
 // runningAppsProvider's frequent cache — gaming/crypto/wordpress/cloud don't need the
 // extra resources/benchmark/ip fields this card does.
 
-import { API_ENDPOINTS, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '../config.js';
+import { API_ENDPOINTS, BUSIEST_NODE_CONFIG, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '../config.js';
 import { updateCurrentMetrics } from '../db/database.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
@@ -25,6 +25,9 @@ let inFlight = null;
 // Every node's hosting data from the same fetch -- decentralizationService's whole source
 // (#457), so the two features share one hourly ~4MB fetch instead of two.
 let networkNodes = [];
+// Each node's last fetch that carried hosting data, by ip:port (#494). In memory only: a
+// restart loses it, which costs at most one fetch's worth of blank nodes.
+const lastKnownGeo = new Map();
 // Nodes per continent from the same fetch (issue #268), counted per node.
 let networkNodeContinents = null;
 
@@ -99,9 +102,10 @@ async function fetchBusiestNode() {
 
     // One row per NODE for decentralization (#457), which counts every node on a shared IP
     // (it used to dedupe to IPs). Only the fields it reads are kept, not the ~4 MB payload.
+    const now = Date.now();
     networkNodes = nodes.map(node => {
         const geo = node?.geolocation ?? {};
-        return {
+        const row = {
             ip: geo.ip || (node?.ip || '').split(':')[0] || null,
             org: typeof geo.org === 'string' ? geo.org.trim() : '',
             isp: typeof geo.isp === 'string' ? geo.isp.trim() : '',
@@ -113,7 +117,22 @@ async function fetchBusiestNode() {
             continent: geo.continent || null,
             continentCode: geo.continentCode || null
         };
+
+        // Issue #494: FluxOS sometimes reports a node with blank geolocation until it looks
+        // the IP up again, so the node dropped out of the count for an hour and a provider's
+        // total moved with nothing changed. Keyed by ip:port, which is one node.
+        const key = node?.ip || null;
+        if (!key) return row;
+        if (row.org || row.isp || row.dataCenter !== null) {
+            lastKnownGeo.set(key, { row, seenAt: now });
+            return row;
+        }
+        const known = lastKnownGeo.get(key);
+        return known && now - known.seenAt <= BUSIEST_NODE_CONFIG.geolocationCarryMs ? known.row : row;
     });
+    for (const [key, { seenAt }] of lastKnownGeo) {
+        if (now - seenAt > BUSIEST_NODE_CONFIG.geolocationCarryMs) lastKnownGeo.delete(key);
+    }
 
     const continentCounts = {};
     // CPU supply and demand per continent (issue #463): the cores each node benchmarks, and
@@ -279,5 +298,6 @@ export function clearBusiestNodeCache() {
     cacheFetchedAt = 0;
     inFlight = null;
     networkNodes = [];
+    lastKnownGeo.clear();
     networkNodeContinents = null;
 }
