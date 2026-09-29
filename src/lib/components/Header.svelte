@@ -1,5 +1,5 @@
 <script>
-  import { formatBytes } from '$lib/utils/format.js';
+  import { formatBytes, formatCount } from '$lib/utils/format.js';
   import { onMount, onDestroy } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
   import TerminalHeaderAnimation from '$lib/components/TerminalHeaderAnimation.svelte';
@@ -215,7 +215,7 @@
 
   function formatNumber(n) {
     if (n === null || n === undefined) return '...';
-    return n.toLocaleString();
+    return formatCount(n); // fixed en-US (#443)
   }
 
   function getStatusColor(status) {

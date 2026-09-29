@@ -221,16 +221,11 @@ export async function fetchLatestDeployedApps() {
 }
 
 /**
- * Format CPU cores/threads
+ * Format CPU in cores. Fractional values stay cores (#447): half a core is not a thread count.
  */
 function formatCpu(cpu) {
-    if (cpu >= 1) {
-        return `${cpu} ${cpu === 1 ? 'core' : 'cores'}`;
-    } else {
-        // For fractional CPUs, show as threads
-        const threads = Math.round(cpu * 100) / 100;
-        return `${threads} threads`;
-    }
+    const value = Number.isInteger(cpu) ? cpu : Math.round(cpu * 100) / 100;
+    return `${value} ${value === 1 ? 'core' : 'cores'}`;
 }
 
 /**
