@@ -11,12 +11,13 @@ function dailyReport(executive = {}, snapshotOverrides = {}) {
     node_total: 6508, node_cumulus: 3270, node_nimbus: 1577, node_stratus: 1661, unique_wallets: 810,
     used_cpu_cores: 14070, used_ram_gb: 29500, used_storage_gb: 365000,
     cpu_utilization_percent: 26.7, ram_utilization_percent: 16.8, storage_utilization_percent: 11.7,
-    flux_price_usd: 0.0694, total_apps: 7908, decentralization_datacenter_percent: 54.5, ...o
+    flux_price_usd: 0.0694, total_apps: 7908, decentralization_datacenter_percent: 54.5,
+    deployments_ordered: 8413, deployments_running: 6982, ...o
   }];
   const dataset = buildKpiDataset({
     current, comparison,
     currentSnapshots: snap('2026-09-24', snapshotOverrides),
-    comparisonSnapshots: snap('2026-09-23', { node_total: 6566, cpu_utilization_percent: 26.2, total_apps: 7938, decentralization_datacenter_percent: 53.8 }),
+    comparisonSnapshots: snap('2026-09-23', { node_total: 6566, cpu_utilization_percent: 26.2, total_apps: 7938, decentralization_datacenter_percent: 53.8, deployments_ordered: 8415, deployments_running: 6979 }),
     currentRevenue: { flux: 11279.54, usd: 777.42 },
     comparisonRevenue: { flux: 8856.79, usd: 612.14 }
   });
@@ -43,7 +44,7 @@ describe('buildScorecardPayload', () => {
     const embed = buildScorecardPayload(dailyReport()).embeds[0];
     expect(embed.fields.map(f => f.name)).toEqual([
       'Revenue', 'Game revenue', 'New vs renewal',
-      'Nodes', 'CPU in use', 'In datacenters',
+      'Nodes', 'CPU in use', 'Ordered vs supplied',
       'Apps running', 'Deployed / expiring', 'Median time left'
     ]);
     expect(embed.fields.every(f => f.inline)).toBe(true);
@@ -60,7 +61,8 @@ describe('buildScorecardPayload', () => {
     expect(t['New vs renewal']).toBe('**51% / 49%**\nof revenue');
     expect(t['Nodes']).toBe('**6,508**\n▼ 0.9%');
     expect(t['CPU in use']).toBe('**26.7%**\n▲ 0.5 pts');
-    expect(t['In datacenters']).toBe('**54.5%**\n▲ 0.7 pts');
+    // the owner's real Sep 28 -> 29 counts: 6,979 of 8,415 -> 6,982 of 8,413
+    expect(t['Ordered vs supplied']).toBe('**83.0%**\n▲ 0.1 pts');
     expect(t['Deployed / expiring']).toBe('**136 / 41**\nlast 24 hours');
     expect(t['Median time left']).toBe('**16 days**\nrunning apps');
     expect(embed.description).toContain('Most deployed: RuneScape: Dragonwilds 58');

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     averageColumn,
+    ratioOfSums,
     computeChange,
     buildKpiDataset,
     computeTopDatacentersForPeriod,
@@ -114,6 +115,8 @@ describe('buildKpiDataset', () => {
             flux_price_usd: 0.4213,
             total_apps: 6400,
             decentralization_datacenter_percent: 35.2,
+            deployments_ordered: 8400,
+            deployments_running: 7000,
             ...overrides
         }));
     }
@@ -130,8 +133,8 @@ describe('buildKpiDataset', () => {
         });
 
         expect(d.sections.map(s => s.key)).toEqual(['revenue', 'nodes', 'resources', 'applications', 'decentralization']);
-        expect(d.totalMetrics).toBe(20);   // 7 revenue + 5 nodes + 6 resources + 1 apps + 1 decentralization
-        expect(d.availableMetrics).toBe(20);
+        expect(d.totalMetrics).toBe(21);   // 7 revenue + 5 nodes + 6 resources + 2 apps + 1 decentralization
+        expect(d.availableMetrics).toBe(21);
         expect(d.empty).toBe(false);
     });
 
@@ -172,8 +175,8 @@ describe('buildKpiDataset', () => {
             expect(deployed.change).toEqual({ absolute: null, percent: null, note: 'Point-in-time' });
             expect(expiring.available).toBe(true);
             expect(expiring.current).toBe(12);
-            expect(d.totalMetrics).toBe(22);
-            expect(d.availableMetrics).toBe(22);
+            expect(d.totalMetrics).toBe(23);
+            expect(d.availableMetrics).toBe(23);
         });
 
         it('an absent reading is unavailable, not a fake zero', () => {
@@ -193,7 +196,7 @@ describe('buildKpiDataset', () => {
             expect(deployed.current).toBeNull();
             expect(expiring.available).toBe(true);
             // The rest of the report is still deliverable
-            expect(d.availableMetrics).toBe(21);
+            expect(d.availableMetrics).toBe(22);
             expect(d.empty).toBe(false);
         });
     });
@@ -314,7 +317,7 @@ describe('buildKpiDataset', () => {
         expect(byKey.ram.available).toBe(true);
         expect(resources.available).toBe(true);          // section still worth showing
         expect(d.empty).toBe(false);
-        expect(d.availableMetrics).toBe(18);   // 20 total, less ssd and ssdPercent
+        expect(d.availableMetrics).toBe(19);   // 21 total, less ssd and ssdPercent
     });
 
     it('never reports a metric when only one of the two periods has data', () => {
@@ -406,6 +409,31 @@ describe('sumDaily', () => {
     it('sums a daily series and tolerates gaps', () => {
         expect(sumDaily([{ v: 1 }, { v: 2 }, {}, { v: null }], 'v')).toBe(3);
         expect(sumDaily([], 'v')).toBe(0);
+    });
+});
+
+describe('ratioOfSums (#482 ordered vs supplied)', () => {
+    it('divides the summed counts, so a big day weighs more than a small one', () => {
+        const days = [
+            { deployments_running: 900, deployments_ordered: 1000 },   // 90%
+            { deployments_running: 50, deployments_ordered: 100 }      // 50%
+        ];
+        const r = ratioOfSums(days, 'deployments_running', 'deployments_ordered', 2);
+        expect(r.value).toBeCloseTo(86.36, 2);     // 950 / 1100, not avg(90, 50) = 70
+        expect(r.covered).toBe(true);
+    });
+
+    it('a day with a missing or zero count is a gap, and a gap fails coverage', () => {
+        const days = [
+            { deployments_running: 900, deployments_ordered: 1000 },
+            { deployments_running: null, deployments_ordered: 1000 },
+            { deployments_running: 0, deployments_ordered: 0 }
+        ];
+        const r = ratioOfSums(days, 'deployments_running', 'deployments_ordered', 3);
+        expect(r.value).toBe(90);
+        expect(r.coveredDays).toBe(1);
+        expect(r.covered).toBe(false);
+        expect(ratioOfSums([], 'a', 'b', 1)).toMatchObject({ value: null, covered: false });
     });
 });
 

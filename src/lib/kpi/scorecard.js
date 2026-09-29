@@ -128,7 +128,7 @@ export function buildScorecardPayload(report) {
   const revenue = metricOf(dataset, 'revenue', 'usd');
   const nodes = metricOf(dataset, 'nodes', 'total');
   const cpu = metricOf(dataset, 'resources', 'cpuPercent');
-  const dc = metricOf(dataset, 'decentralization', 'datacenterPercent');
+  const fill = metricOf(dataset, 'applications', 'fillPercent');
   const apps = metricOf(dataset, 'applications', 'total');
   const vs = comparisonName(timeframe, comparison);
   const perDay = timeframe === 'daily';
@@ -159,7 +159,11 @@ export function buildScorecardPayload(report) {
 
   tiles.push(nodes?.available ? tile(perDay ? 'Nodes' : 'Nodes (average)', int(nodes.current), trendPercent(nodes.change?.percent)) : NA('Nodes'));
   tiles.push(cpu?.available ? tile('CPU in use', pct1(cpu.current), trendPoints(cpu.change?.absolute)) : NA('CPU in use'));
-  tiles.push(dc?.available ? tile('In datacenters', pct1(dc.current), trendPoints(dc.change?.absolute)) : NA('In datacenters'));
+  // Issue #482: "In datacenters" gave way to how much of what was ordered is actually
+  // running. Decentralization stays in the dataset (/api/kpi/preview), just not as a tile.
+  tiles.push(fill?.available
+    ? tile('Ordered vs supplied', pct1(fill.current), trendPoints(fill.change?.absolute))
+    : NA('Ordered vs supplied', 'recording since Sep 2026'));
 
   tiles.push(apps?.available ? tile(perDay ? 'Apps running' : 'Apps running (average)', int(apps.current), trendPercent(apps.change?.percent)) : NA('Apps running'));
   const act = executive.activity;
@@ -177,7 +181,7 @@ export function buildScorecardPayload(report) {
   if (trend?.line) lines.push(`Revenue by ${trend.unit}: \`${trend.line}\`  (${usd(trend.low)} to ${usd(trend.high)})`);
   if (executive.mostDeployed) lines.push(executive.mostDeployed);
 
-  const tileKeys = [revenue, nodes, cpu, dc, apps];
+  const tileKeys = [revenue, nodes, cpu, fill, apps];
   const complete = tileKeys.every(x => x?.available);
   const color = revenue?.available ? (revenue.change?.percent >= 0 ? GREEN : RED) : NEUTRAL;
 
