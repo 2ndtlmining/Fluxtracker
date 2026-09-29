@@ -545,6 +545,46 @@ async function takeSnapshot() {
     }
 }
 
+/**
+ * Fill in today's decentralization reading if the snapshot missed it (issue #454).
+ *
+ * The snapshot records NULL decentralization columns when the node list is unavailable at
+ * that moment (the warm-up fetch failed), and nothing retried: 2026-09-20 and 2026-09-22
+ * were lost that way. Every later check of the same day now tries again -- NULL-only for the
+ * headline columns, like the metric top-up above, and the per-provider/country/continent rows
+ * for the day. A day with a reading is never touched, and past days are left as gaps: the
+ * node list they would need is gone. Never throws.
+ */
+async function topUpDecentralization(date) {
+    try {
+        const row = await getSnapshotByDate(date);
+        if (!row || row.decentralization_datacenter_percent != null) return;
+
+        const context = await loadClassificationContext();
+        const stats = await getDecentralizationStats(context);
+        if (!(stats?.classifiedCount > 0)) return;   // still no node list: try the next check
+
+        const filled = await fillSnapshotNullColumns(date, {
+            decentralization_datacenter_count: stats.datacenterCount,
+            decentralization_independent_count: stats.classifiedCount - stats.datacenterCount,
+            decentralization_datacenter_percent: stats.datacenterPercent
+        });
+
+        const writes = [
+            [createDecentralizationSnapshots, getFullDatacenterBreakdown],
+            [createDecentralizationCountrySnapshots, getFullCountryBreakdown],
+            [createDecentralizationContinentSnapshots, getFullContinentBreakdown]
+        ];
+        for (const [write, breakdownOf] of writes) {
+            const breakdown = await breakdownOf(context);
+            if (breakdown.length > 0) await write(date, breakdown);
+        }
+        log.info({ date, filled }, "Filled in today's missed decentralization reading");
+    } catch (error) {
+        log.warn({ err: error }, "Could not top up today's decentralization reading");
+    }
+}
+
 // ============================================
 // MAIN CHECK
 // ============================================
@@ -617,6 +657,8 @@ async function runCheck() {
                 // Never let a top-up failure affect the snapshot check itself.
                 log.warn({ err: error }, "Could not top up NULL columns on today's snapshot");
             }
+
+            await topUpDecentralization(today);
 
             const repoCount = await getRepoSnapshotCountByDate(today);
             if (repoCount === 0) {

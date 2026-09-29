@@ -10,6 +10,7 @@ vi.mock('../database.js', () => ({
     getRepoSnapshotCountByDate: vi.fn(() => 0),
     getCurrentMetrics: vi.fn(),
     getSnapshotByDate: vi.fn(),
+    fillSnapshotNullColumns: vi.fn(() => Promise.resolve([])),
     getRevenueForDateRange: vi.fn(() => 123.45),
     createDecentralizationSnapshots: vi.fn(),
     createDecentralizationCountrySnapshots: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('../database.js', () => ({
 
 vi.mock('../../services/decentralizationService.js', () => ({
     getDecentralizationStats: vi.fn(),
+    loadClassificationContext: vi.fn(() => Promise.resolve({ nodes: [], relevant: [] })),
     getFullDatacenterBreakdown: vi.fn(() => Promise.resolve([])),
     getFullCountryBreakdown: vi.fn(() => Promise.resolve([])),
     getFullContinentBreakdown: vi.fn(() => Promise.resolve([])),
@@ -70,6 +72,7 @@ import {
 } from '../snapshotManager.js';
 
 import {
+    fillSnapshotNullColumns,
     createDailySnapshot,
     createRepoSnapshots,
     getCurrentMetrics,
@@ -85,6 +88,7 @@ import { getLatestRepoCounts } from '../../services/cloudService.js';
 import { recordFailure } from '../circuitBreaker.js';
 import { isBackupEnabled, performBackup } from '../../services/backupService.js';
 import {
+    loadClassificationContext,
     getDecentralizationStats,
     getFullDatacenterBreakdown,
     getFullCountryBreakdown,
@@ -731,6 +735,63 @@ describe('snapshotManager', () => {
             await vi.advanceTimersByTimeAsync(0);
 
             expect(recordFailure).toHaveBeenCalledTimes(1);
+        });
+    });
+    // ------------------------------------------
+    // A missed decentralization reading is filled in the same day (issue #454)
+    // ------------------------------------------
+    describe('decentralization top-up', () => {
+        const STATS = { classifiedCount: 100, datacenterCount: 49, datacenterPercent: 49 };
+
+        beforeEach(() => {
+            getLatestRepoCounts.mockReturnValue(makeRepoCounts(15));
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            loadClassificationContext.mockResolvedValue({ nodes: ['n'], relevant: ['n'] });
+            getDecentralizationStats.mockResolvedValue(STATS);
+            fillSnapshotNullColumns.mockResolvedValue([]);
+            getFullDatacenterBreakdown.mockResolvedValue([{ org: 'Hetzner', count: 49 }, { org: '(independent)', count: 51 }]);
+            getFullCountryBreakdown.mockResolvedValue([{ country: 'Germany', countryCode: 'DE', count: 100 }]);
+            getFullContinentBreakdown.mockResolvedValue([{ continent: 'Europe', continentCode: 'EU', count: 100 }]);
+        });
+
+        afterEach(() => stopSnapshotChecker());
+
+        it("fills today's NULL headline columns and writes the breakdown rows once the node list is back", async () => {
+            // Today's row exists (so no new snapshot), but its reading was missed
+            getSnapshotByDate.mockResolvedValue({ snapshot_date: '2026-03-19', decentralization_datacenter_percent: null });
+
+            startSnapshotChecker();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(fillSnapshotNullColumns).toHaveBeenCalledWith('2026-03-19', {
+                decentralization_datacenter_count: 49,
+                decentralization_independent_count: 51,
+                decentralization_datacenter_percent: 49
+            });
+            expect(createDecentralizationSnapshots).toHaveBeenCalledWith('2026-03-19', expect.arrayContaining([{ org: 'Hetzner', count: 49 }]));
+            expect(createDecentralizationCountrySnapshots).toHaveBeenCalledTimes(1);
+            expect(createDecentralizationContinentSnapshots).toHaveBeenCalledTimes(1);
+        });
+
+        it('leaves a day that already has its reading alone', async () => {
+            getSnapshotByDate.mockResolvedValue({ snapshot_date: '2026-03-19', decentralization_datacenter_percent: 52.1 });
+
+            startSnapshotChecker();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(loadClassificationContext).not.toHaveBeenCalled();
+            expect(createDecentralizationSnapshots).not.toHaveBeenCalled();
+        });
+
+        it('writes nothing while the node list is still unavailable, and tries again next check', async () => {
+            getSnapshotByDate.mockResolvedValue({ snapshot_date: '2026-03-19', decentralization_datacenter_percent: null });
+            getDecentralizationStats.mockResolvedValue({ classifiedCount: 0, datacenterCount: 0, datacenterPercent: null });
+
+            startSnapshotChecker();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(createDecentralizationSnapshots).not.toHaveBeenCalled();
+            expect(fillSnapshotNullColumns).not.toHaveBeenCalledWith('2026-03-19', expect.objectContaining({ decentralization_datacenter_percent: expect.anything() }));
         });
     });
 });
