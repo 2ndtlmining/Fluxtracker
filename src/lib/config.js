@@ -238,7 +238,12 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'dragonwilds', name: 'RuneScape: Dragonwilds' },
     // Issue #409. The hub's deploy dialog lowercases the marketplace app name ("VRising"),
     // giving vrising1790277053099 and the like. Enterprise-encrypted, so no image to match.
-    { prefix: 'vrising', name: 'V Rising' }
+    { prefix: 'vrising', name: 'V Rising' },
+    // Issue #496. Hub deployments (satisfactory1790517689678, factorio...). Their specs are
+    // public today, so the image path already counts them -- this keeps them counted, and
+    // their payments in game revenue, if the hub ever encrypts them like V Rising.
+    { prefix: 'satisfactory', name: 'Satisfactory' },
+    { prefix: 'factorio', name: 'Factorio' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.

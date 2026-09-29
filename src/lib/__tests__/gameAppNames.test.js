@@ -16,6 +16,10 @@ describe('resolveGameFromAppName', () => {
         // Issue #409: live names from the games hub, 2026-09-27.
         expect(resolveGameFromAppName('vrising1790333632959')).toBe('V Rising');
         expect(resolveGameFromAppName('vrising1790277053099')).toBe('V Rising');
+        // Issue #496: live names from the games hub, 2026-09-30. Their specs are public today,
+        // but the name must not depend on that.
+        expect(resolveGameFromAppName('satisfactory1790517689678')).toBe('Satisfactory');
+        expect(resolveGameFromAppName('factorio1790517689678')).toBe('Factorio');
     });
 
     it('totals every plan of one game under the canonical name', () => {
