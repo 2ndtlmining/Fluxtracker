@@ -93,10 +93,11 @@ describe('fetchFluxPrice fallback', () => {
     });
 
     it('remembers a price fetched from a fallback source, not just CoinGecko', async () => {
-        // CoinGecko fails, the explorer answers -- that price must be cached too.
-        resilientFetch
-            .mockRejectedValueOnce(new Error('429 rate limited'))
-            .mockResolvedValueOnce({ rate: '0.042' });
+        // CoinGecko fails, a later source answers -- that price must be cached too.
+        resilientFetch.mockImplementation(async url => {
+            if (url.includes('explorer.runonflux.io')) return { rate: '0.042' };
+            throw new Error('429 rate limited');
+        });
         const { fetchFluxPrice, getLastGoodPrice } = await loadService();
 
         await expect(fetchFluxPrice()).resolves.toBeCloseTo(0.042);
@@ -113,6 +114,41 @@ describe('fetchFluxPrice fallback', () => {
         await fetchFluxPrice();
 
         expect(updateCurrentMetrics).not.toHaveBeenCalled();
+    });
+});
+
+/**
+ * 2026-09-29: every live source failed at once on the owner's server. CoinGecko answered
+ * 403 (CloudFront block), CryptoCompare 401 (key required), and the Flux explorer moved
+ * `rate` under `data` -- so fetchFluxPrice() returned null and every new transaction was
+ * stored with amount_usd = NULL. Binance (keyless, already the price-history source) is
+ * now tried second, and the explorer is read in both shapes.
+ */
+describe('fetchFluxPrice sources', () => {
+    const only = (match, body) => async url => {
+        if (url.includes(match)) return body;
+        throw new Error('403 blocked');
+    };
+
+    it('reads the price from the Binance ticker when CoinGecko is blocked', async () => {
+        resilientFetch.mockImplementation(only('api.binance.com', { symbol: 'FLUXUSDT', price: '0.07370000' }));
+        const { fetchFluxPrice } = await loadService();
+
+        await expect(fetchFluxPrice()).resolves.toBeCloseTo(0.0737);
+    });
+
+    it('reads the explorer rate in its current { data: { rate } } shape', async () => {
+        resilientFetch.mockImplementation(only('explorer.runonflux.io', { status: 200, data: { rate: 0.073, short: 'FLUX' } }));
+        const { fetchFluxPrice } = await loadService();
+
+        await expect(fetchFluxPrice()).resolves.toBeCloseTo(0.073);
+    });
+
+    it('rejects a non-positive Binance price', async () => {
+        resilientFetch.mockImplementation(only('api.binance.com', { price: '0' }));
+        const { fetchFluxPrice } = await loadService();
+
+        await expect(fetchFluxPrice()).resolves.toBeNull();
     });
 });
 

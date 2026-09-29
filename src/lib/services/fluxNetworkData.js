@@ -57,7 +57,7 @@ async function persistPrice(price) {
 
 /**
  * Fetch FLUX price in USD.
- * Tries three sources in order: CoinGecko → Flux Explorer → CryptoCompare
+ * Tries four sources in order: CoinGecko → Binance → Flux Explorer → CryptoCompare
  */
 export async function fetchFluxPrice() {
     log.info('Fetching FLUX price');
@@ -75,11 +75,27 @@ export async function fetchFluxPrice() {
         log.warn({ err: e }, 'CoinGecko failed');
     }
 
-    // 2. Flux Explorer  (returns { status:200, currency:"USD", rate:X })
+    // 2. Binance ticker  (returns { symbol:"FLUXUSDT", price:"X" }) -- keyless; CoinGecko
+    //    answers 403 from some networks, which with the other two failing left every
+    //    transaction in the pass without a USD value.
+    try {
+        const data = await resilientFetch(API_ENDPOINTS.PRICE_BINANCE, { timeout: 10000, breakerKey: 'binance-price' });
+        const price = parseFloat(data?.price);
+        if (price > 0) {
+            log.info({ price }, 'FLUX price fetched from Binance: $%s', price);
+            await persistPrice(price);
+            return rememberPrice(price);
+        }
+    } catch (e) {
+        log.warn({ err: e }, 'Binance price failed');
+    }
+
+    // 3. Flux Explorer  (now { status:200, data:{ rate:X } }; older responses had a top-level rate)
     try {
         const data = await resilientFetch(API_ENDPOINTS.PRICE_EXPLORER, { timeout: 10000, breakerKey: 'flux-explorer-rate' });
-        if (data?.rate) {
-            const price = parseFloat(data.rate);
+        const rate = data?.data?.rate ?? data?.rate;
+        if (rate) {
+            const price = parseFloat(rate);
             if (price > 0) {
                 log.info({ price }, 'FLUX price fetched from Explorer: $%s', price);
                 await persistPrice(price);
@@ -90,7 +106,7 @@ export async function fetchFluxPrice() {
         log.warn({ err: e }, 'Flux Explorer price failed');
     }
 
-    // 3. CryptoCompare  (returns { USD: X })
+    // 4. CryptoCompare  (returns { USD: X })
     try {
         const data = await resilientFetch(API_ENDPOINTS.PRICE_CRYPTOCOMPARE, { timeout: 10000, breakerKey: 'cryptocompare-price' });
         if (data?.USD) {

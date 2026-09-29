@@ -85,6 +85,8 @@ export const API_ENDPOINTS = {
     
     // Price APIs (tried in order)
     PRICE_COINGECKO: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
+    // Binance: keyless, { symbol, price: "0.0737" } -- FLUXUSDT, treated as ~USD like the history
+    PRICE_BINANCE: 'https://api.binance.com/api/v3/ticker/price?symbol=FLUXUSDT',
     PRICE_EXPLORER: 'https://explorer.runonflux.io/api/currency',
     PRICE_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/price?fsym=FLUX&tsyms=USD',
 
