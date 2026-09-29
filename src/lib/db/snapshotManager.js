@@ -30,6 +30,7 @@ import {
 import { getFluxCloudActivity } from '../services/carouselService.js';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './circuitBreaker.js';
 import { dbSuccessCount, isDatabaseError } from './dbCallTracker.js';
+import { staleServices, staleColumns } from '../services/serviceHealth.js';
 import { isBackupEnabled, performBackup } from '../services/backupService.js';
 import { SNAPSHOT_CONFIG as SNAP_CFG, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS } from '../config.js';
 import { createLogger } from '../logger.js';
@@ -448,6 +449,17 @@ async function takeSnapshot() {
             fluxCloudActivity
         });
 
+        // #431 (owner decision 2026-09-29): a source that has not refreshed for 6 hours would
+        // otherwise be recorded as today's reading with yesterday's frozen figures. Its columns
+        // are written NULL instead -- the chart shows a gap and KPI calls the day n/a.
+        const stale = staleServices();
+        if (stale.length > 0) {
+            for (const column of staleColumns()) {
+                if (column in snapshotData) snapshotData[column] = null;
+            }
+            log.warn({ stale }, '[SNAPSHOT] Stale sources recorded as gaps: %s', stale.join(', '));
+        }
+
         await createDailySnapshot(snapshotData);
 
         // Today's figure above is a partial by definition; yesterday's can now be made
@@ -647,7 +659,10 @@ async function runCheck() {
                 const metrics = await getCurrentMetrics();
                 if (metrics) {
                     const patch = {};
-                    for (const column of METRIC_COLUMNS) patch[column] = metrics[column];
+                    // Never top up a stale source's columns (#431): that would copy its frozen
+                    // figures straight back into the gap the snapshot left for them.
+                    const skip = new Set(staleColumns());
+                    for (const column of METRIC_COLUMNS) if (!skip.has(column)) patch[column] = metrics[column];
                     const filled = await fillSnapshotNullColumns(today, patch);
                     if (filled.length > 0) {
                         log.info(`Filled ${filled.length} missing column(s) on today's snapshot: ${filled.join(', ')}`);
