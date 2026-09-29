@@ -843,6 +843,10 @@ export const REVENUE_SYNC = {
     AUDIT_LOOKBACK_BLOCKS: 4320,    // ~3 days of blocks for audit re-scan
     AUDIT_BATCH_SIZE: 10,           // Concurrent fetches during audit retry
     PRICE_HISTORY_BATCH_SIZE: 1000, // Rows per insert batch for price history backfill
+    // Full /apps/permanentmessages download (~91 MB, ~70k messages, ~600 MB of RSS to parse)
+    // at most this often (issue #414). ~210 messages arrive a day; between full loads the
+    // per-hash lookup names new payments. Was hourly.
+    PERMANENT_MESSAGES_FULL_REFRESH_MS: 24 * 60 * 60 * 1000,
 };
 
 // ============================================

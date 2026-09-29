@@ -214,16 +214,34 @@ describe('isUnregisteredSpec', () => {
         expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(false);
     });
 
-    it('stops labelling once the last successful dump is older than its TTL', async () => {
+    it('only a dump loaded at least a day after the payment can label it (#414)', async () => {
         resilientFetch.mockResolvedValue(dumpWith(OTHER));
         const { fetchPermanentMessages, isUnregisteredSpec } = await loadSync();
-        await fetchPermanentMessages();
+        await fetchPermanentMessages();                          // dump loaded at NOW
 
-        // Every refresh since has failed, which keeps the old map but not its freshness.
-        vi.setSystemTime(NOW + 2 * 60 * 60_000);
+        // 30 hours on, with no newer successful dump: a payment made 10 hours before that
+        // dump is now over a day old, but the dump was taken too soon after it to prove
+        // anything -- its message could have landed after the dump.
+        vi.setSystemTime(NOW + 30 * 60 * 60_000);
         resilientFetch.mockRejectedValue(new Error('timeout'));
         await fetchPermanentMessages();
 
-        expect(isUnregisteredSpec(HASH, twoDaysAgo())).toBe(false);
+        expect(isUnregisteredSpec(HASH, nowSeconds() - 10 * 3600)).toBe(false);
+        // A payment made two days before the dump is proven either way
+        expect(isUnregisteredSpec(HASH, nowSeconds() - 2 * 86400)).toBe(true);
+    });
+
+    it('refreshes the full dump at most daily, not hourly (#414)', async () => {
+        resilientFetch.mockResolvedValue(dumpWith(OTHER));
+        const { ensurePermanentMessagesCache } = await loadSync();
+        await ensurePermanentMessagesCache();
+        vi.setSystemTime(NOW + 23 * 60 * 60_000);
+        await ensurePermanentMessagesCache();
+        const fullLoads = () => resilientFetch.mock.calls.filter(([url]) => String(url).endsWith('/permanentmessages')).length;
+        expect(fullLoads()).toBe(1);
+
+        vi.setSystemTime(NOW + 25 * 60 * 60_000);
+        await ensurePermanentMessagesCache();
+        expect(fullLoads()).toBe(2);
     });
 });
