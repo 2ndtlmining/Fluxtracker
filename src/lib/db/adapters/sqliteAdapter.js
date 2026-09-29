@@ -569,6 +569,8 @@ export async function createDailySnapshot(snapshot) {
         locked_collateral: snapshot.locked_collateral ?? null,
         // Issue #463. Created by schemaMigrator (both modes), like the per-game columns.
         ...Object.fromEntries(CONTINENT_CPU_COLUMNS.map(c => [c, snapshot[c] ?? null])),
+        enterprise_apps: snapshot.enterprise_apps ?? null,                      // issue #424
+        enterprise_apps_percent: snapshot.enterprise_apps_percent ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

@@ -295,6 +295,11 @@ export async function createDailySnapshot(snapshot) {
         // Issue #463 (migration 029). Named only when there is a reading, so a deploy that
         // lands before the columns exist cannot lose the daily snapshot (median_days_left's guard).
         ...Object.fromEntries(CONTINENT_CPU_COLUMNS.filter(c => snapshot[c] != null).map(c => [c, snapshot[c]])),
+        // Issue #424 (migration 030), same guard: named only with a reading.
+        ...(snapshot.enterprise_apps_percent != null ? {
+            enterprise_apps: snapshot.enterprise_apps,
+            enterprise_apps_percent: snapshot.enterprise_apps_percent
+        } : {}),
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

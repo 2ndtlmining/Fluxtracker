@@ -51,6 +51,10 @@ export async function fetchUniqueAppOwners() {
 
         const owners = new Set();
         let expired = 0;
+        // Private (enterprise) apps among the same unexpired specs (issue #424). The spec is
+        // encrypted, but the flag is readable.
+        let running = 0;
+        let enterprise = 0;
         for (const spec of specs) {
             // A lease that ran out ON this block is over, hence > and not >=.
             const expiryBlock = (spec?.height || 0) + (spec?.expire || 0);
@@ -61,6 +65,8 @@ export async function fetchUniqueAppOwners() {
             // Falsy owners are absence of information, not an operator. Without this guard
             // every owner-less spec collapses into one phantom owner in the Set.
             if (spec?.owner) owners.add(spec.owner);
+            running++;
+            if (spec?.enterprise) enterprise++;
         }
 
         if (owners.size === 0) {
@@ -74,6 +80,8 @@ export async function fetchUniqueAppOwners() {
         // always describe the same set of apps. Omitted (not 0) when nothing is readable.
         const timeLeft = medianDaysLeft(specs, currentBlock);
         if (timeLeft) ownerData.median_days_left = timeLeft.medianDays;
+        ownerData.enterprise_apps = enterprise;
+        ownerData.enterprise_apps_percent = Math.round((enterprise / running) * 10000) / 100;
 
         await updateCurrentMetrics(ownerData);
         await updateSyncStatus('app-owners', 'completed');

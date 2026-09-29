@@ -46,9 +46,10 @@ const SPECS = [
     { name: 'alpha1', owner: 'zelAlpha', height: BLOCK - 100, expire: 5000 },
     { name: 'alpha2', owner: 'zelAlpha', height: BLOCK - 200, expire: 5000 },
     { name: 'alpha3', owner: 'zelAlpha', height: BLOCK - 300, expire: 5000 },
-    { name: 'beta1', owner: 'zelBeta', height: BLOCK - 400, expire: 5000 },
-    { name: 'gamma1', owner: 'zelGamma', height: BLOCK - 500, expire: 5000 },
-    { name: 'delta1', owner: 'zelDelta', height: BLOCK - 9000, expire: 5000 }
+    { name: 'beta1', owner: 'zelBeta', height: BLOCK - 400, expire: 5000, enterprise: 'enc' },
+    { name: 'gamma1', owner: 'zelGamma', height: BLOCK - 500, expire: 5000, enterprise: 'enc' },
+    // Expired AND private: counts toward neither the owners nor the private share (#424).
+    { name: 'delta1', owner: 'zelDelta', height: BLOCK - 9000, expire: 5000, enterprise: 'enc' }
 ];
 
 beforeEach(() => {
@@ -61,12 +62,20 @@ beforeEach(() => {
 });
 
 describe('fetchUniqueAppOwners', () => {
+    it('stores the private (enterprise) share of the same unexpired apps (issue #424)', async () => {
+        const result = await fetchUniqueAppOwners();
+
+        // beta1 and gamma1 of five running apps; the expired private delta1 is not counted
+        expect(result.enterprise_apps).toBe(2);
+        expect(result.enterprise_apps_percent).toBe(40);
+    });
+
     it('counts distinct owners, not specs', async () => {
         const result = await fetchUniqueAppOwners();
 
         // Median days left over the same five running specs: 4,700 blocks / 2,880 = 1.6.
-        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
-        expect(updateCurrentMetrics).toHaveBeenCalledWith({ unique_app_owners: 3, median_days_left: 1.6 });
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6, enterprise_apps: 2, enterprise_apps_percent: 40 });
+        expect(updateCurrentMetrics).toHaveBeenCalledWith({ unique_app_owners: 3, median_days_left: 1.6, enterprise_apps: 2, enterprise_apps_percent: 40 });
         expect(updateSyncStatus).toHaveBeenCalledWith('app-owners', 'completed');
     });
 
@@ -115,7 +124,7 @@ describe('fetchUniqueAppOwners', () => {
         const result = await fetchUniqueAppOwners();
 
         // Owner-less specs are still running apps: they count toward time left.
-        expect(result).toEqual({ unique_app_owners: 2, median_days_left: 1.7 });
+        expect(result).toEqual({ unique_app_owners: 2, median_days_left: 1.7, enterprise_apps: 0, enterprise_apps_percent: 0 });
     });
 
     it('marks the sync failed and rethrows rather than writing 0', async () => {
@@ -163,7 +172,7 @@ describe('refreshUniqueAppOwnersIfStale', () => {
     it('fetches on a cold cache', async () => {
         const result = await refreshUniqueAppOwnersIfStale();
 
-        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6, enterprise_apps: 2, enterprise_apps_percent: 40 });
         expect(axios.get).toHaveBeenCalledTimes(1);
     });
 
@@ -189,6 +198,6 @@ describe('refreshUniqueAppOwnersIfStale', () => {
         axios.get.mockResolvedValue(blockHeightResponse);
         const result = await refreshUniqueAppOwnersIfStale();
 
-        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6 });
+        expect(result).toEqual({ unique_app_owners: 3, median_days_left: 1.6, enterprise_apps: 2, enterprise_apps_percent: 40 });
     });
 });

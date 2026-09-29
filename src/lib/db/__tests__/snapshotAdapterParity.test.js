@@ -78,6 +78,7 @@ describe('createDailySnapshot column parity (issue #229)', () => {
         expect(stored.locked_collateral).toBeNull();
         expect(stored.cpu_cores_eu).toBeNull();     // issue #463
         expect(stored.cpu_locked_na).toBeNull();
+        expect(stored.enterprise_apps_percent).toBeNull();   // issue #424
         expect(stored.median_days_left).toBeNull();
         expect(stored.deployment_fill_percent).toBeNull();
         expect(stored.deployments_ordered).toBeNull();
