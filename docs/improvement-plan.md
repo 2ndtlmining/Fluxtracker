@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-29** (v1.14)
+**Last reviewed: 2026-09-30** (v1.15)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -12,6 +12,26 @@ rule links to an issue.
 ---
 
 ## Next up, in order
+
+**The queue is empty (2026-09-30, v1.15).** Every issue from the 2026-09-27 review is shipped and
+verified on the owner's instance, and no issue is open. New work starts from a new issue.
+
+**Status at 2026-09-30 (v1.15):** merged and verified on the owner's instance.
+- **Robustness:** once-a-year "not enough data" notice kept, 10-minute retry gone, shown in health
+  as skipped (#478: #433); a decentralization reading a snapshot missed is topped up later the same
+  day (#479: #454); a source stale for 6 hours is recorded as a gap, not frozen figures (#486: #431).
+- **Performance:** full permanent-messages refresh daily, not hourly (#480: #414).
+- **Docs and cleanup:** README and `.env.example` for v1.14 (#481: #425 #426); dead code removed
+  (#483: #427).
+- **Dependencies:** better-sqlite3 13 (#484); vitest 5, concurrently 10, dotenv 18 (#485: #438).
+  On Windows, install with `npm ci --ignore-scripts && npm run prepare` (see README).
+- **Header:** rotation spreads the dominant game across the round and alternates its variants
+  (#487: #417); art for Enshrouded, Rust, Windrose, Terraria and a FiveM outro (#488: #418);
+  a factory scene for Satisfactory/Factorio and ARK (#491: #419); n8n, SimpleX and
+  Nextcloud/ownCloud (#491: #420). Every dedicated-site game now has art; the harness's
+  "game without art" fixture is a Soulmask image.
+- **KPI:** the *In datacenters* tile became *Ordered vs supplied* (#492: #482). #452 (numbers
+  moving, Hetzner twice) was the old per-IP method, fixed by #458, and closed with an explanation.
 
 **Status at 2026-09-29 (v1.14):** everything below is merged and verified on the owner's instance.
 - **Correctness and robustness:** a failed `sync_status` read no longer restarts the revenue scan at
@@ -44,22 +64,13 @@ working day, so a version change on production confirms that day's work landed. 
 points must read plainly and must not be driven by plan length or cohort age; ask the owner
 before building anything whose definition is ambiguous.
 
-### Next, in this order
+### The 2026-09-27 review (done)
 
-The 2026-09-27 site review filed #414-#447 (label `review-2026-09-27`). The owner settled every
-open question the same day; the decisions are recorded on each issue and summarised below.
-Closed as not planned: #423 (ArcaneOS will be mandatory), #428 (keep all scripts and contract
-functions), #439 (today-so-far on the Revenue card is intended; KPI compares completed periods).
-
-| # | Item | Issues | Notes |
-|---|------|--------|-------|
-| 1 | Robustness follow-ups | #431 #433 | #433: keep the once-a-year "not enough data" notice; stop the 10-minute retry and show it in health as skipped |
-| 2 | Decentralization gap | #454 | A day whose snapshot missed the decentralization reading is never filled in; top it up later the same day |
-| 3 | Performance | #414 | Full permanent-messages refresh daily instead of hourly. Re-tune #412's `isUnregisteredSpec` freshness check in the same PR |
-| 4 | Docs and cleanup | #425 #426 #427 | README and KPI docs (incl. the new stats and the decentralization definition); safe dead-code deletions |
-| 5 | Dependency majors | #437 #438 | Node 24 is live, so these are unblocked |
-| 6 | Header art | #417 #418 #419 #420 | Rotation fatigue, then new scenes. Move the harness's "game without art" fixture off Enshrouded when #418 lands |
-| -- | Version bump | -- | Last PR of each working day |
+The review filed #414-#447 (label `review-2026-09-27`); the owner settled every open question the
+same day and the decisions are recorded on each issue. All of it has shipped (see the status
+above). Closed as not planned: #423 (ArcaneOS will be mandatory), #428 (keep all scripts and
+contract functions), #439 (today-so-far on the Revenue card is intended; KPI compares completed
+periods).
 
 ### Owner action
 
