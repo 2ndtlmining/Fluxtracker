@@ -329,6 +329,12 @@ export const SERVICE_INTRO_RULES = [
     { key: 'ai-agent', name: /^(hermesagent(pro)?[0-9]{13,}|openclaw|ownllm)/ },
     { key: 'vpn', name: /^cumulusvpn/, repo: /(softethervpn|cumulusvpn-gateway|shadowsocks|outline-ss-server|socks5|tor-socks-proxy|http-proxy|proxymsg-agent)/ },
     { key: 'probe', name: /^probeamericas|probe$/, repo: /(globalping-probe|outposts-probe)/ },
+    // #420. n8nstarter<timestamp> is Flux's encrypted n8n site deploy; n8npostgres is its DB.
+    { key: 'automation', name: /^n8n/, repo: /^n8nio\/n8n(:|$)/ },
+    // simplexsmp1..13 carry the image; simplexsmp<timestamp> and privatesimplexsmp... do not.
+    { key: 'messaging', name: /^(private)?simplexsmp/, repo: /^simplexchat\/smp-server(:|$)/ },
+    // nextcloudpersonal<timestamp> is encrypted; OnlyOffice only ever runs beside one of the two.
+    { key: 'files', name: /^(nextcloud|owncloud)/, repo: /^(nextcloud|owncloud\/|onlyoffice\/)/ },
     // ^firo: the Firo masternodes (firomn21..., firoalpha, firospare) are enterprise-encrypted,
     // so the name is all there is -- 16% of a day's deployments got the crane before #416.
     { key: 'crypto', name: /^(presearchnode|streamrnode|kaspanode|blockbook|firo)/ }
