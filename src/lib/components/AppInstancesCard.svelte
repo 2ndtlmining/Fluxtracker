@@ -97,7 +97,8 @@
           <!-- The percentage and the pair it comes from are ONE statement, so they sit
                tight together; the container count is a separate fact and gets air above it.
                Four evenly spaced lines read as an undifferentiated wall of numbers. -->
-          <div class="fill-group">
+          <!-- #445: say what the percentage is -- the headline was only "N of M ordered". -->
+          <div class="fill-group" title="Share of ordered app deployments that are actually running (apps that have not expired)">
             <div class="total-value">{fill.fillPct.toFixed(1)}%</div>
             <div class="total-subtitle">{formatNumber(fill.running)} of {formatNumber(fill.ordered)} ordered</div>
           </div>
