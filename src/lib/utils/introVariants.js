@@ -10,8 +10,13 @@ function hashName(name) {
   return hash;
 }
 
+/** Which of `count` variants this app plays: deterministic per name. */
+export function variantIndex(name, count) {
+  return count > 0 ? hashName(name) % count : null;
+}
+
 /** The variant for this app: deterministic per name, one of `variants`. */
 export function pickVariant(name, variants) {
   if (!Array.isArray(variants) || variants.length === 0) return null;
-  return variants[hashName(name) % variants.length];
+  return variants[variantIndex(name, variants.length)];
 }
