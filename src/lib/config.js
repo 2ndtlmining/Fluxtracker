@@ -663,6 +663,20 @@ export const NODE_COLLATERAL = {
     stratus: 40000
 };
 
+// NODE BLOCK REWARDS (issue #422)
+// ============================================
+// Every block's coinbase pays one node of each tier (outputs 2-4, after a miner output that
+// also carries fees and is not a node payout). Measured on-chain 2026-09-29 by bisecting the
+// coinbase from block 1,600,000 (2024-03-15) to the tip: ONE change in that span, at block
+// 2,020,000 (2025-10-25), which also moved the block time from 2 minutes to 30 seconds.
+// blocksPerDay is the MEASURED average of each era (the targets are 720 and 2,880).
+// Entries are keyed by date so a daily snapshot can find its era; add a new entry when the
+// protocol changes -- never edit an old one, or history restates.
+export const NODE_REWARD_SCHEDULE = [
+    { fromDate: '2000-01-01', fromHeight: 0, perBlock: { cumulus: 2.8125, nimbus: 4.6875, stratus: 11.25 }, blocksPerDay: 713 },
+    { fromDate: '2025-10-25', fromHeight: 2020000, perBlock: { cumulus: 1, nimbus: 3.5, stratus: 9 }, blocksPerDay: 2876 }
+];
+
 /**
  * Locked collateral across the network, per tier and in total.
  *

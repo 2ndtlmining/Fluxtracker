@@ -7,10 +7,28 @@
   import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
   import { fromColumnar } from '$lib/utils/columnar.js';
+  import { rewardPerNodePerDay } from '$lib/utils/nodeRewards.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from '@lucide/svelte';
 
   const methodChangeLabel = new Date(`${DECENTRALIZATION_PER_NODE_SINCE}T00:00:00Z`)
     .toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  // Issue #422: block rewards per node per day, derived from each day's tier count and the
+  // on-chain payout schedule, so the whole history is available. $ uses that day's recorded
+  // FLUX price. Owner decision: FLUX and $ per node per day only -- no yearly return or APY.
+  const REWARD_NOTE = "Block rewards only: the FLUX paid to one node of this tier per day on average (the tier's payout per block x blocks that day / its nodes). Not app income, and before hardware costs. The step on 25 Oct 2025 is the chain's own change: 30-second blocks, and the miner's share moved to nodes.";
+  const NODE_REWARD_METRICS = [['cumulus', 'Cumulus'], ['nimbus', 'Nimbus'], ['stratus', 'Stratus']].flatMap(([tier, name]) => {
+    const flux = s => rewardPerNodePerDay(s.date || s.snapshot_date, tier, s[`node_${tier}`]);
+    return [
+      { id: `reward_flux_${tier}`, label: `${name} node rewards (FLUX/day)`, field: `reward_flux_${tier}`, format: 'fluxRate', dropNulls: true,
+        derive: flux, group: 'Block rewards per node', description: REWARD_NOTE },
+      { id: `reward_usd_${tier}`, label: `${name} node rewards ($/day)`, field: `reward_usd_${tier}`, format: 'usdRate', dropNulls: true,
+        // That day's price from flux_price_history (the API attaches it), falling back to the
+        // snapshot's own price where the history has no row.
+        derive: s => { const f = flux(s); const price = s.flux_price_day ?? s.flux_price_usd; return f != null && price > 0 ? f * price : null; },
+        group: 'Block rewards per node', description: REWARD_NOTE + " In $ at that day's recorded FLUX price." }
+    ];
+  });
+
   const DECENTRALIZATION_NOTE = `Counted per node, using each node's hosting flag, from ${methodChangeLabel}. ` +
     'Earlier days counted unique IPs and read higher, so the line steps on that day.';
 
@@ -116,6 +134,9 @@
   // Both go through the shared formatters (issue #323): upper-case K/M like the cards, and
   // thousands separators on USD and counts, which the tooltip and axis used to lack.
   function formatChartValue(value, format, { axis = false } = {}) {
+    // Per-node rates (#422) are small -- 0.87 FLUX, $0.06 a day -- so they keep two decimals.
+    if (format === 'fluxRate') return formatNumber(value, 2) + ' FLUX';
+    if (format === 'usdRate') return '$' + formatNumber(value, 2);
     if (format === 'flux') {
       return (axis ? formatCount(value, { compact: true }) : formatCount(value)) + ' FLUX';
     }
@@ -177,7 +198,8 @@
         { id: 'locked_collateral', label: 'Total Locked (FLUX)', field: 'locked_collateral', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_cumulus', label: 'Cumulus Locked (FLUX)', field: 'locked_collateral_cumulus', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_nimbus', label: 'Nimbus Locked (FLUX)', field: 'locked_collateral_nimbus', format: 'flux', dropNulls: true },
-        { id: 'locked_collateral_stratus', label: 'Stratus Locked (FLUX)', field: 'locked_collateral_stratus', format: 'flux', dropNulls: true }
+        { id: 'locked_collateral_stratus', label: 'Stratus Locked (FLUX)', field: 'locked_collateral_stratus', format: 'flux', dropNulls: true },
+        ...NODE_REWARD_METRICS
       ]
     },
     resources: {
