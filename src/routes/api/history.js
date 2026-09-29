@@ -4,6 +4,7 @@ import express from 'express';
 
 import {
     getSnapshotsInRange,
+    getPricesForDateRange,
     getLastNSnapshots,
     getDailyRevenueFromTransactions,
     getDailyRevenueInRange,
@@ -49,6 +50,18 @@ const revenueCache = createCache(300_000); // 5 min
 // without it, and it is also the heaviest: raw SELECT * rows with ~60 numeric columns, on
 // the order of 1 MB of JSON at the chart's "All" timeframe, re-read from the database for
 // every viewer on every chart load.
+export async function attachDailyPrices(snapshots) {
+    const dates = snapshots.map(s => s.snapshot_date).filter(Boolean).sort();
+    if (dates.length === 0) return;
+    try {
+        const prices = await getPricesForDateRange(dates[0], dates[dates.length - 1]);
+        const byDate = new Map(prices.map(p => [String(p.date).slice(0, 10), Number(p.price_usd)]));
+        for (const s of snapshots) s.flux_price_day = byDate.get(s.snapshot_date) ?? null;
+    } catch (error) {
+        log.warn({ err: error }, 'Daily prices unavailable for the snapshot history');
+    }
+}
+
 router.get('/snapshots/full', async (req, res) => {
     const q = parseRangeQuery(req.query);
     if (q.error) return res.status(400).json({ error: q.error });
@@ -59,6 +72,12 @@ router.get('/snapshots/full', async (req, res) => {
         const snapshots = q.start
             ? await getSnapshotsInRange(q.start, q.end)
             : await getLastNSnapshots(q.limit);
+
+        // Each day's closing FLUX price from flux_price_history (issue #422), as its own field:
+        // snapshot flux_price_usd only exists from late 2025, and the per-node reward series
+        // in $ needs a price for every day it has a node count. One ranged read; a failure
+        // costs only this field, never the snapshots.
+        await attachDailyPrices(snapshots);
 
         // Return FULL snapshot data (not summarized). `?format=columns` (issue #389) names each
         // key once instead of on every row -- the chart asks for it; rows stay the default.
