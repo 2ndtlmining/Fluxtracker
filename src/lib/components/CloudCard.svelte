@@ -251,10 +251,11 @@
     font-weight: 600;
   }
   
+  /* #445: was 0.6rem, lower-cased ("tb") and at 70% opacity -- 3.13:1 contrast, below AA.
+     Written as-is ("TB", "cores") at a readable size and the label's own colour. */
   .metric-label .unit {
-    font-size: 0.6rem;
-    opacity: 0.7;
-    text-transform: lowercase;
+    font-size: 0.7rem;
+    text-transform: none;
     font-weight: 500;
   }
   
