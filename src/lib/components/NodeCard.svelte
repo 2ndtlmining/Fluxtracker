@@ -196,7 +196,9 @@
   
   .node-metrics {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    /* minmax(0, 1fr) + a width-scaled value (#442), as CloudCard does since #392: "1,702"
+       ran past the card's edge at ~1024px. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--spacing-md);
     margin-bottom: var(--spacing-md);
   }
@@ -222,7 +224,7 @@
   }
   
   .metric-value {
-    font-size: 1.75rem;
+    font-size: clamp(1.25rem, 2.1vw, 1.75rem);
     font-weight: 700;
     color: var(--text-white);
     font-variant-numeric: tabular-nums;
@@ -356,13 +358,16 @@
   
   /* Responsive */
   @media (max-width: 768px) {
+    /* #442: three columns down to phone width, only the numbers shrink. Stacking them made the
+       three hero cards 1,314px tall at 375px and 768px alike. minmax(0, 1fr) lets a column
+       shrink below its content (#392); one column only below 360px. */
     .node-metrics {
-      grid-template-columns: 1fr;
-      gap: var(--spacing-lg);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--spacing-sm);
     }
-    
+
     .metric-value {
-      font-size: 1.5rem;
+      font-size: clamp(1.1rem, 4vw, 1.5rem);
     }
     
     .node-total {
@@ -373,6 +378,13 @@
     
     .total-value {
       font-size: 1.25rem;
+    }
+  }
+
+  @media (max-width: 359px) {
+    .node-metrics {
+      grid-template-columns: 1fr;
+      gap: var(--spacing-lg);
     }
   }
   
