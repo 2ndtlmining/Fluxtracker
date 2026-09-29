@@ -1166,9 +1166,9 @@ Revenue            Game revenue        New vs renewal
 $777               $489                51% / 49%
 ▲ 27.0%            62.8% of revenue    of revenue
 
-Nodes              CPU in use          In datacenters
-6,508              26.7%               54.5%
-▼ 0.9%             ▲ 0.5 pts           ▲ 0.7 pts
+Nodes              CPU in use          Ordered vs supplied
+6,508              26.7%               83.0%
+▼ 0.9%             ▲ 0.5 pts           ▲ 0.1 pts
 
 Apps running       Deployed / expiring Median time left
 7,908              138 / 40            15 days
@@ -1191,9 +1191,13 @@ vs Sep 23, 2026 · data complete
 
 Where each tile comes from (`src/lib/kpi/scorecard.js`):
 
-- **Revenue, Nodes, CPU in use, In datacenters, Apps running** -- the metric dataset below
-  (`buildKpiDataset`), under its coverage rules. *In datacenters* is the period average of
-  `decentralization_datacenter_percent`.
+- **Revenue, Nodes, CPU in use, Ordered vs supplied, Apps running** -- the metric dataset below
+  (`buildKpiDataset`), under its coverage rules. *Ordered vs supplied* (#482) is the Apps card's
+  figure -- of the deployments ordered by unexpired specs, the share running -- taken over the
+  period as `sum(deployments_running) / sum(deployments_ordered)`, not an average of daily
+  percentages. It is recorded from 2026-09-28, so longer reports show `n/a` until a full
+  comparison period exists. It replaced *In datacenters*; the datacenter share is still in the
+  dataset and `/api/kpi/preview`.
 - **Game revenue, New vs renewal, Median time left, Deployed / expiring, Most deployed, trend
   line** -- `getExecutiveExtras()` in `kpiService.js`. Each falls back to `n/a`, never `0`, when
   its data is missing.
@@ -1229,7 +1233,8 @@ Two aggregation rules, chosen to match the live dashboard:
 | Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
 | Nodes | Unique wallets | **Average of daily snapshots** | `daily_snapshots.unique_wallets` |
 | Applications | Total Apps | **Average of daily snapshots** | `daily_snapshots` |
-| Decentralization | % Datacenter (the *In datacenters* tile) | **Average of daily snapshots** | `daily_snapshots.decentralization_datacenter_percent` |
+| Applications | Deployments running (% of ordered) -- the *Ordered vs supplied* tile | **Ratio of summed daily counts** | `daily_snapshots.deployments_running` / `deployments_ordered` |
+| Decentralization | % Datacenter (no longer a tile since #482) | **Average of daily snapshots** | `daily_snapshots.decentralization_datacenter_percent` |
 
 The scorecard's extra tiles (`getExecutiveExtras()`):
 
@@ -1362,6 +1367,7 @@ columns were added to `daily_snapshots` at different times:
 | Revenue | 2024-05-13 |
 | Nodes, CPU/RAM/SSD, CPU/RAM/SSD %, FLUX price | 2024-06-07 |
 | Total Apps | 2025-11-10 |
+| Deployments running (% of ordered) | 2026-09-28 |
 
 Metrics that fall short are marked `Insufficient data` **with the number of missing days**
 (in `/api/kpi/preview`: `change.note` is `Insufficient data` and `coverage.missing` holds the
