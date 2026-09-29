@@ -18,6 +18,7 @@ import { getActiveInstanceName, getActiveInstanceSince } from '../../lib/db/supa
 import { APP_VERSION, SYNC_INTERVALS } from '../../lib/config.js';
 import { summarizeHealth } from '../../lib/healthSummary.js';
 import { getRevenueSyncSchedulerStatus } from '../../lib/services/revenueScheduler.js';
+import { getServiceTestSchedulerStatus } from '../../lib/services/servicesScheduler.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
 import { getSnapshotSystemStatus } from '../../lib/db/snapshotManager.js';
 import { fetchCurrentBlockHeight, getLastGoodPrice } from '../../lib/services/revenueService.js';
@@ -149,6 +150,7 @@ router.get('/health', async (req, res) => {
         revenueSyncInfo = { lastCompleted: null, consecutiveFailures: 0, error: 'Unable to get revenue sync status' };
     }
 
+    const servicesStatus = getServiceTestSchedulerStatus();
     const activeInstance = getActiveInstanceName();
     const summary = summarizeHealth({
         dbReachable: reachable,
@@ -160,7 +162,11 @@ router.get('/health', async (req, res) => {
             lastSyncMs: revenueSyncInfo.lastCompleted,
             intervalMs: SYNC_INTERVALS.REVENUE,
             consecutiveFailures: revenueSyncInfo.consecutiveFailures
-        }
+        },
+        services: servicesStatus.services,
+        // Only once the process has had time to fetch one (#431): straight after a restart
+        // there is no price yet, which is not an outage.
+        livePriceLost: !livePriceInfo.fallbackUsable && process.uptime() > 15 * 60
     });
 
     // Overall verdict folds every sub-check in (issue #310): 503 only when the database is
@@ -192,6 +198,8 @@ router.get('/health', async (req, res) => {
         // valid. Without it, a price outage was only visible as missing cells in the
         // transaction log hours later.
         livePrice: livePriceInfo,
+        // Each services-cycle step (#431): last success and failures in a row.
+        services: servicesStatus.services,
         kpiScheduler: getKpiSchedulerState(),
         anomalyAlerts: getAnomalyAlertsState(),
         uniqueWallets: walletsInfo

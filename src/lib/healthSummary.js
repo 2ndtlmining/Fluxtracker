@@ -16,6 +16,9 @@
 /** Revenue sync counts as stalled after this many missed intervals. */
 export const REVENUE_SYNC_STALE_INTERVALS = 3;
 
+/** A services-cycle step is a problem after this many failed cycles in a row (#431). */
+export const SERVICE_FAILURES_LIMIT = 3;
+
 /**
  * @param {object} p
  * @param {boolean} p.dbReachable
@@ -24,6 +27,8 @@ export const REVENUE_SYNC_STALE_INTERVALS = 3;
  * @param {{healthy?: boolean}} [p.snapshot]
  * @param {{healthy?: boolean}} [p.priceHistory]
  * @param {{lastSyncMs: number|null, intervalMs: number, consecutiveFailures?: number}} [p.revenueSync]
+ * @param {Record<string, {lastSuccess: number|null, consecutiveFailures: number, lastError?: string}>} [p.services]
+ * @param {boolean} [p.livePriceLost] no live FLUX price and no usable fallback (#431)
  * @param {number} [p.now]
  * @returns {{status: 'ok'|'degraded'|'down', httpStatus: number, problems: string[]}}
  */
@@ -34,6 +39,8 @@ export function summarizeHealth({
   snapshot,
   priceHistory,
   revenueSync,
+  services,
+  livePriceLost = false,
   now = Date.now()
 }) {
   if (!dbReachable) {
@@ -57,6 +64,18 @@ export function summarizeHealth({
     }
     if (consecutiveFailures >= 3) problems.push(`revenue sync failed ${consecutiveFailures} times in a row`);
   }
+
+  // #431: a services-cycle step that keeps failing leaves its numbers frozen on the cards and
+  // in that night's snapshot. Name it.
+  for (const [name, s] of Object.entries(services ?? {})) {
+    if ((s?.consecutiveFailures ?? 0) < SERVICE_FAILURES_LIMIT) continue;
+    const since = Number.isFinite(s.lastSuccess)
+      ? `last success ${Math.round((now - s.lastSuccess) / 60000)} min ago`
+      : 'no success since restart';
+    problems.push(`${name} refresh failed ${s.consecutiveFailures} cycles in a row (${since})`);
+  }
+
+  if (livePriceLost) problems.push('no live FLUX price and no usable fallback');
 
   return problems.length > 0
     ? { status: 'degraded', httpStatus: 200, problems }
