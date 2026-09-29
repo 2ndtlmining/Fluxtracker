@@ -63,6 +63,22 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('a', 1, 'thmhoag/arkserver:latest'))).toBe('game:ARK Survival');
   });
 
+  it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
+    expect(resolveIntroKey(app('n8nstarter1790178853412', 1))).toBe('service:automation');
+    expect(resolveIntroKey(app('n8npostgres', 1))).toBe('service:automation');
+    expect(resolveIntroKey(app('flow', 1, 'n8nio/n8n:latest'))).toBe('service:automation');
+    expect(resolveIntroKey(app('simplexsmp7', 1, 'simplexchat/smp-server:latest'))).toBe('service:messaging');
+    expect(resolveIntroKey(app('simplexsmp1780819570775', 1))).toBe('service:messaging');
+    expect(resolveIntroKey(app('privatesimplexsmp1780570675672', 1))).toBe('service:messaging');
+    expect(resolveIntroKey(app('nextcloudpersonal1780729565977', 1))).toBe('service:files');
+    expect(resolveIntroKey(app('owncloudssl', 1, 'owncloud/server:10.15.0'))).toBe('service:files');
+    expect(resolveIntroKey(app('nextoffice', 1, 'nextcloud:latest'))).toBe('service:files');
+    expect(resolveIntroKey(app('docs', 1, 'onlyoffice/documentserver:latest'))).toBe('service:files');
+    // near misses stay out
+    expect(resolveIntroKey(app('libreoffice', 1, 'linuxserver/libreoffice:latest'))).toBeNull();
+    expect(resolveIntroKey(app('mysimplex', 1))).toBeNull();
+  });
+
   it('does not give a game helper its game\'s art (CATEGORY_EXCLUDE)', () => {
     expect(resolveIntroKey(app('ping', 1, 'wirewrex/flux-dns-fdm:minecraft-ping'))).toBeNull();
     expect(resolveIntroKey(app('site', 1, 'runonflux/palworld-server-website:latest'))).toBeNull();

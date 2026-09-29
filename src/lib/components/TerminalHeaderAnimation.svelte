@@ -84,8 +84,16 @@
     formatWindroseFrame, windroseFrameKinds, formatWindroseOutro,
     formatTerrariaFrame, terrariaFrameKinds, formatTerrariaOutro,
     formatFivemOutro,
+    formatFactoryFrame, factoryFrameKinds, formatFactoryOutro,
+    formatArkFrame, arkFrameKinds, formatArkOutro,
     BATCH3_FRAME_COUNT
   } from '$lib/utils/introArt3.js';
+  import {
+    formatAutomationFrame, automationFrameKinds,
+    formatMessagingFrame, messagingFrameKinds,
+    formatFilesFrame, filesFrameKinds,
+    BATCH4_FRAME_COUNT
+  } from '$lib/utils/introArt4.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
@@ -142,6 +150,8 @@
   // An array is a set of variants (issue #281): each app gets one, picked by a hash of its
   // name, so the same app always plays the same art and a game's deployments are not all
   // the same scene.
+  const FACTORY_INTRO = { frameCount: BATCH3_FRAME_COUNT, format: formatFactoryFrame, kinds: factoryFrameKinds };
+  const ARK_INTRO = { frameCount: BATCH3_FRAME_COUNT, format: formatArkFrame, kinds: arkFrameKinds };
   const GAME_INTROS = {
     Valheim: [
       { frameCount: VALHEIM_FRAME_COUNT, format: formatValheimFrame, kinds: valheimFrameKinds },
@@ -183,7 +193,13 @@
     Enshrouded: { frameCount: BATCH3_FRAME_COUNT, format: formatEnshroudedFrame, kinds: enshroudedFrameKinds },
     Rust: { frameCount: BATCH3_FRAME_COUNT, format: formatRustFrame, kinds: rustFrameKinds },
     Windrose: { frameCount: BATCH3_FRAME_COUNT, format: formatWindroseFrame, kinds: windroseFrameKinds },
-    Terraria: { frameCount: BATCH3_FRAME_COUNT, format: formatTerrariaFrame, kinds: terrariaFrameKinds }
+    Terraria: { frameCount: BATCH3_FRAME_COUNT, format: formatTerrariaFrame, kinds: terrariaFrameKinds },
+    // Issue #419: games matched by image. One factory scene for both factory games, and ARK
+    // under both canonical names its images resolve to.
+    Satisfactory: FACTORY_INTRO,
+    Factorio: FACTORY_INTRO,
+    'ARK Survival': ARK_INTRO,
+    'Ark Survival Evolved': ARK_INTRO
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -195,7 +211,10 @@
     'ai-agent': { frameCount: BATCH2_FRAME_COUNT, format: formatAgentFrame, kinds: agentFrameKinds },     // #276
     wordpress: { frameCount: BATCH2_FRAME_COUNT, format: formatWordpressFrame, kinds: wordpressFrameKinds }, // #277
     vpn: { frameCount: BATCH2_FRAME_COUNT, format: formatVpnFrame, kinds: vpnFrameKinds },                // #278
-    probe: { frameCount: BATCH2_FRAME_COUNT, format: formatProbeFrame, kinds: probeFrameKinds }           // #279
+    probe: { frameCount: BATCH2_FRAME_COUNT, format: formatProbeFrame, kinds: probeFrameKinds },          // #279
+    automation: { frameCount: BATCH4_FRAME_COUNT, format: formatAutomationFrame, kinds: automationFrameKinds }, // #420
+    messaging: { frameCount: BATCH4_FRAME_COUNT, format: formatMessagingFrame, kinds: messagingFrameKinds },
+    files: { frameCount: BATCH4_FRAME_COUNT, format: formatFilesFrame, kinds: filesFrameKinds }
   };
 
   // Every deployment with no art of its own -- no game, no service with an intro -- gets the
@@ -217,7 +236,11 @@
     Enshrouded: outro(formatEnshroudedOutro),
     Rust: outro(formatRustOutro),
     Windrose: outro(formatWindroseOutro),
-    Terraria: outro(formatTerrariaOutro)
+    Terraria: outro(formatTerrariaOutro),
+    Satisfactory: outro(formatFactoryOutro),        // #419
+    Factorio: outro(formatFactoryOutro),
+    'ARK Survival': outro(formatArkOutro),
+    'Ark Survival Evolved': outro(formatArkOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
