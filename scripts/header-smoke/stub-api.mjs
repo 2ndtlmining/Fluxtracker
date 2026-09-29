@@ -21,9 +21,12 @@ let headerCalls = 0;
 // keeps every existing check-header.mjs run byte-identical.
 const HEADER_DELAY_MS = Number(process.env.HEADER_DELAY_MS || 0);
 
+// A game with no art of its own, so every run covers the shared controller fallback. It is
+// recognised by its image (a hand-named app), because every dedicated-site game prefix now
+// has art. Was enshrouded until #418 gave Enshrouded its Flame Altar.
 const INITIAL_DEPLOYED = {
-  name: 'enshrouded1789155733040',
-  repo: 'itzg/minecraft-server:latest',
+  name: 'soulmaskserver1',
+  repo: 'sknnr/soulmask-dedicated-server:latest',
   instances: 3,
   cpu: 2,
   ram: 4096,
@@ -44,7 +47,11 @@ const DEPLOYED_GAME_NAMES = {
   dragonwilds: 'dragonwilds1789155733041',
   palworld: 'palworld1789155733041',
   zomboid: 'projectzomboid1789155733041',
-  vrising: 'vrising1789155733041'
+  vrising: 'vrising1789155733041',
+  enshrouded: 'enshrouded1789155733041',
+  rust: 'rustserver1789155733041',
+  windrose: 'windrose1789155733041',
+  terraria: 'terraria1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
@@ -54,7 +61,7 @@ if (!DEPLOYED_GAME_NAME) {
 }
 
 const UPDATED_DEPLOYED = {
-  // A game with art of its own, where the FIRST fixture (enshrouded) is a game without
+  // A game with art of its own, where the FIRST fixture (soulmask) is a game without
   // any -- so one run covers the per-game intro AND the shared controller fallback.
   //
   // That first fixture used to be palworld, which had no art until it got its own intro.
