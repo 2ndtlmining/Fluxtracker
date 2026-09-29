@@ -8,18 +8,20 @@ Real-time performance dashboard for the Flux decentralized cloud network: revenu
 - **Revenue** -- Every app payment synced from the Flux blockchain, attributed to its app, valued in USD at the price on the day it was paid, and split by who paid (customers vs the Flux team), how they paid (card vs FLUX) and what was bought (new apps, renewals and updates, private enterprise apps)
 - **Comparison periods** -- One `vs D` button cycles the dashboard between Day, Week, Month, Quarter and Year comparisons
 - **Median time left** -- How many days of paid time the typical running app has left, shown live and recorded daily
-- **Game server revenue** -- What game servers deployed through the Flux game sites earned over the last 30 days, and their share of revenue over time
-- **Decentralization** -- Where apps want to run compared with where the nodes are, by continent, plus which datacenters host the network
+- **Game server revenue** -- What game servers earned over the last 30 days -- deployed through the Flux game sites, or by hand from a game image -- and their share of revenue over time
+- **Geolocation demand and decentralization** -- Per continent, its share of the network's CPU, its share of the CPU apps are using, and how full it is; plus the share of nodes hosted in datacenters and which providers host them
+- **Node block rewards** -- FLUX and $ per node per day, by tier, from the on-chain payout schedule (block rewards only; no yearly return or APY)
 - **Historical Performance chart** -- One chart, seven categories (Revenue, Node Distribution, Cloud Resources, Applications, Decentralization, Gaming, Revenue Sources), daily/weekly/monthly views, CSV export
 - **Utilization Projection** -- What the network would still be running over the next 180 days if no app renewed
 - **App cohorts and paying customers** -- New apps registered per month and how many are still running 3 months later; paying wallets per month, new vs returning
 - **Revenue concentration** -- How much of all-time revenue comes from the top 10 apps
-- **Terminal header** -- An animated terminal that shows the latest deployed and expiring apps with per-game art; click an app to jump to its payments
+- **Terminal header** -- An animated terminal that shows the latest deployed and expiring apps with per-game art; click an app (here, in the ticker or on the Busiest Node card) to jump to its payments
+- **Shareable views** -- `?app=<name>` opens an app's payments and `?metric=<id>&tf=<period>` a chart view, so a link reproduces what you are looking at
 - **KPI Discord reports** -- Manual (footer button, any webhook) and scheduled (env-configured) reports comparing two completed periods
 - **Anomaly alerts** -- Optional Discord alerts when payments stop syncing or a day's revenue is far above normal
 - **CSV export** -- Revenue transactions and every chart series
 - **Price history** -- FLUX/USD daily closes via Binance, CoinGecko and (with a key) CryptoCompare
-- **Automated sync** -- Background schedulers for revenue sync (5 min), service tests (1 hr), carousel updates (1 hr), and daily snapshots
+- **Automated sync** -- Background schedulers for revenue sync (5 min), the services cycle (5 min), carousel updates (10 min), decentralization (5 min) and the daily snapshot check (30 min) -- see [Background schedulers](#background-schedulers)
 - **Automated backups** -- Daily backup of critical tables to Cloudflare R2 with 30-day retention and one-click restore
 - **Auto-failover** -- Circuit breaker switches to a failover Supabase instance when the primary is unreachable
 - **Resilient outbound fetches** -- One shared retry + per-endpoint circuit breaker for every external API read
@@ -27,9 +29,8 @@ Real-time performance dashboard for the Flux decentralized cloud network: revenu
 
 ## The Dashboard
 
-The page reads top to bottom: the terminal header, a live feed of deployed and expiring apps,
-three headline cards, three detail cards, the Historical Performance chart, and the revenue
-transactions table. **The numbers in this section are examples to show the format, not real
+The page reads top to bottom: the terminal header, the app ticker, three headline cards, three
+detail cards, the Historical Performance chart, and the revenue transactions table. **The numbers in this section are examples to show the format, not real
 figures.**
 
 ### Comparison period
@@ -41,6 +42,14 @@ Hover over it to see what the next click does.
 
 The cards compare the **period so far** with the **whole previous period** (this month to date
 vs all of last month). KPI reports work differently: they compare two *completed* periods.
+
+### App ticker
+
+A scrolling ticker under the header with four tabs: **Latest Deployed Apps**, **Expiring Soon**,
+**Missing Deployments** (apps running fewer instances than they ordered -- an empty list is good
+news) and **Top Network Stats**. In the three app tabs every name is a button that opens that
+app's payments in the transactions table. The ticker is one Tab stop: the arrow keys, Home and
+End move between names, and it pauses while a name has focus or the pointer is over it.
 
 ### Revenue card
 
@@ -69,15 +78,18 @@ Median time left  16 days · running apps
 ### Nodes and Cloud Resources cards
 
 Node counts by tier with the number of distinct operator wallets behind them, and CPU, RAM and
-storage used against total capacity (RAM and storage in TB).
+storage used against total capacity (RAM and storage in TB). The Cloud Resources badge names the
+demand level from CPU in use -- **Low** (under 25%), **Moderate** (25-50%), **High** (50-75%) or
+**Very high** (75%+), with the percentage on hover. The Geolocation Demand card colours each
+continent by the same levels (`src/lib/utils/demandLevel.js`).
 
 ### Apps card
 
 ```
 APPS
 94.2%                          New/Updated Today   212  ↑ 8.1%
-11,210 of 11,900 ordered       Expiring Today      185  ↓ 3.0%
-13,480 containers  ↑ 1.4%
+11,210 of 11,900 ordered         118 new · 94 renewed
+13,480 containers  ↑ 1.4%      Expiring Today      185  ↓ 3.0%
 
 GAMING                                   ↑ 2.3%   4,870
   RuneScape: Dragonwilds   2,910  ↑
@@ -86,8 +98,14 @@ GAMING                                   ↑ 2.3%   4,870
 Game revenue  $9,840  last 30 days
 ```
 
-- **94.2% / 11,210 of 11,900 ordered**: how many of the app instances customers ordered are
-  actually running right now.
+- **94.2% / 11,210 of 11,900 ordered**: how many of the deployments customers ordered are
+  actually running right now, counting only apps that have **not expired** (an expired app will
+  never be filled, so it is not "ordered"). The Missing Deployments tab and the chart's
+  *Deployments running (% of ordered)* use the same rule. Hover the figure for its definition.
+- **new / renewed**: of today's deployments, how many are brand-new apps -- the app's most recent
+  REGISTER message is within the last day of blocks, or it has never been registered -- and how
+  many renew or update an app that was already running. Hidden while the app messages are not
+  loaded, never guessed.
 - **containers**: every running container. A compose app runs one container per component, so
   this is higher than the number of deployments.
 - **Gaming**: running game-server instances, recognised by app name as well as image, so private
@@ -103,33 +121,33 @@ Game revenue  $9,840  last 30 days
 ### Busiest Node card
 
 The node running the most app instances: its identity, the apps on it, and the CPU, RAM and SSD
-they use against that node's own benchmarked capacity.
+they use against that node's own benchmarked capacity. Each app chip is a button that opens that
+app's payments.
 
-### Decentralization card
+### Geolocation Demand / Decentralization card
 
-Two views, switched with the **Demand** / **Datacenters** buttons in the card header.
-**Demand** is the default.
+Two views, switched with the **Demand** / **Datacenters** buttons in the card header. The title
+follows the view: **Geolocation Demand** (the default) or **Decentralization**.
 
-**Demand**: where apps want to run compared with where the nodes are, by continent:
+**Demand**: CPU by continent -- supply against load, from each node's own report in the node list:
 
 ```
-Where apps want to run vs where nodes are
-Continent        Apps    Nodes
-Europe          48.9%    72.0%
-North America   35.5%    23.2%     <- orange
-Asia             9.2%     3.4%     <- orange
-Oceania          2.6%     0.5%     <- orange
-South America    3.5%     0.8%     <- orange
-Africa           0.3%     0.2%
-Apps: 1,172 of 1,793 running apps limit where they run.
-Orange = demand well above its share of nodes.
+CPU BY CONTINENT
+Continent        Resource  Demand   Used
+Europe              74.5%   59.7%  21.6%     (grey: Low)
+North America       21.2%   34.8%  44.3%     (yellow: Moderate)
+Asia                 2.6%    3.7%  37.7%     (yellow: Moderate)
+Network: 27.0% of CPU used. Used: Low · Moderate · High · Very high
 ```
 
-"Apps" only counts apps whose owners **allowed** specific regions; each app's instances are split
-evenly across the continents it allows. An app that only *excludes* somewhere can run almost
-anywhere, so it is left out. A continent turns orange when its share of demand is at least 1%
-and at least 1.5 times its share of nodes -- a region where more nodes would be used. "Nodes"
-counts nodes (not IP addresses) from the node list's own location data.
+- **Resource** -- the continent's share of all CPU cores on the network, used or not.
+- **Demand** -- its share of all the CPU apps are using (locked) on the network. Every running app
+  counts, encrypted or not, whether or not it restricted its region.
+- **Used** -- how much of that continent's own CPU is in use, coloured by the demand levels above.
+
+It used to compare region-locked app *counts* with node *counts* (#268), which weighed a small app
+on a big node the same as a heavy one; #463 replaced it. The per-continent cores and locked cores
+are recorded daily (`cpu_cores_<continent>` / `cpu_locked_<continent>`, migration 029).
 
 **Datacenters**: the share of Flux **nodes** hosted in a datacenter, with a bar, the change against
 the comparison period, and the top datacenter providers. Several nodes on one IP (UPnP, `ip:port`)
@@ -155,16 +173,18 @@ How weekly and monthly views are built:
   the month's organic FLUX divided by the month's total FLUX.
 
 Metrics counted per calendar month (marked "per month") switch View to Monthly while selected.
+The selected metric and period are mirrored in the URL (`?metric=<id>&tf=<period>`, left out when
+they are the defaults), so a link opens the same view.
 If a metric needs a database migration that has not been applied, the chart says which one --
 for example "not available yet (database migration 022 not applied)" -- instead of drawing zeros.
 
 | Category | Metrics |
 |---|---|
 | **Revenue** | Daily Revenue (FLUX / $), Cumulative Revenue (FLUX / $), **Median time left on running apps (days)** -- recorded daily since September 2026, so earlier dates are a gap, not zero |
-| **Node Distribution** | Total / Cumulus / Nimbus / Stratus nodes, Unique Wallets, locked collateral (total and per tier, FLUX) |
+| **Node Distribution** | Total / Cumulus / Nimbus / Stratus nodes, Unique Wallets, locked collateral (total and per tier, FLUX). *Block rewards per node:* Cumulus / Nimbus / Stratus node rewards (FLUX/day and $/day) |
 | **Cloud Resources** | CPU / RAM / Storage utilization %, total and used CPU cores, RAM TB, storage TB, **Utilization Projection** (below) |
-| **Applications** | *Daily:* Total Applications, New/Updated Today, Expiring Today, Unique App Owners. *By month registered:* **New apps registered (per month)**, **Still running after 3 months (%)** |
-| **Decentralization** | Quantity datacenter / independent, % datacenter, % independent, Decentralization %; plus search-and-trend for a single country, continent or datacenter |
+| **Applications** | *Daily:* Total Applications, New/Updated Today, Expiring Today, Unique App Owners, **Deployments running (% of ordered)**, **Private (enterprise) apps (% of running apps)**. *By month registered:* **New apps registered (per month)**, **Still running after 3 months (%)** |
+| **Decentralization** | Quantity datacenter / independent, % datacenter, % independent, Decentralization %; *CPU in use by continent:* one line per continent; plus search-and-trend for a single country, continent or datacenter |
 | **Gaming** | *Instances:* All Game Instances, then one line per game (biggest first). *Revenue:* **Game server revenue ($)**, **Game server revenue (% of Revenue)** |
 | **Revenue Sources** | *Who paid:* Organic ($ / FLUX / %), Flux team ($ / FLUX / %). *How they paid:* Paid by card ($ / %), Paid in FLUX ($ / %). *What was bought:* New deployments, Renewals & updates, Private (enterprise) apps (each $ and %). *Paying customers:* Paying / New / Returning customers (per month) |
 
@@ -195,6 +215,22 @@ months ago are left out rather than shown as 0%, so pick a period of 6 months or
 `Mar 2026: 24.8%` means about a quarter of the apps registered in March were still paid for
 three months later.
 
+**Metrics recorded from September 2026.** *Deployments running (% of ordered)*, *Private
+(enterprise) apps* and *CPU in use by continent* are recorded daily from the day their migration
+(028, 030, 029) was applied; earlier dates are a gap. The weekly and monthly views of the
+percentages divide summed counts rather than average daily percentages.
+
+**Node block rewards.** Derived at read time for the whole history from each day's tier count and
+the payout schedule measured on-chain (`NODE_REWARD_SCHEDULE` in `config.js`): a tier's payout
+per block x blocks that day / its nodes. At block 2,020,000 (25 Oct 2025) the block time went
+from 2 minutes to 30 seconds and the miner's share moved to nodes, so the lines step up that day.
+The $ line uses each day's closing price from `flux_price_history`. Block rewards only -- not app
+income, and before hardware costs.
+
+**Decentralization method change.** From `DECENTRALIZATION_PER_NODE_SINCE` (2026-09-29) the
+datacenter share counts nodes and uses the node list's own hosting flag; earlier days counted
+unique IPs on a keyword list and read higher. The chart's note says so rather than rewrite them.
+
 **Utilization Projection.** This metric looks forward, not back. Selecting it renames the chart
 *Utilization Projection* and hides View and Period. It draws two lines over the next 180 days
 assuming **no app renews**: app instances still running, and CPU cores still ordered. Every app's
@@ -212,12 +248,27 @@ It shows when renewals matter most. It is not a forecast of what will actually h
 
 Below the chart, the **transactions table** lists every payment with its time (UTC), app, FLUX
 and USD. It can be searched, filtered with the **TEAM** / **FIAT** payer badges, and exported to
-CSV. The **App analytics** view groups revenue by app, shows each app's share of all-time
-revenue, and opens with a concentration line such as:
+CSV. Amounts show 2 decimals on screen; the CSV keeps all 8. Hover an app name or address for the
+full value; an address links to its page on the Flux explorer. On a phone (768px and narrower)
+each payment is a two-line card -- app, FLUX and $, then time, type, payer badge and a short
+transaction link.
+
+Two payments have no app name, and say why instead of showing a blank:
+
+- **FLUXDRIVE** -- a FluxDrive storage payment. Its on-chain message is an order reference, not
+  an app spec (#188).
+- **UNREGISTERED SPEC** -- a payment for an app spec Flux never accepted: over a day old, and no
+  app message has its hash (#412). It still counts towards revenue. The CSV writes `FluxDrive` /
+  `Unregistered spec` in its Type column, and `Unregistered spec` as the App Name.
+
+The **App analytics** view groups revenue by app, shows each app's share of all-time revenue, and
+opens with a concentration line such as:
 
 > All-time revenue: the top 10 apps earn **17.3%**; 80% comes from **630** of 6,730 apps.
 
-Clicking an app in the terminal header switches to this table and searches for that app.
+Clicking an app in the terminal header, the ticker or the Busiest Node card switches to this
+table and shows that app's payments. The URL gets `?app=<name>`, so the view can be shared; typing
+your own search removes it.
 
 ## Tech Stack
 
@@ -279,6 +330,26 @@ PRIMARY (local)                          DOCKER/FLUX INSTANCES
 +----------------------+                 +----------------------+
 ```
 
+### Background schedulers
+
+All run inside the Express process and start once the database is ready.
+
+| Job | Interval | What it does |
+|---|---|---|
+| Revenue sync (`revenueScheduler.js`) | 5 min | Scans new blocks for app payments, prices them, names them. Owns revenue alone -- the services cycle has no revenue step (#430), and a call made while a sync is running joins it |
+| Revenue audit | 5 min after start, then every 4 h | Re-scans the last 4,320 blocks (about 1.5 days at 30-second blocks) for anything missed, then backfills missing USD values |
+| Services cycle (`servicesScheduler.js` -> `test-allServices.js`) | 5 min | In order: nodes, wallets (hourly-gated), app owners (hourly-gated), cloud, continent CPU, gaming, crypto, WordPress, today's repo snapshot. One step failing never skips the rest; a step that only served stored figures counts as failed, and `/api/health` names a step that failed 3 cycles in a row |
+| Carousel | 10 min | The ticker's lists (deployed, expiring, missing, network stats) |
+| Decentralization | 5 min | Recomputes the card from the node list (fetched hourly for the Busiest Node card); no calls of its own |
+| Daily snapshot check (`snapshotManager.js`) | 30 min | Takes the day's snapshot, then backs it up to R2. On later checks the same day it fills columns that were empty, including a missed decentralization reading (#454) |
+| KPI scheduler / anomaly alerts | 10 min | Only when configured -- see [Scheduled reports](#scheduled-reports) |
+
+Shared caches keep this cheap: the block height is cached for 20 s and refreshed in the
+background, with the last good height used for up to 5 minutes if the daemon fails (#415); the
+full list of app messages (`/apps/permanentmessages`, ~91 MB) is downloaded at startup and then
+at most daily (`REVENUE_SYNC.PERMANENT_MESSAGES_FULL_REFRESH_MS`, #414), with a per-hash lookup
+naming new payments in between.
+
 ## Getting Started
 
 ### Prerequisites
@@ -317,6 +388,7 @@ Optional -- ports, logging and process:
 |------------------|----------------------------------------------------------------|---------|
 | `PORT`           | Port the Express API listens on. **This, not `API_PORT`.**     | `3000`  |
 | `API_PORT`       | Where `start:all`, Docker and the SvelteKit `/api/*` proxy expect to find the API. Ignored by `npm run api`. | `3000` |
+| `API_BASE`       | Full base URL the SvelteKit `/api/*` proxy forwards to (`hooks.server.js`). Overrides `API_PORT` when set -- e.g. to run the frontend against an API on another machine. | `http://127.0.0.1:${API_PORT}` |
 | `FRONTEND_PORT`  | Port the built SvelteKit server listens on (`start:all`)        | `5173`  |
 | `HOST`           | Interface the frontend binds to                                 | `0.0.0.0` |
 | `ORIGIN`         | adapter-node's CSRF origin. **Anyone serving this on a real domain must set it** or form posts are rejected. | `http://localhost:${FRONTEND_PORT}` |
@@ -426,16 +498,28 @@ file run manually:
 26. `026_game_name.sql` -- `game_name` column on `revenue_transactions` so game revenue also
     counts hand-deployed game servers (by their image). **After running it, call
     `POST /api/admin/backfill-game-names` once** to fill existing payments
+27. `027_revenue_sources.sql` -- read-only `get_daily_revenue_sources`: the Revenue Sources chart
+    in one query. Optional -- without it `/api/history/revenue/sources/daily` falls back to six
+    queries
+28. `028_deployment_fill.sql` -- `deployments_ordered`, `deployments_running` and
+    `deployment_fill_percent` on `daily_snapshots` and `current_metrics` (Applications ->
+    Deployments running). History starts the day it is applied
+29. `029_cpu_by_continent.sql` -- `cpu_cores_<continent>` / `cpu_locked_<continent>` on both
+    tables (Decentralization -> CPU in use by continent). History starts the day it is applied
+30. `030_enterprise_apps.sql` -- `enterprise_apps` and `enterprise_apps_percent` on both tables
+    (Applications -> Private (enterprise) apps). History starts the day it is applied
 
 Skipping 011-016 is not a partial degradation: a fresh project without them has no
 `game_snapshots` table, no payer filter, and none of the newer snapshot columns, so several
 shipping cards fail outright.
 
-Skipping 018-025 is safe but hides features. The revenue sync keeps working without 019 (it
+Skipping 018-030 is safe but hides features. The revenue sync keeps working without 019 (it
 retries inserts without the new columns). The endpoints behind 018/020/022/024 answer
 `{ "available": false, "reason": "Apply supabase/migrations/0NN_....sql" }` instead of an error,
 the chart shows "not available yet (database migration 0NN not applied)", and the card lines
-that need 023, 024 or 025 are simply not shown. All of them are read-only functions or nullable
+that need 023, 024 or 025 are simply not shown. Without 028-030 the cards still work but the new
+daily series are not recorded (the snapshot writer only names those columns once they hold a
+value, so a deploy before the migration never loses a snapshot). All of them are read-only functions or nullable
 columns and are safe to re-run. SQLite mode needs none of this: its schema and queries are built
 in.
 
@@ -450,7 +534,8 @@ migrator falls back to a *local-dev* Postgres URL and the failure is swallowed a
 ### Install and Run
 
 ```bash
-# Install dependencies
+# Install dependencies (npm ci on a deploy box: it installs exactly the lockfile and never
+# rewrites it -- run it again after any pull that changes package.json)
 npm install
 
 # Run both frontend and API in development
@@ -508,10 +593,10 @@ upsert -- no in-memory txid sets needed.
 
 | Table                  | Primary Key     | Description                                                    |
 |------------------------|-----------------|----------------------------------------------------------------|
-| `daily_snapshots`      | `id` (BIGSERIAL) | One row per day with all metrics (revenue, nodes, apps, cloud, `median_days_left`). Unique on `snapshot_date`. |
-| `revenue_transactions` | `id` (BIGSERIAL) | Individual blockchain payments with app attribution and, from migration 019, what the payment bought: `msg_type` (`register`/`update`), `enterprise`, `expire_blocks`, `instances` (NULL when no message matched). Unique on `txid`. |
+| `daily_snapshots`      | `id` (BIGSERIAL) | One row per day with all metrics (revenue, nodes, apps, cloud, `median_days_left`, deployment fill, `cpu_cores_*`/`cpu_locked_*` per continent, `enterprise_apps*`). Unique on `snapshot_date`. |
+| `revenue_transactions` | `id` (BIGSERIAL) | Individual blockchain payments with app attribution and, from migration 019, what the payment bought: `msg_type` (`register`/`update`), `enterprise`, `expire_blocks`, `instances` (NULL when no message matched). `game_name` (026) is the game a payment was for. `app_type` is `git`/`docker`, or `fluxdrive` (storage payment) / `unregistered` (a spec Flux never accepted) with `app_name` NULL. Unique on `txid`. |
 | `failed_txids`         | `txid` (TEXT)    | Tracks failed transaction fetches for retry with attempt counts |
-| `current_metrics`      | `id` (INTEGER)   | Singleton row (id=1) holding the latest live metrics, including `median_days_left` |
+| `current_metrics`      | `id` (INTEGER)   | Singleton row (id=1) holding the latest live metrics, including `median_days_left`. `updateCurrentMetrics()` writes only the columns it is given, so overlapping writers never overwrite each other (#430) |
 | `flux_price_history`   | `date` (DATE)    | Daily FLUX/USD closes from Binance, falling back to CoinGecko, then CryptoCompare (with a key) |
 | `sync_status`          | `id` (BIGSERIAL) | Tracks last sync time, block height, and status per service. Unique on `sync_type`. |
 | `repo_snapshots`       | `id` (BIGSERIAL) | Daily Docker image instance counts with category labels. Unique on `(snapshot_date, image_name)`. |
@@ -524,7 +609,7 @@ upsert -- no in-memory txid sets needed.
 ### RPC Functions
 
 Defined in `supabase/migrations/002_rpc_functions.sql`, with more added in later migrations
-(006, 010, 011, 017 and 018-025):
+(006, 010, 011, 017 and 018-027):
 
 | Function                         | Purpose                                          |
 |----------------------------------|--------------------------------------------------|
@@ -548,8 +633,10 @@ Defined in `supabase/migrations/002_rpc_functions.sql`, with more added in later
 | `update_transaction_metadata_batch` | Batched fill of the message-metadata columns (019) |
 | `get_daily_revenue_mix`          | Per day: new-app, renewal/update and enterprise revenue (020) |
 | `get_app_cohorts`                | Per registration month: apps started and how many were still paid N days later (022) |
-| `get_daily_game_revenue`         | Per day: all revenue and the part paid for game servers, by app-name pattern (024) |
+| `get_daily_game_revenue`         | Per day: all revenue and the part paid for game servers, by app-name pattern (024); redefined in 026 to count `game_name` too |
 | `get_database_size`              | Database size in bytes for the header (025) |
+| `update_transaction_game_batch`  | Batched fill of `game_name` for the game-names backfill (026) |
+| `get_daily_revenue_sources`      | Per day: total, team and fiat revenue in FLUX and USD in one scan (027) |
 
 ### Row Level Security
 
@@ -563,7 +650,7 @@ Base URL: `/api`
 
 | Method | Endpoint        | Description                              |
 |--------|-----------------|------------------------------------------|
-| GET    | `/api/health`   | Combined health (DB, snapshot, backup, price history, KPI scheduler) -- see [Health Endpoint](#health-endpoint) |
+| GET    | `/api/health`   | Combined health (DB, snapshot, backup, price history, live price, services cycle, KPI scheduler, anomaly alerts, wallets) -- see [Health Endpoint](#health-endpoint) |
 | GET    | `/api/health/live` | Liveness only (process is running)    |
 | GET    | `/api/health/ready` | Readiness (DB reachable)             |
 | GET    | `/api/stats`    | Database row counts and last snapshot date |
@@ -601,7 +688,7 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | GET    | `/api/analytics/apps`             | Revenue grouped by app name, paginated         |
 | GET    | `/api/analytics/comparison/:days` | Period-over-period comparison for all metrics   |
 | GET    | `/api/games/live?limit=&days=`    | Per-game running instance counts, identified by app name as well as image -- what the Gaming card reads. Includes the previous reading per game for the comparison arrows. |
-| GET    | `/api/apps/deployment-fill?limit=` | How many ordered deployments are actually running, plus the per-app shortfall breakdown |
+| GET    | `/api/apps/deployment-fill?limit=` | How many ordered deployments are actually running, over apps that have not expired, plus the per-app shortfall breakdown. `available:false` when the app specs or the block height are unavailable |
 | GET    | `/api/games/revenue`              | Game-server revenue over the last 30 days: USD at payment time, FLUX, share of all revenue. `available:false` before migration 024 |
 | GET    | `/api/cloud/utilization-projection?days=` | What would still run each day for the next `days` (default 180, 7-365) if no app renewed: instances and readable CPU, drops at 7/30/90 days, the biggest week, CPU coverage |
 | GET    | `/api/analytics/apps/concentration` | All-time revenue concentration: top-10 share and how many apps make up 80%. `available:false` before migration 018 |
@@ -611,7 +698,7 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | Method | Endpoint                                | Description                                     |
 |--------|-----------------------------------------|-------------------------------------------------|
 | GET    | `/api/history/snapshots`                | Daily snapshots (summarized for chart use)       |
-| GET    | `/api/history/snapshots/full`           | Daily snapshots (full data, all columns)         |
+| GET    | `/api/history/snapshots/full`           | Daily snapshots (full data, all columns), each with `flux_price_day` -- that day's close from `flux_price_history`. `?format=columns` names each key once (`{ count, columns, rows }`); the chart uses it |
 | GET    | `/api/history/revenue/daily`            | Daily revenue aggregated from transactions       |
 | GET    | `/api/history/revenue/daily-usd`        | Daily revenue in USD from transactions           |
 | GET    | `/api/history/repos/list`               | All distinct Docker image names                  |
@@ -662,16 +749,18 @@ Example responses (trimmed; values illustrative):
 
 | Method | Endpoint                        | Description                                                     |
 |--------|----------------------------------|------------------------------------------------------------------|
-| GET    | `/api/decentralization`         | Current datacenter vs. independent node split, plus top datacenters |
+| GET    | `/api/decentralization`         | Current datacenter vs. independent split of nodes (with a hosting flag or override), coverage, plus top datacenter providers (grouped by `PROVIDER_GROUPS`) |
 | GET    | `/api/decentralization/history?days=` | Historical datacenter/independent, country and continent breakdowns, for the Historical Performance chart's search-and-trend view |
-| GET    | `/api/decentralization/demand`  | Per continent: share of region-locked app demand vs share of nodes. `available:false` until the node list has loaded |
+| GET    | `/api/decentralization/demand`  | Per continent, in CPU cores: share of the network's capacity, share of the CPU in use, and how full it is. `available:false` until the node list has loaded |
 
 ```json
 // GET /api/decentralization/demand (trimmed)
 { "available": true,
-  "continents": [ { "code": "EU", "name": "Europe", "demandPercent": 48.9, "nodePercent": 72.0, "nodes": 4576 },
-                  { "code": "AS", "name": "Asia", "demandPercent": 9.2, "nodePercent": 3.4, "nodes": 219 } ],
-  "restrictedApps": 1172, "runningApps": 1793, "excludeOnlyApps": 30, "nodesLocated": 6334, "nodesTotal": 6457 }
+  "continents": [ { "code": "EU", "name": "Europe", "cores": 39965, "lockedCores": 8648,
+                    "capacityPercent": 74.5, "demandPercent": 59.7, "inUsePercent": 21.6 },
+                  { "code": "NA", "name": "North America", "cores": 11379, "lockedCores": 5039,
+                    "capacityPercent": 21.2, "demandPercent": 34.8, "inUsePercent": 44.3 } ],
+  "networkInUsePercent": 27.0, "nodesLocated": 6488, "nodesTotal": 6563 }
 ```
 
 ### Categories
@@ -691,7 +780,7 @@ Example responses (trimmed; values illustrative):
 | GET    | `/api/carousel/expiring` | Apps expiring soon         |
 | GET    | `/api/carousel/missing`  | Apps running fewer instances than they ordered. An empty response here is good news, not a failure |
 | GET    | `/api/busiest-node`      | The network's busiest node (most running instances), its resolved app names, and CPU/RAM/SSD used vs. its own benchmarked capacity (issue #108) |
-| GET    | `/api/apps/activity`     | 24h deployed/expiring counts (the same data behind the KPI daily report's Flux Cloud section) |
+| GET    | `/api/apps/activity`     | 24h deployed/expiring counts (the same data behind the KPI scorecard's Deployed / expiring tile). `deployedToday.newCount` / `updatedCount` split the deployments into new apps and renewals/updates -- `null` while the app messages are not loaded |
 
 ### Admin
 
@@ -699,7 +788,7 @@ Example responses (trimmed; values illustrative):
 |--------|---------------------------------------|------------------------------------------------|
 | GET    | `/api/admin/snapshot-status`          | Snapshot system health and state                |
 | GET    | `/api/admin/revenue-status`           | Revenue sync status, block height, tx count    |
-| GET    | `/api/admin/test-status`              | Service test scheduler status                  |
+| GET    | `/api/admin/test-status`              | Services-cycle scheduler status, including `services`: each step's last success and failures in a row |
 | GET    | `/api/admin/price-history-status`     | FLUX/USD price history coverage + last sync outcome |
 | GET    | `/api/admin/host-location`            | Where this server resolved its own location (diagnostic) |
 | GET    | `/api/kpi/availability`               | Which KPI timeframes have enough history            |
@@ -709,7 +798,7 @@ Example responses (trimmed; values illustrative):
 | POST   | `/api/admin/clear-revenue-data`       | Delete all transactions and reset sync (destructive) |
 | POST   | `/api/admin/reset-revenue-sync`       | Reset sync block to trigger full re-scan       |
 | POST   | `/api/admin/backfill-app-types`       | Backfill git/docker app type                   |
-| POST   | `/api/admin/backfill-app-names`       | Backfill app names from OP_RETURN data         |
+| POST   | `/api/admin/backfill-app-names`       | Backfill app names from OP_RETURN data. A hash no app message knows, on a payment over a day old, is labelled `app_type = 'unregistered'` (#412) |
 | POST   | `/api/admin/backfill-usd`             | Backfill USD amounts using price history       |
 | POST   | `/api/admin/sync-price-history`       | Force a gap-filling price history sync         |
 | POST   | `/api/admin/backfill`                 | Backfill revenue-only daily snapshots. Body `{ from?, to? }` as `YYYY-MM-DD`; defaults to the year ending yesterday (UTC). Writes `daily_revenue` only -- every other column stays NULL. |
@@ -717,7 +806,7 @@ Example responses (trimmed; values illustrative):
 | POST   | `/api/admin/recategorize-repos`       | Reset and re-apply all repo categories         |
 | POST   | `/api/admin/snapshot`                 | Trigger manual daily snapshot                  |
 | POST   | `/api/admin/repo-snapshot`            | Trigger manual repo-only snapshot              |
-| POST   | `/api/admin/test-services`            | Trigger all service tests + revenue sync       |
+| POST   | `/api/admin/test-services`            | Run the services cycle, a revenue sync and a carousel update now |
 | POST   | `/api/admin/audit-transactions`       | Audit recent transactions for missed entries   |
 | GET    | `/api/admin/backup-status`            | Backup configuration and health status         |
 | POST   | `/api/admin/backup`                   | Trigger manual backup to R2                    |
@@ -873,9 +962,12 @@ Narrower screens show the left column only.
 
 - **Intros** -- before its details, a deployment plays a short animation. Games have their own
   (a Valheim longship, a Minecraft build, a Dragonwilds dragon, Palworld, FiveM, Project Zomboid,
-  with a second variant for some games, picked per app); other games get a self-playing gamepad.
-  Services get their own art (Git/Orbit, Folding@home, crypto nodes, AI agents, WordPress, VPN,
-  uptime probes), and anything else gets a crane landing containers.
+  V Rising, with a second variant for some games, picked per app); other games get a
+  self-playing gamepad. A game is recognised by its app name or, for servers deployed from an
+  image (`mbround18/valheim`, `itzg/minecraft-server`, ...), by the same image rule the games count
+  uses. Services get their own art (Git/Orbit, Folding@home, crypto nodes including Firo
+  masternodes, AI agents including Hermes Pro, WordPress, VPN, uptime probes), and anything else
+  gets a crane landing containers.
 - **Expiring apps** play an outro in orange: the ship sails off, the dragon flies away, or a fuse
   burns down showing the real time left.
 - **Large deployments** (10+ instances or 8+ CPU) are labelled `LARGE DEPLOYMENT`, play their
@@ -883,7 +975,7 @@ Narrower screens show the left column only.
 - **Hover** pauses the rotation on the current frame. **Click** an app frame to jump to that
   app's payments in the transactions table; click the logo to replay the last intro.
 - **Attract mode** -- type `flux` anywhere on the page (or enter the Konami code) to play every
-  piece of art back to back, each captioned.
+  piece of art back to back (27 pieces), each captioned.
 - **Seasonal sky** -- bats and a moon in Halloween week, snow in December, fireworks on New
   Year's Day.
 - The build line shows the version (green) and ArcaneOS codename (purple), both API-driven, and
@@ -902,8 +994,10 @@ The pure logic is deliberately separated from the components so it is unit-testa
 arithmetic, aggregation and Discord formatting (`src/lib/kpi/`), the terminal header animation
 (`src/lib/utils/terminalAnimation.js`), app categorisation (`src/lib/__tests__/categorization.test.js`),
 the fetch breaker and resilient fetch, the scheduler time math, the adapter layer, and the
-dashboard maths (revenue sources, cohorts, game revenue, demand vs supply, utilization projection,
-median time left, anomaly detection, seasonal sky). The terminal
+dashboard maths (revenue sources, cohorts, game revenue, CPU demand vs supply, demand levels,
+node block rewards, utilization projection, median time left, anomaly detection, seasonal sky).
+A test also fails on any `toLocaleString()` without a locale in a component: numbers on screen go
+through `src/lib/utils/format.js` (fixed en-US). The terminal
 header additionally has the headless-browser harness in `scripts/header-smoke/` that drives a real
 browser against a dev server and asserts size/style/timing invariants.
 
@@ -974,8 +1068,10 @@ Two independent breakers protect the app from hammering an unreachable dependenc
 - `ok` -- nothing is wrong (HTTP 200)
 - `degraded` -- the database answers but something else is wrong; `problems` lists what: a stale
   or partial backup, a failing or overdue daily snapshot, stale price history, a revenue sync
-  that has stalled (3 missed intervals) or failed 3 times running, or the failover being live
-  (HTTP 200 -- the dashboard is still serving)
+  that has stalled (3 missed intervals) or failed 3 times running, a services-cycle step that
+  failed 3 cycles in a row (named, e.g. `cloud refresh failed 3 cycles in a row (last success
+  15 min ago)`), no live FLUX price and no usable fallback (checked after 15 minutes of uptime),
+  or the failover being live (HTTP 200 -- the dashboard is still serving)
 - `down` -- the database is unreachable (HTTP 503)
 
 Backup and snapshot state survive restarts: the last backup time is read back from R2 at boot,
@@ -991,9 +1087,20 @@ until the next midnight.
   "snapshot": { "healthy": true, "todaySnapshotExists": true },
   "backup": { "enabled": true, "healthy": true, "lastBackup": 1710720300000, "partial": false, "ageHours": 2.1 },
   "priceHistory": { "days": 1720, "oldest": "2021-12-10", "newest": "2026-08-20", "healthy": true },
-  "kpiScheduler": { "configured": true, "schedule": ["daily"], "hourUtc": 2, "lastRuns": { "daily": { "at": "2026-09-06T02:00:14.512Z", "ok": true } } }
+  "livePrice": { "price": 0.0683, "ageMinutes": 1, "fallbackUsable": true },
+  "services": { "nodes": { "lastSuccess": 1790645573729, "consecutiveFailures": 0, "lastError": null },
+                "cloud": { "lastSuccess": 1790645573729, "consecutiveFailures": 0, "lastError": null } },
+  "kpiScheduler": { "configured": true, "schedule": ["daily", "yearly"], "hourUtc": 2,
+                    "lastRuns": { "daily": { "at": "2026-09-06T02:00:14.512Z", "ok": true },
+                                  "yearly": { "at": "2026-09-29T02:10:02.000Z", "ok": true, "skipped": "not enough data" } } },
+  "anomalyAlerts": { "configured": true, "reason": null, "outageHours": 6, "lastCheck": "2026-09-29T02:10:00.000Z", "lastAlert": null },
+  "uniqueWallets": { "uniqueWallets": 821, "uniqueAppOwners": 1288, "lastSyncStatus": "completed", "ageHours": 0 }
 }
 ```
+
+`services` lists every services-cycle step (`nodes`, `wallets`, `appOwners`, `cloud`,
+`continentCpu`, `gaming`, `crypto`, `wordpress`, `repoSnapshot`); `livePrice` is the age of the
+last live FLUX price, whose fallback stops being used after 6 hours.
 
 `priceHistory.healthy` is false when the newest stored FLUX/USD price is more than 2 days old.
 That means the historical price sources are failing and new transactions will be stored with a
@@ -1069,9 +1176,16 @@ vs Sep 23, 2026 · data complete
 - No emoji: direction is shown by plain ▲ / ▼ triangles. Percentages change in **points**
   (`▲ 0.5 pts`), other figures in percent.
 
-The detailed metric set below is still what the report computes; the scorecard shows the headline
-subset of it. The full numbers are available without sending anything from
-`GET /api/kpi/preview?timeframe=`.
+Where each tile comes from (`src/lib/kpi/scorecard.js`):
+
+- **Revenue, Nodes, CPU in use, In datacenters, Apps running** -- the metric dataset below
+  (`buildKpiDataset`), under its coverage rules. *In datacenters* is the period average of
+  `decentralization_datacenter_percent`.
+- **Game revenue, New vs renewal, Median time left, Deployed / expiring, Most deployed, trend
+  line** -- `getExecutiveExtras()` in `kpiService.js`. Each falls back to `n/a`, never `0`, when
+  its data is missing.
+
+The full dataset is available without sending anything from `GET /api/kpi/preview?timeframe=`.
 
 ### Time frames
 
@@ -1100,12 +1214,22 @@ Two aggregation rules, chosen to match the live dashboard:
 | Nodes | Total, Cumulus, Nimbus, Stratus | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used (cores), RAM used, SSD used | **Average of daily snapshots** | `daily_snapshots` |
 | Resource Utilization | CPU used %, RAM used %, SSD used % | **Average of daily snapshots** | `daily_snapshots` |
+| Nodes | Unique wallets | **Average of daily snapshots** | `daily_snapshots.unique_wallets` |
 | Applications | Total Apps | **Average of daily snapshots** | `daily_snapshots` |
-| Flux Cloud | Deployed (24h), Expiring (24h) — **Daily reports only** | **Point-in-time at report generation** | live app data (same registry the carousel reads) |
+| Decentralization | % Datacenter (the *In datacenters* tile) | **Average of daily snapshots** | `daily_snapshots.decentralization_datacenter_percent` |
 
-The **Flux Cloud** figures (deployed and expiring in the last 24 hours) have no comparison: both
-are read when the report is generated and never snapshotted per day, so yesterday's figure
-cannot be known and a change would be invented. On the scorecard they are the *Deployed /
+The scorecard's extra tiles (`getExecutiveExtras()`):
+
+| Tile | Calculation | Source |
+|---|---|---|
+| Game revenue | **Sum across the period**, shown in USD with its share of revenue | `get_daily_game_revenue` (app-name pattern + `game_name`) |
+| New vs renewal | Share of the period's FLUX paid by new registrations vs updates/renewals | `revenue_transactions.msg_type` (migration 019) |
+| Median time left | **Last recorded day** of each period -- a point-in-time reading, not an average | `daily_snapshots.median_days_left` |
+| Deployed / expiring | Daily: **live 24h counts** at report generation. Weekly+: **sum of the daily snapshot counts** (`Deployed / expired`) | live app data / `daily_snapshots.apps_deployed_today`, `apps_expiring_today` |
+| Most deployed | The day's deployments grouped by game -- **daily only** | live app data |
+
+The daily *Deployed / expiring* figures have no comparison: both are read when the report is
+generated, so yesterday's live figure cannot be known and a change would be invented. On the scorecard they are the *Deployed /
 expiring* tile, and the day's deployments are summarised by game in one **Most deployed** line.
 The daily report used to follow with a second "Flux Cloud Activity" message of per-app tables;
 the scorecard redesign (2026-09-26) replaced it with that one line.
@@ -1118,9 +1242,9 @@ line instead of a trend line.
 **FLUX price is the one averaged row in a summed section.** It is there because without it the
 two rows above it cannot be read: FLUX revenue flat while USD revenue falls is a price move, not
 a drop in demand, and nothing else in the report distinguishes those. A period *total* of daily
-prices would be meaningless, so the row is averaged and the Discord embed names the exception
-underneath the `Revenue - SUM` heading rather than letting the heading misdescribe it. On daily
-reports the row is simply that day's price, and the averaging note disappears with the rest.
+prices would be meaningless, so the row is averaged, and its label says so (`FLUX price (avg)`
+in `/api/kpi/preview`). On daily reports it is simply that day's price. The scorecard itself has no
+price tile; the Revenue tile is USD.
 
 **Utilization percentages sit alongside the raw figures, not instead of them.** "9,031 cores
 used" is the same number whether the network grew or capacity collapsed; the percentage is what
@@ -1162,9 +1286,10 @@ separate lines rather than only showing a total: **subtract them before reading 
 a demand signal.**
 
 To measure demand directly, count apps *deployed* during the period rather than revenue received.
-The daily report's Flux Cloud section is a step in that direction — `Deployed (24h)` counts the
-apps deployed in the last 24 hours — but it is a 24h window, not a full-period count, so it is
-not directly comparable against a week's or month's revenue.
+The *Deployed / expiring* tile is a step in that direction: on a daily report it counts the apps
+deployed in the last 24 hours, and on longer reports it sums the daily counts over the period.
+It is still a count of deployments, not of payments, so it is not directly comparable against
+revenue.
 
 Worked examples:
 
@@ -1180,10 +1305,10 @@ Worked examples:
 **Team-funded** is revenue from `FLUX_TEAM_ADDRESSES`; **Fiat** is revenue arriving through the
 Flux fiat gateway (`FLUX_FIAT_ADDRESSES`). Both are reported as a FLUX value and as a share of
 total FLUX revenue for the same period, and both are *included* in the Flux/USD totals above them
-rather than being separate buckets. Their `+/-` column is in **percentage points** (`+2.3pp`),
-since a change in a percentage is not itself a percentage. The same applies to the three
-utilization percentages: `42.5%` moving to `44.0%` is `+1.5pp`, not `+1.5%` (the `+/-%` column
-still carries the relative move, `+3.5%`).
+rather than being separate buckets. A change in a percentage is not itself a percentage, so it
+is given in **percentage points**: on the scorecard `42.5%` moving to `44.0%` is `▲ 1.5 pts`
+(*CPU in use*, *In datacenters*), not `▲ 3.5%`. `/api/kpi/preview` carries both the absolute
+change (points) and the relative one for every metric.
 
 Revenue is summed because it accrues; everything else is a point-in-time reading that moves
 daily. Averaging rather than taking the last day matters here: roughly 37 days in the history
@@ -1226,9 +1351,10 @@ columns were added to `daily_snapshots` at different times:
 | Total Apps | 2025-11-10 |
 
 Metrics that fall short are marked `Insufficient data` **with the number of missing days**
-(for example `Insufficient data (7 days missing)`), and the rest of the report still sends with a
-`Data coverage` note stating how many metrics were skipped and why. When nothing is missing the
-note says so explicitly, so a complete report is never ambiguous. A report is only refused outright when
+(in `/api/kpi/preview`: `change.note` is `Insufficient data` and `coverage.missing` holds the
+count), and the rest of the report still sends: on the scorecard the tile shows `n/a` and the footer reads `some figures lack
+full data (shown as n/a)`. When nothing is missing the footer says `data complete`, so a complete
+report is never ambiguous. A report is only refused outright when
 nothing at all is computable — which is currently the case for **Yearly**, since 2024 only has
 data from June onward. The modal greys out unavailable time frames up front, and the server
 re-checks on submit, so a disabled button is never the only thing standing between a user and a
@@ -1343,7 +1469,8 @@ The container uses a multi-stage build (Node 24 Alpine). The `startup.sh` entryp
 3. Starts the SvelteKit production server on port 5173
 4. Exits if either process dies
 
-A Docker `HEALTHCHECK` monitors the API health endpoint every 30 seconds.
+A Docker `HEALTHCHECK` probes `/api/health/live` every 30 seconds **through the frontend**
+(`FRONTEND_PORT`), so it fails if either process is down or they cannot reach each other.
 
 ### Flux Cloud
 
@@ -1400,7 +1527,7 @@ Docker -- for example `ORIGIN`, `CORS_ALLOWED_ORIGINS`, `SUPABASE_DB_URL`, the f
 |---------------------------------------|------------------------------------------------------|
 | `scripts/import-repo-json.mjs`        | Import Docker repo snapshot data from a JSON file    |
 | `scripts/import-wallet-history.mjs`   | Import historical unique-wallet counts               |
-| `scripts/apply-rpc-to-cloud.mjs`      | Apply RPC functions to a remote Supabase instance via direct PG connection |
+| `scripts/apply-rpc-to-cloud.mjs`      | Runs `002_rpc_functions.sql` only against a remote Supabase over a direct Postgres connection (`DATABASE_URL`). Later migrations still have to be run by hand |
 | `scripts/header-smoke/`               | Terminal header acceptance harness (headless Edge/Chrome; see its README) |
 
 ## Project Structure
@@ -1429,7 +1556,8 @@ src/
     kpi/
       periods.js               # KPI period arithmetic (pure, unit-tested)
       metrics.js               # KPI metric definitions, aggregation, formatting
-      discord.js               # Discord embed builders (report, Flux Cloud Activity, failure notice)
+      scorecard.js             # The Discord executive scorecard (one embed, nine tiles)
+      discord.js               # Webhook URL guard (isValidDiscordWebhook) + scheduler failure notice
       rateLimiter.js           # Manual report rate limiting
       schedulerTime.js         # Scheduler due-date math (pure, unit-tested)
     utils/                     # Pure, unit-tested logic behind the components
@@ -1439,11 +1567,17 @@ src/
       revenueSources.js        # Who paid / how they paid / revenue mix shaping
       appCohorts.js            # Cohort rows (new apps, 3-month survival)
       gameRevenue.js           # Game-server revenue rows and 30-day summary
-      geoDemand.js             # Demand vs supply by continent
+      geoDemand.js             # CPU supply vs demand by continent
+      demandLevel.js           # Low / Moderate / High / Very high, from CPU in use
+      nodeRewards.js           # Block rewards per node per day, by tier
+      urlState.js              # ?app= / ?metric= / ?tf= shareable view state
       utilizationProjection.js # What would still run if no app renewed
       appTimeLeft.js           # Median time left on running apps
       anomalies.js             # Anomaly-alert checks and Discord payloads
       gameSeries.js            # Gaming chart metrics and series
+    stores/
+      refresh.js               # Footer Refresh button -> every card re-fetches
+      appFocus.js              # "Show this app's payments" (header, ticker, Busiest Node)
     db/
       database.js              # Adapter router (selects Supabase or SQLite)
       adapters/
@@ -1461,10 +1595,12 @@ src/
         revenueReporting.js     # Revenue calculation & reporting (date ranges, comparisons)
         revenueBackfill.js      # One-off app_name/app_type backfill utilities
         revenueSyncState.js     # In-memory sync state & failed-tx stats
+        messageMetadata.js      # What a payment bought, from its permanent message
       fluxNetworkData.js       # Generic FLUX price / block height reads (shared network data)
       revenueScheduler.js      # Revenue sync interval manager
       kpiService.js            # KPI report computation + Discord delivery
       kpiScheduler.js          # Env-configured scheduled KPI reports
+      anomalyAlerts.js         # Sync-outage and unusual-revenue-day Discord alerts
       resilientFetch.js        # Shared HTTP GET (retry, timeout, shape validation)
       fetchBreaker.js          # Per-endpoint circuit breaker for outbound fetches
       runningAppsProvider.js   # Shared running-apps payload (one fetch per cycle)
@@ -1481,7 +1617,7 @@ src/
       busiestNodeService.js    # Network's busiest node: identity, resources, resolved apps
       decentralizationService.js # Per-node datacenter share from the node list's geolocation + snapshots
       carouselService.js       # Carousel feed data (deployed/expiring apps)
-      servicesScheduler.js     # Service test and carousel scheduler
+      servicesScheduler.js     # Services cycle and carousel scheduler
 supabase/
   migrations/
     001_initial_schema.sql     # Tables, indexes, seed data
@@ -1505,6 +1641,11 @@ supabase/
     023_median_days_left.sql                # Median time left column
     024_game_revenue.sql                    # Game-server revenue per day
     025_database_size.sql                   # Database size for the header
+    026_game_name.sql                       # game_name on payments (hand-deployed game servers)
+    027_revenue_sources.sql                 # Revenue Sources chart in one query
+    028_deployment_fill.sql                 # Deployments running (% of ordered) columns
+    029_cpu_by_continent.sql                # CPU cores / locked cores per continent
+    030_enterprise_apps.sql                 # Private (enterprise) apps columns
 scripts/                       # Utility scripts
   header-smoke/                # Terminal header acceptance harness (headless browser)
 docs/
