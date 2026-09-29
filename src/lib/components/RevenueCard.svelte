@@ -175,7 +175,9 @@
   /* Revenue Metrics Grid */
   .revenue-metrics {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    /* minmax(0, 1fr) + a width-scaled value (#442), as CloudCard does since #392: with 1fr
+       and a fixed 1.75rem, "456.72" ran past the card's edge at ~1024px. */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--spacing-md);
     /* Add extra padding to align with NodeCard which has comparison indicators */
     padding-bottom: calc(var(--spacing-xs) + 1rem + 0.5rem + 0.5rem);
@@ -202,7 +204,7 @@
   }
   
   .metric-value {
-    font-size: 1.75rem;
+    font-size: clamp(1.25rem, 2.1vw, 1.75rem);
     font-weight: 700;
     color: var(--text-white);
     font-variant-numeric: tabular-nums;
@@ -252,6 +254,20 @@
   
   /* Responsive */
   @media (max-width: 768px) {
+    /* #442: three columns down to phone width, only the numbers shrink. Stacking them made the
+       three hero cards 1,314px tall at 375px and 768px alike. minmax(0, 1fr) lets a column
+       shrink below its content (#392); one column only below 360px. */
+    .revenue-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--spacing-sm);
+    }
+
+    .metric-value {
+      font-size: clamp(1.1rem, 4vw, 1.5rem);
+    }
+  }
+
+  @media (max-width: 359px) {
     .revenue-metrics {
       grid-template-columns: 1fr;
       gap: var(--spacing-lg);

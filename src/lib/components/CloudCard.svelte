@@ -327,13 +327,23 @@
   
   /* Responsive */
   @media (max-width: 768px) {
+    /* #442: three columns down to phone width, only the numbers shrink. Stacking them made the
+       three hero cards 1,314px tall at 375px and 768px alike. minmax(0, 1fr) lets a column
+       shrink below its content (#392); one column only below 360px. */
+    .cloud-metrics {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: var(--spacing-sm);
+    }
+
+    .metric-value {
+      font-size: clamp(1.1rem, 4vw, 1.5rem);
+    }
+  }
+
+  @media (max-width: 359px) {
     .cloud-metrics {
       grid-template-columns: 1fr;
       gap: var(--spacing-lg);
-    }
-    
-    .metric-value {
-      font-size: 1.5rem;
     }
   }
   
