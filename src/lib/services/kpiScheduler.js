@@ -198,10 +198,16 @@ async function runForTimeframe(timeframe) {
         const report = await buildKpiReport(timeframe);
 
         if (report.dataset.empty) {
-            throw new Error(
-                `Not enough historical data for a ${timeframe} report ` +
-                `(${report.currentLabel} vs ${report.comparisonLabel})`
-            );
+            // #433 (owner, 2026-09-27): keep the once-per-period notice, but this refusal
+            // holds for the whole period -- a yearly one all year -- so it is recorded as the
+            // period's outcome (`skipped`) instead of being rebuilt and logged every 10 minutes.
+            const reason = `Not enough historical data for a ${timeframe} report ` +
+                `(${report.currentLabel} vs ${report.comparisonLabel})`;
+            await noticeOncePerPeriod(timeframe, reason);
+            await updateSyncStatus(receiptType, 'skipped', reason);
+            schedulerState.lastRuns[timeframe] = { at: isoUtc(Date.now()), ok: true, skipped: 'not enough data' };
+            log.info({ timeframe }, 'Scheduled KPI report skipped for this period: not enough data');
+            return { sent: false, skipped: true };
         }
 
         await sendToDiscord(schedulerState.webhookUrl, report);
@@ -222,6 +228,18 @@ async function runForTimeframe(timeframe) {
  * touches the success receipt, so the report stays due and is retried next tick.
  */
 async function recordFailureAndNotice(timeframe, error) {
+    const nowMs = Date.now();
+    await noticeOncePerPeriod(timeframe, error.message);
+    schedulerState.lastRuns[timeframe] = { at: isoUtc(nowMs), ok: false, error: error.message };
+    log.error({ timeframe, err: error }, 'Scheduled KPI report failed');
+}
+
+/**
+ * Post a failure notice to the webhook at most once per period (deduped on the
+ * kpi_<tf>_failed receipt), and record the attempt. Shared by genuine failures and the
+ * "not enough data" refusal (#433), which the owner wants to stay visible.
+ */
+async function noticeOncePerPeriod(timeframe, message) {
     const failureType = `${RECEIPT_PREFIX}${timeframe}_failed`;
     // Date.now() (number), not new Date(): keeps the period-key comparison on a plain
     // epoch value in both backends and test environments.
@@ -241,13 +259,11 @@ async function recordFailureAndNotice(timeframe, error) {
 
     if (!noticedThisPeriod) {
         try {
-            await sendSchedulerFailureNotice(schedulerState.webhookUrl, timeframe, error.message);
+            await sendSchedulerFailureNotice(schedulerState.webhookUrl, timeframe, message);
         } catch (noticeError) {
             log.warn({ err: noticeError, timeframe }, 'KPI scheduler failure notice could not be delivered');
         }
     }
 
-    await updateSyncStatus(failureType, 'notified', error.message);
-    schedulerState.lastRuns[timeframe] = { at: isoUtc(nowMs), ok: false, error: error.message };
-    log.error({ timeframe, err: error }, 'Scheduled KPI report failed');
+    await updateSyncStatus(failureType, 'notified', message);
 }

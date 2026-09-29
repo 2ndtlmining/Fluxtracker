@@ -279,16 +279,36 @@ describe('failures', () => {
         expect(getKpiSchedulerState().lastRuns.daily.ok).toBe(false);
     });
 
-    it('an empty dataset is treated as a failure: notice sent, nothing delivered', async () => {
+    it('not enough data: one notice, the period marked skipped, nothing delivered (issue #433)', async () => {
         buildKpiReport.mockResolvedValue({ ...REPORT, dataset: { empty: true } });
         boot();
         await runSchedulerTick();
 
         expect(sendToDiscord).not.toHaveBeenCalled();
+        // The owner kept the notice: it stays visible when there is not enough data
         expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(1);
         expect(sendSchedulerFailureNotice).toHaveBeenCalledWith(VALID_URL, 'daily', expect.stringContaining('Not enough historical data'));
-        expect(receipts.get('kpi_daily_failed').status).toBe('notified');
-        expect(getKpiSchedulerState().lastRuns.daily.ok).toBe(false);
+        expect(receipts.get('kpi_daily').status).toBe('skipped');
+        expect(getKpiSchedulerState().lastRuns.daily).toMatchObject({ ok: true, skipped: 'not enough data' });
+    });
+
+    it('not enough data is not rebuilt every 10 minutes for the rest of the period (issue #433)', async () => {
+        buildKpiReport.mockResolvedValue({ ...REPORT, dataset: { empty: true } });
+        boot();
+        await runSchedulerTick();
+
+        Date.now.mockReturnValue(Date.parse('2026-09-05T03:10:00Z'));   // next tick, same period
+        await runSchedulerTick();
+        Date.now.mockReturnValue(Date.parse('2026-09-05T23:50:00Z'));   // late the same day
+        await runSchedulerTick();
+
+        expect(buildKpiReport).toHaveBeenCalledTimes(1);
+        expect(sendSchedulerFailureNotice).toHaveBeenCalledTimes(1);
+
+        // A new period is judged afresh
+        Date.now.mockReturnValue(Date.parse('2026-09-06T03:00:00Z'));
+        await runSchedulerTick();
+        expect(buildKpiReport).toHaveBeenCalledTimes(2);
     });
 
     it('a delivery failure notices once per period and never touches the success receipt', async () => {
