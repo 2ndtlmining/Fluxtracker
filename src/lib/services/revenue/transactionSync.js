@@ -322,11 +322,6 @@ const TARGETED_LOOKUP_MAX_TX_AGE_MS = 24 * 60 * 60 * 1000;
 const MISSED_HASH_RETRY_MS = 30 * 60 * 1000;
 const missedHashes = new Map(); // hash -> when the targeted lookup last came back empty
 
-/** Test seam -- clears the negative cache. */
-export function resetMissedHashes() {
-    missedHashes.clear();
-}
-
 /**
  * Ask the API about ONE hash and fold the answer into the cache. Returns the app name, or
  * null when the API does not know it (yet).

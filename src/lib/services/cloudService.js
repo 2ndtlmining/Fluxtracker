@@ -422,36 +422,3 @@ export async function fetchAppCount() {
         };
     }
 }
-
-/**
- * Format cloud stats for display
- */
-export function formatCloudStats(cloudData) {
-    return {
-        cpu: {
-            total: cloudData.total_cpu_cores,
-            used: cloudData.used_cpu_cores,
-            utilization: cloudData.cpu_utilization_percent + '%'
-        },
-        ram: {
-            total: cloudData.total_ram_gb + ' TB',
-            used: cloudData.used_ram_gb + ' TB',
-            utilization: cloudData.ram_utilization_percent + '%'
-        },
-        storage: {
-            total: cloudData.total_storage_gb + ' TB',
-            used: cloudData.used_storage_gb + ' TB',
-            utilization: cloudData.storage_utilization_percent + '%'
-        },
-        apps: {
-            total: cloudData.total_apps,
-            watchtower: cloudData.watchtower_count,
-            // NEW: Git and Docker app breakdown
-            gitapps: cloudData.gitapps_count,
-            dockerapps: cloudData.dockerapps_count,
-            gitappsPercent: cloudData.gitapps_percent + '%',
-            dockerappsPercent: cloudData.dockerapps_percent + '%'
-        },
-        cached: cloudData._cached || false
-    };
-}

@@ -84,22 +84,6 @@ export async function fetchGamingStats() {
 }
 
 /**
- * Format gaming stats for display
- */
-export function formatGamingStats(gamingData) {
-    return {
-        total: gamingData.gaming_apps_total,
-        // TRACKED_GAMES, so the games with no matchable image are not silently omitted
-        // from a list built out of the very columns they now populate (issue #231).
-        games: TRACKED_GAMES.map(game => ({
-            name: game.name,
-            count: gamingData[game.dbKey] || 0,
-            repo: GAMING_REPOS.find(r => r.dbKey === game.dbKey)?.imageMatch ?? null
-        }))
-    };
-}
-
-/**
  * Live per-game breakdown for the Gaming card (issue #163).
  *
  * Read straight from the shared running-apps payload rather than from stored metrics: the

@@ -261,31 +261,6 @@ export function stopDecentralizationUpdates() {
 }
 
 /**
- * Get decentralization scheduler status (for health checks)
- */
-export function getDecentralizationSchedulerStatus() {
-    return {
-        isSchedulerRunning: !!decentralizationIntervalId,
-        isBatchInProgress: isDecentralizationRunning,
-        intervalMs: DECENTRALIZATION_INTERVAL_MS,
-        lastRun: lastDecentralizationRun,
-        consecutiveFailures: consecutiveDecentralizationFailures,
-        isHealthy: consecutiveDecentralizationFailures < 3
-    };
-}
-
-/**
- * Stop the automatic test scheduling
- */
-export function stopServiceTests() {
-    if (intervalId) {
-        clearInterval(intervalId);
-        intervalId = null;
-        log.info('Service test scheduler stopped');
-    }
-}
-
-/**
  * Stop the automatic carousel updates
  */
 export function stopCarouselUpdates() {
@@ -308,19 +283,5 @@ export function getServiceTestSchedulerStatus() {
         consecutiveFailures,
         isHealthy: consecutiveFailures < 3 && Object.values(serviceHealth).every(s => s.consecutiveFailures < 3),
         services: { ...serviceHealth }
-    };
-}
-
-/**
- * Get carousel status (for health checks)
- */
-export function getCarouselSchedulerStatus() {
-    return {
-        isSchedulerRunning: !!carouselIntervalId,
-        isUpdateInProgress: isCarouselRunning,
-        intervalMs: CAROUSEL_INTERVAL_MS,
-        lastRun: lastCarouselRun,
-        consecutiveFailures: consecutiveCarouselFailures,
-        isHealthy: consecutiveCarouselFailures < 3
     };
 }
