@@ -1,10 +1,12 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { page } from '$app/stores';
   import { getApiUrl, DASHBOARD_REFRESH_MS, BUSIEST_NODE_CONFIG, DECENTRALIZATION_CONFIG } from '$lib/config.js';
   import { refreshSignal } from '$lib/stores/refresh.js';
   import { fetchJson } from '$lib/utils/fetchJson.js';
   import { pollWhileVisible } from '$lib/utils/pollWhileVisible.js';
+  import { readUrlParam } from '$lib/utils/urlState.js';
+  import { focusApp } from '$lib/stores/appFocus.js';
   import '../app.css';
   import Header from '$lib/components/Header.svelte';
   import Footer from '$lib/components/Footer.svelte';
@@ -200,8 +202,13 @@ let TransactionsSection = null;
 
  onMount(async () => {
   API_URL = getApiUrl();
-  import('$lib/components/Chart.svelte').then(m => { ChartSection = m.default; });
-  import('$lib/components/RevenueTransactions.svelte').then(m => { TransactionsSection = m.default; });
+  const sectionsLoaded = Promise.all([
+    import('$lib/components/Chart.svelte').then(m => { ChartSection = m.default; }),
+    import('$lib/components/RevenueTransactions.svelte').then(m => { TransactionsSection = m.default; })
+  ]);
+  // A shared "?app=<name>" link (#446) opens that app's payments, once the table is mounted.
+  const sharedApp = readUrlParam('app');
+  if (sharedApp) sectionsLoaded.then(tick).then(() => focusApp(sharedApp));
 
   // Issue #385: the server-rendered load already fetched metrics and Daily revenue into the
   // HTML. Re-fetching both on mount doubled those requests on every page load; skip them

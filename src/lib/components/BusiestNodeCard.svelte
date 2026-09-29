@@ -2,6 +2,7 @@
   import { Server } from '@lucide/svelte';
   import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
   import { formatCount } from '$lib/utils/format.js';
+  import { focusApp } from '$lib/stores/appFocus.js';
 
   export let node = null;           // { ip, tier, country, countryCode, containerCount, appCount, appNames, apps, resources } | null
   export let loading = false;
@@ -82,11 +83,13 @@
           {#each appList as app}
             <!-- x5 rather than five identical pills: the multipliers sum to the container
                  count, so every running container is accounted for and nothing repeats. -->
-            <span class="app-name-pill">
+            <!-- #446: the chips looked like the carousel's clickable names but did nothing. -->
+            <button type="button" class="app-name-pill" title="Show payments for {app.name}" on:click={() => focusApp(app.name)}>
               {app.name}{#if app.containers > 1}<span class="app-pill-multiplier">×{app.containers}</span>{/if}
-            </span>
+            </button>
           {/each}
         </div>
+        <div class="node-apps-hint">Click an app to see its payments</div>
         {#if unresolvedCount > 0}
           <div class="node-unresolved-note">
             {unresolvedCount} {unresolvedCount === 1 ? 'app' : 'apps'} not yet identifiable
@@ -309,11 +312,27 @@
 
   .app-name-pill {
     font-size: 0.75rem;
+    font-family: inherit;
     color: var(--text-primary);
     background: rgba(0, 255, 255, 0.08);
     border: 1px solid rgba(0, 255, 255, 0.2);
     border-radius: var(--radius-sm);
     padding: 0.25rem 0.6rem;
+    cursor: pointer;
+  }
+
+  .app-name-pill:hover,
+  .app-name-pill:focus-visible {
+    border-color: var(--accent-cyan);
+    background: rgba(0, 255, 255, 0.15);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .node-apps-hint {
+    margin-top: 0.35rem;
+    font-size: 0.65rem;
+    color: var(--text-muted);
   }
 
   .node-unresolved-note {

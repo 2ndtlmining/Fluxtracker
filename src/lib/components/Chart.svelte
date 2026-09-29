@@ -8,6 +8,7 @@
   import { mixFields } from '$lib/utils/revenueSources.js';
   import { fromColumnar } from '$lib/utils/columnar.js';
   import { rewardPerNodePerDay } from '$lib/utils/nodeRewards.js';
+  import { readUrlParam, setUrlParams } from '$lib/utils/urlState.js';
   import { DollarSign, Server, Cloud, Package, Globe, Download, Users, Gamepad2 } from '@lucide/svelte';
 
   const methodChangeLabel = new Date(`${DECENTRALIZATION_PER_NODE_SINCE}T00:00:00Z`)
@@ -545,9 +546,34 @@
     fetchAllData();
   }
 
+  // Shareable chart (#446): ?metric=<id>&tf=<period> reopens this view. Defaults are left out
+  // of the URL so a plain visit stays "/". Entity-search views are not mirrored.
+  let urlReady = false;
+  $: defaultMetricId = categories[defaultCategory]?.metrics?.[0]?.id;
+  $: if (urlReady) {
+    const entityView = selectedCategory === 'decentralization' && decentralizationView !== 'overview';
+    setUrlParams({
+      metric: entityView || selectedMetric === defaultMetricId ? null : selectedMetric,
+      tf: selectedTimeframe === defaultTimeframe ? null : selectedTimeframe
+    });
+  }
+
+  function restoreFromUrl() {
+    const metric = readUrlParam('metric');
+    const category = metric && Object.keys(categories).find(k => categories[k].metrics?.some(m => m.id === metric));
+    if (category) {
+      selectedCategory = category;
+      selectedMetric = metric;
+    }
+    const tf = readUrlParam('tf');
+    if (timeframes.some(t => t.id === tf)) selectedTimeframe = tf;
+  }
+
   onMount(async () => {
     // Get API URL in browser context
     API_URL = getApiUrl();
+    restoreFromUrl();
+    urlReady = true;
 
     // The library download and the data fetch run in parallel; whichever finishes last
     // triggers the first render through the reactive block above.

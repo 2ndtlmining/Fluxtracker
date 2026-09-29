@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { appFocus } from '$lib/stores/appFocus.js';
+  import { appFocus, clearAppFocusParam } from '$lib/stores/appFocus.js';
   import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
   import { formatCount, formatNumber } from '$lib/utils/format.js';
   import TxTypeIcon from '$lib/components/TxTypeIcon.svelte';
@@ -143,6 +143,7 @@
 
   function handleSearch(event) {
     searchQuery = event.target.value;
+    if (focusedApp) clearAppFocusParam();
     focusedApp = null;
 
     // Debounce search
