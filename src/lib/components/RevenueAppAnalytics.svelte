@@ -156,6 +156,13 @@
   function getExplorerUrl(txid) {
     return `https://explorer.runonflux.io/tx/${txid}`;
   }
+
+  // #440: the full address, and a way to look it up, as in the transaction table.
+  function getAddressUrl(address) {
+    return `https://explorer.runonflux.io/address/${address}`;
+  }
+
+  const isRealAddress = address => address && address !== 'Multiple' && address !== 'Unknown';
 </script>
 
 <!-- APP ANALYTICS VIEW -->
@@ -285,7 +292,11 @@
                     </a>
                   </td>
                   <td class="address-col">
-                    {formatAddress(tx.from_address)}
+                    {#if isRealAddress(tx.from_address)}
+                      <a href={getAddressUrl(tx.from_address)} target="_blank" rel="noopener noreferrer" class="address-link" title={tx.from_address}>{formatAddress(tx.from_address)}</a>
+                    {:else}
+                      {formatAddress(tx.from_address)}
+                    {/if}
                     {#if isFluxTeamAddress(tx.from_address)}
                       <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
                     {:else if isFluxFiatAddress(tx.from_address)}
@@ -718,14 +729,41 @@
       justify-content: center;
     }
 
-    .transaction-table {
-      font-size: 0.7rem;
+    /* #440: each payment becomes a small card -- amount and date, then the transaction and
+       who paid -- instead of a six-column table scrolled mostly out of view. */
+    .transaction-table,
+    .transaction-table tbody {
+      display: block;
+      font-size: 0.72rem;
     }
 
-    .transaction-table th,
-    .transaction-table td {
-      padding: var(--spacing-xs) var(--spacing-sm);
+    .transaction-table thead {
+      display: none;
     }
+
+    .transaction-table tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "amount date"
+        "txid   time"
+        "address block";
+      gap: 0.15rem 0.75rem;
+      padding: var(--spacing-sm);
+    }
+
+    .transaction-table td {
+      padding: 0;
+      border: none;
+      min-width: 0;
+    }
+
+    .transaction-table .amount-col { grid-area: amount; font-weight: 700; text-align: left; }
+    .transaction-table .date-col { grid-area: date; text-align: right; }
+    .transaction-table .txid-col { grid-area: txid; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .transaction-table .time-col { grid-area: time; text-align: right; }
+    .transaction-table .address-col { grid-area: address; }
+    .transaction-table .block-col { grid-area: block; text-align: right; }
 
     .apps-grid { grid-template-columns: 1fr; }
     .modal-summary { grid-template-columns: 1fr; }
@@ -750,5 +788,16 @@
 
   .concentration-line strong {
     color: var(--text-white);
+  }
+
+  .address-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .address-link:hover,
+  .address-link:focus-visible {
+    color: var(--accent-cyan);
+    text-decoration: underline;
   }
 </style>
