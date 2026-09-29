@@ -61,7 +61,7 @@
     formatCampfireFrame, campfireFrameKinds,
     BATCH2_FRAME_COUNT
   } from '$lib/utils/introArt2.js';
-  import { pickVariant } from '$lib/utils/introVariants.js';
+  import { pickVariant, variantIndex } from '$lib/utils/introVariants.js';
   import { skyFor } from '$lib/utils/seasons.js';
   import { isLargeDeployment } from '$lib/utils/terminalAnimation.js';
   import {
@@ -495,10 +495,17 @@
    * advances when a deployment is actually put on screen.
    */
   function claimDeployedSlot(slot) {
-    const choice = pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey);
+    const choice = pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey, introVariantOf);
     if (!choice) return null;
-    recentDeployed = rememberShown(recentDeployed, choice.app, resolveIntroKey(choice.app));
+    recentDeployed = rememberShown(recentDeployed, choice.app, resolveIntroKey(choice.app), introVariantOf(choice.app));
     return { ...slot, data: choice.app, rank: { position: choice.position, total: choice.total } };
+  }
+
+  /** Which art variant a deployed app plays, when its game has several (issue #417). */
+  function introVariantOf(app) {
+    const key = resolveIntroKey(app);
+    const art = key?.startsWith('game:') ? GAME_INTROS[key.slice(5)] : null;
+    return Array.isArray(art) ? variantIndex(app?.name, art.length) : null;
   }
 
   /**
@@ -790,7 +797,7 @@
     for (let k = 1; k <= slots.length; k++) {
       const slot = slots[(rotationIndex + k) % slots.length];
       if (slot.kind === 'expiring' && slot.data) return slot.data.name;
-      if (slot.kind === 'deployed') return pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey)?.app?.name;
+      if (slot.kind === 'deployed') return pickNextDeployed(deployedList(), recentDeployed, resolveIntroKey, introVariantOf)?.app?.name;
     }
     return null;
   }

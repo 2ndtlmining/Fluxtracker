@@ -126,6 +126,69 @@ describe('pickNextDeployed (issue #283)', () => {
     expect(pickNextDeployed(undefined, [], keyOf)).toBeNull();
   });
 
+  it('drains the biggest intro first, so it spreads across the round (issue #417)', () => {
+    const pick = pickNextDeployed(list, [{ name: 'plain', key: null }], keyOf);
+    // two dragons wait, one Valheim: the dragon group goes first, newest dragon within it
+    expect(pick.app.name).toBe('newest');
+  });
+
+  it('alternates art variants within an intro (issue #417)', () => {
+    const dragons = [
+      { name: 'a', blockAge: 1, key: 'dragon', v: 0 },
+      { name: 'b', blockAge: 2, key: 'dragon', v: 0 },
+      { name: 'c', blockAge: 3, key: 'dragon', v: 1 }
+    ];
+    const recent = [{ name: 'a', key: 'dragon', variant: 0 }];
+    expect(pickNextDeployed(dragons, recent, keyOf, d => d.v).app.name).toBe('c');
+  });
+
+  it('a 131-app day: no intro runs longer than 2 while others wait, and every app gets a turn (issue #417)', () => {
+    // Shaped like the measured day: Dragonwilds ~43%, a long tail of other intros, some with none
+    const apps = [];
+    let age = 0;
+    const add = (key, n, v = () => null) => {
+      for (let i = 0; i < n; i++) apps.push({ name: `${key ?? 'plain'}-${i}`, blockAge: age += 7, key, v: v(i) });
+    };
+    add('game:RuneScape: Dragonwilds', 56, i => i % 3 === 0 ? 1 : 0);
+    add('game:Minecraft', 14);
+    add('game:Valheim', 10);
+    add('service:wordpress', 12);
+    add('service:crypto', 9);
+    add('service:orbit', 8);
+    add('game:Palworld', 6);
+    add('service:ai-agent', 5);
+    add(null, 11);
+    // interleave ages the way a real day does, deterministically
+    apps.forEach((a, i) => { a.blockAge = (i * 7919) % 1440; });
+    expect(apps).toHaveLength(131);
+
+    let recent = [];
+    const shown = [];
+    for (let i = 0; i < apps.length; i++) {
+      const { app: a } = pickNextDeployed(apps, recent, keyOf, x => x.v);
+      shown.push(a);
+      recent = rememberShown(recent, a, keyOf(a), a.v);
+    }
+    expect(new Set(shown.map(a => a.name)).size).toBe(apps.length);
+
+    let run = 1;
+    for (let i = 1; i < shown.length; i++) {
+      run = keyOf(shown[i]) === keyOf(shown[i - 1]) ? run + 1 : 1;
+      if (run > 2) {
+        const otherWaiting = shown.slice(i + 1).some(a => keyOf(a) !== keyOf(shown[i]));
+        expect(otherWaiting, `run of ${run} ${keyOf(shown[i])} at pick ${i}`).toBe(false);
+      }
+    }
+
+    // consecutive dragons never replay the same variant while the other is still waiting
+    const dragons = shown.filter(a => a.key === 'game:RuneScape: Dragonwilds');
+    for (let i = 1; i < dragons.length; i++) {
+      if (dragons[i].v === dragons[i - 1].v) {
+        expect(dragons.slice(i).some(d => d.v !== dragons[i].v)).toBe(false);
+      }
+    }
+  });
+
   it('rememberShown caps the history', () => {
     let recent = [];
     for (let i = 0; i < RECENT_HISTORY_LIMIT + 50; i++) recent = rememberShown(recent, { name: `a${i}` }, null);
