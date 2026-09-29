@@ -1,6 +1,7 @@
 <script>
   import { Server } from '@lucide/svelte';
   import { computeUtilizationPercent, formatAsciiBar, utilizationLevel } from '$lib/utils/resourceBar.js';
+  import { formatCount } from '$lib/utils/format.js';
 
   export let node = null;           // { ip, tier, country, countryCode, containerCount, appCount, appNames, apps, resources } | null
   export let loading = false;
@@ -16,7 +17,7 @@
 
   function formatNumber(num) {
     if (!num) return '0';
-    return num.toLocaleString();
+    return formatCount(num); // fixed en-US (#443)
   }
 
   function formatDecimal(num, digits = 1) {

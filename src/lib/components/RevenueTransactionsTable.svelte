@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { appFocus } from '$lib/stores/appFocus.js';
   import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
+  import { formatCount, formatNumber } from '$lib/utils/format.js';
   import { serialiseSources, toggleSource as nextSources } from '$lib/utils/transactionSources.js';
 
   // Bound to the parent so the shared header (page info, mode badge, export button
@@ -210,8 +211,9 @@
     return address.substring(0, 15) + '...';
   }
 
+  // Two decimals on screen like every other surface (#443); the CSV export keeps all eight.
   function formatAmount(amount) {
-    return amount.toFixed(8);
+    return formatNumber(amount, 2);
   }
 
   function appTypeLabel(appType) {
@@ -229,7 +231,7 @@
     if (amountUSD === null || amountUSD === undefined) {
       return '-';
     }
-    return '$' + amountUSD.toFixed(2);
+    return '$' + formatNumber(amountUSD, 2);
   }
 
   function formatDate(dateStr) {
@@ -360,14 +362,6 @@
     }
   }
 </script>
-
-<!-- Status Bar -->
-<div class="status-bar">
-  <div class="status-item">
-    <span class="status-dot"></span>
-    Total TX: <span class="status-value">{totalTransactions.toLocaleString()}</span>
-  </div>
-</div>
 
 <!-- Search Bar -->
 <div class="search-section">
@@ -532,7 +526,7 @@
               <td class="amount-usd-col">{formatUSD(tx.amount_usd)}</td>
               <td class="date-col">{formatDate(tx.date)}</td>
               <td class="time-col">{formatTime(tx.timestamp)}</td>
-              <td class="block-col">{tx.block_height.toLocaleString()}</td>
+              <td class="block-col">{formatCount(tx.block_height)}</td>
             </tr>
           {/each}
         </tbody>
@@ -596,40 +590,6 @@
 </div>
 
 <style>
-  /* Status Bar */
-  .status-bar {
-    display: flex;
-    gap: var(--spacing-lg);
-    padding: var(--spacing-sm) 0;
-    margin-bottom: var(--spacing-md);
-  }
-
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    color: var(--text-muted);
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent-green);
-    box-shadow: 0 0 8px var(--accent-green);
-    animation: pulse 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
-  .status-value {
-    color: var(--text-primary);
-    font-weight: 700;
-  }
-
   /* Search Section */
   .search-section {
     margin-bottom: var(--spacing-lg);

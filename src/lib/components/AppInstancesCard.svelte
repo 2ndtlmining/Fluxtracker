@@ -74,7 +74,7 @@
 
   function formatNumber(num) {
     if (num === null || num === undefined) return '--';
-    return num.toLocaleString();
+    return formatCount(num); // fixed en-US (#443), not the visitor's locale
   }
 
   function formatChange(comparison) {

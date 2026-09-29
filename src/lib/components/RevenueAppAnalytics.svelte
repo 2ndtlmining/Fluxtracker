@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
+  import { formatCount, formatNumber } from '$lib/utils/format.js';
 
   // Bound to the parent so the shared header can show "N apps".
   export let totalApps = 0;
@@ -142,8 +143,9 @@
     return address.substring(0, 15) + '...';
   }
 
+  // Two decimals on screen like every other surface (#443); the CSV keeps all eight.
   function formatAmount(amount) {
-    return amount.toFixed(8);
+    return formatNumber(amount, 2);
   }
 
   function formatTime(timestamp) {
@@ -160,7 +162,7 @@
 <div class="apps-search-section">
   <input type="text" class="search-input" placeholder="Search apps..."
     bind:value={appsSearch} on:input={handleAppsSearch} />
-  <span class="apps-count">{totalApps.toLocaleString()} apps</span>
+  <span class="apps-count">{formatCount(totalApps)} {totalApps === 1 ? 'app' : 'apps'}</span>
 </div>
 
 {#if concentration && concentration.appCount > 0}
@@ -190,7 +192,7 @@
         <div class="app-card-stats">
           <div class="app-stat-row">
             <span class="app-stat-label">Total Revenue</span>
-            <span class="app-stat-value green">{app.total_revenue.toFixed(2)} FLUX</span>
+            <span class="app-stat-value green">{formatNumber(app.total_revenue, 2)} FLUX</span>
           </div>
           {#if shareOf(app, concentration) !== null}
             <div class="app-stat-row">
@@ -204,7 +206,7 @@
           </div>
           <div class="app-stat-row">
             <span class="app-stat-label">Avg Payment</span>
-            <span class="app-stat-value">{app.avg_payment.toFixed(2)} FLUX</span>
+            <span class="app-stat-value">{formatNumber(app.avg_payment, 2)} FLUX</span>
           </div>
           <div class="app-stat-dates">
             <span>First: {app.first_payment}</span>
@@ -238,7 +240,7 @@
       <div class="modal-summary">
         <div class="summary-stat">
           <div class="summary-label">Total Revenue</div>
-          <div class="summary-value green">{selectedApp.total_revenue.toFixed(2)} FLUX</div>
+          <div class="summary-value green">{formatNumber(selectedApp.total_revenue, 2)} FLUX</div>
         </div>
         <div class="summary-stat">
           <div class="summary-label">Transactions</div>
@@ -246,7 +248,7 @@
         </div>
         <div class="summary-stat">
           <div class="summary-label">Average</div>
-          <div class="summary-value">{selectedApp.avg_payment.toFixed(2)} FLUX</div>
+          <div class="summary-value">{formatNumber(selectedApp.avg_payment, 2)} FLUX</div>
         </div>
       </div>
 
@@ -291,7 +293,7 @@
                     {/if}
                   </td>
                   <td class="amount-col">{formatAmount(tx.amount)} FLUX</td>
-                  <td class="block-col">{tx.block_height.toLocaleString()}</td>
+                  <td class="block-col">{formatCount(tx.block_height)}</td>
                 </tr>
               {/each}
             </tbody>

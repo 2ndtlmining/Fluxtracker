@@ -320,8 +320,9 @@
               <span class="item-badge item-enterprise">Enterprise</span>
             {:else}
               {#if stat.cpu !== undefined}
-                <span class="item-value">{stat.cpu >= 1 ? formatNumber(stat.cpu) : (Math.round(stat.cpu * 100) / 100)}</span>
-                <span class="item-unit">{stat.cpu >= 1 ? (stat.cpu === 1 ? 'core' : 'cores') : 'threads'}</span>
+                <!-- #447: half a core is 0.5 cores, not "0.5 threads" -->
+                <span class="item-value">{Number.isInteger(stat.cpu) ? formatNumber(stat.cpu) : formatNumber(stat.cpu, 2)}</span>
+                <span class="item-unit">{stat.cpu === 1 ? 'core' : 'cores'}</span>
                 <span class="item-separator">•</span>
               {/if}
 

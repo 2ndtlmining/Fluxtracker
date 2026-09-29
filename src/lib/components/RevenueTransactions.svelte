@@ -1,6 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { Download } from '@lucide/svelte';
+  import { formatCount } from '$lib/utils/format.js';
   import { appFocus } from '$lib/stores/appFocus.js';
   import RevenueTransactionsTable from '$lib/components/RevenueTransactionsTable.svelte';
   import RevenueAppAnalytics from '$lib/components/RevenueAppAnalytics.svelte';
@@ -91,14 +92,13 @@
       </div>
       <div class="transaction-count">
         {#if viewMode === 'apps'}
-          {totalApps.toLocaleString()} apps
+          {formatCount(totalApps)} {totalApps === 1 ? 'app' : 'apps'}
         {:else}
-          {totalTransactions.toLocaleString()} transactions
+          {formatCount(totalTransactions)} {totalTransactions === 1 ? 'transaction' : 'transactions'}
         {/if}
       </div>
     </div>
     <div class="header-right">
-      <div class="page-info">Page: <span class="highlight">{currentPage}/{totalPages}</span></div>
       <div class="mode-indicator">Mode: <span class="mode-badge">{mode}</span></div>
 
       <!-- CSV Export Button -->
@@ -212,17 +212,6 @@
     gap: var(--spacing-lg);
     align-items: center;
     flex-wrap: wrap;
-  }
-
-  .page-info {
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    font-family: var(--font-mono);
-  }
-
-  .highlight {
-    color: var(--text-primary);
-    font-weight: 700;
   }
 
   .mode-indicator {

@@ -1,6 +1,7 @@
 <script>
   import { Globe, Info } from '@lucide/svelte';
   import { formatAsciiBar } from '$lib/utils/resourceBar.js';
+  import { formatCount } from '$lib/utils/format.js';
   import { onMount } from 'svelte';
   import { getApiUrl } from '$lib/config.js';
   import { demandLevel, DEMAND_LEVELS } from '$lib/utils/demandLevel.js';
@@ -17,7 +18,7 @@
 
   function formatNumber(num) {
     if (!num && num !== 0) return '0';
-    return num.toLocaleString();
+    return formatCount(num); // fixed en-US (#443)
   }
 
   function formatPercent(num) {
