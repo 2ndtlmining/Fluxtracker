@@ -66,9 +66,17 @@ describe('providerName (PROVIDER_GROUPS)', () => {
 });
 
 describe('isDatacenterOverride (DATACENTER_OVERRIDES)', () => {
-    it('matches DataVex (issue #196) on org or isp, case-insensitively', () => {
-        expect(isDatacenterOverride('DataVex', '')).toBe(true);
-        expect(isDatacenterOverride('', 'DATAVEX')).toBe(true);
+    it('matches DataVex (issue #196) on the org, case-insensitively', () => {
+        expect(isDatacenterOverride('DataVex', 'MEVSPACE sp. z o.o.')).toBe(true);
+        expect(isDatacenterOverride('DATAVEX', '')).toBe(true);
+    });
+
+    it('matches the provider the card shows: the org, and the isp only when the org is empty (issue #494)', () => {
+        // A reseller on DataVex's network (AS201814) under its own org is not DataVex
+        expect(isDatacenterOverride('SKYTECHNOLOGY', 'DataVex')).toBe(false);
+        // Nodes on Contabo's network under another org follow their own flag
+        expect(isDatacenterOverride('Lrtc Inetnum Rent', 'Contabo Inc.')).toBe(false);
+        expect(isDatacenterOverride('', 'DataVex')).toBe(true);
     });
 
     it('does not match anything it does not name', () => {

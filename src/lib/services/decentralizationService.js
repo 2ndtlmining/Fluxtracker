@@ -45,9 +45,14 @@ export function providerName(org, isp) {
     return group ? group.name : raw;
 }
 
-/** True when the node's org or isp is on DATACENTER_OVERRIDES. */
+/**
+ * True when the node's provider is on DATACENTER_OVERRIDES. Matched on the same name the card
+ * shows -- the org, the isp only when the org is empty -- so an override can only ever count
+ * nodes under its own row. Issue #494: a reseller on DataVex's network under its own org was
+ * not DataVex, but matching the isp too would have counted it.
+ */
 export function isDatacenterOverride(org, isp) {
-    return lowerMatch(org, DATACENTER_OVERRIDES) || lowerMatch(isp, DATACENTER_OVERRIDES);
+    return lowerMatch((org || isp || '').trim(), DATACENTER_OVERRIDES);
 }
 
 /**

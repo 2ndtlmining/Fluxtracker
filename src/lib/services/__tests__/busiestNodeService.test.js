@@ -28,7 +28,8 @@ import {
     getCachedNodeContinents,
     recordContinentCpu,
     clearBusiestNodeCache,
-    appNameForContainer
+    appNameForContainer,
+    overrideProviderChurn
 } from '../busiestNodeService.js';
 
 function node({ ip = '1.2.3.4', country = 'Testland', countryCode = 'TL', tier = 'CUMULUS',
@@ -191,6 +192,72 @@ describe('getCachedNetworkNodes (issue #457)', () => {
             { ip: '2.2.2.2', org: 'Stofa A/S', isp: 'Stofa A/S', dataCenter: false, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' },
             { ip: '3.3.3.3', org: '', isp: '', dataCenter: null, country: 'Germany', countryCode: 'DE', continent: 'Europe', continentCode: 'EU' }
         ]);
+    });
+
+    // Issue #494: a node's geolocation comes back blank on some fetches (FluxOS hasn't
+    // re-looked it up yet), so it dropped out of the count and DataVex read 123 one hour and
+    // 125 the next with the same nodes online.
+    describe('a node whose geolocation comes back blank (issue #494)', () => {
+        const withGeo = (ip, geo) => ({ ...node({ ip, names: ['/fluxfm1_myapp'] }), geolocation: { ip, country: 'Poland', countryCode: 'PL', continent: 'Europe', continentCode: 'EU', ...geo } });
+        const blank = ip => ({ ...node({ ip }), geolocation: { ip: '', country: '', countryCode: '', continent: '', continentCode: '', org: '' } });
+
+        it('keeps the last known hosting data for that node', async () => {
+            axios.get.mockResolvedValueOnce(apiResponse([
+                withGeo('1.1.1.1', { org: 'DataVex', isp: 'MEVSPACE sp. z o.o.', dataCenter: false })
+            ]));
+            await getBusiestNode();
+
+            axios.get.mockResolvedValueOnce(apiResponse([
+                withGeo('9.9.9.9', { org: 'Stofa A/S', dataCenter: false }),
+                blank('1.1.1.1')
+            ]));
+            await getBusiestNode({ force: true });
+
+            expect(getCachedNetworkNodes()[1]).toEqual({
+                ip: '1.1.1.1', org: 'DataVex', isp: 'MEVSPACE sp. z o.o.', dataCenter: false,
+                country: 'Poland', countryCode: 'PL', continent: 'Europe', continentCode: 'EU'
+            });
+        });
+
+        it('stays unknown when the node has never been seen with hosting data', async () => {
+            axios.get.mockResolvedValue(apiResponse([
+                withGeo('9.9.9.9', { org: 'Stofa A/S', dataCenter: false }),
+                blank('1.1.1.1')
+            ]));
+            await getBusiestNode();
+
+            expect(getCachedNetworkNodes()[1]).toMatchObject({ ip: '1.1.1.1', org: '', dataCenter: null });
+        });
+
+        it('does not carry data older than the carry window', async () => {
+            vi.useFakeTimers();
+            try {
+                axios.get.mockResolvedValueOnce(apiResponse([
+                    withGeo('1.1.1.1', { org: 'DataVex', dataCenter: false })
+                ]));
+                await getBusiestNode();
+
+                vi.advanceTimersByTime(8 * 24 * 60 * 60 * 1000);
+                axios.get.mockResolvedValueOnce(apiResponse([
+                    withGeo('9.9.9.9', { org: 'Stofa A/S', dataCenter: false }),
+                    blank('1.1.1.1')
+                ]));
+                await getBusiestNode({ force: true });
+
+                expect(getCachedNetworkNodes()[1]).toMatchObject({ org: '', dataCenter: null });
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('fresh data always wins over the remembered row', async () => {
+            axios.get.mockResolvedValueOnce(apiResponse([withGeo('1.1.1.1', { org: 'DataVex', dataCenter: false })]));
+            await getBusiestNode();
+            axios.get.mockResolvedValueOnce(apiResponse([withGeo('1.1.1.1', { org: 'Hetzner', dataCenter: true })]));
+            await getBusiestNode({ force: true });
+
+            expect(getCachedNetworkNodes()[0]).toMatchObject({ org: 'Hetzner', dataCenter: true });
+        });
     });
 
     it('is cleared by the test hook alongside the busiest-node cache', async () => {
@@ -385,5 +452,26 @@ describe('CPU by continent (issue #463)', () => {
 
         await expect(recordContinentCpu()).rejects.toThrow();
         expect(updateCurrentMetrics).not.toHaveBeenCalled();
+    });
+});
+
+describe('overrideProviderChurn (issue #494 diagnostics)', () => {
+    const dv = { org: 'DataVex', isp: 'MEVSPACE sp. z o.o.' };
+
+    it('counts each override provider by org, and reports no churn on the first fetch', () => {
+        const { summary } = overrideProviderChurn(
+            ['a:1', 'b:1', 'c:1', 'd:1'],
+            [dv, dv, { org: 'SKYTECHNOLOGY', isp: 'MEVSPACE sp. z o.o.' }, { org: 'Hetzner Online GmbH', isp: '' }],
+            new Set(['b:1']),
+            new Map()
+        );
+        expect(summary.datavex).toEqual({ count: 2, keptFromMemory: 1, joined: null, left: null });
+        expect(summary.hetzner.count).toBe(1);
+    });
+
+    it('reports nodes that joined or left since the previous fetch', () => {
+        const first = overrideProviderChurn(['a:1', 'b:1'], [dv, dv], new Set(), new Map());
+        const { summary } = overrideProviderChurn(['b:1', 'c:1', 'd:1'], [dv, dv, dv], new Set(), first.current);
+        expect(summary.datavex).toEqual({ count: 3, keptFromMemory: 0, joined: 2, left: 1 });
     });
 });

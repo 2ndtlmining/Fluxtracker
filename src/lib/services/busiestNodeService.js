@@ -9,7 +9,7 @@
 // runningAppsProvider's frequent cache — gaming/crypto/wordpress/cloud don't need the
 // extra resources/benchmark/ip fields this card does.
 
-import { API_ENDPOINTS, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '../config.js';
+import { API_ENDPOINTS, BUSIEST_NODE_CONFIG, CPU_CONTINENTS, DATACENTER_OVERRIDES, cpuCoresColumn, cpuLockedColumn } from '../config.js';
 import { updateCurrentMetrics } from '../db/database.js';
 import { resilientFetch } from './resilientFetch.js';
 import { ensureGlobalSpecsCache, resolveRunningAppName } from './appSpecsCache.js';
@@ -25,6 +25,40 @@ let inFlight = null;
 // Every node's hosting data from the same fetch -- decentralizationService's whole source
 // (#457), so the two features share one hourly ~4MB fetch instead of two.
 let networkNodes = [];
+// Each node's last fetch that carried hosting data, by ip:port (#494). In memory only: a
+// restart loses it, which costs at most one fetch's worth of blank nodes.
+const lastKnownGeo = new Map();
+// Each DATACENTER_OVERRIDES provider's nodes (ip:port) in the previous fetch, for the
+// joined/left figures in the #494 diagnostic line.
+let lastOverrideKeys = new Map();
+
+/**
+ * Per DATACENTER_OVERRIDES provider: nodes in this fetch, how many were kept from memory, and
+ * how many joined or left since the previous fetch. Matched on the org (the isp only when the
+ * org is empty), the same rule as decentralizationService.isDatacenterOverride.
+ */
+export function overrideProviderChurn(keys, rows, carriedKeys, previous) {
+    const current = new Map(DATACENTER_OVERRIDES.map(fragment => [fragment, new Set()]));
+    rows.forEach((row, i) => {
+        const key = keys[i];
+        if (!key) return;
+        const name = (row.org || row.isp || '').toLowerCase();
+        const fragment = DATACENTER_OVERRIDES.find(f => name.includes(f));
+        if (fragment) current.get(fragment).add(key);
+    });
+
+    const summary = {};
+    for (const [fragment, set] of current) {
+        const before = previous.get(fragment);
+        summary[fragment] = {
+            count: set.size,
+            keptFromMemory: [...set].filter(k => carriedKeys.has(k)).length,
+            joined: before ? [...set].filter(k => !before.has(k)).length : null,
+            left: before ? [...before].filter(k => !set.has(k)).length : null
+        };
+    }
+    return { summary, current };
+}
 // Nodes per continent from the same fetch (issue #268), counted per node.
 let networkNodeContinents = null;
 
@@ -99,9 +133,12 @@ async function fetchBusiestNode() {
 
     // One row per NODE for decentralization (#457), which counts every node on a shared IP
     // (it used to dedupe to IPs). Only the fields it reads are kept, not the ~4 MB payload.
+    const now = Date.now();
+    const carriedKeys = new Set();
+    let blankCount = 0;
     networkNodes = nodes.map(node => {
         const geo = node?.geolocation ?? {};
-        return {
+        const row = {
             ip: geo.ip || (node?.ip || '').split(':')[0] || null,
             org: typeof geo.org === 'string' ? geo.org.trim() : '',
             isp: typeof geo.isp === 'string' ? geo.isp.trim() : '',
@@ -113,7 +150,35 @@ async function fetchBusiestNode() {
             continent: geo.continent || null,
             continentCode: geo.continentCode || null
         };
+
+        // Issue #494: FluxOS sometimes reports a node with blank geolocation until it looks
+        // the IP up again, so the node dropped out of the count for an hour and a provider's
+        // total moved with nothing changed. Keyed by ip:port, which is one node.
+        const key = node?.ip || null;
+        if (!key) return row;
+        if (row.org || row.isp || row.dataCenter !== null) {
+            lastKnownGeo.set(key, { row, seenAt: now });
+            return row;
+        }
+        blankCount++;
+        const known = lastKnownGeo.get(key);
+        if (!known || now - known.seenAt > BUSIEST_NODE_CONFIG.geolocationCarryMs) return row;
+        carriedKeys.add(key);
+        return known.row;
     });
+    for (const [key, { seenAt }] of lastKnownGeo) {
+        if (now - seenAt > BUSIEST_NODE_CONFIG.geolocationCarryMs) lastKnownGeo.delete(key);
+    }
+
+    // Issue #494 diagnostics: when an override provider's count moves, this line says whether
+    // nodes came back blank (kept from memory) or left Flux's list altogether.
+    const churn = overrideProviderChurn(nodes.map(n => n?.ip || null), networkNodes, carriedKeys, lastOverrideKeys);
+    lastOverrideKeys = churn.current;
+    log.info(
+        { nodes: nodes.length, blank: blankCount, keptFromMemory: carriedKeys.size, providers: churn.summary },
+        'Node list: %d nodes, %d with blank geolocation (%d kept from last known)',
+        nodes.length, blankCount, carriedKeys.size
+    );
 
     const continentCounts = {};
     // CPU supply and demand per continent (issue #463): the cores each node benchmarks, and
@@ -279,5 +344,7 @@ export function clearBusiestNodeCache() {
     cacheFetchedAt = 0;
     inFlight = null;
     networkNodes = [];
+    lastKnownGeo.clear();
+    lastOverrideKeys = new Map();
     networkNodeContinents = null;
 }
