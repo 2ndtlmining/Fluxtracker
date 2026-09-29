@@ -731,9 +731,12 @@
     text-shadow: 0 0 8px var(--accent-cyan);
   }
 
+  /* #497: the TEAM/FIAT badge sits to the right of the address, not under it -- wrapping
+     made every team/fiat row twice as tall as its neighbours. */
   .address-col {
     color: var(--text-dim);
     font-size: 0.75rem;
+    white-space: nowrap;
   }
 
   .app-name-col {
@@ -746,9 +749,12 @@
   }
 
   /* #440: half the app names were cut to 120px even at 1440px, where the table has room. */
+  /* #497: 220 not 240 -- the inline payer badge needs the room, and 240 pushed the table
+     5px past its container at 1440+. The longest hub names (minecraftbedrockserver + 13
+     digits) are cut either way; they keep their full name in the title tooltip. */
   @media (min-width: 1200px) {
     .app-name-col {
-      max-width: 240px;
+      max-width: 220px;
     }
   }
 
@@ -778,6 +784,7 @@
 
   .date-col {
     color: var(--text-white);
+    white-space: nowrap;
   }
 
   .time-col {
