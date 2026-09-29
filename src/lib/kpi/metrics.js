@@ -108,7 +108,16 @@ export const SECTIONS = [
         source: 'daily_snapshots',
         aggregation: 'average',
         metrics: [
-            { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' }
+            { key: 'total', label: 'Total Apps', column: 'total_apps', format: 'int' },
+            // Issue #482: of the deployments ordered by unexpired specs, the share running --
+            // the Apps card's "N of M ordered" (#421). A ratio of the period's summed counts,
+            // not an average of daily percentages, as the chart does for weekly/monthly.
+            {
+                key: 'fillPercent',
+                label: 'Deployments running (% of ordered)',
+                ratio: { numerator: 'deployments_running', denominator: 'deployments_ordered' },
+                format: 'percent'
+            }
         ]
     },
     {
@@ -162,6 +171,30 @@ export function averageColumn(snapshots, column, expectedDays) {
         coveredDays: values.length,
         expectedDays,
         covered: values.length / expectedDays >= MIN_COVERAGE
+    };
+}
+
+/**
+ * A percentage over a period as the ratio of two summed snapshot columns (100 * sum(num) /
+ * sum(den)), so a big day weighs more than a small one. A day counts only when both columns
+ * hold a positive reading -- the same "zero means the collection failed" rule as
+ * averageColumn(), and the same coverage requirement.
+ */
+export function ratioOfSums(snapshots, numerator, denominator, expectedDays) {
+    const days = snapshots.filter(s => [s[numerator], s[denominator]]
+        .every(v => typeof v === 'number' && Number.isFinite(v) && v > 0));
+
+    if (days.length === 0) {
+        return { value: null, coveredDays: 0, expectedDays, covered: false };
+    }
+
+    const top = days.reduce((a, s) => a + s[numerator], 0);
+    const bottom = days.reduce((a, s) => a + s[denominator], 0);
+    return {
+        value: (100 * top) / bottom,
+        coveredDays: days.length,
+        expectedDays,
+        covered: days.length / expectedDays >= MIN_COVERAGE
     };
 }
 
@@ -267,6 +300,10 @@ export function buildKpiDataset({
                 const present = typeof value === 'number' && Number.isFinite(value);
                 cur = { value: present ? value : null, covered: present, coveredDays: present ? 1 : 0, expectedDays: 1 };
                 cmp = { value: null, covered: true, coveredDays: 0, expectedDays: 0 };
+            } else if (metric.ratio) {
+                const { numerator, denominator } = metric.ratio;
+                cur = ratioOfSums(currentSnapshots, numerator, denominator, currentDays);
+                cmp = ratioOfSums(comparisonSnapshots, numerator, denominator, comparisonDays);
             } else if (metric.column) {
                 // A metric naming a snapshot column is averaged from daily_snapshots wherever it
                 // sits; everything else in the revenue section comes from the revenue totals.
