@@ -4,7 +4,7 @@
   import { loadChartJs } from '$lib/utils/loadChartJs.js';
   import { getApiUrl, DECENTRALIZATION_PER_NODE_SINCE, CPU_CONTINENTS, cpuCoresColumn, cpuLockedColumn } from '$lib/config.js';
   import { formatCount, formatNumber, formatUsd } from '$lib/utils/format.js';
-  import { buildGameMetrics, buildGameSnapshots, GAMING_TOTAL_METRIC } from '$lib/utils/gameSeries.js';
+  import { buildGameMetrics, buildGameSnapshots } from '$lib/utils/gameSeries.js';
   import { mixFields } from '$lib/utils/revenueSources.js';
   import { fromColumnar } from '$lib/utils/columnar.js';
   import { rewardPerNodePerDay } from '$lib/utils/nodeRewards.js';

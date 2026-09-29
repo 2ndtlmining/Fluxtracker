@@ -67,54 +67,16 @@ export const SYNC_INTERVALS = {
 };
 
 // ============================================
-// RATE LIMITING
-// ============================================
-
-export const RATE_LIMITS = {
-    // Delay between individual transaction detail fetches (milliseconds)
-    TX_DETAIL_DELAY: 100,  // 100ms = max 10 tx/second
-    
-    // Delay between page fetches (milliseconds)
-    PAGE_FETCH_DELAY: 500,  // 500ms = max 2 pages/second
-    
-    // Max retries for failed API calls
-    MAX_RETRIES: 3,
-    
-    // Exponential backoff base (milliseconds)
-    RETRY_BASE_DELAY: 1000
-};
-
-// ============================================
-// BLOCKCHAIN CONFIGURATION
-// ============================================
-// Updated for new block speed (30 seconds per block)
-export const BLOCK_CONFIG = {
-    SECONDS_PER_BLOCK: 30,           // 30 seconds per block (was 120)
-    BLOCKS_PER_DAY: 2880,            // 24 * 60 * 60 / 30 = 2,880 blocks
-    BLOCKS_PER_WEEK: 20160,          // 2,880 * 7 = 20,160 blocks
-    BLOCKS_PER_MONTH: 86400,         // 2,880 * 30 = 86,400 blocks
-    BLOCKS_PER_QUARTER: 259200,      // 2,880 * 90 = 259,200 blocks
-    BLOCKS_PER_YEAR: 1051200,        // 2,880 * 365 = 1,051,200 blocks
-    INCREMENTAL_THRESHOLD: 2880
-};
-
-// ============================================
 // API ENDPOINTS
 // ============================================
 export const API_ENDPOINTS = {
     // Flux Core APIs
-    FLUX_BASE: 'https://api.runonflux.io',
-    EXPLORER: 'https://api.runonflux.io/explorer',
     APPS: 'https://api.runonflux.io/apps',
     DAEMON: 'https://api.runonflux.io/daemon',
     // One entry per node, each carrying the operator's payment_address -- the source for
     // the unique-wallet count (issue #201). ~4MB, so it gets its own slow cadence.
     DETERMINISTIC_NODE_LIST: 'https://api.runonflux.io/daemon/viewdeterministiczelnodelist',
-    BLOCKBOOK: 'https://blockbook.runonflux.io/api/v2/',
-    BLOCKBOOK2: 'https://blockbookflux.app.runonflux.io/api/v2/',
-    //not using the backups just yet
     // Stats APIs
-    STATS_BASE: 'https://stats.runonflux.io',
     FLUXINFO: 'https://stats.runonflux.io/fluxinfo?projection=flux',
     RUNNING_APPS: 'https://stats.runonflux.io/fluxinfo?projection=apps.runningapps.Names',
 
@@ -123,10 +85,8 @@ export const API_ENDPOINTS = {
     
     // Price APIs (tried in order)
     PRICE_COINGECKO: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
-    PRICE_PRIMARY: 'https://api.coingecko.com/api/v3/simple/price?ids=zelcash&vs_currencies=usd',
     PRICE_EXPLORER: 'https://explorer.runonflux.io/api/currency',
     PRICE_CRYPTOCOMPARE: 'https://min-api.cryptocompare.com/data/price?fsym=FLUX&tsyms=USD',
-    PRICE_FALLBACK: 'https://explorer.runonflux.io/api/currency',
 
     // Historical daily price sources (tried in order by priceHistoryService).
     // NOTE: CryptoCompare/CoinDesk started returning HTTP 401 "API key required" for both the
@@ -143,13 +103,11 @@ export const API_ENDPOINTS = {
 
     //cloud stats
     API_FLUX_NETWORK_UTILISATION: 'https://stats.runonflux.io/fluxinfo?projection=apps.resources',
-    API_NODE_BENCHMARKS: 'https://stats.runonflux.io/fluxinfo?projection=benchmark',
     // Narrow projections of the same document (issue #292). The full `benchmark` projection
     // is ~4.2 MB; cloudService sums three fields (~0.36 MB) and the carousel reads nine
     // (~1.4 MB). Each consumer asks only for what it reads.
     API_NODE_BENCHMARK_CAPACITY: 'https://stats.runonflux.io/fluxinfo?projection=benchmark.bench.cores,benchmark.bench.ram,benchmark.bench.ssd',
     API_NODE_BENCHMARK_TOP: 'https://stats.runonflux.io/fluxinfo?projection=benchmark.status.benchmarking,benchmark.bench.ipaddress,benchmark.bench.cores,benchmark.bench.ram,benchmark.bench.ssd,benchmark.bench.ddwrite,benchmark.bench.eps,benchmark.bench.download_speed,benchmark.bench.upload_speed',
-    API_NODE_GEOLOCATION: 'https://stats.runonflux.io/fluxinfo?projection=geolocation',
 
     // Busiest Node card (issue #108): one combined projection so per-node app names,
     // resource usage and benchmarked capacity all come from the same node document —
@@ -473,8 +431,6 @@ export const WORDPRESS_CONFIG = {
     // Match WordPress nginx image with or without tag
     imageMatch: 'runonflux/wp-nginx',
     updateInterval: 10 * 60 * 1000,     // Update every 10 minutes
-    enableCache: true,
-    cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
 };
 
 // ============================================
@@ -595,31 +551,10 @@ export const EXCLUDED_TRANSACTIONS = [
 ];
 
 // ============================================
-// REVENUE CALCULATION CONFIG
-// ============================================
-export const REVENUE_CONFIG = {
-    updateInterval: 2 * 60 * 1000,      // Update every 2 minutes
-    enableCache: true,                   // Enable revenue caching
-    cacheDuration: 60 * 1000,           // Cache for 1 minute
-    
-    // Block-based periods (updated for new block speed)
-    blockPeriods: {
-        day: 2880,                       // ~24 hours
-        week: 20160,                     // ~7 days
-        month: 86400,                    // ~30 days
-        quarter: 259200,                 // ~90 days
-        year: 1051200                    // ~365 days
-    }
-};
-
-// ============================================
 // CLOUD UTILIZATION CONFIG
 // ============================================
 export const CLOUD_CONFIG = {
     updateInterval: 5 * 60 * 1000,      // Update every 5 minutes
-    trackApps: true,                     // Track running apps count
-    trackResources: true,                // Track CPU, RAM, Storage
-    trackWatchtower: true,               // Track Watchtower instances
 };
 
 // ============================================
@@ -628,8 +563,6 @@ export const CLOUD_CONFIG = {
 export const GAMING_CONFIG = {
     updateInterval: 10 * 60 * 1000,     // Update every 10 minutes
     repos: GAMING_REPOS,                 // Gaming repos to track
-    enableCache: true,
-    cacheDuration: 5 * 60 * 1000,       // Cache for 5 minutes
 };
 
 // ============================================
@@ -804,36 +737,6 @@ export const DATACENTER_OVERRIDES = [
 export const DASHBOARD_REFRESH_MS = 5 * 60 * 1000;
 
 // ============================================
-// UI CONFIGURATION
-// ============================================
-export const UI_CONFIG = {
-    defaultCurrency: 'FLUX',             // Default currency display
-    enableCurrencyToggle: true,          // Allow USD/FLUX toggle
-    theme: 'terminal',                   // Terminal theme (like your existing app)
-    refreshInterval: 60000,              // UI refresh rate (60 seconds)
-    
-    // Dashboard colors (matching your terminal theme)
-    colors: {
-        primary: '#3b82f6',              // Blue
-        success: '#10b981',              // Green
-        warning: '#f59e0b',              // Orange
-        danger: '#ef4444',               // Red
-        info: '#06b6d4',                 // Cyan
-        purple: '#a855f7',               // Purple
-    }
-};
-
-// ============================================
-// PERFORMANCE CONFIG
-// ============================================
-export const PERFORMANCE_CONFIG = {
-    ENABLE_METRICS: true,                // Enable performance tracking
-    LOG_API_CALLS: false,                // Log API calls (for debugging)
-    MAX_CACHE_SIZE: 100,                 // Maximum cache entries
-    REQUEST_TIMEOUT: 15000,              // API timeout (15 seconds)
-};
-
-// ============================================
 // REVENUE SYNC TUNING
 // ============================================
 export const REVENUE_SYNC = {
@@ -888,41 +791,6 @@ export const FETCH_CIRCUIT_BREAKER_CONFIG = {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-/**
- * Get the full API URL for address transactions
- */
-export function getAddressUrl(address) {
-    return `${API_ENDPOINTS.EXPLORER}/address/${address}`;
-}
-
-/**
- * Get block height URL
- */
-export function getBlockHeightUrl() {
-    return `${API_ENDPOINTS.DAEMON}/getblockcount`;
-}
-
-/**
- * Get apps running URL
- */
-export function getAppsUrl() {
-    return `${API_ENDPOINTS.APPS}/globalappsspecifications`;
-}
-
-/**
- * Calculate blocks for custom time period (in hours)
- */
-export function blocksForHours(hours) {
-    return Math.floor((hours * 60 * 60) / BLOCK_CONFIG.SECONDS_PER_BLOCK);
-}
-
-/**
- * Calculate time for blocks (returns hours)
- */
-export function hoursForBlocks(blocks) {
-    return (blocks * BLOCK_CONFIG.SECONDS_PER_BLOCK) / 3600;
-}
 
 /**
  * Check if an address belongs to the Flux team

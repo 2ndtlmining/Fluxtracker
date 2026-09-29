@@ -65,9 +65,6 @@ export const BREAKDOWN_DIMENSIONS = {
     }
 };
 
-/** Dimensions that are a plain group-by over a name (and optional code) field. */
-export const NAMED_DIMENSION_KEYS = ['country', 'continent'];
-
 /**
  * Look a dimension up by key.
  *

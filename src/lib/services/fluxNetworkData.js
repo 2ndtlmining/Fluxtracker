@@ -33,11 +33,6 @@ export function getLastGoodPrice() {
     return { price: lastGoodPrice.price, at: lastGoodPrice.at, ageMs: Date.now() - lastGoodPrice.at };
 }
 
-/** Test seam -- clears the in-memory price cache. */
-export function resetLastGoodPrice() {
-    lastGoodPrice = null;
-}
-
 function rememberPrice(price) {
     lastGoodPrice = { price, at: Date.now() };
     return price;
