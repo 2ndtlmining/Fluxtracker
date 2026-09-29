@@ -88,6 +88,12 @@
     formatArkFrame, arkFrameKinds, formatArkOutro,
     BATCH3_FRAME_COUNT
   } from '$lib/utils/introArt3.js';
+  import {
+    formatAutomationFrame, automationFrameKinds,
+    formatMessagingFrame, messagingFrameKinds,
+    formatFilesFrame, filesFrameKinds,
+    BATCH4_FRAME_COUNT
+  } from '$lib/utils/introArt4.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
@@ -205,7 +211,10 @@
     'ai-agent': { frameCount: BATCH2_FRAME_COUNT, format: formatAgentFrame, kinds: agentFrameKinds },     // #276
     wordpress: { frameCount: BATCH2_FRAME_COUNT, format: formatWordpressFrame, kinds: wordpressFrameKinds }, // #277
     vpn: { frameCount: BATCH2_FRAME_COUNT, format: formatVpnFrame, kinds: vpnFrameKinds },                // #278
-    probe: { frameCount: BATCH2_FRAME_COUNT, format: formatProbeFrame, kinds: probeFrameKinds }           // #279
+    probe: { frameCount: BATCH2_FRAME_COUNT, format: formatProbeFrame, kinds: probeFrameKinds },          // #279
+    automation: { frameCount: BATCH4_FRAME_COUNT, format: formatAutomationFrame, kinds: automationFrameKinds }, // #420
+    messaging: { frameCount: BATCH4_FRAME_COUNT, format: formatMessagingFrame, kinds: messagingFrameKinds },
+    files: { frameCount: BATCH4_FRAME_COUNT, format: formatFilesFrame, kinds: filesFrameKinds }
   };
 
   // Every deployment with no art of its own -- no game, no service with an intro -- gets the
