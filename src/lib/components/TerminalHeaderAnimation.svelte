@@ -78,6 +78,14 @@
     formatFuseFrame, fuseFrameKinds, FUSE_FRAME_COUNT,
     formatCraneFrame, craneFrameKinds, CRANE_FRAME_COUNT
   } from '$lib/utils/introArt.js';
+  import {
+    formatEnshroudedFrame, enshroudedFrameKinds, formatEnshroudedOutro,
+    formatRustFrame, rustFrameKinds, formatRustOutro,
+    formatWindroseFrame, windroseFrameKinds, formatWindroseOutro,
+    formatTerrariaFrame, terrariaFrameKinds, formatTerrariaOutro,
+    formatFivemOutro,
+    BATCH3_FRAME_COUNT
+  } from '$lib/utils/introArt3.js';
 
   export let blockHeight = null;
   export let totalNodes = 0;
@@ -170,7 +178,12 @@
       kinds: zomboidFrameKinds
     },
     // Issue #409. The key is what resolveGameFromAppName() returns for the 'vrising' prefix.
-    'V Rising': { frameCount: VRISING_FRAME_COUNT, format: formatVRisingFrame, kinds: vrisingFrameKinds }
+    'V Rising': { frameCount: VRISING_FRAME_COUNT, format: formatVRisingFrame, kinds: vrisingFrameKinds },
+    // Issue #418: the four games that still played the controller.
+    Enshrouded: { frameCount: BATCH3_FRAME_COUNT, format: formatEnshroudedFrame, kinds: enshroudedFrameKinds },
+    Rust: { frameCount: BATCH3_FRAME_COUNT, format: formatRustFrame, kinds: rustFrameKinds },
+    Windrose: { frameCount: BATCH3_FRAME_COUNT, format: formatWindroseFrame, kinds: windroseFrameKinds },
+    Terraria: { frameCount: BATCH3_FRAME_COUNT, format: formatTerrariaFrame, kinds: terrariaFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -199,7 +212,12 @@
     Palworld: outro(formatPalworldOutro),
     'RuneScape: Dragonwilds': outro(formatDragonOutro),
     'Project Zomboid': outro(formatZomboidOutro),
-    'V Rising': outro(formatVRisingOutro)
+    'V Rising': outro(formatVRisingOutro),
+    FiveM: outro(formatFivemOutro),                 // #418
+    Enshrouded: outro(formatEnshroudedOutro),
+    Rust: outro(formatRustOutro),
+    Windrose: outro(formatWindroseOutro),
+    Terraria: outro(formatTerrariaOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

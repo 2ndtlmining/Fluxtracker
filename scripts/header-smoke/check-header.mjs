@@ -90,6 +90,26 @@ const GAME_ART_BY_NAME = {
   vrising: {
     signature: /\|\[\]  n  \[\]\|/,
     movingRows: rows => rows.filter(r => /\/V\\|\(V\)/.test(r.text))
+  },
+  // Issue #418. The Flame Altar, and the Shroud churning in the rows above it.
+  enshrouded: {
+    signature: /_\[###\]_/,
+    movingRows: rows => rows.filter(r => r.text.includes('%%'))
+  },
+  // The shack's floor, and the cargo plane or its crate moving through the rows.
+  rust: {
+    signature: /\|____\|_\|/,
+    movingRows: rows => rows.filter(r => /=\[==|\[#\]/.test(r.text))
+  },
+  // The square-rigger's sails, and the sea scrolling beneath it.
+  windrose: {
+    signature: /\[___\]\[___\]\[___\]/,
+    movingRows: rows => rows.filter(r => /[~^-]{6}/.test(r.text))
+  },
+  // The tree's canopy, and the miner's row as the tunnel advances.
+  terraria: {
+    signature: /\(@@@\)/,
+    movingRows: rows => rows.filter(r => /o[/-]/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -100,7 +120,11 @@ const UPDATED_DEPLOYED_NAME = {
   dragonwilds: 'dragonwilds1789155733041',
   palworld: 'palworld1789155733041',
   zomboid: 'projectzomboid1789155733041',
-  vrising: 'vrising1789155733041'
+  vrising: 'vrising1789155733041',
+  enshrouded: 'enshrouded1789155733041',
+  rust: 'rustserver1789155733041',
+  windrose: 'windrose1789155733041',
+  terraria: 'terraria1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
@@ -187,7 +211,7 @@ const run = async () => {
   const fuseFrames = new Set();
   // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
   // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
-  // that game's art AND the controller fallback (the initial fixture is enshrouded, which
+  // that game's art AND the controller fallback (the initial fixture is soulmask, which
   // has none). The three games need three runs -- see the note in stub-api.mjs.
   let sawGameArtFrame = false;
   const gameArtMovingRows = new Set();
