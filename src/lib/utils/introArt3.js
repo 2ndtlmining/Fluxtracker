@@ -1,6 +1,7 @@
 // Header intro art, batch 3 (issue #418): the four games that still played the shared
 // gamepad -- Enshrouded, Rust, Windrose, Terraria -- each with an outro, plus the FiveM
-// outro its intro (#280) never had.
+// outro its intro (#280) never had. #419 added the image-matched games: one factory scene
+// for Satisfactory and Factorio, and ARK.
 //
 // Same contract as introArt.js: BOOT_LINE_COUNT rows of exactly LOGO_WIDTH, no empty row,
 // every frame a pure function of the step, and no number that is not real. Intros are
@@ -301,5 +302,106 @@ export function formatFivemOutro(step = 0, ctx = {}) {
   const wheel = index < 2 ? '(o)' : '(_)';
   rows[4] = overlayAt(overlayAt(rows[4], column + 2, wheel), column + 10, wheel);
   rows[5] = FIVEM_ROAD.slice(0, LOGO_WIDTH);
+  return rows;
+}
+
+// =======================================================================================
+// #419 Factory (Satisfactory and Factorio, one shared scene): a conveyor carries ore into
+// an assembler, plates come out the far side, and the smokestack puffs. The outro: the
+// belt stops and ore piles up at the input.
+// =======================================================================================
+
+// 36 columns is a whole number of periods, so rotating then slicing has no seam.
+const ORE_BELT = '>>o>'.repeat(9);
+const PLATE_BELT = '>=>>'.repeat(9);
+const ASSEMBLER = ['.-------.', '| [ * ] |', "'-------'"];
+const ASSEMBLER_COLUMN = 11;
+const INPUT_END = ASSEMBLER_COLUMN;                  // belt runs 0..10
+const OUTPUT_START = ASSEMBLER_COLUMN + ASSEMBLER[0].length;
+const STACK = '|=|';
+const STACK_COLUMN = 14;
+const FACTORY_FLOOR = '_|__'.repeat(9);
+
+function factoryScene(index, { inputBelt, core, puff }) {
+  const rows = blankRows();
+  rows[0] = overlayAt(rows[0], puff[0], puff[1]);
+  rows[1] = overlayAt(rows[1], STACK_COLUMN, STACK);
+  ASSEMBLER.forEach((art, i) => { rows[2 + i] = overlayAt(rows[2 + i], ASSEMBLER_COLUMN, art); });
+  rows[3] = overlayAt(rows[3], ASSEMBLER_COLUMN + 4, core);
+  rows[3] = inputBelt + rows[3].slice(INPUT_END);
+  rows[5] = FACTORY_FLOOR.slice(0, LOGO_WIDTH);
+  return rows;
+}
+
+export function formatFactoryFrame(step = 0) {
+  const index = wrap(step);
+  const rows = factoryScene(index, {
+    inputBelt: rotateStrip(ORE_BELT, -index).slice(0, INPUT_END),
+    core: index % 2 ? '+' : '*',
+    puff: [STACK_COLUMN + 1 + (index % 4), index % 2 ? 'o O' : 'O o']
+  });
+  rows[3] = rows[3].slice(0, OUTPUT_START) + rotateStrip(PLATE_BELT, -index).slice(OUTPUT_START, LOGO_WIDTH);
+  return rows;
+}
+
+export const factoryFrameKinds = kindsOf(ROW_KIND_DEPLOYED);
+
+export function formatFactoryOutro(step = 0) {
+  const index = wrap(step);
+  // The belt is frozen; ore stacks back from the assembler's mouth, one more per step.
+  const pile = 'o'.repeat(index + 2);
+  const belt = (ORE_BELT.slice(0, INPUT_END - pile.length) + pile).slice(0, INPUT_END);
+  const rows = factoryScene(index, {
+    inputBelt: belt,
+    core: '.',
+    // The last of the smoke drifts off and thins.
+    puff: [STACK_COLUMN + 2 + index * 2, index < 4 ? 'o' : '.']
+  });
+  rows[3] = rows[3].slice(0, OUTPUT_START) + PLATE_BELT.slice(OUTPUT_START, LOGO_WIDTH).replace(/=/g, '>');
+  rows[2] = overlayAt(rows[2], INPUT_END - pile.length, index % 2 ? '!!' : '  ');
+  rows[1] = overlayAt(rows[1], INPUT_END - pile.length, index % 2 ? '  ' : '!!');
+  return rows;
+}
+
+// =======================================================================================
+// #419 ARK: a sauropod walks past palm trees while a pterosaur crosses row 0 (-v-, not
+// the Halloween bat). The outro: it walks off and leaves its footprints.
+// =======================================================================================
+
+const SAUROPOD = ['         __', '        / o)', "  .---._/ /", '=(       /'];
+const SAUROPOD_LEGS = ['   | |  | |', '   / |  | ' + BSLASH];
+const PALM = [BSLASH + '|/', ' |', ' |', ' |'];
+const PALM_COLUMNS = [5, 29];
+const PTEROSAUR = '-v-';
+const JUNGLE_FLOOR = '_,_.__'.repeat(6);
+
+function arkScene(index, column) {
+  const rows = blankRows();
+  rows[0] = overlayAt(rows[0], 30 - index * 4, PTEROSAUR);
+  for (const palm of PALM_COLUMNS) PALM.forEach((art, i) => { rows[1 + i] = overlayAt(rows[1 + i], palm, art); });
+  rows[5] = JUNGLE_FLOOR.slice(0, LOGO_WIDTH);
+  // Opaque between its outline, so a palm it walks in front of does not show through.
+  SAUROPOD.forEach((art, i) => {
+    const start = art.search(/\S/);
+    const solid = art.slice(start).replace(/ /g, '\u00a0');
+    rows[1 + i] = overlayAt(rows[1 + i], column + start, solid).replace(/\u00a0/g, ' ');
+  });
+  rows[5] = overlayAt(rows[5], column, SAUROPOD_LEGS[index % 2]);
+  return rows;
+}
+
+export function formatArkFrame(step = 0) {
+  const index = wrap(step);
+  return arkScene(index, index * 2);
+}
+
+export const arkFrameKinds = kindsOf(ROW_KIND_DEPLOYED);
+
+export function formatArkOutro(step = 0) {
+  const index = wrap(step);
+  const column = 14 + index * 3;
+  const rows = arkScene(index, column);
+  // Footprints behind it, every third column from where it stood.
+  for (let c = 17; c < column + 3; c += 3) rows[5] = overlayAt(rows[5], c, 'o');
   return rows;
 }

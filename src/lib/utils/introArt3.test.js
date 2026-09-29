@@ -7,6 +7,8 @@ import {
   formatWindroseFrame, windroseFrameKinds, formatWindroseOutro,
   formatTerrariaFrame, terrariaFrameKinds, formatTerrariaOutro,
   formatFivemOutro,
+  formatFactoryFrame, factoryFrameKinds, formatFactoryOutro,
+  formatArkFrame, arkFrameKinds, formatArkOutro,
   BATCH3_FRAME_COUNT
 } from './introArt3.js';
 
@@ -26,7 +28,11 @@ const SEQUENCES = [
   ['Windrose outro', formatWindroseOutro],
   ['Terraria', formatTerrariaFrame],
   ['Terraria outro', formatTerrariaOutro],
-  ['FiveM outro', formatFivemOutro]
+  ['FiveM outro', formatFivemOutro],
+  ['Factory (#419)', formatFactoryFrame],
+  ['Factory outro (#419)', formatFactoryOutro],
+  ['ARK (#419)', formatArkFrame],
+  ['ARK outro (#419)', formatArkOutro]
 ];
 
 describe.each(SEQUENCES)('%s (#418)', (_, format) => {
@@ -56,7 +62,7 @@ describe.each(SEQUENCES)('%s (#418)', (_, format) => {
 });
 
 describe('intro accents (#418)', () => {
-  it.each([enshroudedFrameKinds, rustFrameKinds, windroseFrameKinds, terrariaFrameKinds])('games are green', kinds => {
+  it.each([enshroudedFrameKinds, rustFrameKinds, windroseFrameKinds, terrariaFrameKinds, factoryFrameKinds, arkFrameKinds])('games are green', kinds => {
     expect(kinds()).toEqual(Array(BOOT_LINE_COUNT).fill('deployed'));
   });
 });
@@ -87,6 +93,21 @@ describe('specifics (#418)', () => {
     expect(face(formatTerrariaFrame(1))).toBeGreaterThan(face(formatTerrariaFrame(0)));
     expect(formatTerrariaOutro(0).join('')).not.toContain('(O)');
     expect(formatTerrariaOutro(7).join('')).toContain('(O)');
+  });
+
+  it('Factory: ore in, plates out; the outro stops the belt and piles ore at the input (#419)', () => {
+    expect(formatFactoryFrame(0)[3]).toMatch(/o.*\| \[ \* \] \|.*=/);
+    expect(formatFactoryFrame(1)[3]).toContain('[ + ]');
+    const pile = s => (formatFactoryOutro(s)[3].match(/o+(?=\|)/) || [''])[0].length;
+    expect(pile(7)).toBeGreaterThan(pile(0));
+    expect(formatFactoryOutro(1).join('')).toContain('!!');
+  });
+
+  it('ARK: a pterosaur, not the bat, and the sauropod leaves footprints (#419)', () => {
+    const halloween = { sky: skyFor(Date.UTC(2026, 9, 31)) };
+    expect(formatArkFrame(0, halloween)[0]).toContain('-v-');
+    expect(formatArkFrame(0)[5]).not.toMatch(/_o_/);
+    expect(formatArkOutro(7)[5]).toMatch(/o.*o.*o/);
   });
 
   it('FiveM outro: the road stops and the car leaves', () => {
