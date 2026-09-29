@@ -28,7 +28,8 @@ import {
     getCachedNodeContinents,
     recordContinentCpu,
     clearBusiestNodeCache,
-    appNameForContainer
+    appNameForContainer,
+    overrideProviderChurn
 } from '../busiestNodeService.js';
 
 function node({ ip = '1.2.3.4', country = 'Testland', countryCode = 'TL', tier = 'CUMULUS',
@@ -451,5 +452,26 @@ describe('CPU by continent (issue #463)', () => {
 
         await expect(recordContinentCpu()).rejects.toThrow();
         expect(updateCurrentMetrics).not.toHaveBeenCalled();
+    });
+});
+
+describe('overrideProviderChurn (issue #494 diagnostics)', () => {
+    const dv = { org: 'DataVex', isp: 'MEVSPACE sp. z o.o.' };
+
+    it('counts each override provider by org, and reports no churn on the first fetch', () => {
+        const { summary } = overrideProviderChurn(
+            ['a:1', 'b:1', 'c:1', 'd:1'],
+            [dv, dv, { org: 'SKYTECHNOLOGY', isp: 'MEVSPACE sp. z o.o.' }, { org: 'Hetzner Online GmbH', isp: '' }],
+            new Set(['b:1']),
+            new Map()
+        );
+        expect(summary.datavex).toEqual({ count: 2, keptFromMemory: 1, joined: null, left: null });
+        expect(summary.hetzner.count).toBe(1);
+    });
+
+    it('reports nodes that joined or left since the previous fetch', () => {
+        const first = overrideProviderChurn(['a:1', 'b:1'], [dv, dv], new Set(), new Map());
+        const { summary } = overrideProviderChurn(['b:1', 'c:1', 'd:1'], [dv, dv, dv], new Set(), first.current);
+        expect(summary.datavex).toEqual({ count: 3, keptFromMemory: 0, joined: 2, left: 1 });
     });
 });
