@@ -61,6 +61,15 @@ beforeEach(() => {
 });
 
 describe('testAllServices', () => {
+    it('counts a step that only served cached values as failed (issue #431)', async () => {
+        fetchCloudStats.mockResolvedValue({ total_apps: 100, _cached: true });
+
+        const result = await testAllServices();
+
+        expect(result.failed).toEqual([{ name: 'cloud', error: 'upstream unavailable -- served the stored figures' }]);
+        expect(result.succeeded).not.toContain('cloud');
+    });
+
     it('reports every service when all succeed', async () => {
         const result = await testAllServices();
 

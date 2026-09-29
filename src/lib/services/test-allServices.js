@@ -82,7 +82,15 @@ async function testAllServices() {
 
     for (const [name, fn] of steps) {
         try {
-            await fn();
+            const result = await fn();
+            // #431: cloud falls back to the stored figures (`_cached: true`) when its API
+            // fails, without throwing -- so an outage counted as a success and the numbers
+            // could stay frozen unnoticed. Serving cached values is a failed refresh.
+            if (result?._cached === true) {
+                failed.push({ name, error: 'upstream unavailable -- served the stored figures' });
+                log.warn({ service: name }, '%s served cached values', name);
+                continue;
+            }
             succeeded.push(name);
         } catch (error) {
             failed.push({ name, error: error?.message || String(error) });

@@ -42,4 +42,27 @@ describe('summarizeHealth (issue #310)', () => {
   it('a backup that is not configured is not a problem', () => {
     expect(summarizeHealth({ ...healthy, backup: { enabled: false, isHealthy: true } }).status).toBe('ok');
   });
+
+  // #431: a services-cycle step that keeps failing freezes its numbers; health names it.
+  it('names a service that failed 3 cycles in a row, with its last success', () => {
+    const result = summarizeHealth({ ...healthy, now: NOW, services: {
+      nodes: { lastSuccess: NOW, consecutiveFailures: 0 },
+      cloud: { lastSuccess: NOW - 20 * 60000, consecutiveFailures: 3, lastError: 'upstream unavailable' }
+    } });
+    expect(result.status).toBe('degraded');
+    expect(result.problems).toEqual(['cloud refresh failed 3 cycles in a row (last success 20 min ago)']);
+  });
+
+  it('two failures in a row are not yet a problem', () => {
+    expect(summarizeHealth({ ...healthy, services: { cloud: { lastSuccess: NOW, consecutiveFailures: 2 } } }).status).toBe('ok');
+  });
+
+  it('says so when a failing service has not succeeded since the restart', () => {
+    const result = summarizeHealth({ ...healthy, services: { gaming: { lastSuccess: null, consecutiveFailures: 4 } } });
+    expect(result.problems[0]).toMatch(/gaming refresh failed 4 cycles in a row \(no success since restart\)/);
+  });
+
+  it('flags a lost live price', () => {
+    expect(summarizeHealth({ ...healthy, livePriceLost: true }).problems).toContain('no live FLUX price and no usable fallback');
+  });
 });
