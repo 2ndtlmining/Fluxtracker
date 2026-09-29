@@ -546,6 +546,19 @@ npm run dev      # SvelteKit frontend (port 5173)
 npm run api      # Express API server (port 3000)
 ```
 
+**Windows without Visual Studio Build Tools:** `better-sqlite3` 13 ships a prebuilt Windows
+binary and loads it directly, but npm still runs its implicit `node-gyp rebuild` install step
+(the package contains a `binding.gyp`), and node-gyp refuses to start without Visual Studio --
+so `npm ci` / `npm install` fail and leave `node_modules` half-installed. It is the only
+dependency with an install step, so skip install scripts and run the one project hook by hand:
+
+```bash
+npm ci --ignore-scripts && npm run prepare
+```
+
+Linux, Docker and CI are unaffected (they have a compiler, and the build step is a no-op
+there too).
+
 ### Build for Production
 
 ```bash
