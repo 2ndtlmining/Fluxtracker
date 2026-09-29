@@ -148,16 +148,27 @@ const permanentMessagesCache = {
     // updated or renewed again afterwards.
     registerHeightByName: new Map(),
     lastFetched: 0,
-    TTL: 60 * 60 * 1000  // 1 hour
+    // Daily, not hourly (#414): see REVENUE_SYNC.PERMANENT_MESSAGES_FULL_REFRESH_MS.
+    TTL: REVENUE_SYNC.PERMANENT_MESSAGES_FULL_REFRESH_MS
 };
+
+/** A full download slower than this is logged as a warning (#414). */
+const SLOW_FULL_FETCH_MS = 30_000;
 
 export async function fetchPermanentMessages() {
     try {
         log.info('Fetching permanent messages for app name lookup');
+        const started = Date.now();
         const body = await resilientFetch(`${API_ENDPOINTS.APPS}/permanentmessages`, {
-            timeout: 30000,
+            // ~91 MB: a hard 30 s cap failed it on a slow link, and with a daily refresh one
+            // failure costs a day. Slow is logged below instead.
+            timeout: 120000,
             breakerKey: 'permanent-messages'
         });
+        const tookMs = Date.now() - started;
+        if (tookMs > SLOW_FULL_FETCH_MS) {
+            log.warn({ tookMs }, 'Full permanent messages download took %ds', Math.round(tookMs / 1000));
+        }
 
         if (body && body.status === 'success' && Array.isArray(body.data)) {
             permanentMessagesCache.map.clear();
@@ -399,9 +410,13 @@ export async function resolveAppName(hash, txTimestamp = null) {
 //     minutes of its payment confirming, and a temporary message that never became
 //     permanent has long expired by then, so a day-old hash absent from permanentmessages
 //     was never accepted. Younger rows stay unlabelled and keep the targeted lookup.
-//   - the full permanentmessages dump loaded SUCCESSFULLY within its TTL. A failed fetch
-//     keeps the previous maps and does not move lastFetched, so an outage cannot age into
-//     a false label, and an empty map (never loaded) never labels anything.
+//   - the full permanentmessages dump that was checked was loaded SUCCESSFULLY at least a
+//     day AFTER the payment (#414). A message is permanent within minutes of its payment, so
+//     a dump taken a day later that lacks the hash proves it was never accepted. (With the
+//     hourly refresh this was "the dump is under an hour old" -- the same guarantee for a
+//     day-old payment. With the daily refresh a payment becomes labellable within 1-2
+//     days.) A failed fetch keeps the previous maps and does not move lastFetched, so an
+//     outage cannot age into a false label, and an empty map (never loaded) labels nothing.
 //   - neither that dump nor globalappsspecifications knows the hash.
 /** Value stored in revenue_transactions.app_type for a payment with no accepted spec. */
 export const UNREGISTERED_APP_TYPE = 'unregistered';
@@ -417,8 +432,8 @@ export function isUnregisteredSpec(hash, txTimestamp) {
     if (!hash || !Number.isFinite(txTimestamp)) return false;
     if (Date.now() - txTimestamp * 1000 <= TARGETED_LOOKUP_MAX_TX_AGE_MS) return false;
 
-    const { map, lastFetched, TTL } = permanentMessagesCache;
-    if (map.size === 0 || Date.now() - lastFetched > TTL) return false;
+    const { map, lastFetched } = permanentMessagesCache;
+    if (map.size === 0 || lastFetched < txTimestamp * 1000 + TARGETED_LOOKUP_MAX_TX_AGE_MS) return false;
 
     return lookupAppName(hash) === null;
 }
