@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-09-30** (v1.15)
+**Last reviewed: 2026-10-02** (v1.16)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,8 +13,14 @@ rule links to an issue.
 
 ## Next up, in order
 
-**The queue is empty (2026-09-30, v1.15).** Every issue from the 2026-09-27 review is shipped and
-verified on the owner's instance, and no issue is open. New work starts from a new issue.
+**The queue is empty (2026-10-02, v1.16).** No issue is open. New work starts from a new issue.
+
+**Status at 2026-10-02 (v1.16):** merged.
+- **Data accuracy:** steady DataVex datacenter count, the override matches the org only (#495: #494);
+  live FLUX price adds Binance and reads the Flux explorer's new response shape (#498);
+  Satisfactory and Factorio hub apps recognised by name (#499: #496).
+- **UI:** payer badge sits beside the address, not under it (#500: #497); median time left moved
+  to the Applications chart, under Daily (#503: #502).
 
 **Status at 2026-09-30 (v1.15):** merged and verified on the owner's instance.
 - **Robustness:** once-a-year "not enough data" notice kept, 10-minute retry gone, shown in health
