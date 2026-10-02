@@ -888,7 +888,20 @@ export const CATEGORY_CONFIG = {
                    // '7dtd' is how the images name it (runonflux/7dtd-server-flux, #505);
                    // '7daystodie' alone never matched any of them.
                    '7daystodie', '7dtd', 'vrising', 'projectzomboid', 'conan-exiles',
-                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'unturned', 'garrysmod'],
+                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'unturned', 'garrysmod',
+                   // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
+                   // which is what Noxide's list already did -- ~91 of the 119 instances
+                   // between the two. Distinctive names stay bare. The littlestache games are
+                   // named in full: that namespace also ships whitepapers, a blog and gmx, and
+                   // 'evolve', 'dwarfs' or 'level13' alone would catch the next unrelated image.
+                   'teeworlds', 'quakejs', 'minetest', 'pokerth', 'pacman', 'tetris', 'snake-server',
+                   'supermario', 'minesweeper', 'memorygame', 'gammonbot',
+                   'littlestache/bounceback', 'littlestache/civclicker', 'littlestache/devlife',
+                   'littlestache/dwarfs', 'littlestache/evolve', 'littlestache/giftrun',
+                   'littlestache/hexgl', 'littlestache/level13', 'littlestache/lightbike',
+                   'littlestache/os13k', 'littlestache/posio', 'littlestache/prestigetree',
+                   'littlestache/progressknight', 'littlestache/radiusraid',
+                   'littlestache/spacecompany', 'littlestache/thehouse', 'littlestache/tosios'],
         icon: 'Gamepad2'
     },
     crypto: {
