@@ -162,13 +162,7 @@
         { id: 'daily_revenue', label: 'Daily Revenue (FLUX)', field: 'daily_revenue', format: 'flux' },
         { id: 'daily_revenue_usd', label: 'Daily Revenue ($)', field: 'daily_revenue_usd', format: 'usd' },
         { id: 'cumulative_revenue', label: 'Cumulative Revenue (FLUX)', field: 'daily_revenue', format: 'flux', cumulative: true },
-        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true },
-        // Median days left on running apps (owner request, 2026-09-26). Read from the daily
-        // snapshots, not the transaction endpoints (source), recorded from ship day only
-        // (dropNulls: earlier days are a gap, never 0), and a level (weekly/monthly average).
-        { id: 'median_days_left', label: 'Median time left on running apps (days)', field: 'median_days_left', format: 'days', source: 'snapshots', level: true, dropNulls: true,
-          description: 'For every app running on Flux, the days until its paid time runs out; half have less left, half more. Recorded daily since September 2026.',
-          emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' }
+        { id: 'cumulative_revenue_usd', label: 'Cumulative Revenue ($)', field: 'daily_revenue_usd', format: 'usd', cumulative: true }
       ]
     },
     nodes: {
@@ -235,6 +229,12 @@
         // predating this feature stores NULL, and plotting those as 0 would draw a
         // network with no app operators rather than a gap in the record.
         { id: 'unique_app_owners', label: 'Unique App Owners', field: 'unique_app_owners', format: 'number', dropNulls: true, group: 'Daily' },
+        // Median days left on running apps (owner request 2026-09-26; moved here from Revenue
+        // by issue #502). Snapshot-backed like the rest of this category, and a level, so
+        // weekly/monthly average it. dropNulls: days before it was recorded are a gap, never 0.
+        { id: 'median_days_left', label: 'Median time left on running apps (days)', field: 'median_days_left', format: 'days', dropNulls: true, group: 'Daily',
+          description: 'For every app running on Flux, the days until its paid time runs out; half have less left, half more. Recorded daily since September 2026.',
+          emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' },
         // Issue #424 (owner, 2026-09-27): recorded from now on, no backfill.
         { id: 'enterprise_apps_percent', label: 'Private (enterprise) apps (% of running apps)', field: 'enterprise_apps_percent', format: 'percent', dropNulls: true, group: 'Daily',
           description: 'Of the apps with an unexpired registration, the share deployed as private (enterprise) apps, whose settings are encrypted. Recorded daily since September 2026.',
@@ -616,7 +616,7 @@
 
       console.log(`📡 Fetching data for ${timeframe?.days === null ? 'ALL time' : limitParam + ' days'}`);
 
-      if (selectedCategory === 'revenue' && metricForFetch()?.source !== 'snapshots') {
+      if (selectedCategory === 'revenue') {
       // For REVENUE category, use transaction-based endpoint for real-time data
         // Check if USD metric is selected
         const metric = metricForFetch();
@@ -1065,7 +1065,7 @@
 
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
       // For other metrics, average.
-      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         weekData.total += value;
       } else {
         weekData.total += value;
@@ -1088,7 +1088,7 @@
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
         return weekData.denominatorSum > 0 ? (weekData.numeratorSum / weekData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
-      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return weekData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return weekData.count > 0 ? weekData.total / weekData.count : 0; // Average for others
@@ -1146,7 +1146,7 @@
 
       // For revenue (and other sum-flagged metrics like Team Funded FLUX/$), sum up.
       // For other metrics, average.
-      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         monthData.total += value;
       } else {
         monthData.total += value;
@@ -1168,7 +1168,7 @@
         // $0-total weeks report 0%, never NaN/Infinity -- same convention as the daily value.
         return monthData.denominatorSum > 0 ? (monthData.numeratorSum / monthData.denominatorSum) * (metric.ratioFields.scale ?? 100) : 0;
       }
-      if ((selectedCategory === 'revenue' && !metric.level) || metric.aggregateAsSum) {
+      if (selectedCategory === 'revenue' || metric.aggregateAsSum) {
         return monthData.total; // Sum for revenue / sum-flagged metrics
       } else {
         return monthData.count > 0 ? monthData.total / monthData.count : 0; // Average for others
