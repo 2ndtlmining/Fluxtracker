@@ -31,6 +31,25 @@ describe('categorizeImage', () => {
         expect(categorizeImage('vinanrra/7dtd-server:latest')).toBe('gaming');
     });
 
+    it('counts browser and web games as gaming (#508)', () => {
+        for (const image of [
+            'littlestache/hexgl:latest', 'littlestache/radiusraid:latest', 'littlestache/pokerth:latest',
+            'uzyexe/tetris:latest', 'yuravorobei/pacman-web:latest', 'nadav42/minesweeper:latest',
+            'riftbit/teeworlds:latest', 'treyyoder/quakejs:latest', 'baptistecdr/pokerth-server:main',
+            'ivan1993spb/snake-server:latest', 'w2vy/gammonbot:latest'
+        ]) {
+            expect(categorizeImage(image), image).toBe('gaming');
+        }
+    });
+
+    it('leaves the non-game littlestache images alone (#508)', () => {
+        // The same namespace ships whitepapers, a blog and a DeFi front end.
+        for (const image of ['littlestache/fluxwhitepaper:latest', 'littlestache/blog:latest',
+            'littlestache/gmx:latest', 'littlestache/privatebin:latest', 'littlestache/helloworld:latest']) {
+            expect(categorizeImage(image), image).not.toBe('gaming');
+        }
+    });
+
     it('does not count a 7 Days to Die companion website as a game (#505)', () => {
         expect(categorizeImage('runonflux/7dtd-server-website:latest')).toBeNull();
     });
