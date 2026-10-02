@@ -180,10 +180,10 @@ for example "not available yet (database migration 022 not applied)" -- instead 
 
 | Category | Metrics |
 |---|---|
-| **Revenue** | Daily Revenue (FLUX / $), Cumulative Revenue (FLUX / $), **Median time left on running apps (days)** -- recorded daily since September 2026, so earlier dates are a gap, not zero |
+| **Revenue** | Daily Revenue (FLUX / $), Cumulative Revenue (FLUX / $) |
 | **Node Distribution** | Total / Cumulus / Nimbus / Stratus nodes, Unique Wallets, locked collateral (total and per tier, FLUX). *Block rewards per node:* Cumulus / Nimbus / Stratus node rewards (FLUX/day and $/day) |
 | **Cloud Resources** | CPU / RAM / Storage utilization %, total and used CPU cores, RAM TB, storage TB, **Utilization Projection** (below) |
-| **Applications** | *Daily:* Total Applications, New/Updated Today, Expiring Today, Unique App Owners, **Deployments running (% of ordered)**, **Private (enterprise) apps (% of running apps)**. *By month registered:* **New apps registered (per month)**, **Still running after 3 months (%)** |
+| **Applications** | *Daily:* Total Applications, New/Updated Today, Expiring Today, Unique App Owners, **Median time left on running apps (days)** -- recorded daily since September 2026, so earlier dates are a gap, not zero, **Deployments running (% of ordered)**, **Private (enterprise) apps (% of running apps)**. *By month registered:* **New apps registered (per month)**, **Still running after 3 months (%)** |
 | **Decentralization** | Quantity datacenter / independent, % datacenter, % independent, Decentralization %; *CPU in use by continent:* one line per continent; plus search-and-trend for a single country, continent or datacenter |
 | **Gaming** | *Instances:* All Game Instances, then one line per game (biggest first). *Revenue:* **Game server revenue ($)**, **Game server revenue (% of Revenue)** |
 | **Revenue Sources** | *Who paid:* Organic ($ / FLUX / %), Flux team ($ / FLUX / %). *How they paid:* Paid by card ($ / %), Paid in FLUX ($ / %). *What was bought:* New deployments, Renewals & updates, Private (enterprise) apps (each $ and %). *Paying customers:* Paying / New / Returning customers (per month) |
