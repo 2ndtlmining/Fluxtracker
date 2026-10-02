@@ -25,7 +25,7 @@ import {
     getGameSnapshotHistory
 } from '../../lib/db/database.js';
 
-import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES, GAME_APP_NAME_PATTERN } from '../../lib/config.js';
+import { getDisplayName, CATEGORY_CONFIG, FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS } from '../../lib/config.js';
 import { shapeGameRevenueRows } from '../../lib/utils/gameRevenue.js';
 import { mergeRevenueSources, shapePayerRows, shapeMixRows, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { shapeCohortRows } from '../../lib/utils/appCohorts.js';
@@ -336,7 +336,7 @@ router.get('/snapshots', async (req, res) => {
  * /api/decentralization/history for migration 009.
  */
 router.get('/games', async (req, res) => {
-    const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), 3650);
+    const days = Math.min(Math.max(parseInt(req.query.days) || 90, 1), DATA_RETENTION_DAYS);
     const cacheKey = `games:${days}`;
 
     return withDbFallback(revenueCache, cacheKey, res, async () => {
