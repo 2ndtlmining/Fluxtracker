@@ -61,6 +61,10 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('t', 1, 'littlestache/terraria:latest'))).toBe('game:Terraria');
     expect(resolveIntroKey(app('s', 1, 'wolveix/satisfactory-server:latest'))).toBe('game:Satisfactory');
     expect(resolveIntroKey(app('a', 1, 'thmhoag/arkserver:latest'))).toBe('game:ARK Survival');
+    // Issue #505: the hub's name and Flux's image land on the same art.
+    expect(resolveIntroKey(app('7daystodie1790705531162', 2, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
+    expect(resolveIntroKey(app('zeds', 1, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
+    expect(resolveIntroKey(app('zeds', 1, 'vinanrra/7dtd-server:latest'))).toBe('game:7 Days to Die');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
