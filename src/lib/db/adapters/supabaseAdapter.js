@@ -1,5 +1,5 @@
 import { supabase } from '../supabaseClient.js';
-import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS } from '../../config.js';
+import { categorizeImage, METRIC_COLUMNS, TRACKED_GAMES, CRYPTO_REPOS, CONTINENT_CPU_COLUMNS, DATA_RETENTION_DAYS } from '../../config.js';
 import { createLogger } from '../../logger.js';
 import { resolveDimension } from '../../decentralizationDimensions.js';
 import { splitDateRange } from '../../utils/dateWindows.js';
@@ -558,7 +558,7 @@ export async function getAllSnapshots() {
     return rows;
 }
 
-export async function deleteOldSnapshots(daysToKeep = 365) {
+export async function deleteOldSnapshots(daysToKeep = DATA_RETENTION_DAYS) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
@@ -1322,7 +1322,7 @@ export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate,
     return data;
 }
 
-export async function deleteOldTransactions(daysToKeep = 365) {
+export async function deleteOldTransactions(daysToKeep = DATA_RETENTION_DAYS) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];

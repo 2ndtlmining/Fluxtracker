@@ -787,6 +787,15 @@ export const SNAPSHOT_CONFIG = {
 };
 
 // ============================================
+// DATA RETENTION
+// ============================================
+// How much history the database keeps: 10 years. Nothing prunes on a schedule today --
+// deleteOldSnapshots()/deleteOldTransactions() are kept for future use and take this as
+// their cutoff. History endpoints cap ?days at the same figure, since asking for more than
+// is kept returns nothing extra. Not the R2 backup retention (BACKUP_CONFIG below).
+export const DATA_RETENTION_DAYS = 3650;
+
+// ============================================
 // BACKUP TUNING
 // ============================================
 export const BACKUP_CONFIG = {

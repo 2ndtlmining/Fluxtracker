@@ -25,7 +25,7 @@ import { computeUtilizationProjection } from '../../lib/utils/utilizationProject
 import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, getDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
-import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN } from '../../lib/config.js';
+import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS } from '../../lib/config.js';
 import { summarizeGameRevenue } from '../../lib/utils/gameRevenue.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -624,7 +624,7 @@ export function buildComparisonResponse({
 }
 
 /** Longest comparison window accepted -- ten years is past any real history (issue #295). */
-export const MAX_COMPARISON_DAYS = 3650;
+export const MAX_COMPARISON_DAYS = DATA_RETENTION_DAYS;
 
 router.get('/analytics/comparison/:days', async (req, res) => {
     const days = parseInt(req.params.days, 10);
