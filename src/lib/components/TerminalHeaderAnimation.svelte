@@ -89,6 +89,9 @@
     BATCH3_FRAME_COUNT
   } from '$lib/utils/introArt3.js';
   import {
+    formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
+  } from '$lib/utils/introArt5.js';
+  import {
     formatAutomationFrame, automationFrameKinds,
     formatMessagingFrame, messagingFrameKinds,
     formatFilesFrame, filesFrameKinds,
@@ -199,7 +202,9 @@
     Satisfactory: FACTORY_INTRO,
     Factorio: FACTORY_INTRO,
     'ARK Survival': ARK_INTRO,
-    'Ark Survival Evolved': ARK_INTRO
+    'Ark Survival Evolved': ARK_INTRO,
+    // Issue #505. Both the '7daystodie' app-name prefix and the 7dtd images resolve here.
+    '7 Days to Die': { frameCount: BATCH5_FRAME_COUNT, format: formatSevenDaysFrame, kinds: sevenDaysFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -240,7 +245,8 @@
     Satisfactory: outro(formatFactoryOutro),        // #419
     Factorio: outro(formatFactoryOutro),
     'ARK Survival': outro(formatArkOutro),
-    'Ark Survival Evolved': outro(formatArkOutro)
+    'Ark Survival Evolved': outro(formatArkOutro),
+    '7 Days to Die': outro(formatSevenDaysOutro)     // #505
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

@@ -20,6 +20,9 @@ describe('resolveGameFromAppName', () => {
         // but the name must not depend on that.
         expect(resolveGameFromAppName('satisfactory1790517689678')).toBe('Satisfactory');
         expect(resolveGameFromAppName('factorio1790517689678')).toBe('Factorio');
+        // Issue #505: live names from the games hub, 2026-10-03.
+        expect(resolveGameFromAppName('7daystodie1790705531162')).toBe('7 Days to Die');
+        expect(resolveGameFromAppName('7daystodie1790716527525')).toBe('7 Days to Die');
     });
 
     it('totals every plan of one game under the canonical name', () => {

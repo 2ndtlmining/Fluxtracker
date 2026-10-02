@@ -110,6 +110,12 @@ const GAME_ART_BY_NAME = {
   terraria: {
     signature: /\(@@@\)/,
     movingRows: rows => rows.filter(r => /o[/-]/.test(r.text))
+  },
+  // Issue #505: the shack's window and the barricade's stakes on one row, and the zombies'
+  // heads shambling along the row above.
+  sevendays: {
+    signature: /\|\[\] \|.*>=/,
+    movingRows: rows => rows.filter(r => /_o/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -124,7 +130,8 @@ const UPDATED_DEPLOYED_NAME = {
   enshrouded: 'enshrouded1789155733041',
   rust: 'rustserver1789155733041',
   windrose: 'windrose1789155733041',
-  terraria: 'terraria1789155733041'
+  terraria: 'terraria1789155733041',
+  sevendays: '7daystodie1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

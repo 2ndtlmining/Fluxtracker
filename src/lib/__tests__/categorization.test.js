@@ -26,6 +26,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('littlestache/terraria:latest')).toBe('gaming');
         expect(categorizeImage('thmhoag/arkserver:latest')).toBe('gaming');
         expect(categorizeImage('indifferentbroccoli/windrose-server-docker:latest')).toBe('gaming');
+        // Issue #505: the image says 7dtd, never 7daystodie, so the old keyword missed it.
+        expect(categorizeImage('runonflux/7dtd-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('vinanrra/7dtd-server:latest')).toBe('gaming');
+    });
+
+    it('does not count a 7 Days to Die companion website as a game (#505)', () => {
+        expect(categorizeImage('runonflux/7dtd-server-website:latest')).toBeNull();
     });
 
     it('excludes companion websites from every category', () => {
@@ -112,6 +119,11 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('jktuned/enshrouded-server:latest')).toBe('Enshrouded');
         expect(getCanonicalName('littlestache/rust-server:latest')).toBe('Rust');
         expect(getCanonicalName('pfeiffermax/rust-game-server:latest-oxide')).toBe('Rust');
+    });
+
+    it('names both 7 Days to Die images as the game the hub sells (#505)', () => {
+        expect(getCanonicalName('runonflux/7dtd-server-flux:latest')).toBe('7 Days to Die');
+        expect(getCanonicalName('vinanrra/7dtd-server:latest')).toBe('7 Days to Die');
     });
 
     it('gives every Group A image a label that names its chain or service', () => {
