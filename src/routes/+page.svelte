@@ -690,12 +690,36 @@ $: if (API_URL && $refreshSignal > lastRefresh) {
     {:else}
       <div class="lazy-placeholder transactions-placeholder" aria-busy="true"></div>
     {/if}
+
+    <!-- Issue #512: the Gaming card's icons are game-icons.net art under CC BY 3.0, which
+         requires a credit. It sits at the end of the page, not in the sticky footer: there it
+         pushed the footer onto a second row at <=1400px. -->
+    <p class="credits">
+      Game icons by Lorc, Delapouite and Skoll from
+      <a href="https://game-icons.net/" target="_blank" rel="noopener noreferrer">game-icons.net</a>,
+      licensed <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer">CC BY 3.0</a>
+    </p>
   </main>
   
   <Footer />
 </div>
 
 <style>
+  .credits {
+    margin: 0;
+    text-align: center;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+
+  .credits a {
+    color: inherit;
+  }
+
+  .credits a:hover {
+    color: var(--text-dim);
+  }
+
   .dashboard {
     min-height: 100vh;
     display: flex;
