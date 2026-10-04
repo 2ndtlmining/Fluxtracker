@@ -1,6 +1,7 @@
 <script>
   import { Package, Gamepad2 } from '@lucide/svelte';
   import { formatCount } from '$lib/utils/format.js';
+  import { gameIcon } from '$lib/gameIcons.js';
 
   // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) --
   // it comes from the running-apps census, not per-app image resolution.
@@ -179,7 +180,9 @@
           <ul class="game-list">
             {#each topGames as game}
               {@const cmp = toComparison(game.instances, game.previousInstances)}
+              {@const art = gameIcon(game.name)}
               <li class="game-row">
+                <svg class="game-icon" viewBox="0 0 512 512" aria-hidden="true"><path fill="currentColor" d={art.d} /></svg>
                 <span class="game-name" title={game.name}>{game.name}</span>
                 <span class="game-count">{formatNumber(game.instances)}</span>
                 <span class="game-trend" class:up={cmp?.trend === 'up'} class:down={cmp?.trend === 'down'}>
@@ -415,10 +418,21 @@
     display: grid;
     /* Fixed trailing columns keep every count right-aligned on the same axis regardless of
        name length; min-width:0 on the name is what lets the ellipsis actually engage. */
-    grid-template-columns: 1fr auto 0.75rem;
-    align-items: baseline;
+    /* Issue #512: a leading icon column, indented so the icons read as bullets. Centre
+       alignment rather than baseline -- an svg has no text baseline to line up on. */
+    grid-template-columns: 1rem 1fr auto 0.75rem;
+    align-items: center;
     gap: var(--spacing-sm);
-    padding: 2px 0;
+    padding: 2px 0 2px var(--spacing-sm);
+  }
+
+  /* Same dim tone as the name, so the icon marks the row without competing with the cyan
+     count. */
+  .game-icon {
+    width: 1rem;
+    height: 1rem;
+    color: var(--text-dim);
+    opacity: 0.85;
   }
 
   .game-name {
