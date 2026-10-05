@@ -116,6 +116,11 @@ const GAME_ART_BY_NAME = {
   sevendays: {
     signature: /\|\[\] \|.*>=/,
     movingRows: rows => rows.filter(r => /_o/.test(r.text))
+  },
+  // Issue #514: the raptor's head (no other scene draws it), sprinting along its row.
+  ascended: {
+    signature: /,o>/,
+    movingRows: rows => rows.filter(r => r.text.includes(',o>'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -131,7 +136,8 @@ const UPDATED_DEPLOYED_NAME = {
   rust: 'rustserver1789155733041',
   windrose: 'windrose1789155733041',
   terraria: 'terraria1789155733041',
-  sevendays: '7daystodie1789155733041'
+  sevendays: '7daystodie1789155733041',
+  ascended: 'arksurvivalascended1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
@@ -313,7 +319,9 @@ const run = async () => {
           sawDeployedFrame = true;
           sawDeployedIconBanner = true;
           if (/#\d+ OF \d+ IN 24H/.test(joined)) sawDeployedCounter = true;
-          if (joined.includes(UPDATED_DEPLOYED_NAME)) sawUpdatedDeployedName = true;
+          // The leading 16 characters, not the whole name: truncateForBox() shortens a long
+          // one (arksurvivalascended<13 digits>, #514) with '...', so it never shows in full.
+          if (joined.includes(UPDATED_DEPLOYED_NAME.slice(0, 16))) sawUpdatedDeployedName = true;
         }
         if (/EXPIRE\s+\S/.test(joined)) sawExpireRow = true;
         if (/AGO\s+\S/.test(joined)) sawAgoRow = true;

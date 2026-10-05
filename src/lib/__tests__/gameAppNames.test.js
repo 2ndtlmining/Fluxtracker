@@ -23,6 +23,11 @@ describe('resolveGameFromAppName', () => {
         // Issue #505: live names from the games hub, 2026-10-03.
         expect(resolveGameFromAppName('7daystodie1790705531162')).toBe('7 Days to Die');
         expect(resolveGameFromAppName('7daystodie1790716527525')).toBe('7 Days to Die');
+        // Issue #514: live names from the games hub, 2026-10-06. Encrypted specs, so the
+        // name is the only thing that counts them -- and it is not 'ARK Survival' (Evolved).
+        expect(resolveGameFromAppName('arksurvivalascended1791140248911')).toBe('ARK: Survival Ascended');
+        expect(resolveGameFromAppName('arksurvivalascended1791211319721')).toBe('ARK: Survival Ascended');
+        expect(resolveGameFromAppName('ark')).toBeNull();
     });
 
     it('totals every plan of one game under the canonical name', () => {
