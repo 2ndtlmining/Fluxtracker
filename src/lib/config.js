@@ -247,7 +247,11 @@ export const GAME_APP_PREFIXES = [
     // Issue #505. The hub names these 7daystodie<13 digits>. The spec is public today
     // (runonflux/7dtd-server-flux), so the image path counts them as well; this keeps them
     // counted, and in game revenue, if the hub encrypts them.
-    { prefix: '7daystodie', name: '7 Days to Die' }
+    { prefix: '7daystodie', name: '7 Days to Die' },
+    // Issue #514. The hub names these arksurvivalascended<13 digits> and encrypts the spec,
+    // so this is the only way they are counted. A different game from 'ARK Survival'
+    // (Survival Evolved, thmhoag/arkserver), so it gets its own name, row and column.
+    { prefix: 'arksurvivalascended', name: 'ARK: Survival Ascended' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -477,6 +481,8 @@ export const TRACKED_GAMES = [
     { name: 'V Rising', dbKey: 'gaming_vrising' },
     // Issue #505. Counted by app name and by image; both resolve to this name.
     { name: '7 Days to Die', dbKey: 'gaming_7dtd' },
+    // Issue #514. Counted by app name (encrypted spec) and by the community images.
+    { name: 'ARK: Survival Ascended', dbKey: 'gaming_ark_asa' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -887,7 +893,10 @@ export const CATEGORY_CONFIG = {
                    'ark-survival', 'arkserver', 'rust-server', 'terraria', 'factorio',
                    // '7dtd' is how the images name it (runonflux/7dtd-server-flux, #505);
                    // '7daystodie' alone never matched any of them.
-                   '7daystodie', '7dtd', 'vrising', 'projectzomboid', 'conan-exiles',
+                   '7daystodie', '7dtd', 'vrising',
+                   // ARK: Survival Ascended's community images (#514). Never a bare 'asa':
+                   // matching runs over the whole image string and that would leak.
+                   'asa-linux-server', 'asa_server', 'projectzomboid', 'conan-exiles',
                    'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'unturned', 'garrysmod',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
@@ -1053,6 +1062,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'trueosiris/vrising': 'V Rising',
     'runonflux/7dtd-server-flux': '7 Days to Die',
     'vinanrra/7dtd-server': '7 Days to Die',
+    'mschnitzer/asa-linux-server': 'ARK: Survival Ascended',
+    'acekorneya/asa_server': 'ARK: Survival Ascended',
 };
 
 // Canonical product name — collapses the variants of one game/product into a single row.
@@ -1077,6 +1088,10 @@ export const CANONICAL_NAME_OVERRIDES = {
     // Issue #505: Flux's own image, and the usual community one, in one row.
     'runonflux/7dtd-server-flux': '7 Days to Die',
     'vinanrra/7dtd-server': '7 Days to Die',
+    // Issue #514: the hub's deployments are encrypted and counted by app name; these put a
+    // hand-deployed ASA server in the same row.
+    'mschnitzer/asa-linux-server': 'ARK: Survival Ascended',
+    'acekorneya/asa_server': 'ARK: Survival Ascended',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

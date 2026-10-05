@@ -65,6 +65,10 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('7daystodie1790705531162', 2, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
     expect(resolveIntroKey(app('zeds', 1, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
     expect(resolveIntroKey(app('zeds', 1, 'vinanrra/7dtd-server:latest'))).toBe('game:7 Days to Die');
+    // Issue #514: the hub's encrypted deployments (no image) and a community image, on ASA's
+    // own art -- not the ARK Survival (Evolved) sauropod.
+    expect(resolveIntroKey(app('arksurvivalascended1791140248911', 1))).toBe('game:ARK: Survival Ascended');
+    expect(resolveIntroKey(app('dinos', 1, 'mschnitzer/asa-linux-server:latest'))).toBe('game:ARK: Survival Ascended');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

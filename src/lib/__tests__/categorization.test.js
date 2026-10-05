@@ -50,6 +50,12 @@ describe('categorizeImage', () => {
         }
     });
 
+    it('counts the ARK: Survival Ascended community images as games, but not a bare "asa" (#514)', () => {
+        expect(categorizeImage('mschnitzer/asa-linux-server:latest')).toBe('gaming');
+        expect(categorizeImage('acekorneya/asa_server:2_1_latest')).toBe('gaming');
+        expect(categorizeImage('someone/asahi-tools:latest')).not.toBe('gaming');
+    });
+
     it('does not count a 7 Days to Die companion website as a game (#505)', () => {
         expect(categorizeImage('runonflux/7dtd-server-website:latest')).toBeNull();
     });
@@ -138,6 +144,12 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('jktuned/enshrouded-server:latest')).toBe('Enshrouded');
         expect(getCanonicalName('littlestache/rust-server:latest')).toBe('Rust');
         expect(getCanonicalName('pfeiffermax/rust-game-server:latest-oxide')).toBe('Rust');
+    });
+
+    it('names the ASA images as ARK: Survival Ascended, apart from ARK Survival (#514)', () => {
+        expect(getCanonicalName('mschnitzer/asa-linux-server:latest')).toBe('ARK: Survival Ascended');
+        expect(getCanonicalName('acekorneya/asa_server:2_1_latest')).toBe('ARK: Survival Ascended');
+        expect(getCanonicalName('thmhoag/arkserver:latest')).not.toBe('ARK: Survival Ascended');
     });
 
     it('names both 7 Days to Die images as the game the hub sells (#505)', () => {
