@@ -18,8 +18,12 @@ Out of scope: the opposite gap (ordered but not running) — the Apps card's exi
 ## Definitions
 
 - **End block** of an app = `height + expire`, where `height` is the block of the app's latest
-  register/update message and `expire` the number of blocks paid for in that message. A spec with
-  no `expire` uses Flux's default of **22,000 blocks**.
+  register/update message and `expire` the number of blocks paid for in that message, adjusted
+  exactly as FluxOS `registryManager.js` does for the Proof of Node fork (block **2,020,000**,
+  blocks 4× faster after it): a missing/0 `expire` defaults to **22,000** blocks before the fork
+  and **88,000** after; a pre-fork spec whose end falls after the fork has its post-fork blocks
+  ×4 (`2,020,000 + (end − 2,020,000) × 4`). Added during verification — the unadjusted formula
+  listed ten live apps as ~255 days expired.
 - **Blocks per day** = **2,880** (30-second blocks).
 - **Grace period** = **2,880 blocks (24 hours)**. Normal teardown and the stats crawl both lag;
   an app only counts once it is clearly stuck, not merely mid-cleanup.

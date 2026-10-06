@@ -60,7 +60,7 @@ describe('lookupEndBlock', () => {
 describe('getExpiredRunning', () => {
     it('looks up spec-less apps with their original casing and counts the expired ones', async () => {
         mockGetRunningApps.mockResolvedValue(census({ live: 2, AbioticFactor: 1 }));
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3 - 100, 100]));
 
         const r = await getExpiredRunning();
 
@@ -72,7 +72,7 @@ describe('getExpiredRunning', () => {
 
     it('caches a resolved end block: no second request next cycle', async () => {
         mockGetRunningApps.mockResolvedValue(census({ gone: 1 }));
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3 - 100, 100]));
         await getExpiredRunning();
         await getExpiredRunning();
         expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -84,7 +84,7 @@ describe('getExpiredRunning', () => {
         const first = await getExpiredRunning();
         expect(first).toMatchObject({ apps: 0, unresolved: 1 });
 
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3 - 100, 100]));
         const second = await getExpiredRunning();
         expect(second).toMatchObject({ apps: 1, unresolved: 0 });
         expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -108,7 +108,7 @@ describe('getExpiredRunning', () => {
 
     it('forgets a cached end block once the app has a spec again (renewal)', async () => {
         mockGetRunningApps.mockResolvedValue(census({ app: 1 }));
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 40, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 40 - 100, 100]));
         await getExpiredRunning();                                   // cached: 40 days
 
         mockSpecs.mockReturnValue([{ name: 'app', height: BLOCK, expire: 1000 }]);
@@ -116,7 +116,7 @@ describe('getExpiredRunning', () => {
 
         // Expired again later: its spec is gone (another app keeps the specs list non-empty).
         mockSpecs.mockReturnValue([{ name: 'other', height: BLOCK, expire: 1000 }]);
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 2, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 2 - 100, 100]));
         const r = await getExpiredRunning();
         expect(mockFetch).toHaveBeenCalledTimes(2);                  // looked up afresh
         expect(r.top[0].daysExpired).toBe(2);                        // not the stale 40
@@ -125,7 +125,7 @@ describe('getExpiredRunning', () => {
     it('caps lookups per run; the rest wait as unresolved', async () => {
         const many = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [`app${i}`, 1]));
         mockGetRunningApps.mockResolvedValue(census(many));
-        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3, 0]));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3 - 100, 100]));
         const r = await getExpiredRunning();
         expect(mockFetch).toHaveBeenCalledTimes(50);
         expect(r.apps).toBe(50);

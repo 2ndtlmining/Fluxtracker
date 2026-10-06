@@ -22,8 +22,28 @@ describe('specEndBlock', () => {
     it('is height + expire', () => {
         expect(specEndBlock({ height: 2_867_975, expire: 100 })).toBe(2_868_075);
     });
-    it('uses the 22,000-block default when expire is missing', () => {
+    it('uses the 22,000-block default for a spec registered before the PON fork', () => {
         expect(specEndBlock({ height: 1000 })).toBe(23_000);
+    });
+
+    // FluxOS registryManager: the Proof of Node fork at block 2,020,000 made blocks 4x
+    // faster. Live check 2026-10-06 without this rule listed ten running, still-listed apps
+    // (Presearch, Kaspa nodes) as ~255 days expired.
+    it('uses the 88,000-block default for a spec registered at or after the fork', () => {
+        expect(specEndBlock({ height: 2_020_000 })).toBe(2_108_000);
+    });
+
+    it('treats expire 0 as missing, as FluxOS does (expire || default)', () => {
+        expect(specEndBlock({ height: 2_500_000, expire: 0 })).toBe(2_588_000);
+    });
+
+    it('stretches the post-fork part of a pre-fork spec 4x', () => {
+        // Registered 10,000 blocks before the fork for 22,000: 12,000 blocks were due after it.
+        expect(specEndBlock({ height: 2_010_000, expire: 22_000 })).toBe(2_020_000 + 12_000 * 4);
+    });
+
+    it('leaves a pre-fork spec that ended before the fork unchanged', () => {
+        expect(specEndBlock({ height: 1_900_000, expire: 22_000 })).toBe(1_922_000);
     });
     it('is null without a usable height', () => {
         expect(specEndBlock({ expire: 100 })).toBeNull();

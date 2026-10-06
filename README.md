@@ -962,12 +962,20 @@ is getting better or worse. Live figure: `GET /api/apps/expired-running`.
 ### How an app's end is calculated
 
 Every app registration and update message carries the block it was mined in (`height`) and
-the number of blocks paid for (`expire`; Flux's default is 22,000 when a spec omits it). Blocks
-are 30 seconds, so 2,880 a day:
+the number of blocks paid for (`expire`). Blocks are 30 seconds, so 2,880 a day:
 
     end block      = height of the app's latest register/update + expire
     blocks expired = current block − end block
     days expired   = floor(blocks expired / 2,880)
+
+Two adjustments, both copied from FluxOS's own expiry rule (`registryManager.js`), because the
+**Proof of Node fork at block 2,020,000** made blocks 4× faster (2 minutes → 30 seconds):
+
+- A missing (or 0) `expire` means the default for the era the app was registered in: 22,000
+  blocks before the fork, 88,000 after — about a month either way.
+- An app registered before the fork whose paid time ran past it has the post-fork part of
+  that time multiplied by 4: `end block = 2,020,000 + (height + expire − 2,020,000) × 4`.
+  Without this, long-running pre-fork apps look like they expired hundreds of days ago.
 
 The `height` and `expire` come from the app's spec in `globalappsspecifications` while Flux
 still lists it (it keeps some for a while after they expire). Once the spec is gone, they come

@@ -11,7 +11,8 @@
  * message. A running app with neither is a local container that never had a subscription.
  */
 import {
-    API_ENDPOINTS, BLOCKS_PER_DAY, EXPIRED_RUNNING_GRACE_BLOCKS, DEFAULT_EXPIRE_BLOCKS,
+    API_ENDPOINTS, BLOCKS_PER_DAY, EXPIRED_RUNNING_GRACE_BLOCKS, FLUX_PON_FORK_HEIGHT,
+    DEFAULT_EXPIRE_BLOCKS_PRE_FORK, DEFAULT_EXPIRE_BLOCKS_POST_FORK,
     EXPIRED_RUNNING_TOP_N, EXPIRED_RUNNING_MAX_LOOKUPS
 } from '../config.js';
 import { resilientFetch } from './resilientFetch.js';
@@ -27,13 +28,22 @@ const NONE_TTL_MS = 24 * 60 * 60 * 1000;
 const lookupCache = new Map();
 let lastResult = null;   // { value, at }
 
+/**
+ * The block an app's subscription ends at, by FluxOS's own rule (registryManager.js): a
+ * missing or 0 `expire` takes the default for the era the app was registered in, and a
+ * pre-fork spec that was due to run past the Proof of Node fork has its post-fork blocks
+ * multiplied by 4, because blocks became 4x faster there.
+ */
 export function specEndBlock(spec) {
     const height = Number(spec?.height);
     if (!Number.isFinite(height) || height <= 0) return null;
-    const expire = spec.expire != null && Number.isFinite(Number(spec.expire))
-        ? Number(spec.expire)
-        : DEFAULT_EXPIRE_BLOCKS;
-    return height + expire;
+    const preFork = height < FLUX_PON_FORK_HEIGHT;
+    const expire = Number(spec.expire) || (preFork ? DEFAULT_EXPIRE_BLOCKS_PRE_FORK : DEFAULT_EXPIRE_BLOCKS_POST_FORK);
+    const end = height + expire;
+    if (preFork && end > FLUX_PON_FORK_HEIGHT) {
+        return FLUX_PON_FORK_HEIGHT + (end - FLUX_PON_FORK_HEIGHT) * 4;
+    }
+    return end;
 }
 
 /**
