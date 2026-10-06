@@ -1,6 +1,7 @@
 import { API_ENDPOINTS } from '../config.js';
 import { updateCurrentMetrics, updateSyncStatus, getCurrentMetrics } from '../db/database.js';
 import { getRunningApps, getDeploymentFill } from './runningAppsProvider.js';
+import { getExpiredRunning } from './expiredRunningService.js';
 import { resilientFetch } from './resilientFetch.js';
 import { createLogger } from '../logger.js';
 
@@ -258,6 +259,10 @@ export async function fetchCloudStats() {
         // Unavailable -> the fields stay null and updateCurrentMetrics() leaves the stored
         // reading alone; never a 0% that would read as nothing running.
         const { fill } = await getDeploymentFill().catch(() => ({ fill: null }));
+
+        // Expired running apps (migration 031). null -> keys stay null and
+        // updateCurrentMetrics() leaves the stored reading alone; a real 0 is written as 0.
+        const expiredRunning = await getExpiredRunning().catch(() => null);
         
         const cloudData = {
             total_cpu_cores: Math.round(totalCores),
@@ -284,6 +289,8 @@ export async function fetchCloudStats() {
             deployments_ordered: fill?.ordered ?? null,
             deployments_running: fill?.running ?? null,
             deployment_fill_percent: fill ? parseFloat(fill.fillPct.toFixed(2)) : null,
+            expired_running_apps: expiredRunning?.apps ?? null,
+            expired_running_instances: expiredRunning?.instances ?? null,
             
             _cached: false
         };
