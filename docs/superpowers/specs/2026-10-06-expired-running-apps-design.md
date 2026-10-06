@@ -105,8 +105,7 @@ Response:
   "top": [ { "name": "palworld1785555251684", "instances": 1, "daysExpired": 50 } ] }
 ```
 
-`available: false` (with no figures) when the live computation returns `null` and there is no
-stored value.
+`available: false` (with no figures) when the live computation returns `null`.
 
 ### Apps card (`AppInstancesCard.svelte`)
 
