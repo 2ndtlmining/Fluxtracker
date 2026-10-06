@@ -11,8 +11,21 @@
  * message. A running app with neither is a local container that never had a subscription.
  */
 import {
-    BLOCKS_PER_DAY, EXPIRED_RUNNING_GRACE_BLOCKS, DEFAULT_EXPIRE_BLOCKS, EXPIRED_RUNNING_TOP_N
+    API_ENDPOINTS, BLOCKS_PER_DAY, EXPIRED_RUNNING_GRACE_BLOCKS, DEFAULT_EXPIRE_BLOCKS,
+    EXPIRED_RUNNING_TOP_N, EXPIRED_RUNNING_MAX_LOOKUPS
 } from '../config.js';
+import { resilientFetch } from './resilientFetch.js';
+import { getRunningApps } from './runningAppsProvider.js';
+import { getAllAppSpecs } from './appSpecsCache.js';
+import { fetchCurrentBlockHeight } from './fluxNetworkData.js';
+import { createLogger } from '../logger.js';
+
+const log = createLogger('expiredRunningService');
+const NONE_TTL_MS = 24 * 60 * 60 * 1000;
+
+// lowercase app name -> { endBlock } (kept until the app has a spec again) | { none, at }
+const lookupCache = new Map();
+let lastResult = null;   // { value, at }
 
 export function specEndBlock(spec) {
     const height = Number(spec?.height);
@@ -75,4 +88,96 @@ export function computeExpiredRunning({ deploymentCounts, deploymentNames, specs
         top: expired.slice(0, EXPIRED_RUNNING_TOP_N),
         needLookup
     };
+}
+
+/**
+ * End block from the app's last permanent message, or null when it has none. Throws on a
+ * failed request so the caller can skip the app this cycle instead of caching a guess.
+ * The appname query is case-sensitive: pass the name as the container spelled it.
+ */
+export async function lookupEndBlock(name) {
+    const body = await resilientFetch(
+        `${API_ENDPOINTS.APPS}/permanentmessages?appname=${encodeURIComponent(name)}`,
+        { timeout: 15000, retries: 1, delayMs: 2000, breakerKey: 'permanent-messages-app' }
+    );
+    if (body?.status !== 'success' || !Array.isArray(body.data)) {
+        throw new Error(`permanentmessages for ${name}: ${body?.data?.message || 'unexpected response'}`);
+    }
+    const msgs = body.data.filter(m => m?.appSpecifications && Number.isFinite(Number(m.height)));
+    if (msgs.length === 0) return null;
+    const last = msgs.reduce((a, b) => (Number(b.height) > Number(a.height) ? b : a));
+    return specEndBlock({ height: last.height, expire: last.appSpecifications.expire });
+}
+
+async function resolveLookups(keys, deploymentNames, now) {
+    const lookups = new Map();
+    let made = 0;
+    for (const key of keys) {
+        const cached = lookupCache.get(key);
+        if (cached && (cached.endBlock != null || now - cached.at < NONE_TTL_MS)) {
+            lookups.set(key, cached.endBlock != null ? { endBlock: cached.endBlock } : { none: true });
+            continue;
+        }
+        if (made >= EXPIRED_RUNNING_MAX_LOOKUPS) { lookups.set(key, { failed: true }); continue; }
+        made++;
+        try {
+            const endBlock = await lookupEndBlock(deploymentNames.get(key) || key);
+            if (endBlock == null) {
+                lookupCache.set(key, { none: true, at: now });
+                lookups.set(key, { none: true });
+            } else {
+                lookupCache.set(key, { endBlock });
+                lookups.set(key, { endBlock });
+            }
+        } catch (err) {
+            log.warn({ err, app: key }, 'Expired-running lookup failed; retrying next cycle');
+            lookups.set(key, { failed: true });
+        }
+    }
+    return lookups;
+}
+
+/**
+ * The live figure. null when the census, the block height or the specs cache is unavailable
+ * -- an empty specs cache would make every running app look spec-less.
+ *
+ * @param {{ttlMs?: number}} [options] serve the last result if it is younger than ttlMs
+ */
+export async function getExpiredRunning({ ttlMs = 0 } = {}) {
+    if (ttlMs > 0 && lastResult && Date.now() - lastResult.at < ttlMs) return lastResult.value;
+
+    let apps, currentBlock;
+    try {
+        [apps, currentBlock] = await Promise.all([
+            getRunningApps(),
+            fetchCurrentBlockHeight().catch(() => null)
+        ]);
+    } catch (err) {
+        log.warn({ err }, 'Running apps unavailable -- expired running not computed');
+        return null;
+    }
+    const specs = getAllAppSpecs();
+    if (!currentBlock || !apps?.deploymentCounts || specs.length === 0) return null;
+
+    // A renewed app is back in the specs: forget its old end block, so a later expiry is
+    // looked up afresh instead of reporting the stale one.
+    for (const spec of specs) lookupCache.delete(String(spec.name).toLowerCase());
+
+    const deploymentNames = apps.deploymentNames || new Map();
+    const base = { deploymentCounts: apps.deploymentCounts, deploymentNames, specs, currentBlock };
+    const firstPass = computeExpiredRunning({ ...base, lookups: new Map() });
+    const lookups = await resolveLookups(firstPass.needLookup, deploymentNames, Date.now());
+    const { needLookup, ...result } = computeExpiredRunning({ ...base, lookups });
+
+    const value = { ...result, currentBlock, computedAt: Date.now() };
+    lastResult = { value, at: Date.now() };
+    log.info({ apps: value.apps, instances: value.instances, unresolved: value.unresolved },
+        'Expired running: %d apps on %d nodes (%d unresolved)', value.apps, value.instances, value.unresolved);
+    return value;
+}
+
+/** Test hook. */
+export function clearExpiredRunningCaches() {
+    lookupCache.clear();
+    lastResult = null;
 }
