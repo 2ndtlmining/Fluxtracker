@@ -157,8 +157,17 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('thmhoag/arkserver:latest')).not.toBe('ARK: Survival Ascended');
     });
 
-    it('names the Hytale image as Hytale (#518)', () => {
-        expect(getCanonicalName('indifferentbroccoli/hytale-server-docker:latest')).toBe('Hytale');
+    it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
+        for (const image of [
+            'indifferentbroccoli/hytale-server-docker:latest',
+            'deinfreu/hytale-server:experimental',
+            'ghcr.io/godstepx/docker-hytale-server:latest',
+            'littlestache/hytale-flux:latest',
+            'xdillfrescott/hytale:latest'
+        ]) {
+            expect(categorizeImage(image)).toBe('gaming');
+            expect(getCanonicalName(image)).toBe('Hytale');
+        }
     });
 
     it('names both 7 Days to Die images as the game the hub sells (#505)', () => {
