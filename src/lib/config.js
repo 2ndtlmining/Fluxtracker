@@ -186,6 +186,12 @@ export const GAMING_REPOS = [
         dbKey: 'gaming_windrose',
         imageMatch: 'indifferentbroccoli/windrose-server-docker'
     },
+    {
+        // Issue #518. Live on the Flux games hub with a public spec, deployed from this image.
+        name: 'Hytale',
+        dbKey: 'gaming_hytale',
+        imageMatch: 'indifferentbroccoli/hytale-server-docker'
+    },
 
     // Add new games here:
     // {
@@ -251,7 +257,11 @@ export const GAME_APP_PREFIXES = [
     // Issue #514. The hub names these arksurvivalascended<13 digits> and encrypts the spec,
     // so this is the only way they are counted. A different game from 'ARK Survival'
     // (Survival Evolved, thmhoag/arkserver), so it gets its own name, row and column.
-    { prefix: 'arksurvivalascended', name: 'ARK: Survival Ascended' }
+    { prefix: 'arksurvivalascended', name: 'ARK: Survival Ascended' },
+    // Issue #518. The hub names these hytale<13 digits>. The spec is public today
+    // (indifferentbroccoli/hytale-server-docker), so the image path counts them as well; this
+    // keeps them counted, and in game revenue, if the hub encrypts them.
+    { prefix: 'hytale', name: 'Hytale' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -919,7 +929,7 @@ export const CATEGORY_CONFIG = {
                    // ARK: Survival Ascended's community images (#514). Never a bare 'asa':
                    // matching runs over the whole image string and that would leak.
                    'asa-linux-server', 'asa_server', 'projectzomboid', 'conan-exiles',
-                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'unturned', 'garrysmod',
+                   'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'hytale', 'unturned', 'garrysmod',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1081,6 +1091,7 @@ const DISPLAY_NAME_OVERRIDES = {
     'littlestache/terraria': 'Terraria',
     'lloesche/valheim-server': 'Valheim',
     'indifferentbroccoli/windrose-server-docker': 'Windrose',
+    'indifferentbroccoli/hytale-server-docker': 'Hytale',
     'trueosiris/vrising': 'V Rising',
     'runonflux/7dtd-server-flux': '7 Days to Die',
     'vinanrra/7dtd-server': '7 Days to Die',

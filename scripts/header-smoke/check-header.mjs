@@ -121,6 +121,11 @@ const GAME_ART_BY_NAME = {
   ascended: {
     signature: /,o>/,
     movingRows: rows => rows.filter(r => r.text.includes(',o>'))
+  },
+  // Issue #518: the adventurer's sword arm (no other scene draws it), walking along its row.
+  hytale: {
+    signature: /\/\|=-/,
+    movingRows: rows => rows.filter(r => r.text.includes('/|=-'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -137,7 +142,8 @@ const UPDATED_DEPLOYED_NAME = {
   windrose: 'windrose1789155733041',
   terraria: 'terraria1789155733041',
   sevendays: '7daystodie1789155733041',
-  ascended: 'arksurvivalascended1789155733041'
+  ascended: 'arksurvivalascended1789155733041',
+  hytale: 'hytale1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

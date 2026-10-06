@@ -56,6 +56,11 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/asahi-tools:latest')).not.toBe('gaming');
     });
 
+    it('counts the Hytale hub image as a game, but not its companion website (#518)', () => {
+        expect(categorizeImage('indifferentbroccoli/hytale-server-docker:latest')).toBe('gaming');
+        expect(categorizeImage('runonflux/hytale-server-website:latest')).toBeNull();
+    });
+
     it('does not count a 7 Days to Die companion website as a game (#505)', () => {
         expect(categorizeImage('runonflux/7dtd-server-website:latest')).toBeNull();
     });
@@ -150,6 +155,10 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('mschnitzer/asa-linux-server:latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('acekorneya/asa_server:2_1_latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('thmhoag/arkserver:latest')).not.toBe('ARK: Survival Ascended');
+    });
+
+    it('names the Hytale image as Hytale (#518)', () => {
+        expect(getCanonicalName('indifferentbroccoli/hytale-server-docker:latest')).toBe('Hytale');
     });
 
     it('names both 7 Days to Die images as the game the hub sells (#505)', () => {
