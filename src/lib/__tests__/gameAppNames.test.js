@@ -28,6 +28,9 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('arksurvivalascended1791140248911')).toBe('ARK: Survival Ascended');
         expect(resolveGameFromAppName('arksurvivalascended1791211319721')).toBe('ARK: Survival Ascended');
         expect(resolveGameFromAppName('ark')).toBeNull();
+        // Issue #518: live names from the games hub, 2026-10-07.
+        expect(resolveGameFromAppName('hytale1791208306845')).toBe('Hytale');
+        expect(resolveGameFromAppName('hytale1791278027708')).toBe('Hytale');
     });
 
     it('totals every plan of one game under the canonical name', () => {

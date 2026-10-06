@@ -92,6 +92,9 @@
     formatArkAscendedFrame, arkAscendedFrameKinds, formatArkAscendedOutro, BATCH6_FRAME_COUNT
   } from '$lib/utils/introArt6.js';
   import {
+    formatHytaleFrame, hytaleFrameKinds, formatHytaleOutro, BATCH7_FRAME_COUNT
+  } from '$lib/utils/introArt7.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -209,7 +212,9 @@
     // Issue #505. Both the '7daystodie' app-name prefix and the 7dtd images resolve here.
     '7 Days to Die': { frameCount: BATCH5_FRAME_COUNT, format: formatSevenDaysFrame, kinds: sevenDaysFrameKinds },
     // Issue #514. Its own scene, not ARK_INTRO: a different game from 'ARK Survival'.
-    'ARK: Survival Ascended': { frameCount: BATCH6_FRAME_COUNT, format: formatArkAscendedFrame, kinds: arkAscendedFrameKinds }
+    'ARK: Survival Ascended': { frameCount: BATCH6_FRAME_COUNT, format: formatArkAscendedFrame, kinds: arkAscendedFrameKinds },
+    // Issue #518. The 'hytale' app-name prefix and the hytale-server-docker image resolve here.
+    Hytale: { frameCount: BATCH7_FRAME_COUNT, format: formatHytaleFrame, kinds: hytaleFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -252,7 +257,8 @@
     'ARK Survival': outro(formatArkOutro),
     'Ark Survival Evolved': outro(formatArkOutro),
     '7 Days to Die': outro(formatSevenDaysOutro),    // #505
-    'ARK: Survival Ascended': outro(formatArkAscendedOutro)  // #514
+    'ARK: Survival Ascended': outro(formatArkAscendedOutro), // #514
+    Hytale: outro(formatHytaleOutro)                         // #518
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

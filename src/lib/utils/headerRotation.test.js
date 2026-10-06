@@ -69,6 +69,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // own art -- not the ARK Survival (Evolved) sauropod.
     expect(resolveIntroKey(app('arksurvivalascended1791140248911', 1))).toBe('game:ARK: Survival Ascended');
     expect(resolveIntroKey(app('dinos', 1, 'mschnitzer/asa-linux-server:latest'))).toBe('game:ARK: Survival Ascended');
+    // Issue #518: a hub deployment and the same image under any other name.
+    expect(resolveIntroKey(app('hytale1791208306845', 1, 'indifferentbroccoli/hytale-server-docker:latest'))).toBe('game:Hytale');
+    expect(resolveIntroKey(app('orbis', 1, 'indifferentbroccoli/hytale-server-docker:latest'))).toBe('game:Hytale');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

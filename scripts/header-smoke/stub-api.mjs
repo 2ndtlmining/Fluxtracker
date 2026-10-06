@@ -53,7 +53,8 @@ const DEPLOYED_GAME_NAMES = {
   windrose: 'windrose1789155733041',
   terraria: 'terraria1789155733041',
   sevendays: '7daystodie1789155733041',
-  ascended: 'arksurvivalascended1789155733041'
+  ascended: 'arksurvivalascended1789155733041',
+  hytale: 'hytale1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
