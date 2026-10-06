@@ -82,5 +82,20 @@ describe('createDailySnapshot column parity (issue #229)', () => {
         expect(stored.median_days_left).toBeNull();
         expect(stored.deployment_fill_percent).toBeNull();
         expect(stored.deployments_ordered).toBeNull();
+        expect(stored.expired_running_apps).toBeNull();      // migration 031
+        expect(stored.expired_running_instances).toBeNull();
+    });
+
+    it('stores the expired-running columns, including a real zero (migration 031)', async () => {
+        // The generic parity check above only compares columns already on the row, so a
+        // column the schema never created would slip past it. Name these explicitly.
+        await db.createDailySnapshot({
+            snapshot_date: '2026-09-21', timestamp: Date.now(), daily_revenue: 1, sync_status: 'completed',
+            expired_running_apps: 0, expired_running_instances: 21
+        });
+
+        const stored = await db.getSnapshotByDate('2026-09-21');
+        expect(stored.expired_running_apps).toBe(0);
+        expect(stored.expired_running_instances).toBe(21);
     });
 });

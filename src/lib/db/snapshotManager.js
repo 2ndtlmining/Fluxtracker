@@ -296,6 +296,8 @@ export function buildSnapshotData({
         ...Object.fromEntries(CONTINENT_CPU_COLUMNS.map(c => [c, currentMetrics[c] ?? null])),
         enterprise_apps: currentMetrics.enterprise_apps ?? null,               // issue #424
         enterprise_apps_percent: currentMetrics.enterprise_apps_percent ?? null,
+        expired_running_apps: currentMetrics.expired_running_apps ?? null,          // migration 031
+        expired_running_instances: currentMetrics.expired_running_instances ?? null,
 
         // WordPress
         wordpress_count: currentMetrics.wordpress_count || 0,
