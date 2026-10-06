@@ -25,7 +25,9 @@ import { computeUtilizationProjection } from '../../lib/utils/utilizationProject
 import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, getDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
-import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS } from '../../lib/config.js';
+import { getExpiredRunning } from '../../lib/services/expiredRunningService.js';
+import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS,
+    EXPIRED_RUNNING_GRACE_BLOCKS, BLOCKS_PER_DAY } from '../../lib/config.js';
 import { summarizeGameRevenue } from '../../lib/utils/gameRevenue.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -40,6 +42,7 @@ const categoryCache = createCache(300_000);   // 5 min
 // that payload, so a shorter cache only recomputed the same snapshot over and over.
 const gamesCache = createCache(READ_PATH_TTL_MS);
 const fillCache = createCache(READ_PATH_TTL_MS);  // issue #200
+const expiredRunningCache = createCache(READ_PATH_TTL_MS);  // spec 2026-10-06
 // Game revenue over 30 days (issue #265) is a database aggregate that barely moves minute to
 // minute; it had shared the 60s games cache.
 const gameRevenueCache = createCache(15 * 60_000);
@@ -296,6 +299,29 @@ router.get('/apps/deployment-fill', async (req, res) => {
             fetchedAt: apps.fetchedAt
         };
     });
+});
+
+/** Response shape for /api/apps/expired-running; exported for tests. */
+export function shapeExpiredRunning(result) {
+    if (!result) return { available: false };
+    return {
+        available: true,
+        apps: result.apps,
+        instances: result.instances,
+        unresolved: result.unresolved,
+        graceDays: EXPIRED_RUNNING_GRACE_BLOCKS / BLOCKS_PER_DAY,
+        top: result.top.map(({ name, instances, daysExpired }) => ({ name, instances, daysExpired }))
+    };
+}
+
+/**
+ * GET /api/apps/expired-running -- apps still running at least a day after their
+ * subscription ended (spec 2026-10-06). The services cycle computes it every 5 minutes;
+ * readers take up to two cycles of age, like deployment-fill.
+ */
+router.get('/apps/expired-running', async (req, res) => {
+    return withDbFallback(expiredRunningCache, 'expired-running', res, async () =>
+        shapeExpiredRunning(await getExpiredRunning({ ttlMs: READ_PATH_TTL_MS })));
 });
 
 /**
