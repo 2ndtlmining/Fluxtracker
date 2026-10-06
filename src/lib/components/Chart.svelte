@@ -246,6 +246,15 @@
           ratioFields: { numerator: 'deployments_running', denominator: 'deployments_ordered' }, dropNulls: true, group: 'Daily',
           description: 'Of the deployments ordered by apps that have not expired, the share actually running. The same figure as the Apps card. Recorded daily since September 2026.',
           emptyMessage: 'Recorded daily since September 2026 -- no readings in this period yet.' },
+        // Expired running apps (spec 2026-10-06, migration 031): still on nodes a day or more
+        // after the subscription ended. A level, so weekly/monthly average it; dropNulls --
+        // days before it was recorded are a gap, never 0.
+        { id: 'expired_running_apps', label: 'Expired running apps', field: 'expired_running_apps', format: 'number', dropNulls: true, group: 'Daily',
+          description: 'Apps still running on Flux nodes at least 24 hours after their subscription ended. Recorded daily since October 2026.',
+          emptyMessage: 'Recorded daily since October 2026 -- no readings in this period yet.' },
+        { id: 'expired_running_instances', label: 'Expired running instances', field: 'expired_running_instances', format: 'number', dropNulls: true, group: 'Daily',
+          description: 'How many app deployments (one per node) belong to apps whose subscription ended at least 24 hours ago. Recorded daily since October 2026.',
+          emptyMessage: 'Recorded daily since October 2026 -- no readings in this period yet.' },
         // Issue #264: retention cohorts, by the month an app was registered (migration 022).
         // Survival counts only apps old enough to know, so a young cohort shows a gap (null,
         // dropped) rather than 0%. Monthly only -- a cohort is a calendar month. The owner's

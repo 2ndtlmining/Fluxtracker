@@ -297,9 +297,9 @@ async function fetchDecentralization() {
 // Top games plus the network-wide gaming total. `days` drives the comparison window and
 // follows the dashboard's period toggle, so the gaming arrows agree with every other
 // comparison on the page rather than silently using a different baseline.
-// Deployment fill: ordered vs actually running (issue #200). Live only -- it reads the
-// shared running-apps census and the specs cache, neither of which is snapshotted, so there
-// is no history to compare against and no arrow to render.
+// Deployment fill: ordered vs actually running (issue #200). The card shows the live figure;
+// the daily snapshot has recorded it since #421 (migration 028) for the history chart, but the
+// card renders no comparison arrow for it.
 async function fetchDeploymentFill() {
   try {
     const response = await fetch(`${API_URL}/api/apps/deployment-fill`);
