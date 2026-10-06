@@ -65,6 +65,9 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
     // component but is ONE deployment on ONE node, so owncloudoffice's six components
     // contribute 6 containers and 1 deployment. Network-wide the gap is ~14%.
     const deploymentCounts = new Map();
+    // lowercase app name -> the casing the container used (first seen wins). The expired-
+    // running lookup needs it: permanentmessages?appname= is case-sensitive.
+    const deploymentNames = new Map();
     let totalInstances = 0;
     let unresolvedCount = 0;
     let watchtowerCount = 0;
@@ -95,7 +98,11 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
             // (mariadb, operator, the companion website) would otherwise each count as an
             // instance of the game -- 84 FiveM "instances" for 12 actual game servers.
             const { component, appName } = parseContainerName(containerName);
-            if (appName) appsOnThisNode.add(appName.toLowerCase());
+            if (appName) {
+                const key = appName.toLowerCase();
+                appsOnThisNode.add(key);
+                if (!deploymentNames.has(key)) deploymentNames.set(key, appName);
+            }
             const nameGame = isGameHelperComponent(component) ? null : resolveGameFromAppName(appName);
 
             const resolved = resolveRunningAppName(containerName);
@@ -137,7 +144,7 @@ async function fetchRunningApps({ retries = MAX_RETRIES, delayMs = RETRY_DELAY_M
         watchtowerCount
     );
 
-    return { imageCounts, gameCounts, deploymentCounts, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
+    return { imageCounts, gameCounts, deploymentCounts, deploymentNames, totalInstances, unresolvedCount, watchtowerCount, nodeCount: nodes.length, fetchedAt: Date.now() };
 }
 
 function tally(map, key) {

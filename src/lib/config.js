@@ -765,6 +765,19 @@ export const DATACENTER_OVERRIDES = [
 // can't drift apart on screen. Matches the shortest backend service interval.
 export const DASHBOARD_REFRESH_MS = 5 * 60 * 1000;
 
+// Expired running apps (spec 2026-10-06). An app's subscription ends at its latest
+// register/update height + the blocks paid for (`expire`); specs without `expire` use Flux's
+// default of 22,000 blocks. Blocks are 30 s, so 2,880 a day. An app only counts as "expired
+// running" once it is a full day past its end block: normal teardown and the stats crawl
+// both lag, and counting those would make the figure jump with ordinary cleanup.
+export const BLOCKS_PER_DAY = 2880;
+export const EXPIRED_RUNNING_GRACE_BLOCKS = 2880;
+export const DEFAULT_EXPIRE_BLOCKS = 22000;
+export const EXPIRED_RUNNING_TOP_N = 3;
+// Per-cycle cap on permanentmessages lookups; the rest wait for the next cycle. ~18 apps on
+// 2026-10-06, so this only bites if something upstream goes badly wrong.
+export const EXPIRED_RUNNING_MAX_LOOKUPS = 50;
+
 // ============================================
 // REVENUE SYNC TUNING
 // ============================================
