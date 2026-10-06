@@ -23,10 +23,15 @@ import { createLogger } from '../logger.js';
 
 const log = createLogger('expiredRunningService');
 const NONE_TTL_MS = 24 * 60 * 60 * 1000;
+// Lookups run inside the cloud step of a sequential services cycle. A slow-but-answering
+// permanentmessages API (15 s timeout + a retry per call) must not hold every later service
+// for minutes: once this budget is spent the remaining apps wait for the next cycle.
+const LOOKUP_BUDGET_MS = 30 * 1000;
 
 // lowercase app name -> { endBlock } (kept until the app has a spec again) | { none, at }
 const lookupCache = new Map();
 let lastResult = null;   // { value, at }
+let inFlight = null;     // one run shared by concurrent callers (cycle + endpoint)
 
 /**
  * The block an app's subscription ends at, by FluxOS's own rule (registryManager.js): a
@@ -122,13 +127,17 @@ export async function lookupEndBlock(name) {
 async function resolveLookups(keys, deploymentNames, now) {
     const lookups = new Map();
     let made = 0;
+    const started = Date.now();
     for (const key of keys) {
         const cached = lookupCache.get(key);
         if (cached && (cached.endBlock != null || now - cached.at < NONE_TTL_MS)) {
             lookups.set(key, cached.endBlock != null ? { endBlock: cached.endBlock } : { none: true });
             continue;
         }
-        if (made >= EXPIRED_RUNNING_MAX_LOOKUPS) { lookups.set(key, { failed: true }); continue; }
+        if (made >= EXPIRED_RUNNING_MAX_LOOKUPS || Date.now() - started >= LOOKUP_BUDGET_MS) {
+            lookups.set(key, { failed: true });
+            continue;
+        }
         made++;
         try {
             const endBlock = await lookupEndBlock(deploymentNames.get(key) || key);
@@ -155,7 +164,12 @@ async function resolveLookups(keys, deploymentNames, now) {
  */
 export async function getExpiredRunning({ ttlMs = 0 } = {}) {
     if (ttlMs > 0 && lastResult && Date.now() - lastResult.at < ttlMs) return lastResult.value;
+    if (inFlight) return inFlight;
+    inFlight = computeLive().finally(() => { inFlight = null; });
+    return inFlight;
+}
 
+async function computeLive() {
     let apps, currentBlock;
     try {
         [apps, currentBlock] = await Promise.all([
@@ -190,4 +204,5 @@ export async function getExpiredRunning({ ttlMs = 0 } = {}) {
 export function clearExpiredRunningCaches() {
     lookupCache.clear();
     lastResult = null;
+    inFlight = null;
 }

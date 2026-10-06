@@ -132,6 +132,34 @@ describe('getExpiredRunning', () => {
         expect(r.unresolved).toBe(10);
     });
 
+    it('stops looking up after a 30 s budget so the services cycle is never held for minutes', async () => {
+        // Final review: lookups run inside the cloud step of a sequential cycle, and a slow but
+        // answering API (15 s timeout + retry each) would otherwise delay every later service.
+        vi.useFakeTimers();
+        try {
+            const many = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`app${i}`, 1]));
+            mockGetRunningApps.mockResolvedValue(census(many));
+            mockFetch.mockImplementation(async () => {
+                vi.setSystemTime(Date.now() + 10_000);       // each lookup takes 10 s
+                return messages([BLOCK - 2880 * 3 - 100, 100]);
+            });
+            const r = await getExpiredRunning();
+            expect(mockFetch).toHaveBeenCalledTimes(3);       // started at 0, 10 and 20 s
+            expect(r.apps).toBe(3);
+            expect(r.unresolved).toBe(7);                     // retried next cycle, never counted
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('shares one in-flight run between concurrent callers', async () => {
+        mockGetRunningApps.mockResolvedValue(census({ gone: 1 }));
+        mockFetch.mockResolvedValue(messages([BLOCK - 2880 * 3 - 100, 100]));
+        const [a, b] = await Promise.all([getExpiredRunning(), getExpiredRunning()]);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(a).toBe(b);
+    });
+
     it('returns null without a block height', async () => {
         mockGetRunningApps.mockResolvedValue(census({ a: 1 }));
         mockBlock.mockRejectedValue(new Error('down'));

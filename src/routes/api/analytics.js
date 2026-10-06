@@ -42,7 +42,6 @@ const categoryCache = createCache(300_000);   // 5 min
 // that payload, so a shorter cache only recomputed the same snapshot over and over.
 const gamesCache = createCache(READ_PATH_TTL_MS);
 const fillCache = createCache(READ_PATH_TTL_MS);  // issue #200
-const expiredRunningCache = createCache(READ_PATH_TTL_MS);  // spec 2026-10-06
 // Game revenue over 30 days (issue #265) is a database aggregate that barely moves minute to
 // minute; it had shared the 60s games cache.
 const gameRevenueCache = createCache(15 * 60_000);
@@ -315,13 +314,26 @@ export function shapeExpiredRunning(result) {
 }
 
 /**
+ * The endpoint's answer. Deliberately NOT behind withDbFallback's route cache: that cached a
+ * successful `{available:false}` for 10 minutes. getExpiredRunning() keeps its own cache
+ * (successes only, concurrent callers share one run) and reads no database.
+ */
+export async function expiredRunningResponse() {
+    return shapeExpiredRunning(await getExpiredRunning({ ttlMs: READ_PATH_TTL_MS }));
+}
+
+/**
  * GET /api/apps/expired-running -- apps still running at least a day after their
  * subscription ended (spec 2026-10-06). The services cycle computes it every 5 minutes;
  * readers take up to two cycles of age, like deployment-fill.
  */
 router.get('/apps/expired-running', async (req, res) => {
-    return withDbFallback(expiredRunningCache, 'expired-running', res, async () =>
-        shapeExpiredRunning(await getExpiredRunning({ ttlMs: READ_PATH_TTL_MS })));
+    try {
+        res.json(await expiredRunningResponse());
+    } catch (err) {
+        log.error({ err }, 'expired-running failed');
+        res.status(500).json({ available: false, error: 'Failed to compute expired running apps' });
+    }
 });
 
 /**
