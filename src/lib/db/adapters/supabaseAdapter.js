@@ -300,6 +300,12 @@ export async function createDailySnapshot(snapshot) {
             enterprise_apps: snapshot.enterprise_apps,
             enterprise_apps_percent: snapshot.enterprise_apps_percent
         } : {}),
+        // Migration 031, same guard: named only with a reading, so a deploy that lands
+        // before the migration never names a column the table lacks.
+        ...(snapshot.expired_running_apps != null ? {
+            expired_running_apps: snapshot.expired_running_apps,
+            expired_running_instances: snapshot.expired_running_instances
+        } : {}),
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

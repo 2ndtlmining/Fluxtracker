@@ -2,6 +2,8 @@
   import { Package, Gamepad2 } from '@lucide/svelte';
   import { formatCount } from '$lib/utils/format.js';
   import { gameIcon } from '$lib/gameIcons.js';
+  import { getApiUrl, DASHBOARD_REFRESH_MS } from '$lib/config.js';
+  import { refreshSignal } from '$lib/stores/refresh.js';
 
   // Total app instance count is unaffected by the FluxOS v8.18 change (see issue #106) --
   // it comes from the running-apps census, not per-app image resolution.
@@ -58,6 +60,42 @@
 
   $: gamingComparison = toComparison(gamingTotal, gamingPrevious);
 
+  // Expired running view (spec 2026-10-06): apps still on nodes a day or more after their
+  // subscription ended. Fetched on first switch, then at most once per dashboard refresh
+  // interval, and again when the footer's Refresh fires while this view is open.
+  let view = 'apps';
+  let expired = null;          // /api/apps/expired-running response when available
+  let expiredLoading = false;
+  let expiredFetchedAt = 0;
+
+  async function loadExpired(force = false) {
+    if (expiredLoading) return;
+    if (!force && Date.now() - expiredFetchedAt < DASHBOARD_REFRESH_MS) return;
+    expiredLoading = true;
+    try {
+      const response = await fetch(`${getApiUrl()}/api/apps/expired-running`);
+      const data = response.ok ? await response.json() : null;
+      expired = data?.available ? data : null;
+      expiredFetchedAt = expired ? Date.now() : 0;
+    } catch (err) {
+      console.error('Error fetching expired running apps:', err);
+      expired = null;
+    } finally {
+      expiredLoading = false;
+    }
+  }
+
+  function showView(next) {
+    view = next;
+    if (next === 'expired') loadExpired();
+  }
+
+  let lastRefresh = 0;
+  $: if ($refreshSignal > lastRefresh) {
+    lastRefresh = $refreshSignal;
+    if (view === 'expired') loadExpired(true);
+  }
+
   /**
    * Percentage change between two readings, or null when there is nothing to compare.
    * Returns null for a missing previous reading AND for a previous of 0 -- "up from zero"
@@ -86,11 +124,44 @@
 <div class="app-instances-card terminal-border" class:loading>
   <div class="card-header">
     <div class="card-icon"><Package size={24} strokeWidth={2} /></div>
-    <div class="card-title">Apps</div>
+    <div class="card-title">{view === 'expired' ? 'Expired running' : 'Apps'}</div>
+    <div class="view-switch" role="group" aria-label="Apps view">
+      <button type="button" class:active={view === 'apps'} aria-pressed={view === 'apps'} on:click={() => showView('apps')}>Apps</button>
+      <button type="button" class:active={view === 'expired'} aria-pressed={view === 'expired'} on:click={() => showView('expired')}>Expired running</button>
+    </div>
   </div>
 
   {#if loading}
     <div class="card-empty-state">Loading...</div>
+  {:else if view === 'expired'}
+    {#if expiredLoading && !expired}
+      <div class="card-empty-state">Loading...</div>
+    {:else if !expired}
+      <div class="card-empty-state">n/a</div>
+    {:else}
+      <div class="expired-headline" title="Apps still running on Flux nodes at least 24 hours after their subscription ended. End = the app's last registration or update block + the blocks paid for.">
+        <div class="total-value">{formatNumber(expired.apps)} <span class="expired-unit">{expired.apps === 1 ? 'app' : 'apps'}</span></div>
+        <div class="total-subtitle">{formatNumber(expired.instances)} {expired.instances === 1 ? 'instance' : 'instances'} · still on nodes ≥ 24 h after the subscription ended</div>
+      </div>
+      {#if expired.apps === 0}
+        <div class="card-empty-state">None — every running app has a live subscription.</div>
+      {:else}
+        <div class="expired-section">
+          <div class="expired-row expired-head" aria-hidden="true">
+            <span>Longest expired</span><span>Instances</span><span>Expired</span>
+          </div>
+          <ul class="expired-list">
+            {#each expired.top as app (app.name)}
+              <li class="expired-row">
+                <span class="expired-name" title={app.name}>{app.name}</span>
+                <span class="expired-num">{formatNumber(app.instances)} inst</span>
+                <span class="expired-num">{formatNumber(app.daysExpired)} d</span>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    {/if}
   {:else}
     <div class="headline-row">
       <div class="total-block">
@@ -226,6 +297,7 @@
 
   .card-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-md);
@@ -548,5 +620,108 @@
 
   .app-instances-card:hover .total-value {
     text-shadow: 0 0 15px var(--text-primary), 0 0 25px var(--text-primary);
+  }
+
+  /* Same switch as DecentralizationCard (Demand | Datacenters); overrides app.css's global
+     button fill and lift. */
+  .view-switch {
+    display: flex;
+    gap: 0.25rem;
+    margin-left: auto;
+  }
+
+  .view-switch button {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0.15rem 0.4rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .view-switch button:hover,
+  .view-switch button:focus-visible {
+    background: transparent;
+    color: var(--text-white);
+    border-color: var(--accent-cyan);
+    box-shadow: none;
+    transform: none;
+  }
+
+  .view-switch button.active {
+    color: var(--text-primary);
+    border-color: var(--accent-cyan);
+  }
+
+  .expired-headline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    cursor: help;
+  }
+
+  .expired-unit {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-shadow: none;
+  }
+
+  /* Rows styled like the Gaming list: name, then two fixed right-aligned columns so the
+     instance count and the age never run together. */
+  .expired-section {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .expired-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .expired-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.5rem 3.5rem;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 2px 0 2px var(--spacing-sm);
+  }
+
+  .expired-head {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+
+  .expired-head span:not(:first-child),
+  .expired-num {
+    text-align: right;
+  }
+
+  .expired-name {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .expired-num {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 </style>

@@ -25,7 +25,9 @@ import { computeUtilizationProjection } from '../../lib/utils/utilizationProject
 import { shapeConcentration, isMissingFunctionError } from '../../lib/utils/revenueSources.js';
 import { getLiveGameBreakdown } from '../../lib/services/gamingService.js';
 import { getRunningApps, getDeploymentFill, READ_PATH_TTL_MS } from '../../lib/services/runningAppsProvider.js';
-import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS } from '../../lib/config.js';
+import { getExpiredRunning } from '../../lib/services/expiredRunningService.js';
+import { groupReposByCanonicalName, categorizeImage, CATEGORY_CONFIG, GAME_APP_NAME_PATTERN, DATA_RETENTION_DAYS,
+    EXPIRED_RUNNING_GRACE_BLOCKS, BLOCKS_PER_DAY } from '../../lib/config.js';
 import { summarizeGameRevenue } from '../../lib/utils/gameRevenue.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback, calculateChange } from '../../lib/serverHelpers.js';
@@ -296,6 +298,42 @@ router.get('/apps/deployment-fill', async (req, res) => {
             fetchedAt: apps.fetchedAt
         };
     });
+});
+
+/** Response shape for /api/apps/expired-running; exported for tests. */
+export function shapeExpiredRunning(result) {
+    if (!result) return { available: false };
+    return {
+        available: true,
+        apps: result.apps,
+        instances: result.instances,
+        unresolved: result.unresolved,
+        graceDays: EXPIRED_RUNNING_GRACE_BLOCKS / BLOCKS_PER_DAY,
+        top: result.top.map(({ name, instances, daysExpired }) => ({ name, instances, daysExpired }))
+    };
+}
+
+/**
+ * The endpoint's answer. Deliberately NOT behind withDbFallback's route cache: that cached a
+ * successful `{available:false}` for 10 minutes. getExpiredRunning() keeps its own cache
+ * (successes only, concurrent callers share one run) and reads no database.
+ */
+export async function expiredRunningResponse() {
+    return shapeExpiredRunning(await getExpiredRunning({ ttlMs: READ_PATH_TTL_MS }));
+}
+
+/**
+ * GET /api/apps/expired-running -- apps still running at least a day after their
+ * subscription ended (spec 2026-10-06). The services cycle computes it every 5 minutes;
+ * readers take up to two cycles of age, like deployment-fill.
+ */
+router.get('/apps/expired-running', async (req, res) => {
+    try {
+        res.json(await expiredRunningResponse());
+    } catch (err) {
+        log.error({ err }, 'expired-running failed');
+        res.status(500).json({ available: false, error: 'Failed to compute expired running apps' });
+    }
 });
 
 /**

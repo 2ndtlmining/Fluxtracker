@@ -36,6 +36,11 @@ vi.mock('../../db/database.js', () => ({
     getCurrentMetrics: (...args) => mockGetCurrentMetrics(...args)
 }));
 
+const mockGetExpiredRunning = vi.fn();
+vi.mock('../expiredRunningService.js', () => ({
+    getExpiredRunning: (...args) => mockGetExpiredRunning(...args)
+}));
+
 import { fetchCloudStats } from '../cloudService.js';
 import { API_ENDPOINTS } from '../../config.js';
 
@@ -80,6 +85,7 @@ beforeEach(() => {
         unresolvedCount: 0
     });
     mockGetCurrentMetrics.mockResolvedValue(null);
+    mockGetExpiredRunning.mockResolvedValue(null);
     mockGetDeploymentFill.mockResolvedValue({ fill: { ordered: 9002, running: 7109, missing: 1893, fillPct: 78.9713, shortfalls: [] } });
     serve();
 });
@@ -305,5 +311,42 @@ describe('fetchCloudStats fallbacks', () => {
         expect(stats.total_apps).toBe(0);
         expect(stats.total_ram_gb).toBe(64);
         expect(mockUpdateCurrentMetrics).toHaveBeenCalledWith(expect.objectContaining({ total_apps: 0 }));
+    });
+});
+
+describe('expired running apps', () => {
+    it('writes the count and instances from the expired-running service', async () => {
+        mockGetExpiredRunning.mockResolvedValue({ apps: 18, instances: 21, unresolved: 0, top: [] });
+
+        const stats = await fetchCloudStats();
+
+        expect(stats.expired_running_apps).toBe(18);
+        expect(stats.expired_running_instances).toBe(21);
+    });
+
+    it('leaves both null (stored value untouched) when unavailable', async () => {
+        mockGetExpiredRunning.mockResolvedValue(null);
+
+        const stats = await fetchCloudStats();
+
+        expect(stats.expired_running_apps).toBeNull();
+        expect(stats.expired_running_instances).toBeNull();
+    });
+
+    it('records a real zero as 0, not null', async () => {
+        mockGetExpiredRunning.mockResolvedValue({ apps: 0, instances: 0, unresolved: 0, top: [] });
+
+        const stats = await fetchCloudStats();
+
+        expect(stats.expired_running_apps).toBe(0);
+    });
+
+    it('a throwing expired-running service does not fail the cloud stats', async () => {
+        mockGetExpiredRunning.mockRejectedValue(new Error('boom'));
+
+        const stats = await fetchCloudStats();
+
+        expect(stats._cached).toBe(false);
+        expect(stats.expired_running_apps).toBeNull();
     });
 });

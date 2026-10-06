@@ -562,7 +562,8 @@ export const METRIC_COLUMNS = [
     // CPU supply and demand per continent (issue #463)
     ...CONTINENT_CPU_COLUMNS,
     // Private (enterprise) apps among unexpired specs, and their share (issue #424)
-    'enterprise_apps', 'enterprise_apps_percent'
+    'enterprise_apps', 'enterprise_apps_percent',
+    'expired_running_apps', 'expired_running_instances'
 ];
 
 // ============================================
@@ -764,6 +765,27 @@ export const DATACENTER_OVERRIDES = [
 // One interval for every card so the header, metric cards, category cards and carousel
 // can't drift apart on screen. Matches the shortest backend service interval.
 export const DASHBOARD_REFRESH_MS = 5 * 60 * 1000;
+
+// Expired running apps (spec 2026-10-06). An app's subscription ends at its latest
+// register/update height + the blocks paid for (`expire`). Blocks are 30 s, so 2,880 a day.
+// An app only counts as "expired running" once it is a full day past its end block: normal
+// teardown and the stats crawl both lag, and counting those would make the figure jump with
+// ordinary cleanup.
+//
+// The Proof of Node fork made blocks 4x faster (2 min -> 30 s), and FluxOS
+// (registryManager.js) adjusts for it: a missing/0 `expire` defaults to 22,000 blocks before
+// the fork and 88,000 after, and a spec registered before the fork that was due to run past
+// it has its post-fork blocks multiplied by 4. Without that, ten live, still-listed apps
+// showed as ~255 days expired on 2026-10-06.
+export const BLOCKS_PER_DAY = 2880;
+export const EXPIRED_RUNNING_GRACE_BLOCKS = 2880;
+export const FLUX_PON_FORK_HEIGHT = 2020000;
+export const DEFAULT_EXPIRE_BLOCKS_PRE_FORK = 22000;
+export const DEFAULT_EXPIRE_BLOCKS_POST_FORK = 88000;
+export const EXPIRED_RUNNING_TOP_N = 3;
+// Per-cycle cap on permanentmessages lookups; the rest wait for the next cycle. ~18 apps on
+// 2026-10-06, so this only bites if something upstream goes badly wrong.
+export const EXPIRED_RUNNING_MAX_LOOKUPS = 50;
 
 // ============================================
 // REVENUE SYNC TUNING

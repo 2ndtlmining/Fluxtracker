@@ -60,6 +60,10 @@ const FIXED_COLUMNS = [
     // "no private apps" for days that predate the feature.
     { name: 'enterprise_apps', type: 'INTEGER' },
     { name: 'enterprise_apps_percent', type: 'DOUBLE PRECISION' },
+    // Expired running apps (migration 031). No DEFAULT: a 0 would read as "none running"
+    // for days that predate the feature.
+    { name: 'expired_running_apps', type: 'INTEGER' },
+    { name: 'expired_running_instances', type: 'INTEGER' },
 ];
 
 // ============================================

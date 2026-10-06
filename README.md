@@ -702,6 +702,7 @@ Valid periods: `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 | GET    | `/api/analytics/comparison/:days` | Period-over-period comparison for all metrics   |
 | GET    | `/api/games/live?limit=&days=`    | Per-game running instance counts, identified by app name as well as image -- what the Gaming card reads. Includes the previous reading per game for the comparison arrows. |
 | GET    | `/api/apps/deployment-fill?limit=` | How many ordered deployments are actually running, over apps that have not expired, plus the per-app shortfall breakdown. `available:false` when the app specs or the block height are unavailable |
+| GET    | `/api/apps/expired-running` | Apps still running at least 24 h after their subscription ended: count, instances (nodes), and the 3 longest expired. `available:false` when the census, specs or block height are unavailable — see [Expired Running Apps](#expired-running-apps) |
 | GET    | `/api/games/revenue`              | Game-server revenue over the last 30 days: USD at payment time, FLUX, share of all revenue. `available:false` before migration 024 |
 | GET    | `/api/cloud/utilization-projection?days=` | What would still run each day for the next `days` (default 180, 7-365) if no app renewed: instances and readable CPU, drops at 7/30/90 days, the biggest week, CPU coverage |
 | GET    | `/api/analytics/apps/concentration` | All-time revenue concentration: top-10 share and how many apps make up 80%. `available:false` before migration 018 |
@@ -949,6 +950,65 @@ startup, because `METRIC_COLUMNS` is derived from that config. Note its `imageMa
 image that merges into the row, or the featured number and the card disagree — `gaming_palworld`
 read 170 against a card showing 266 for exactly this reason. Historical values keep their old basis,
 so expect a step in the trend line on the day a change lands.
+
+## Expired Running Apps
+
+The Apps card's **Expired running** view lists apps that are still running on Flux nodes after
+their subscription has ended — work the network should have stopped. It shows how many there
+are, on how many nodes, and the three that ended longest ago. The count is recorded daily, so
+the Historical Performance chart (Applications → *Expired running apps*) shows whether cleanup
+is getting better or worse. Live figure: `GET /api/apps/expired-running`.
+
+### How an app's end is calculated
+
+Every app registration and update message carries the block it was mined in (`height`) and
+the number of blocks paid for (`expire`). Blocks are 30 seconds, so 2,880 a day:
+
+    end block      = height of the app's latest register/update + expire
+    blocks expired = current block − end block
+    days expired   = floor(blocks expired / 2,880)
+
+Two adjustments, both copied from FluxOS's own expiry rule (`registryManager.js`), because the
+**Proof of Node fork at block 2,020,000** made blocks 4× faster (2 minutes → 30 seconds):
+
+- A missing (or 0) `expire` means the default for the era the app was registered in: 22,000
+  blocks before the fork, 88,000 after — about a month either way.
+- An app registered before the fork whose paid time ran past it has the post-fork part of
+  that time multiplied by 4: `end block = 2,020,000 + (height + expire − 2,020,000) × 4`.
+  Without this, long-running pre-fork apps look like they expired hundreds of days ago.
+
+The `height` and `expire` come from the app's spec in `globalappsspecifications` while Flux
+still lists it (it keeps some for a while after they expire). Once the spec is gone, they come
+from the app's last message on `permanentmessages?appname=<name>` — looked up once per app
+and cached, since an ended app's end block never changes. A running container with no spec and
+no permanent message at all is a local container that never had a subscription, and is not
+counted.
+
+### The 24-hour grace period
+
+Containers take a while to be removed after an app ends, and the stats crawl that reports
+running containers lags too. To keep normal cleanup out of the figure, an app only counts once
+it is **at least 2,880 blocks (24 hours) past its end block**.
+
+### Worked example (real data, 6 October 2026)
+
+`palworld1785555251684`'s last message was an update at block **2,867,975** with `expire`
+**100** — that is how an owner cancels an app: they set it to end 100 blocks later.
+
+    end block      = 2,867,975 + 100        = 2,868,075
+    current block  =                          3,012,176
+    blocks expired = 3,012,176 − 2,868,075  = 144,101
+    days expired   = floor(144,101 / 2,880) = 50
+
+144,101 blocks is well past the 2,880-block grace period and the app was still running on one
+node, so it counts: **1 app, 1 instance, 50 days expired**.
+
+Counter-example: an app whose end block was 1,500 blocks ago (about 12.5 hours) is past its
+end but still inside the grace period, so it is **not** counted yet. If it is still running
+1,380 blocks later, it will be.
+
+"Instances" counts nodes, not containers: a WordPress app running its `wp`, `mysql` and
+`operator` containers on 3 nodes is 3 instances.
 
 ## Terminal Header
 
