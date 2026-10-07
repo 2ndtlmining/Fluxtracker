@@ -190,7 +190,16 @@ export const GAMING_REPOS = [
         // Issue #518. Live on the Flux games hub with a public spec, deployed from this image.
         name: 'Hytale',
         dbKey: 'gaming_hytale',
-        imageMatch: 'indifferentbroccoli/hytale-server-docker'
+        imageMatch: [
+            'indifferentbroccoli/hytale-server-docker',
+            // Hand-deployed community images seen in repo_snapshots. The 'hytale' keyword
+            // already counts them as gaming, so they must count here too or this column
+            // drifts below the category total.
+            'deinfreu/hytale-server',
+            'ghcr.io/godstepx/docker-hytale-server',
+            'littlestache/hytale-flux',
+            'xdillfrescott/hytale'
+        ]
     },
 
     // Add new games here:
@@ -1092,6 +1101,10 @@ const DISPLAY_NAME_OVERRIDES = {
     'lloesche/valheim-server': 'Valheim',
     'indifferentbroccoli/windrose-server-docker': 'Windrose',
     'indifferentbroccoli/hytale-server-docker': 'Hytale',
+    'deinfreu/hytale-server': 'Hytale',
+    'ghcr.io/godstepx/docker-hytale-server': 'Hytale',
+    'littlestache/hytale-flux': 'Hytale',
+    'xdillfrescott/hytale': 'Hytale',
     'trueosiris/vrising': 'V Rising',
     'runonflux/7dtd-server-flux': '7 Days to Die',
     'vinanrra/7dtd-server': '7 Days to Die',
@@ -1125,6 +1138,12 @@ export const CANONICAL_NAME_OVERRIDES = {
     // hand-deployed ASA server in the same row.
     'mschnitzer/asa-linux-server': 'ARK: Survival Ascended',
     'acekorneya/asa_server': 'ARK: Survival Ascended',
+    // Issue #518: the hub image and the community ones in one row, not a "Docker Hytale" one.
+    'indifferentbroccoli/hytale-server-docker': 'Hytale',
+    'deinfreu/hytale-server': 'Hytale',
+    'ghcr.io/godstepx/docker-hytale-server': 'Hytale',
+    'littlestache/hytale-flux': 'Hytale',
+    'xdillfrescott/hytale': 'Hytale',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
