@@ -95,6 +95,9 @@
     formatHytaleFrame, hytaleFrameKinds, formatHytaleOutro, BATCH7_FRAME_COUNT
   } from '$lib/utils/introArt7.js';
   import {
+    formatArmaFrame, armaFrameKinds, formatArmaOutro, BATCH8_FRAME_COUNT
+  } from '$lib/utils/introArt8.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -214,7 +217,9 @@
     // Issue #514. Its own scene, not ARK_INTRO: a different game from 'ARK Survival'.
     'ARK: Survival Ascended': { frameCount: BATCH6_FRAME_COUNT, format: formatArkAscendedFrame, kinds: arkAscendedFrameKinds },
     // Issue #518. The 'hytale' app-name prefix and the hytale-server-docker image resolve here.
-    Hytale: { frameCount: BATCH7_FRAME_COUNT, format: formatHytaleFrame, kinds: hytaleFrameKinds }
+    Hytale: { frameCount: BATCH7_FRAME_COUNT, format: formatHytaleFrame, kinds: hytaleFrameKinds },
+    // Issue #521. The 'armareforger' app-name prefix and the rouhim image resolve here.
+    'Arma Reforger': { frameCount: BATCH8_FRAME_COUNT, format: formatArmaFrame, kinds: armaFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -258,7 +263,8 @@
     'Ark Survival Evolved': outro(formatArkOutro),
     '7 Days to Die': outro(formatSevenDaysOutro),    // #505
     'ARK: Survival Ascended': outro(formatArkAscendedOutro), // #514
-    Hytale: outro(formatHytaleOutro)                         // #518
+    Hytale: outro(formatHytaleOutro),                        // #518
+    'Arma Reforger': outro(formatArmaOutro)                  // #521
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

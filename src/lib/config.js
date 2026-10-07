@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.16';
+export const APP_VERSION = 'v1.17';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -270,7 +270,10 @@ export const GAME_APP_PREFIXES = [
     // Issue #518. The hub names these hytale<13 digits>. The spec is public today
     // (indifferentbroccoli/hytale-server-docker), so the image path counts them as well; this
     // keeps them counted, and in game revenue, if the hub encrypts them.
-    { prefix: 'hytale', name: 'Hytale' }
+    { prefix: 'hytale', name: 'Hytale' },
+    // Issue #521. The hub names these armareforger<13 digits> and encrypts the spec, so this
+    // is the only way they are counted. Each deployment runs one 'armareforger' component.
+    { prefix: 'armareforger', name: 'Arma Reforger' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -502,6 +505,9 @@ export const TRACKED_GAMES = [
     { name: '7 Days to Die', dbKey: 'gaming_7dtd' },
     // Issue #514. Counted by app name (encrypted spec) and by the community images.
     { name: 'ARK: Survival Ascended', dbKey: 'gaming_ark_asa' },
+    // Issue #521. Counted by app name (encrypted spec) and by the community image, whose
+    // display name is already 'Arma Reforger'.
+    { name: 'Arma Reforger', dbKey: 'gaming_arma_reforger' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1144,6 +1150,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'ghcr.io/godstepx/docker-hytale-server': 'Hytale',
     'littlestache/hytale-flux': 'Hytale',
     'xdillfrescott/hytale': 'Hytale',
+    // Issue #521: a hand-deployed server joins the hub's (app-name counted) row.
+    'rouhim/arma-reforger-server': 'Arma Reforger',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

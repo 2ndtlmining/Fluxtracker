@@ -72,6 +72,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #518: a hub deployment and the same image under any other name.
     expect(resolveIntroKey(app('hytale1791208306845', 1, 'indifferentbroccoli/hytale-server-docker:latest'))).toBe('game:Hytale');
     expect(resolveIntroKey(app('orbis', 1, 'indifferentbroccoli/hytale-server-docker:latest'))).toBe('game:Hytale');
+    // Issue #521: an encrypted hub deployment, and the community image under any other name.
+    expect(resolveIntroKey(app('armareforger1791371186445', 1))).toBe('game:Arma Reforger');
+    expect(resolveIntroKey(app('everon', 1, 'rouhim/arma-reforger-server:latest'))).toBe('game:Arma Reforger');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

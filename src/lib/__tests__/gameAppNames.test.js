@@ -31,6 +31,8 @@ describe('resolveGameFromAppName', () => {
         // Issue #518: live names from the games hub, 2026-10-07.
         expect(resolveGameFromAppName('hytale1791208306845')).toBe('Hytale');
         expect(resolveGameFromAppName('hytale1791278027708')).toBe('Hytale');
+        // Issue #521: the live name from the games hub, 2026-10-08 (encrypted spec).
+        expect(resolveGameFromAppName('armareforger1791371186445')).toBe('Arma Reforger');
     });
 
     it('totals every plan of one game under the canonical name', () => {

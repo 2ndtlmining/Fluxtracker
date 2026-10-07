@@ -126,6 +126,11 @@ const GAME_ART_BY_NAME = {
   hytale: {
     signature: /\/\|=-/,
     movingRows: rows => rows.filter(r => r.text.includes('/|=-'))
+  },
+  // Issue #521: the helicopter's cabin (no other scene draws it), flying in along its row.
+  reforger: {
+    signature: /[__o]/,
+    movingRows: rows => rows.filter(r => r.text.includes('[__o]'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -143,7 +148,8 @@ const UPDATED_DEPLOYED_NAME = {
   terraria: 'terraria1789155733041',
   sevendays: '7daystodie1789155733041',
   ascended: 'arksurvivalascended1789155733041',
-  hytale: 'hytale1789155733041'
+  hytale: 'hytale1789155733041',
+  reforger: 'armareforger1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

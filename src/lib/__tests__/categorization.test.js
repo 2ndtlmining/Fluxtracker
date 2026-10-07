@@ -56,6 +56,10 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/asahi-tools:latest')).not.toBe('gaming');
     });
 
+    it('counts the Arma Reforger community image as a game (#521)', () => {
+        expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
+    });
+
     it('counts the Hytale hub image as a game, but not its companion website (#518)', () => {
         expect(categorizeImage('indifferentbroccoli/hytale-server-docker:latest')).toBe('gaming');
         expect(categorizeImage('runonflux/hytale-server-website:latest')).toBeNull();
@@ -155,6 +159,10 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('mschnitzer/asa-linux-server:latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('acekorneya/asa_server:2_1_latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('thmhoag/arkserver:latest')).not.toBe('ARK: Survival Ascended');
+    });
+
+    it('names the Arma Reforger community image as Arma Reforger (#521)', () => {
+        expect(getCanonicalName('rouhim/arma-reforger-server:latest')).toBe('Arma Reforger');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
