@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-02** (v1.16)
+**Last reviewed: 2026-10-08** (v1.17)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,7 +13,16 @@ rule links to an issue.
 
 ## Next up, in order
 
-**The queue is empty (2026-10-02, v1.16).** No issue is open. New work starts from a new issue.
+**Open (2026-10-08, v1.17):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
+(tripwire for an unrecognised spec version). Both are due before block 3,050,000.
+
+**Status at 2026-10-08 (v1.17):** merged.
+- **Games:** 7 Days to Die (#506: #505), ARK: Survival Ascended (#515: #514), Hytale (#519, #520:
+  #518) and Arma Reforger (#521) are each tracked as their own game, with an icon and header art;
+  browser and web games count as gaming (#509: #508); game icons as bullets in the Gaming
+  breakdown (#513: #512).
+- **Data:** retention is one 10-year config value (#507); the Apps card has an Expired running view,
+  tracked daily (#517).
 
 **Status at 2026-10-02 (v1.16):** merged.
 - **Data accuracy:** steady DataVex datacenter count, the override matches the org only (#495: #494);

@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.16';
+export const APP_VERSION = 'v1.17';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
