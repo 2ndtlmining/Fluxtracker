@@ -74,7 +74,7 @@ const run = async () => {
     process.exit(2);
   }
 
-  const browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ['--no-first-run'] });
+  const browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ['--no-first-run'], timeout: 60000 });
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 900 });
   // The whole point of this harness: the component must behave under the preference, not

@@ -12,7 +12,9 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned rather than ubuntu-latest, which moves to Ubuntu 26 on 19 Oct 2026; move it
+    # deliberately, together with header-smoke.yml.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     env:
