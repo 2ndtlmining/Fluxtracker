@@ -36,11 +36,25 @@ if (!browserPath) {
     process.exit(1);
 }
 
-const browser = await puppeteer.launch({
+// This is the first Chrome launch on a fresh CI runner, and a cold one can miss puppeteer's
+// default 30s wait for the DevTools endpoint ("Timed out after 30000 ms while waiting for
+// the WS endpoint URL" -- the only failure this workflow has had, on the #521 Arma Reforger
+// PR). So: 60s, and one more try before giving up.
+// The later checks launch a warmed-up Chrome and only get the longer timeout.
+const launch = () => puppeteer.launch({
     executablePath: browserPath,
     headless: true,
-    args: ['--no-first-run']
+    args: ['--no-first-run'],
+    timeout: 60000
 });
+
+let browser;
+try {
+    browser = await launch();
+} catch (err) {
+    console.warn(`Chrome launch failed, retrying once: ${err.message}`);
+    browser = await launch();
+}
 
 try {
     const page = await browser.newPage();

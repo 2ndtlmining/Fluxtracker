@@ -6,9 +6,18 @@ name: Header smoke
 # "Loading..." through two PRs, with zero console errors and zero failed requests. A rule
 # enforced only by memory is exactly the one that already failed.
 #
-# Gated by path rather than run on every PR because it costs ~8 minutes. If this is ever
-# made a required status check, note that a path-filtered workflow reports as *skipped*,
-# not passed, and GitHub will block PRs waiting for it — make the *job* conditional
+# Gated by path rather than run on every PR: each game is its own ~4-minute runner. Within
+# that gate, the `games` job picks how many games run:
+#   - a change to a security-sensitive file (hooks.server.js, server.js, svelte.config.js,
+#     this workflow, or the harness under scripts/header-smoke/) runs EVERY game;
+#   - any other header-only change (component, route or util files in the list below) runs
+#     SMOKE_SUBSET, a few games chosen to cover the header's distinct code paths.
+# The game list lives once, in SMOKE_GAMES below: adding a game is one edit there.
+#
+# If this is ever made a required status check, note that a path-filtered workflow reports
+# as *skipped*, not passed, and GitHub will block PRs waiting for it. Games left out of the
+# subset are simply absent from that run (no per-game check is created), so a required check
+# must not name an individual `smoke (<game>)` job either — make the *job* conditional
 # instead, or leave it advisory.
 on:
   pull_request:
@@ -33,9 +42,80 @@ concurrency:
   group: header-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The single source of truth for which games the smoke covers. Each must be a key of
+  # DEPLOYED_GAME_NAMES in scripts/header-smoke/stub-api.mjs (and of check-header.mjs's art
+  # signatures). Adding a game means adding it here, and nowhere else in this file.
+  SMOKE_GAMES: >-
+    valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose
+    terraria sevendays ascended hytale reforger
+  # Run for header-only changes. Chosen so each takes a different path through the
+  # component's intro lookup:
+  #   valheim     -- an array of variants picked per app name (pickVariant), the original
+  #                  terminalAnimation.js art, and the job that runs the interaction check
+  #                  (keep it here, or a subset run skips that check entirely);
+  #   dragonwilds -- the exact multi-word registry key 'RuneScape: Dragonwilds' (a near
+  #                  miss falls through to the gamepad silently), with variants drawn from
+  #                  two different art modules;
+  #   zomboid     -- a single-object intro (no variants) from introArt.js, and the longest
+  #                  fixture name (projectzomboid + 13 digits = 27 chars), which the narrow
+  #                  frame truncates and the wide frame must fit.
+  SMOKE_SUBSET: valheim dragonwilds zomboid
+
 jobs:
+  games:
+    # Ubuntu 24.04 pinned, not ubuntu-latest: that label moves to Ubuntu 26 on 19 Oct 2026,
+    # and the smoke relies on the runner image's preinstalled Chrome at known paths.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The full history, so the diff below can find the merge base with the PR base.
+          fetch-depth: 0
+
+      - name: Pick games
+        id: pick
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Anything that can change what a page is allowed to load, or how the harness
+          # judges it, gets every game.
+          sensitive='^(src/hooks\.server\.js|src/server\.js|svelte\.config\.js|\.github/workflows/header-smoke\.yml|scripts/header-smoke/.*)$'
+
+          if ! changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA"); then
+            echo "Could not diff $BASE_SHA...$HEAD_SHA; running every game." >&2
+            games="$SMOKE_GAMES"
+          elif echo "$changed" | grep -Eq "$sensitive"; then
+            echo "Security-sensitive or harness file changed; running every game:"
+            echo "$changed" | grep -E "$sensitive" | sed 's/^/  /'
+            games="$SMOKE_GAMES"
+          else
+            echo "Header-only change; running the subset."
+            games="$SMOKE_SUBSET"
+          fi
+
+          # A subset game missing from SMOKE_GAMES is a typo; fail loudly rather than run
+          # a game the full sweep does not.
+          for g in $SMOKE_SUBSET; do
+            case " $(echo $SMOKE_GAMES) " in
+              *" $g "*) ;;
+              *) echo "SMOKE_SUBSET game '$g' is not in SMOKE_GAMES." >&2; exit 1 ;;
+            esac
+          done
+
+          matrix=$(printf '%s\n' $games | jq -R . | jq -cs '{game: .}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Matrix: $matrix"
+
   smoke:
-    runs-on: ubuntu-latest
+    needs: games
+    # Pinned for the same reason as the games job: the Locate Chrome step below expects the
+    # 24.04 image's preinstalled Chrome.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     strategy:
@@ -44,8 +124,7 @@ jobs:
       # rather than a loop, so each gets its own runner and its own port 3100 — the
       # harness needs that port exclusively and a stale listener fakes a failure.
       fail-fast: false
-      matrix:
-        game: [valheim, minecraft, dragonwilds, palworld, zomboid, vrising, enshrouded, rust, windrose, terraria, sevendays, ascended, hytale, reforger]
+      matrix: ${{ fromJSON(needs.games.outputs.matrix) }}
 
     env:
       DEPLOYED_GAME: ${{ matrix.game }}

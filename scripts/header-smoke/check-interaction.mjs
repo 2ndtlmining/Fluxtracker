@@ -108,7 +108,7 @@ const run = async () => {
     process.exit(2);
   }
 
-  const browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ['--no-first-run'] });
+  const browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ['--no-first-run'], timeout: 60000 });
   const results = [];
   const check = (name, ok, detail = '') => results.push([name, ok, detail]);
 
