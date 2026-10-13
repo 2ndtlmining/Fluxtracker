@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-14** (v1.18)
+**Last reviewed: 2026-10-14** (v1.19)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,9 +13,13 @@ rule links to an issue.
 
 ## Next up, in order
 
-**Open (2026-10-14, v1.18):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
+**Open (2026-10-14, v1.19):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
-Unturned (#525) and Don't Starve Together (#526) follow in stacked PRs.
+Don't Starve Together (#526) follows in a stacked PR.
+
+**Status at 2026-10-14 (v1.19):** merged.
+- **Games:** Unturned (#525) is tracked as its own game, with an icon and header art. Added
+  before its first deployment, from the games hub's own match rule, so it counts from day one.
 
 **Status at 2026-10-14 (v1.18):** merged.
 - **Games:** Garry's Mod (#524) is tracked as its own game, with an icon and header art.
