@@ -48,7 +48,7 @@ env:
   # signatures). Adding a game means adding it here, and nowhere else in this file.
   SMOKE_GAMES: >-
     valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose
-    terraria sevendays ascended hytale reforger garrysmod unturned
+    terraria sevendays ascended hytale reforger garrysmod unturned dst
   # Run for header-only changes. Chosen so each takes a different path through the
   # component's intro lookup:
   #   valheim     -- an array of variants picked per app name (pickVariant), the original

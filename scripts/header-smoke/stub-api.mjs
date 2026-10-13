@@ -57,7 +57,8 @@ const DEPLOYED_GAME_NAMES = {
   hytale: 'hytale1789155733041',
   reforger: 'armareforger1789155733041',
   garrysmod: 'garrysmod1789155733041',
-  unturned: 'unturned1789155733041'
+  unturned: 'unturned1789155733041',
+  dst: 'dontstarvetogether1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];

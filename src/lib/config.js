@@ -280,7 +280,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'garrysmod', name: "Garry's Mod" },
     // Issue #525. The hub's own match rule (runonflux.com/games): unturned<13 digits>, an
     // encrypted spec. Not deployed when added (2026-10-14), so the first one counts.
-    { prefix: 'unturned', name: 'Unturned' }
+    { prefix: 'unturned', name: 'Unturned' },
+    // Issue #526. The hub's own match rule (runonflux.com/games): dontstarvetogether<13
+    // digits>, an encrypted spec. Not deployed when added (2026-10-14), so the first counts.
+    { prefix: 'dontstarvetogether', name: "Don't Starve Together" }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -519,6 +522,8 @@ export const TRACKED_GAMES = [
     { name: "Garry's Mod", dbKey: 'gaming_garrysmod' },
     // Issue #525. Counted by app name (encrypted spec) and by the 'unturned' image.
     { name: 'Unturned', dbKey: 'gaming_unturned' },
+    // Issue #526. Counted by app name (encrypted spec) and by the hub's two images.
+    { name: "Don't Starve Together", dbKey: 'gaming_dst' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -956,6 +961,9 @@ export const CATEGORY_CONFIG = {
                    // matching runs over the whole image string and that would leak.
                    'asa-linux-server', 'asa_server', 'projectzomboid', 'conan-exiles',
                    'game-server', 'arma-reforger', 'soulmask', 'abioticfactor', 'windrose', 'hytale', 'unturned', 'garrysmod',
+                   // Issue #526: Don't Starve Together, by the hub's own match rule. Never a
+                   // bare 'dst', which 'dstat', 'sdst' and 'pdst' all contain.
+                   'dontstarvetogether', 'dst-server-flux', 'dst-dedicated-server',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1113,6 +1121,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/garrysmod-server-flux': "Garry's Mod",
     // Issue #525: the games hub's own image (Docker Hub, pushed 2026-10).
     'runonflux/unturned-server-flux': 'Unturned',
+    // Issue #526: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/dst-server-flux': "Don't Starve Together",
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1171,6 +1181,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/garrysmod-server-flux': "Garry's Mod",
     // Issue #525: the games hub's own image (Docker Hub, pushed 2026-10).
     'runonflux/unturned-server-flux': 'Unturned',
+    // Issue #526: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/dst-server-flux': "Don't Starve Together",
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

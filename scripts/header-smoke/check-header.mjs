@@ -141,6 +141,11 @@ const GAME_ART_BY_NAME = {
   unturned: {
     signature: /D\|\\|\/\|D/,
     movingRows: rows => rows.filter(r => /D\||\|D/.test(r.text))
+  },
+  // Issue #526: the Crock Pot (no other scene draws it), beside the flickering fire.
+  dst: {
+    signature: /\(___\)/,
+    movingRows: rows => rows.filter(r => r.text.includes('(___)'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -161,7 +166,8 @@ const UPDATED_DEPLOYED_NAME = {
   hytale: 'hytale1789155733041',
   reforger: 'armareforger1789155733041',
   garrysmod: 'garrysmod1789155733041',
-  unturned: 'unturned1789155733041'
+  unturned: 'unturned1789155733041',
+  dst: 'dontstarvetogether1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
