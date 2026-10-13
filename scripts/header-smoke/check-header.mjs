@@ -136,6 +136,11 @@ const GAME_ART_BY_NAME = {
   garrysmod: {
     signature: /\[X\]/,
     movingRows: rows => rows.filter(r => r.text.includes('[X]'))
+  },
+  // Issue #525: the survivor's backpack (no other scene draws it), on the move every frame.
+  unturned: {
+    signature: /D\|\\|\/\|D/,
+    movingRows: rows => rows.filter(r => /D\||\|D/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -155,7 +160,8 @@ const UPDATED_DEPLOYED_NAME = {
   ascended: 'arksurvivalascended1789155733041',
   hytale: 'hytale1789155733041',
   reforger: 'armareforger1789155733041',
-  garrysmod: 'garrysmod1789155733041'
+  garrysmod: 'garrysmod1789155733041',
+  unturned: 'unturned1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

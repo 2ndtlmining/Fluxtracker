@@ -101,6 +101,9 @@
     formatGmodFrame, gmodFrameKinds, formatGmodOutro, BATCH9_FRAME_COUNT
   } from '$lib/utils/introArt9.js';
   import {
+    formatUnturnedFrame, unturnedFrameKinds, formatUnturnedOutro, BATCH10_FRAME_COUNT
+  } from '$lib/utils/introArt10.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -224,7 +227,9 @@
     // Issue #521. The 'armareforger' app-name prefix and the rouhim image resolve here.
     'Arma Reforger': { frameCount: BATCH8_FRAME_COUNT, format: formatArmaFrame, kinds: armaFrameKinds },
     // Issue #524. The 'garrysmod' app-name prefix resolves here.
-    "Garry's Mod": { frameCount: BATCH9_FRAME_COUNT, format: formatGmodFrame, kinds: gmodFrameKinds }
+    "Garry's Mod": { frameCount: BATCH9_FRAME_COUNT, format: formatGmodFrame, kinds: gmodFrameKinds },
+    // Issue #525. The 'unturned' app-name prefix and image resolve here.
+    'Unturned': { frameCount: BATCH10_FRAME_COUNT, format: formatUnturnedFrame, kinds: unturnedFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -270,7 +275,8 @@
     'ARK: Survival Ascended': outro(formatArkAscendedOutro), // #514
     Hytale: outro(formatHytaleOutro),                        // #518
     'Arma Reforger': outro(formatArmaOutro),                 // #521
-    "Garry's Mod": outro(formatGmodOutro)                    // #524
+    "Garry's Mod": outro(formatGmodOutro),                   // #524
+    'Unturned': outro(formatUnturnedOutro)                   // #525
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

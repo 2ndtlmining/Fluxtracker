@@ -277,7 +277,10 @@ export const GAME_APP_PREFIXES = [
     // Issue #524. The hub names these garrysmod<13 digits> and encrypts the spec, so this
     // is the only way they are counted. The hub's image is steamcmd:garrysmod, whose tag,
     // not its repository, names the game -- so no image override can name it safely.
-    { prefix: 'garrysmod', name: "Garry's Mod" }
+    { prefix: 'garrysmod', name: "Garry's Mod" },
+    // Issue #525. The hub's own match rule (runonflux.com/games): unturned<13 digits>, an
+    // encrypted spec. Not deployed when added (2026-10-14), so the first one counts.
+    { prefix: 'unturned', name: 'Unturned' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -514,6 +517,8 @@ export const TRACKED_GAMES = [
     { name: 'Arma Reforger', dbKey: 'gaming_arma_reforger' },
     // Issue #524. Counted by app name (encrypted spec).
     { name: "Garry's Mod", dbKey: 'gaming_garrysmod' },
+    // Issue #525. Counted by app name (encrypted spec) and by the 'unturned' image.
+    { name: 'Unturned', dbKey: 'gaming_unturned' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1106,6 +1111,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'rouhim/arma-reforger-server': 'Arma Reforger',
     // Issue #524: the games hub's own image (Docker Hub, pushed 2026-10).
     'runonflux/garrysmod-server-flux': "Garry's Mod",
+    // Issue #525: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/unturned-server-flux': 'Unturned',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1162,6 +1169,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'rouhim/arma-reforger-server': 'Arma Reforger',
     // Issue #524: the games hub's own image (Docker Hub, pushed 2026-10).
     'runonflux/garrysmod-server-flux': "Garry's Mod",
+    // Issue #525: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/unturned-server-flux': 'Unturned',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
