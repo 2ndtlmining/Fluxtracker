@@ -81,6 +81,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #525: an encrypted hub deployment, and the image under any other name.
     expect(resolveIntroKey(app('unturned1791700000000', 1))).toBe('game:Unturned');
     expect(resolveIntroKey(app('pei', 1, 'runonflux/unturned-server-flux:latest'))).toBe('game:Unturned');
+    // Issue #526: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('dontstarvetogether1791800000000', 1))).toBe("game:Don't Starve Together");
+    expect(resolveIntroKey(app('wilson', 1, 'runonflux/dst-server-flux:latest'))).toBe("game:Don't Starve Together");
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

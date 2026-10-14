@@ -104,6 +104,9 @@
     formatUnturnedFrame, unturnedFrameKinds, formatUnturnedOutro, BATCH10_FRAME_COUNT
   } from '$lib/utils/introArt10.js';
   import {
+    formatDstFrame, dstFrameKinds, formatDstOutro, BATCH11_FRAME_COUNT
+  } from '$lib/utils/introArt11.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -229,7 +232,9 @@
     // Issue #524. The 'garrysmod' app-name prefix resolves here.
     "Garry's Mod": { frameCount: BATCH9_FRAME_COUNT, format: formatGmodFrame, kinds: gmodFrameKinds },
     // Issue #525. The 'unturned' app-name prefix and image resolve here.
-    'Unturned': { frameCount: BATCH10_FRAME_COUNT, format: formatUnturnedFrame, kinds: unturnedFrameKinds }
+    'Unturned': { frameCount: BATCH10_FRAME_COUNT, format: formatUnturnedFrame, kinds: unturnedFrameKinds },
+    // Issue #526. The 'dontstarvetogether' prefix and the hub's dst- images resolve here.
+    "Don't Starve Together": { frameCount: BATCH11_FRAME_COUNT, format: formatDstFrame, kinds: dstFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -276,7 +281,8 @@
     Hytale: outro(formatHytaleOutro),                        // #518
     'Arma Reforger': outro(formatArmaOutro),                 // #521
     "Garry's Mod": outro(formatGmodOutro),                   // #524
-    'Unturned': outro(formatUnturnedOutro)                   // #525
+    'Unturned': outro(formatUnturnedOutro),                  // #525
+    "Don't Starve Together": outro(formatDstOutro)           // #526
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

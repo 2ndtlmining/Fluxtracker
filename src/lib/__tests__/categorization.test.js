@@ -67,6 +67,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/returned-mail:latest')).not.toBe('gaming');
     });
 
+    it('counts both Don\'t Starve Together hub images as games, but not a bare "dst" (#526)', () => {
+        expect(categorizeImage('runonflux/dst-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('someone/dst-dedicated-server:latest')).toBe('gaming');
+        expect(categorizeImage('someone/dstat-exporter:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -182,6 +188,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's Unturned image as Unturned, not 'Unturned Server' (#525)", () => {
         expect(getCanonicalName('runonflux/unturned-server-flux:latest')).toBe('Unturned');
+    });
+
+    it("names the games hub's Don't Starve Together image, not 'Dst Server' (#526)", () => {
+        expect(getCanonicalName('runonflux/dst-server-flux:latest')).toBe("Don't Starve Together");
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
