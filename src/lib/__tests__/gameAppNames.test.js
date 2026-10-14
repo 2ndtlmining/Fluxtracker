@@ -35,6 +35,8 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('armareforger1791371186445')).toBe('Arma Reforger');
         // Issue #524: the live name from the games hub, 2026-10-09 (encrypted spec).
         expect(resolveGameFromAppName('garrysmod1791592436724')).toBe("Garry's Mod");
+        // Issue #525: the hub's shape, not live yet (2026-10-14).
+        expect(resolveGameFromAppName('unturned1791700000000')).toBe('Unturned');
     });
 
     it('totals every plan of one game under the canonical name', () => {

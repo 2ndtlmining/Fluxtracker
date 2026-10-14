@@ -61,6 +61,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('runonflux/garrysmod-server-flux:latest')).toBe('gaming');
     });
 
+    it('counts the Unturned image as a game, but not a bare "turned" (#525)', () => {
+        expect(categorizeImage('runonflux/unturned-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('someone/unturned:latest')).toBe('gaming');
+        expect(categorizeImage('someone/returned-mail:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -172,6 +178,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's Garry's Mod image as Garry's Mod (#524)", () => {
         expect(getCanonicalName('runonflux/garrysmod-server-flux:latest')).toBe("Garry's Mod");
+    });
+
+    it("names the games hub's Unturned image as Unturned, not 'Unturned Server' (#525)", () => {
+        expect(getCanonicalName('runonflux/unturned-server-flux:latest')).toBe('Unturned');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
