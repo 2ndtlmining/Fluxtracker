@@ -73,6 +73,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/dstat-exporter:latest')).not.toBe('gaming');
     });
 
+    it('counts the Core Keeper hub and community images as games, but not a bare "keeper" (#530)', () => {
+        expect(categorizeImage('runonflux/corekeeper-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('steamcmd:corekeeper')).toBe('gaming');
+        expect(categorizeImage('escaping/core-keeper-dedicated:latest')).toBe('gaming');
+        expect(categorizeImage('keeper/keeper-commander:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -192,6 +199,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's Don't Starve Together image, not 'Dst Server' (#526)", () => {
         expect(getCanonicalName('runonflux/dst-server-flux:latest')).toBe("Don't Starve Together");
+    });
+
+    it("names the games hub's Core Keeper image as Core Keeper, not 'Corekeeper Server' (#530)", () => {
+        expect(getCanonicalName('runonflux/corekeeper-server-flux:latest')).toBe('Core Keeper');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

@@ -146,6 +146,11 @@ const GAME_ART_BY_NAME = {
   dst: {
     signature: /\(___\)/,
     movingRows: rows => rows.filter(r => r.text.includes('(___)'))
+  },
+  // Issue #530: the Core (no other scene draws it), its eye changing as it wakes.
+  corekeeper: {
+    signature: /\[\( . \)\]/,
+    movingRows: rows => rows.filter(r => r.text.includes('[('))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -167,7 +172,8 @@ const UPDATED_DEPLOYED_NAME = {
   reforger: 'armareforger1789155733041',
   garrysmod: 'garrysmod1789155733041',
   unturned: 'unturned1789155733041',
-  dst: 'dontstarvetogether1789155733041'
+  dst: 'dontstarvetogether1789155733041',
+  corekeeper: 'corekeeper1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
