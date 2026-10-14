@@ -131,6 +131,11 @@ const GAME_ART_BY_NAME = {
   reforger: {
     signature: /[__o]/,
     movingRows: rows => rows.filter(r => r.text.includes('[__o]'))
+  },
+  // Issue #524: the crate prop (no other scene draws it), stacked into the tower.
+  garrysmod: {
+    signature: /\[X\]/,
+    movingRows: rows => rows.filter(r => r.text.includes('[X]'))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -149,7 +154,8 @@ const UPDATED_DEPLOYED_NAME = {
   sevendays: '7daystodie1789155733041',
   ascended: 'arksurvivalascended1789155733041',
   hytale: 'hytale1789155733041',
-  reforger: 'armareforger1789155733041'
+  reforger: 'armareforger1789155733041',
+  garrysmod: 'garrysmod1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

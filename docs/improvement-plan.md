@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-08** (v1.17)
+**Last reviewed: 2026-10-14** (v1.18)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -13,8 +13,13 @@ rule links to an issue.
 
 ## Next up, in order
 
-**Open (2026-10-08, v1.17):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
+**Open (2026-10-14, v1.18):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
+Unturned (#525) and Don't Starve Together (#526) follow in stacked PRs.
+
+**Status at 2026-10-14 (v1.18):** merged.
+- **Games:** Garry's Mod (#524) is tracked as its own game, with an icon and header art.
+  Its live deployment is an encrypted spec, so the app-name prefix is what counts it.
 
 **Status at 2026-10-08 (v1.17):** merged.
 - **Games:** 7 Days to Die (#506: #505), ARK: Survival Ascended (#515: #514), Hytale (#519, #520:

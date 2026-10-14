@@ -56,6 +56,11 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/asahi-tools:latest')).not.toBe('gaming');
     });
 
+    it('counts a Garry\'s Mod image as a game, by its tag (#524)', () => {
+        expect(categorizeImage('someone/steamcmd:garrysmod')).toBe('gaming');
+        expect(categorizeImage('runonflux/garrysmod-server-flux:latest')).toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -163,6 +168,10 @@ describe('getCanonicalName', () => {
 
     it('names the Arma Reforger community image as Arma Reforger (#521)', () => {
         expect(getCanonicalName('rouhim/arma-reforger-server:latest')).toBe('Arma Reforger');
+    });
+
+    it("names the games hub's Garry's Mod image as Garry's Mod (#524)", () => {
+        expect(getCanonicalName('runonflux/garrysmod-server-flux:latest')).toBe("Garry's Mod");
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

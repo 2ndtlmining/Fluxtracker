@@ -98,6 +98,9 @@
     formatArmaFrame, armaFrameKinds, formatArmaOutro, BATCH8_FRAME_COUNT
   } from '$lib/utils/introArt8.js';
   import {
+    formatGmodFrame, gmodFrameKinds, formatGmodOutro, BATCH9_FRAME_COUNT
+  } from '$lib/utils/introArt9.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -219,7 +222,9 @@
     // Issue #518. The 'hytale' app-name prefix and the hytale-server-docker image resolve here.
     Hytale: { frameCount: BATCH7_FRAME_COUNT, format: formatHytaleFrame, kinds: hytaleFrameKinds },
     // Issue #521. The 'armareforger' app-name prefix and the rouhim image resolve here.
-    'Arma Reforger': { frameCount: BATCH8_FRAME_COUNT, format: formatArmaFrame, kinds: armaFrameKinds }
+    'Arma Reforger': { frameCount: BATCH8_FRAME_COUNT, format: formatArmaFrame, kinds: armaFrameKinds },
+    // Issue #524. The 'garrysmod' app-name prefix resolves here.
+    "Garry's Mod": { frameCount: BATCH9_FRAME_COUNT, format: formatGmodFrame, kinds: gmodFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -264,7 +269,8 @@
     '7 Days to Die': outro(formatSevenDaysOutro),    // #505
     'ARK: Survival Ascended': outro(formatArkAscendedOutro), // #514
     Hytale: outro(formatHytaleOutro),                        // #518
-    'Arma Reforger': outro(formatArmaOutro)                  // #521
+    'Arma Reforger': outro(formatArmaOutro),                 // #521
+    "Garry's Mod": outro(formatGmodOutro)                    // #524
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

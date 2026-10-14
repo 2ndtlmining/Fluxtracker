@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.17';
+export const APP_VERSION = 'v1.18';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -273,7 +273,11 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'hytale', name: 'Hytale' },
     // Issue #521. The hub names these armareforger<13 digits> and encrypts the spec, so this
     // is the only way they are counted. Each deployment runs one 'armareforger' component.
-    { prefix: 'armareforger', name: 'Arma Reforger' }
+    { prefix: 'armareforger', name: 'Arma Reforger' },
+    // Issue #524. The hub names these garrysmod<13 digits> and encrypts the spec, so this
+    // is the only way they are counted. The hub's image is steamcmd:garrysmod, whose tag,
+    // not its repository, names the game -- so no image override can name it safely.
+    { prefix: 'garrysmod', name: "Garry's Mod" }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -508,6 +512,8 @@ export const TRACKED_GAMES = [
     // Issue #521. Counted by app name (encrypted spec) and by the community image, whose
     // display name is already 'Arma Reforger'.
     { name: 'Arma Reforger', dbKey: 'gaming_arma_reforger' },
+    // Issue #524. Counted by app name (encrypted spec).
+    { name: "Garry's Mod", dbKey: 'gaming_garrysmod' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1098,6 +1104,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'registry.gitlab.com/thorchain/thornode': 'THORChain',
     'thmhoag/arkserver': 'ARK Survival',
     'rouhim/arma-reforger-server': 'Arma Reforger',
+    // Issue #524: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/garrysmod-server-flux': "Garry's Mod",
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1152,6 +1160,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'xdillfrescott/hytale': 'Hytale',
     // Issue #521: a hand-deployed server joins the hub's (app-name counted) row.
     'rouhim/arma-reforger-server': 'Arma Reforger',
+    // Issue #524: the games hub's own image (Docker Hub, pushed 2026-10).
+    'runonflux/garrysmod-server-flux': "Garry's Mod",
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

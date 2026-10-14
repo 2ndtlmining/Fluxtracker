@@ -75,6 +75,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #521: an encrypted hub deployment, and the community image under any other name.
     expect(resolveIntroKey(app('armareforger1791371186445', 1))).toBe('game:Arma Reforger');
     expect(resolveIntroKey(app('everon', 1, 'rouhim/arma-reforger-server:latest'))).toBe('game:Arma Reforger');
+    // Issue #524: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('garrysmod1791592436724', 1))).toBe("game:Garry's Mod");
+    expect(resolveIntroKey(app('construct', 1, 'runonflux/garrysmod-server-flux:latest'))).toBe("game:Garry's Mod");
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
