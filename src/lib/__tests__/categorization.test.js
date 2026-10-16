@@ -87,6 +87,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/carlisle-council-site:latest')).not.toBe('gaming');
     });
 
+    it('counts the tModLoader hub and community images as games, but not a bare "modloader" (#533)', () => {
+        expect(categorizeImage('runonflux/tmodloader-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('jacobsmile/tmodloader1.4:latest')).toBe('gaming');
+        expect(categorizeImage('someone/modloader-api:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -214,6 +220,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's The Isle image as The Isle, not 'Theisle Server' (#535)", () => {
         expect(getCanonicalName('runonflux/theisle-server-flux:latest')).toBe('The Isle');
+    });
+
+    it("names the games hub's tModLoader image as tModLoader, not 'Tmodloader Server' (#533)", () => {
+        expect(getCanonicalName('runonflux/tmodloader-server-flux:latest')).toBe('tModLoader');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

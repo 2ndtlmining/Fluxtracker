@@ -113,6 +113,9 @@
     formatTheIsleFrame, theIsleFrameKinds, formatTheIsleOutro, BATCH13_FRAME_COUNT
   } from '$lib/utils/introArt13.js';
   import {
+    formatTModLoaderFrame, tModLoaderFrameKinds, formatTModLoaderOutro, BATCH14_FRAME_COUNT
+  } from '$lib/utils/introArt14.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -244,7 +247,9 @@
     // Issue #530. The 'corekeeper' prefix and the hub's corekeeper images resolve here.
     'Core Keeper': { frameCount: BATCH12_FRAME_COUNT, format: formatCoreKeeperFrame, kinds: coreKeeperFrameKinds },
     // Issue #535. The 'theisle' prefix and the hub's theisle images resolve here.
-    'The Isle': { frameCount: BATCH13_FRAME_COUNT, format: formatTheIsleFrame, kinds: theIsleFrameKinds }
+    'The Isle': { frameCount: BATCH13_FRAME_COUNT, format: formatTheIsleFrame, kinds: theIsleFrameKinds },
+    // Issue #533. The 'tmodloader' prefix and the hub's tmodloader image resolve here.
+    'tModLoader': { frameCount: BATCH14_FRAME_COUNT, format: formatTModLoaderFrame, kinds: tModLoaderFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -294,7 +299,8 @@
     'Unturned': outro(formatUnturnedOutro),                  // #525
     "Don't Starve Together": outro(formatDstOutro),          // #526
     'Core Keeper': outro(formatCoreKeeperOutro),             // #530
-    'The Isle': outro(formatTheIsleOutro)                    // #535
+    'The Isle': outro(formatTheIsleOutro),                   // #535
+    'tModLoader': outro(formatTModLoaderOutro)               // #533
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
