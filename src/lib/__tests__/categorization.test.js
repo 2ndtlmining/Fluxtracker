@@ -80,6 +80,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('keeper/keeper-commander:latest')).not.toBe('gaming');
     });
 
+    it('counts The Isle hub and Evrima images as games, but not a bare "isle" (#535)', () => {
+        expect(categorizeImage('runonflux/theisle-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('someone/theisleevrima:latest')).toBe('gaming');
+        expect(categorizeImage('someone/evrima-dedicated:latest')).toBe('gaming');
+        expect(categorizeImage('someone/carlisle-council-site:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -203,6 +210,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's Core Keeper image as Core Keeper, not 'Corekeeper Server' (#530)", () => {
         expect(getCanonicalName('runonflux/corekeeper-server-flux:latest')).toBe('Core Keeper');
+    });
+
+    it("names the games hub's The Isle image as The Isle, not 'Theisle Server' (#535)", () => {
+        expect(getCanonicalName('runonflux/theisle-server-flux:latest')).toBe('The Isle');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

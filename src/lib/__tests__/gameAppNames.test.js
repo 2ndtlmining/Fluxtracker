@@ -41,6 +41,8 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('dontstarvetogether1791800000000')).toBe("Don't Starve Together");
         // Issue #530: the hub's shape, not live yet (2026-10-15).
         expect(resolveGameFromAppName('corekeeper1791900000000')).toBe('Core Keeper');
+        // Issue #535: the hub's shape, not live yet (2026-10-17).
+        expect(resolveGameFromAppName('theisle1792200000000')).toBe('The Isle');
     });
 
     it('totals every plan of one game under the canonical name', () => {

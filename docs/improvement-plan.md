@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-15** (v1.21)
+**Last reviewed: 2026-10-17** (v1.22)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -15,6 +15,10 @@ rule links to an issue.
 
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
+
+**Status at 2026-10-17 (v1.22):** merged.
+- **Games:** The Isle (Evrima) (#535) is tracked as its own game, with an icon and header
+  art, added before its first deployment from the hub's own match rule.
 
 **Status at 2026-10-15 (v1.21):** merged.
 - **Games:** Core Keeper (#530) is tracked as its own game, with an icon and header art, added
