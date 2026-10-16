@@ -87,6 +87,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #530: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('corekeeper1791900000000', 1))).toBe('game:Core Keeper');
     expect(resolveIntroKey(app('caverns', 1, 'runonflux/corekeeper-server-flux:latest'))).toBe('game:Core Keeper');
+    // Issue #535: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('theisle1792200000000', 1))).toBe('game:The Isle');
+    expect(resolveIntroKey(app('dinos', 1, 'runonflux/theisle-server-flux:latest'))).toBe('game:The Isle');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

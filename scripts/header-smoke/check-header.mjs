@@ -151,6 +151,12 @@ const GAME_ART_BY_NAME = {
   corekeeper: {
     signature: /\[\( . \)\]/,
     movingRows: rows => rows.filter(r => r.text.includes('[('))
+  },
+  // Issue #535: the palm's crown (no other scene draws it); the egg and the dinosaur
+  // growing out of it are what move.
+  theisle: {
+    signature: /--\*--/,
+    movingRows: rows => rows.filter(r => /\.-\.|\.\^\.|o[<>]/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -173,7 +179,8 @@ const UPDATED_DEPLOYED_NAME = {
   garrysmod: 'garrysmod1789155733041',
   unturned: 'unturned1789155733041',
   dst: 'dontstarvetogether1789155733041',
-  corekeeper: 'corekeeper1789155733041'
+  corekeeper: 'corekeeper1789155733041',
+  theisle: 'theisle1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

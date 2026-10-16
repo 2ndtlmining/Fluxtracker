@@ -59,7 +59,8 @@ const DEPLOYED_GAME_NAMES = {
   garrysmod: 'garrysmod1789155733041',
   unturned: 'unturned1789155733041',
   dst: 'dontstarvetogether1789155733041',
-  corekeeper: 'corekeeper1789155733041'
+  corekeeper: 'corekeeper1789155733041',
+  theisle: 'theisle1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
