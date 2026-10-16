@@ -157,6 +157,12 @@ const GAME_ART_BY_NAME = {
   theisle: {
     signature: /--\*--/,
     movingRows: rows => rows.filter(r => /\.-\.|\.\^\.|o[<>]/.test(r.text))
+  },
+  // Issue #533: the jigsaw piece's top, knob and all (no other scene draws it); the piece
+  // falling into its slot is what moves.
+  tmodloader: {
+    signature: /\.-\(_\)-\./,
+    movingRows: rows => rows.filter(r => /\.-\(_\)-\.|'-\( \)-'/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -180,7 +186,8 @@ const UPDATED_DEPLOYED_NAME = {
   unturned: 'unturned1789155733041',
   dst: 'dontstarvetogether1789155733041',
   corekeeper: 'corekeeper1789155733041',
-  theisle: 'theisle1789155733041'
+  theisle: 'theisle1789155733041',
+  tmodloader: 'tmodloader1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

@@ -43,6 +43,8 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('corekeeper1791900000000')).toBe('Core Keeper');
         // Issue #535: the hub's shape, not live yet (2026-10-17).
         expect(resolveGameFromAppName('theisle1792200000000')).toBe('The Isle');
+        // Issue #533: the hub's shape, not live yet (2026-10-17). Not Terraria's prefix.
+        expect(resolveGameFromAppName('tmodloader1792200000000')).toBe('tModLoader');
     });
 
     it('totals every plan of one game under the canonical name', () => {

@@ -90,6 +90,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #535: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('theisle1792200000000', 1))).toBe('game:The Isle');
     expect(resolveIntroKey(app('dinos', 1, 'runonflux/theisle-server-flux:latest'))).toBe('game:The Isle');
+    // Issue #533: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('tmodloader1792200000000', 1))).toBe('game:tModLoader');
+    expect(resolveIntroKey(app('calamity', 1, 'runonflux/tmodloader-server-flux:latest'))).toBe('game:tModLoader');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
