@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.23';
+export const APP_VERSION = 'v1.24';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -292,7 +292,13 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'theisle', name: 'The Isle' },
     // Issue #533. The hub's own match rule (runonflux.com/games): tmodloader<13 digits>,
     // an encrypted spec. Not deployed when added (2026-10-17), so the first one counts.
-    { prefix: 'tmodloader', name: 'tModLoader' }
+    { prefix: 'tmodloader', name: 'tModLoader' },
+    // Issue #538. One hub product, two editions, by the hub's own match rule
+    // (runonflux.com/games): eurotrucksimulator2<13 digits> and americantrucksimulator<13
+    // digits>, an encrypted spec. Owner (2026-10-18): one game, because both editions run
+    // the same image and nothing else could tell them apart. Not deployed when added.
+    { prefix: 'eurotrucksimulator2', name: 'Truck Simulator' },
+    { prefix: 'americantrucksimulator', name: 'Truck Simulator' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -539,6 +545,9 @@ export const TRACKED_GAMES = [
     { name: 'The Isle', dbKey: 'gaming_theisle' },
     // Issue #533. Counted by app name (encrypted spec) and by the hub's image.
     { name: 'tModLoader', dbKey: 'gaming_tmodloader' },
+    // Issue #538. Euro Truck Simulator 2 and American Truck Simulator, counted together by
+    // app name (encrypted spec) and by the hub's one image.
+    { name: 'Truck Simulator', dbKey: 'gaming_trucksim' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -991,6 +1000,11 @@ export const CATEGORY_CONFIG = {
                    // tmodloader-server-flux; community images carry the same word
                    // (jacobsmile/tmodloader1.4). Never a bare 'modloader'.
                    'tmodloader',
+                   // Issue #538: Euro Truck Simulator 2 / American Truck Simulator. The hub's
+                   // image is truckersim-server-flux for both. Never a bare 'ets2', which
+                   // 'assets2' contains, nor a bare 'truck'.
+                   'truckersim', 'trucksim', 'eurotruck', 'euro-truck', 'americantruck',
+                   'american-truck',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1156,6 +1170,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/theisle-server-flux': 'The Isle',
     // Issue #533: the games hub's own image.
     'runonflux/tmodloader-server-flux': 'tModLoader',
+    // Issue #538: the games hub's one image for both truck simulators.
+    'runonflux/truckersim-server-flux': 'Truck Simulator',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1222,6 +1238,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/theisle-server-flux': 'The Isle',
     // Issue #533: the games hub's own image.
     'runonflux/tmodloader-server-flux': 'tModLoader',
+    // Issue #538: the games hub's one image for both truck simulators.
+    'runonflux/truckersim-server-flux': 'Truck Simulator',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-17** (v1.23)
+**Last reviewed: 2026-10-18** (v1.24)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -15,6 +15,11 @@ rule links to an issue.
 
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
+
+**Status at 2026-10-18 (v1.24):** merged.
+- **Games:** Euro Truck Simulator 2 and American Truck Simulator (#538) are tracked as one
+  game, Truck Simulator (owner's call: both editions run the same hub image), with an icon
+  and header art. One ETS2 server was already live when it was added, and it now counts.
 
 **Status at 2026-10-17 (v1.23):** merged.
 - **Games:** tModLoader (#533) is tracked as its own game, apart from Terraria, with an

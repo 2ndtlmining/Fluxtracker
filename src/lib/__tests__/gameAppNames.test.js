@@ -45,6 +45,9 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('theisle1792200000000')).toBe('The Isle');
         // Issue #533: the hub's shape, not live yet (2026-10-17). Not Terraria's prefix.
         expect(resolveGameFromAppName('tmodloader1792200000000')).toBe('tModLoader');
+        // Issue #538: the hub's two editions, not live yet (2026-10-18), are one game.
+        expect(resolveGameFromAppName('eurotrucksimulator21792300000000')).toBe('Truck Simulator');
+        expect(resolveGameFromAppName('americantrucksimulator1792300000000')).toBe('Truck Simulator');
     });
 
     it('totals every plan of one game under the canonical name', () => {
