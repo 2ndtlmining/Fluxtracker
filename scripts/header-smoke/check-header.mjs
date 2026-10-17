@@ -163,6 +163,12 @@ const GAME_ART_BY_NAME = {
   tmodloader: {
     signature: /\.-\(_\)-\./,
     movingRows: rows => rows.filter(r => /\.-\(_\)-\.|'-\( \)-'/.test(r.text))
+  },
+  // Issue #538: the trailer's wheels (no other scene draws them, and the trailer is in every
+  // frame); the cab reversing in to couple is what moves.
+  trucksim: {
+    signature: /'-oo---oo'/,
+    movingRows: rows => rows.filter(r => /'-o-'|\|__\\_/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -187,7 +193,8 @@ const UPDATED_DEPLOYED_NAME = {
   dst: 'dontstarvetogether1789155733041',
   corekeeper: 'corekeeper1789155733041',
   theisle: 'theisle1789155733041',
-  tmodloader: 'tmodloader1789155733041'
+  tmodloader: 'tmodloader1789155733041',
+  trucksim: 'eurotrucksimulator21789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

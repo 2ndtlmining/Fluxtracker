@@ -93,6 +93,14 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/modloader-api:latest')).not.toBe('gaming');
     });
 
+    it('counts the truck simulator hub image as a game, but not a bare "truck" or "ets2" (#538)', () => {
+        expect(categorizeImage('runonflux/truckersim-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('someone/eurotrucksimulator2-dedicated:latest')).toBe('gaming');
+        expect(categorizeImage('someone/american-truck-sim-server:latest')).toBe('gaming');
+        expect(categorizeImage('someone/truck-tracker:latest')).not.toBe('gaming');
+        expect(categorizeImage('someone/static-assets2:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -224,6 +232,10 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's tModLoader image as tModLoader, not 'Tmodloader Server' (#533)", () => {
         expect(getCanonicalName('runonflux/tmodloader-server-flux:latest')).toBe('tModLoader');
+    });
+
+    it("names the games hub's truck simulator image as Truck Simulator (#538)", () => {
+        expect(getCanonicalName('runonflux/truckersim-server-flux:latest')).toBe('Truck Simulator');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

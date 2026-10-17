@@ -116,6 +116,9 @@
     formatTModLoaderFrame, tModLoaderFrameKinds, formatTModLoaderOutro, BATCH14_FRAME_COUNT
   } from '$lib/utils/introArt14.js';
   import {
+    formatTruckSimFrame, truckSimFrameKinds, formatTruckSimOutro, BATCH15_FRAME_COUNT
+  } from '$lib/utils/introArt15.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -249,7 +252,9 @@
     // Issue #535. The 'theisle' prefix and the hub's theisle images resolve here.
     'The Isle': { frameCount: BATCH13_FRAME_COUNT, format: formatTheIsleFrame, kinds: theIsleFrameKinds },
     // Issue #533. The 'tmodloader' prefix and the hub's tmodloader image resolve here.
-    'tModLoader': { frameCount: BATCH14_FRAME_COUNT, format: formatTModLoaderFrame, kinds: tModLoaderFrameKinds }
+    'tModLoader': { frameCount: BATCH14_FRAME_COUNT, format: formatTModLoaderFrame, kinds: tModLoaderFrameKinds },
+    // Issue #538. Both truck simulator prefixes and the hub's truckersim image resolve here.
+    'Truck Simulator': { frameCount: BATCH15_FRAME_COUNT, format: formatTruckSimFrame, kinds: truckSimFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -300,7 +305,8 @@
     "Don't Starve Together": outro(formatDstOutro),          // #526
     'Core Keeper': outro(formatCoreKeeperOutro),             // #530
     'The Isle': outro(formatTheIsleOutro),                   // #535
-    'tModLoader': outro(formatTModLoaderOutro)               // #533
+    'tModLoader': outro(formatTModLoaderOutro),              // #533
+    'Truck Simulator': outro(formatTruckSimOutro)            // #538
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
