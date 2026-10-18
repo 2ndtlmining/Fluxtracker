@@ -48,6 +48,8 @@ describe('resolveGameFromAppName', () => {
         // Issue #538: the hub's two editions, not live yet (2026-10-18), are one game.
         expect(resolveGameFromAppName('eurotrucksimulator21792300000000')).toBe('Truck Simulator');
         expect(resolveGameFromAppName('americantrucksimulator1792300000000')).toBe('Truck Simulator');
+        // Issue #540: the hub's shape, not live yet (2026-10-19).
+        expect(resolveGameFromAppName('teamfortress21792400000000')).toBe('Team Fortress 2');
     });
 
     it('totals every plan of one game under the canonical name', () => {

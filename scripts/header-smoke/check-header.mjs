@@ -169,6 +169,12 @@ const GAME_ART_BY_NAME = {
   trucksim: {
     signature: /'-oo---oo'/,
     movingRows: rows => rows.filter(r => /'-o-'|\|__\\_/.test(r.text))
+  },
+  // Issue #540: the Engineer's boots (no other scene draws them, and he is in every frame);
+  // the sentry going up stage by stage is what moves.
+  tf2: {
+    signature: /_\/ \\_/,
+    movingRows: rows => rows.filter(r => /\[==\]|\/  \\|\[\(o\)\]|\.--\./.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -194,7 +200,8 @@ const UPDATED_DEPLOYED_NAME = {
   corekeeper: 'corekeeper1789155733041',
   theisle: 'theisle1789155733041',
   tmodloader: 'tmodloader1789155733041',
-  trucksim: 'eurotrucksimulator21789155733041'
+  trucksim: 'eurotrucksimulator21789155733041',
+  tf2: 'teamfortress21789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
