@@ -97,6 +97,9 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('eurotrucksimulator21792300000000', 1))).toBe('game:Truck Simulator');
     expect(resolveIntroKey(app('americantrucksimulator1792300000000', 1))).toBe('game:Truck Simulator');
     expect(resolveIntroKey(app('convoy', 1, 'runonflux/truckersim-server-flux:latest'))).toBe('game:Truck Simulator');
+    // Issue #540: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('teamfortress21792400000000', 1))).toBe('game:Team Fortress 2');
+    expect(resolveIntroKey(app('twofort', 1, 'runonflux/tf2-server-flux:latest'))).toBe('game:Team Fortress 2');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

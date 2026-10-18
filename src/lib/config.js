@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.24';
+export const APP_VERSION = 'v1.25';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -298,7 +298,10 @@ export const GAME_APP_PREFIXES = [
     // digits>, an encrypted spec. Owner (2026-10-18): one game, because both editions run
     // the same image and nothing else could tell them apart. Not deployed when added.
     { prefix: 'eurotrucksimulator2', name: 'Truck Simulator' },
-    { prefix: 'americantrucksimulator', name: 'Truck Simulator' }
+    { prefix: 'americantrucksimulator', name: 'Truck Simulator' },
+    // Issue #540. The hub's own match rule (runonflux.com/games): teamfortress2<13 digits>,
+    // an encrypted spec. Not deployed when added (2026-10-19), so the first one counts.
+    { prefix: 'teamfortress2', name: 'Team Fortress 2' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -548,6 +551,8 @@ export const TRACKED_GAMES = [
     // Issue #538. Euro Truck Simulator 2 and American Truck Simulator, counted together by
     // app name (encrypted spec) and by the hub's one image.
     { name: 'Truck Simulator', dbKey: 'gaming_trucksim' },
+    // Issue #540. Counted by app name (encrypted spec) and by the hub's image.
+    { name: 'Team Fortress 2', dbKey: 'gaming_tf2' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1005,6 +1010,9 @@ export const CATEGORY_CONFIG = {
                    // 'assets2' contains, nor a bare 'truck'.
                    'truckersim', 'trucksim', 'eurotruck', 'euro-truck', 'americantruck',
                    'american-truck',
+                   // Issue #540: Team Fortress 2. The hub's image is tf2-server-flux. Never a
+                   // bare 'tf2', which is short enough to turn up inside unrelated names.
+                   'tf2-server', 'tf2server', 'teamfortress', 'team-fortress',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1172,6 +1180,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/tmodloader-server-flux': 'tModLoader',
     // Issue #538: the games hub's one image for both truck simulators.
     'runonflux/truckersim-server-flux': 'Truck Simulator',
+    // Issue #540: the games hub's own image.
+    'runonflux/tf2-server-flux': 'Team Fortress 2',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1240,6 +1250,8 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/tmodloader-server-flux': 'tModLoader',
     // Issue #538: the games hub's one image for both truck simulators.
     'runonflux/truckersim-server-flux': 'Truck Simulator',
+    // Issue #540: the games hub's own image.
+    'runonflux/tf2-server-flux': 'Team Fortress 2',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
