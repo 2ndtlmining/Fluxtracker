@@ -596,6 +596,7 @@
   });
 
   onDestroy(() => {
+    fetchController?.abort();
     if (chartInstance) {
       chartInstance.destroy();
     }
@@ -614,7 +615,16 @@
     return list.find(m => m.id === selectedMetric) ?? list[0];
   }
 
+  // The fetch in flight, so a newer one can cancel it. Without this, a slow response (the
+  // "All" timeframe is several MB) landing after a faster one for the timeframe or category
+  // picked since overwrote allSnapshots, drawing the old selection under the new label.
+  let fetchController = null;
+
   async function fetchAllData() {
+    fetchController?.abort();
+    const controller = new AbortController();
+    fetchController = controller;
+    const { signal } = controller;
     loading = true;
     error = null;
 
@@ -637,7 +647,7 @@
           : `${API_URL}/api/history/revenue/daily?limit=${limitParam}`;
 
         console.log(`💰 Fetching ${isUSD ? 'USD' : 'FLUX'} revenue from transactions (real-time)`);
-        const response = await fetch(endpoint);
+        const response = await fetch(endpoint, { signal });
 
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
@@ -658,7 +668,7 @@
         // whole timeframe, so switching the selected entity never needs a re-fetch --
         // only a timeframe change lands back here.
         console.log(`🌍 Fetching decentralization ${decentralizationView} history`);
-        const response = await fetch(`${API_URL}/api/decentralization/history?days=${limitParam}`);
+        const response = await fetch(`${API_URL}/api/decentralization/history?days=${limitParam}`, { signal });
 
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
@@ -683,7 +693,7 @@
         const start = new Date();
         start.setDate(start.getDate() - (limitParam - 1));
         const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
-        const response = await fetch(`${API_URL}/api/history/revenue/games/daily?start_date=${startDateStr}&end_date=${endDateStr}`);
+        const response = await fetch(`${API_URL}/api/history/revenue/games/daily?start_date=${startDateStr}&end_date=${endDateStr}`, { signal });
         if (!response.ok) throw new Error(`API error: ${response.status}`);
         const result = await response.json();
         gameRevenueAvailable = result.available !== false;
@@ -703,7 +713,7 @@
         // timeframe change lands back here.
         if (!gameHistory) {
           console.log('🎮 Fetching per-game history');
-          const response = await fetch(`${API_URL}/api/history/games?days=${limitParam}`);
+          const response = await fetch(`${API_URL}/api/history/games?days=${limitParam}`, { signal });
 
           if (!response.ok) {
             throw new Error(`API error: ${response.status}`);
@@ -752,9 +762,9 @@
         // team or fiat payment -- so each day's total_flux is always present for the
         // weekly/monthly ratioFields sums below, and no period share is overstated.
         const [sourcesRes, payersRes, mixRes] = await Promise.all([
-          fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`),
-          fetch(`${API_URL}/api/history/revenue/payers/monthly?start_date=${startDateStr}&end_date=${endDateStr}`),
-          fetch(`${API_URL}/api/history/revenue/mix/daily?start_date=${startDateStr}&end_date=${endDateStr}`)
+          fetch(`${API_URL}/api/history/revenue/sources/daily?start_date=${startDateStr}&end_date=${endDateStr}`, { signal }),
+          fetch(`${API_URL}/api/history/revenue/payers/monthly?start_date=${startDateStr}&end_date=${endDateStr}`, { signal }),
+          fetch(`${API_URL}/api/history/revenue/mix/daily?start_date=${startDateStr}&end_date=${endDateStr}`, { signal })
         ]);
         if (!sourcesRes.ok) {
           throw new Error('API error fetching Revenue Sources data');
@@ -812,7 +822,7 @@
         const start = new Date();
         start.setDate(start.getDate() - (limitParam - 1));
         const startDateStr = timeframe?.days ? start.toISOString().split('T')[0] : '2018-01-01';
-        const response = await fetch(`${API_URL}/api/history/apps/cohorts?start_date=${startDateStr}&end_date=${endDateStr}`);
+        const response = await fetch(`${API_URL}/api/history/apps/cohorts?start_date=${startDateStr}&end_date=${endDateStr}`, { signal });
         if (!response.ok) throw new Error(`API error: ${response.status}`);
         const result = await response.json();
         cohortsAvailable = result.available !== false;
@@ -831,7 +841,7 @@
         if (cached) {
           allSnapshots = snapshotCache.rows;
         } else {
-          const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}&format=columns`);
+          const response = await fetch(`${API_URL}/api/history/snapshots/full?limit=${limitParam}&format=columns`, { signal });
 
           if (!response.ok) {
             throw new Error(`API error: ${response.status}`);
@@ -864,6 +874,8 @@
       loading = false;
 
     } catch (err) {
+      // Superseded by a newer fetchAllData(), which owns loading/error from here on.
+      if (signal.aborted) return;
       console.error('❌ Error fetching data:', err);
       error = err.message;
       loading = false;

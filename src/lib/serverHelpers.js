@@ -1,6 +1,7 @@
 // Shared helpers used across the src/routes/api/* router modules. Extracted from server.js
 // (issue #123) so routers don't depend on server.js itself, and so nothing gets duplicated
 // across modules.
+import { createHash } from 'node:crypto';
 import { shouldAllowRequest, recordSuccess, recordFailure } from './db/circuitBreaker.js';
 import { dbSuccessCount, isDatabaseError } from './db/dbCallTracker.js';
 
@@ -16,8 +17,9 @@ import { dbSuccessCount, isDatabaseError } from './db/dbCallTracker.js';
  *
  * The byte budget matters as much as the count: one /snapshots/full "All" answer is ~3 MB,
  * so 100 of them would still be ~300 MB (measured on a real server before this budget).
- * Size is estimated from the JSON the route is about to send anyway; an entry larger than
- * the whole budget is simply not cached.
+ * Size is the length of the entry's JSON, which is kept: withDbFallback sends that text
+ * as-is instead of serializing the same data again on every hit. An entry larger than the
+ * whole budget is simply not cached.
  */
 export function createCache(ttlMs, { maxEntries = 100, maxBytes = 32 * 1024 * 1024 } = {}) {
     const store = new Map(); // insertion order doubles as recency order
@@ -32,31 +34,40 @@ export function createCache(ttlMs, { maxEntries = 100, maxBytes = 32 * 1024 * 10
         bytes -= entry.bytes;
         store.delete(key);
     };
+    const fresh = (key) => {
+        const entry = store.get(key);
+        if (entry && Date.now() - entry.time < ttlMs) {
+            touch(key, entry);
+            return entry;
+        }
+        return null;
+    };
     return {
         get(key) {
-            const entry = store.get(key);
-            if (entry && Date.now() - entry.time < ttlMs) {
-                touch(key, entry);
-                return entry.data;
-            }
-            return null;
+            return fresh(key)?.data ?? null;
         },
+        /** The fresh entry -- `{data, body}`, body being its JSON -- or null. */
+        entry: fresh,
         getStale(key) {
             const entry = store.get(key);
             return entry ? entry.data : null;
         },
+        /** Stores `data` and returns its entry -- also when it was too big to keep. */
         set(key, data) {
-            let size;
+            let body;
             try {
-                size = JSON.stringify(data)?.length ?? 0;
+                body = JSON.stringify(data);
             } catch {
-                size = 0;
+                body = undefined;
             }
+            const size = body?.length ?? 0;
+            const entry = { data, body, time: Date.now(), bytes: size };
             remove(key);
-            if (size > maxBytes) return; // bigger than the whole budget: don't cache it
-            store.set(key, { data, time: Date.now(), bytes: size });
+            if (size > maxBytes) return entry; // bigger than the whole budget: don't cache it
+            store.set(key, entry);
             bytes += size;
             while (store.size > maxEntries || bytes > maxBytes) remove(store.keys().next().value);
+            return entry;
         },
         get size() {
             return store.size;
@@ -98,10 +109,24 @@ export function parseRangeQuery(query, { defaultLimit = 30, maxLimit = 10000 } =
  */
 const inFlight = new Map();
 
+/**
+ * Send a cache entry's stored JSON. res.json() would serialize the data again and Express
+ * would hash the result for its ETag -- ~35 ms of blocked event loop per hit on a 4 MB
+ * /snapshots/full answer. Both are done once per entry instead. The ETag is the one Express
+ * itself would compute, so revalidation (304) works as before.
+ */
+export function sendCachedJson(res, entry) {
+    if (typeof entry.body !== 'string') return res.json(entry.data);
+    entry.etag ??= `W/"${Buffer.byteLength(entry.body, 'utf8').toString(16)}-${createHash('sha1').update(entry.body, 'utf8').digest('base64').substring(0, 27)}"`;
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    res.set('ETag', entry.etag);
+    return res.send(entry.body);
+}
+
 export async function withDbFallback(cache, cacheKey, res, fetchFn) {
     // 1. Return fresh cache if available
-    const cached = cache.get(cacheKey);
-    if (cached) return res.json(cached);
+    const cached = cache.entry(cacheKey);
+    if (cached) return sendCachedJson(res, cached);
 
     // 2. If circuit is open, return stale cache or 503
     if (!shouldAllowRequest()) {
@@ -125,8 +150,13 @@ export async function withDbFallback(cache, cacheKey, res, fetchFn) {
     if (existing) {
         try {
             const data = await existing;
-            return res.json(data);
+            // The leader has cached it by now; reuse its JSON rather than serializing again.
+            const entry = cache.entry(cacheKey);
+            return entry?.data === data ? sendCachedJson(res, entry) : res.json(data);
         } catch (error) {
+            // Same as the leader below: a deliberate client-facing status (e.g. 404) is
+            // passed through, not turned into a 503.
+            if (error.httpStatus) return res.status(error.httpStatus).json({ error: error.message });
             const stale = cache.getStale(cacheKey);
             if (stale) return res.status(503).json({ ...stale, _stale: true });
             return res.status(503).json({ error: error.message });
@@ -153,8 +183,7 @@ export async function withDbFallback(cache, cacheKey, res, fetchFn) {
     try {
         const data = await run;
         if (dbSuccessCount() > dbCallsBefore) recordSuccess();
-        cache.set(cacheKey, data);
-        return res.json(data);
+        return sendCachedJson(res, cache.set(cacheKey, data));
     } catch (error) {
         // A deliberate client-facing answer (e.g. 404 "nothing to compare yet") is not an
         // outage: pass its status through, and neither trip the breaker nor serve stale data.

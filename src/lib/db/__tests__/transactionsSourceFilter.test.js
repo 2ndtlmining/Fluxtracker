@@ -83,3 +83,15 @@ describe('getTransactionsPaginated address-set filter (issue #159)', () => {
         expect(r.total).toBe(5);
     });
 });
+
+describe('getTransactionsPaginated failure', () => {
+    it('throws on a failed read instead of answering an empty page', async () => {
+        const db = adapter.getDb();
+        db.exec('ALTER TABLE revenue_transactions RENAME TO revenue_transactions_hidden');
+        try {
+            await expect(adapter.getTransactionsPaginated(1, 50, '', null)).rejects.toThrow(/getTransactionsPaginated failed/);
+        } finally {
+            db.exec('ALTER TABLE revenue_transactions_hidden RENAME TO revenue_transactions');
+        }
+    });
+});
