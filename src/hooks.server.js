@@ -106,14 +106,19 @@ export async function handle({ event, resolve }) {
                 return new Response(null, { status: response.status, headers: responseHeaders });
             }
 
-            const body = await response.text();
+            // Bytes, not text: decoding to a string only for compressResponse to encode it
+            // straight back was a wasted pass over every body.
+            const body = await response.arrayBuffer();
             return await compressResponse(
                 new Response(body, {
                     status: response.status,
                     statusText: response.statusText,
                     headers: responseHeaders
                 }),
-                event.request.headers.get('accept-encoding')
+                event.request.headers.get('accept-encoding'),
+                // Express's ETag is a hash of the body, so it names these exact bytes: an
+                // unchanged answer is compressed once, not once per viewer per poll.
+                { cacheKey: response.status === 200 ? response.headers.get('etag') : null }
             );
 
         } catch (error) {
