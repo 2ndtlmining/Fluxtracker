@@ -23,7 +23,11 @@ function fakeRes() {
         statusCode: 200,
         body: null,
         status(code) { this.statusCode = code; return this; },
-        json(payload) { this.body = payload; return this; }
+        json(payload) { this.body = payload; return this; },
+        // withDbFallback sends cached JSON text as-is (sendCachedJson)
+        headers: {},
+        set(name, value) { this.headers[name.toLowerCase()] = value; return this; },
+        send(text) { this.body = JSON.parse(text); return this; }
     };
 }
 
