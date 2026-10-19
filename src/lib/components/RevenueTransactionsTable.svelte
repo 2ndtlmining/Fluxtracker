@@ -90,13 +90,23 @@
     });
   });
 
-  onDestroy(() => unsubscribeFocus?.());
+  onDestroy(() => {
+    unsubscribeFocus?.();
+    fetchController?.abort();
+  });
 
   // A header click-through asks for that exact app (issue #382): `search` is a substring match,
   // so "kagura" would also list "kagura2". Typing in the box switches back to a normal search.
   const exactAppFilter = () => (focusedApp && searchQuery === focusedApp ? { appName: focusedApp } : { search: searchQuery });
 
+  // The page request in flight. Fast paging or a slow search could otherwise land an older
+  // answer after the newer one and leave the table showing a page nobody asked for.
+  let fetchController = null;
+
   async function fetchTransactions(sources = activeSources) {
+    fetchController?.abort();
+    const controller = new AbortController();
+    fetchController = controller;
     loading = true;
     error = null;
 
@@ -111,7 +121,7 @@
       const source = sourceParam(sources);
       if (source) params.set('source', source);
 
-      const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`);
+      const response = await fetch(`${API_URL}/api/transactions/paginated?${params}`, { signal: controller.signal });
 
       if (!response.ok) {
         // Surface the server's own message. The endpoint returns actionable text for the
@@ -135,6 +145,7 @@
 
       loading = false;
     } catch (err) {
+      if (controller.signal.aborted) return; // superseded by a newer request
       console.error('Error fetching transactions:', err);
       error = err.message;
       loading = false;
