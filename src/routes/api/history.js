@@ -387,6 +387,11 @@ export function shapeGameHistory(rows, snapshots) {
     };
 }
 
+/** A `limit` in days: 90 by default, never past the retention window (#295). */
+export function clampDays(raw) {
+    return Math.min(Math.max(parseInt(raw, 10) || 90, 1), DATA_RETENTION_DAYS);
+}
+
 // Docker repo history endpoints
 router.get('/repos/list', async (req, res) => {
     try {
@@ -403,7 +408,7 @@ router.get('/repos/history', async (req, res) => {
         if (!image) {
             return res.status(400).json({ error: 'image query parameter is required' });
         }
-        const history = await getRepoHistory(image, parseInt(limit) || 90);
+        const history = await getRepoHistory(image, clampDays(limit));
         res.json({ count: history.length, data: history });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -423,7 +428,7 @@ router.get('/repos/latest', async (req, res) => {
 router.get('/category/:category', async (req, res) => {
     try {
         const { category } = req.params;
-        const limit = parseInt(req.query.limit) || 90;
+        const limit = clampDays(req.query.limit);
 
         if (!CATEGORY_CONFIG[category]) {
             return res.status(400).json({ error: `Unknown category: ${category}` });

@@ -188,13 +188,17 @@ router.get('/transactions/summary', async (req, res) => {
         const sevenDays = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
         const thirtyDays = new Date(Date.now() - 30*24*60*60*1000).toISOString().split('T')[0];
 
+        // Independent reads, together -- they were four sequential round trips.
+        const [totalTransactions, todayRevenue, last7Days, last30Days] = await Promise.all([
+            getTxidCount(),
+            getRevenueForDateRange(today, today),
+            getRevenueForDateRange(sevenDays, today),
+            getRevenueForDateRange(thirtyDays, today)
+        ]);
+
         res.json({
-            totalTransactions: await getTxidCount(),
-            revenue: {
-                today: await getRevenueForDateRange(today, today),
-                last7Days: await getRevenueForDateRange(sevenDays, today),
-                last30Days: await getRevenueForDateRange(thirtyDays, today)
-            }
+            totalTransactions,
+            revenue: { today: todayRevenue, last7Days, last30Days }
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -230,6 +234,11 @@ router.get('/transactions/paginated', async (req, res) => {
 
 // Transactions by date - MUST come AFTER specific routes
 router.get('/transactions/:date', async (req, res) => {
+    // Rejected before the database sees it: a malformed date is the caller's mistake, not a
+    // failed read, and should not cost a query.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(req.params.date)) {
+        return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
     try {
         log.info('fetching transactions by date');
         const transactions = await getTransactionsByDate(req.params.date);
