@@ -1110,8 +1110,9 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
             offset
         };
     } catch (error) {
-        log.error(`getTransactionsPaginated error: ${error.message}`);
-        return { transactions: [], total: 0, page, limit, offset };
+        // Thrown, as the Supabase adapter does: a failed read returned as an empty page
+        // rendered as "0 transactions" and never reached the route's 500.
+        throw readFailed('getTransactionsPaginated', error);
     }
 }
 
