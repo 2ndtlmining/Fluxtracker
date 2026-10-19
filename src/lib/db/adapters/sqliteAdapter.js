@@ -40,10 +40,39 @@ export function getDb() {
     if (!db) {
         db = new Database(DB_PATH);
         db.pragma('journal_mode = WAL');
+        // Safe with WAL: a crash cannot corrupt the database, and only a power loss can drop
+        // the last commits -- which the next revenue sync re-fetches. Commits no longer wait
+        // on an fsync each, which is most of the cost of the sync's batch writes.
+        db.pragma('synchronous = NORMAL');
         db.pragma('foreign_keys = ON');
         db.pragma('busy_timeout = 5000');
+        reusePreparedStatements(db);
     }
     return db;
+}
+
+/** Most distinct SQL texts kept compiled -- IN (...) lists vary with their length. */
+const STATEMENT_CACHE_SIZE = 256;
+
+/**
+ * Every read here is `getDb().prepare(sql)` at the call site, which compiled the SQL again on
+ * each call (~25 us, as much as a small lookup itself). Statements are reusable, so the same
+ * text now gets the same one back. Safe because nothing here changes a statement's mode
+ * (pluck/raw/expand) or holds one open with iterate(). Lives on the connection, so
+ * closeDatabase() drops it.
+ */
+function reusePreparedStatements(connection) {
+    const compile = connection.prepare.bind(connection);
+    const statements = new Map();
+    connection.prepare = (sql) => {
+        let statement = statements.get(sql);
+        if (!statement) {
+            statement = compile(sql);
+            if (statements.size >= STATEMENT_CACHE_SIZE) statements.delete(statements.keys().next().value);
+            statements.set(sql, statement);
+        }
+        return statement;
+    };
 }
 
 // ============================================
