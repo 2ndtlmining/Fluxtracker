@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { gunzipSync, brotliDecompressSync } from 'node:zlib';
-import { negotiateEncoding, shouldCompress, compressResponse } from './httpCompression.js';
+import { negotiateEncoding, shouldCompress, compressResponse, clearCompressedCache } from './httpCompression.js';
 
 const json = (bytes) => JSON.stringify({ pad: 'x'.repeat(bytes) });
 
@@ -146,5 +146,29 @@ describe('compressResponse', () => {
         const out = await compressResponse(input, 'gzip, br');
 
         expect(out).toBe(input);
+    });
+});
+
+describe('compressResponse cacheKey', () => {
+    const json = (text) => new Response(text, { headers: { 'content-type': 'application/json' } });
+    const bodyA = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i, a: 'alpha' })) });
+    const bodyB = JSON.stringify({ rows: Array.from({ length: 500 }, (_, i) => ({ i, b: 'beta' })) });
+    const unzip = async (res) => gunzipSync(Buffer.from(await res.arrayBuffer())).toString();
+
+    beforeEach(() => clearCompressedCache());
+
+    it('reuses the compressed bytes for the same key', async () => {
+        await compressResponse(json(bodyA), 'gzip', { cacheKey: 'W/"a"' });
+        // Same key, different bytes: only a cache hit can answer bodyA here.
+        const second = await compressResponse(json(bodyB), 'gzip', { cacheKey: 'W/"a"' });
+        expect(await unzip(second)).toBe(bodyA);
+    });
+
+    it('compresses afresh for a different key, a different encoding, or no key', async () => {
+        await compressResponse(json(bodyA), 'gzip', { cacheKey: 'W/"a"' });
+        expect(await unzip(await compressResponse(json(bodyB), 'gzip', { cacheKey: 'W/"b"' }))).toBe(bodyB);
+        expect(await unzip(await compressResponse(json(bodyB), 'gzip'))).toBe(bodyB);
+        const br = await compressResponse(json(bodyB), 'br', { cacheKey: 'W/"a"' });
+        expect(brotliDecompressSync(Buffer.from(await br.arrayBuffer())).toString()).toBe(bodyB);
     });
 });

@@ -98,6 +98,44 @@ export function shouldCompress(contentType, byteLength) {
 }
 
 /**
+ * Compressed bodies already produced, by encoding + caller-supplied content key. The proxy
+ * passes the API's ETag, which Express derives from a hash of the body -- so the key names
+ * the bytes themselves, and every viewer polling the same unchanged answer reuses one
+ * compression instead of paying brotli on a multi-MB body each time. LRU, bounded by count
+ * and by bytes.
+ */
+const COMPRESSED_CACHE_MAX_ENTRIES = 64;
+const COMPRESSED_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const compressedCache = new Map(); // insertion order doubles as recency order
+let compressedCacheBytes = 0;
+
+function cachedCompressed(key) {
+    const hit = compressedCache.get(key);
+    if (hit) {
+        compressedCache.delete(key);
+        compressedCache.set(key, hit);
+    }
+    return hit;
+}
+
+function rememberCompressed(key, buffer) {
+    if (buffer.byteLength > COMPRESSED_CACHE_MAX_BYTES) return;
+    compressedCache.set(key, buffer);
+    compressedCacheBytes += buffer.byteLength;
+    while (compressedCache.size > COMPRESSED_CACHE_MAX_ENTRIES || compressedCacheBytes > COMPRESSED_CACHE_MAX_BYTES) {
+        const [oldest, evicted] = compressedCache.entries().next().value;
+        compressedCache.delete(oldest);
+        compressedCacheBytes -= evicted.byteLength;
+    }
+}
+
+/** For tests. */
+export function clearCompressedCache() {
+    compressedCache.clear();
+    compressedCacheBytes = 0;
+}
+
+/**
  * Compress a Response if it is worth it and the client accepts an encoding we speak.
  *
  * Returns the *same* Response object untouched when it declines, so callers can hand it
@@ -105,9 +143,11 @@ export function shouldCompress(contentType, byteLength) {
  *
  * @param {Response} response
  * @param {string|null|undefined} acceptEncoding raw Accept-Encoding request header
+ * @param {{cacheKey?: string|null}} [opts] a key that identifies the body's exact bytes (a
+ *   content-hash ETag); when given, the compressed result is reused for the same key
  * @returns {Promise<Response>}
  */
-export async function compressResponse(response, acceptEncoding) {
+export async function compressResponse(response, acceptEncoding, { cacheKey = null } = {}) {
     if (!response.body) return response;
     if (response.status === 204 || response.status === 304) return response;
     if (response.headers.get('content-encoding')) return response;
@@ -124,15 +164,20 @@ export async function compressResponse(response, acceptEncoding) {
     const raw = Buffer.from(await response.clone().arrayBuffer());
     if (!shouldCompress(contentType, raw.byteLength)) return response;
 
-    const compressed =
-        encoding === 'br'
-            ? await brotliCompress(raw, {
-                  params: {
-                      [zlibConstants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
-                      [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength
-                  }
-              })
-            : await gzip(raw);
+    const key = cacheKey ? `${encoding}:${cacheKey}` : null;
+    let compressed = key ? cachedCompressed(key) : undefined;
+    if (!compressed) {
+        compressed =
+            encoding === 'br'
+                ? await brotliCompress(raw, {
+                      params: {
+                          [zlibConstants.BROTLI_PARAM_QUALITY]: BROTLI_QUALITY,
+                          [zlibConstants.BROTLI_PARAM_SIZE_HINT]: raw.byteLength
+                      }
+                  })
+                : await gzip(raw);
+        if (key) rememberCompressed(key, compressed);
+    }
 
     const headers = new Headers(response.headers);
     headers.set('content-encoding', encoding);

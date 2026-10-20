@@ -136,3 +136,28 @@ describe('page response compression', () => {
         expect(response.headers.get('content-encoding')).toBeNull();
     });
 });
+
+describe('API proxy compression reuse', () => {
+    const other = JSON.stringify({ rows: Array.from({ length: 2000 }, (_, i) => ({ i, name: 'other-body' })) });
+    const proxied = async () => {
+        const res = await handle({ event: eventFor('/api/history/snapshots/full'), resolve: neverResolves });
+        return brotliDecompressSync(Buffer.from(await res.arrayBuffer())).toString();
+    };
+
+    it('compresses an answer once per ETag', async () => {
+        const etag = `W/"reuse-${Date.now()}"`;
+        stubApi(bigJson, { headers: { 'content-type': 'application/json', etag } });
+        expect(await proxied()).toBe(bigJson);
+        // Same ETag, different bytes: only the stored compression can answer bigJson.
+        stubApi(other, { headers: { 'content-type': 'application/json', etag } });
+        expect(await proxied()).toBe(bigJson);
+    });
+
+    it('does not reuse for a non-200 answer', async () => {
+        const etag = `W/"error-${Date.now()}"`;
+        stubApi(bigJson, { status: 503, headers: { 'content-type': 'application/json', etag } });
+        expect(await proxied()).toBe(bigJson);
+        stubApi(other, { status: 503, headers: { 'content-type': 'application/json', etag } });
+        expect(await proxied()).toBe(other);
+    });
+});

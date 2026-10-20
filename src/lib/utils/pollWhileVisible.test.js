@@ -67,4 +67,29 @@ describe('pollWhileVisible (issue #298)', () => {
     expect(fn).not.toHaveBeenCalled();
     expect(doc.listenerCount).toBe(0);
   });
+
+  it('skips ticks while the previous call is still running, then resumes', async () => {
+    const doc = fakeDoc();
+    let release;
+    const fn = vi.fn(() => new Promise(r => { release = r; }));
+    pollWhileVisible(fn, 1000, { doc });
+
+    vi.advanceTimersByTime(5000); // one call, still pending: four ticks skipped
+    expect(fn).toHaveBeenCalledTimes(1);
+
+    release();
+    await Promise.resolve(); await Promise.resolve();
+    vi.advanceTimersByTime(1000);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('still frees the slot when a call rejects', async () => {
+    const doc = fakeDoc();
+    const fn = vi.fn(() => Promise.reject(new Error('down')));
+    pollWhileVisible(fn, 1000, { doc });
+    vi.advanceTimersByTime(1000);
+    await Promise.resolve(); await Promise.resolve();
+    vi.advanceTimersByTime(1000);
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
 });
