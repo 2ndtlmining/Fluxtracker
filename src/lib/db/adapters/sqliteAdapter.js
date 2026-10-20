@@ -185,7 +185,13 @@ function createSchema() {
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_address ON revenue_transactions(address)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_from_address ON revenue_transactions(from_address)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_block_height ON revenue_transactions(block_height)`);
-    d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_date ON revenue_transactions(date)`);
+    // Covering index for the per-day revenue sums (daily FLUX/USD, sources): they read only
+    // these columns, so SQLite answers from the index without visiting each row -- ~4x faster
+    // at 200k rows. Its leading column is date, so it serves every date lookup the plain
+    // idx_rt_date did; that one is dropped rather than kept as a second copy to write.
+    // Same index as supabase/migrations/032_revenue_date_covering_index.sql.
+    d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_date_amounts ON revenue_transactions(date, amount, amount_usd, from_address)`);
+    d.exec(`DROP INDEX IF EXISTS idx_rt_date`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_timestamp ON revenue_transactions(timestamp)`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_usd_null ON revenue_transactions(txid) WHERE amount_usd IS NULL`);
     d.exec(`CREATE INDEX IF NOT EXISTS idx_rt_app_name ON revenue_transactions(app_name)`);
