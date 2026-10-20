@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-20** (v1.26)
+**Last reviewed: 2026-10-20** (v1.27)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,13 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-20 (v1.26):** open.
+**Status at 2026-10-20 (v1.27):** open.
+- **Header:** the deployed list and the "NEW APP DEPLOYED" spotlight count only paid
+  deployments (#534): an app appears at the height of its latest payment in the last day.
+  0.02 FLUX spec-only updates, which the transaction grid never stores, no longer show as
+  new deployments, so the header cannot list an app the grid lacks (owner's pick, option 1).
+
+**Status at 2026-10-20 (v1.26):** merged.
 - **Node Distribution:** tunnelled nodes (#532), from FluxOS 8.21's `flux.uplink.tunnel`
   verdict, recorded daily as a count and a share of the nodes reporting it. Read from the
   same fluxinfo download as the header's codename, so it adds no fetch.
