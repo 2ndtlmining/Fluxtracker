@@ -1,5 +1,4 @@
-import { resilientFetch } from './resilientFetch.js';
-import { API_ENDPOINTS } from '../config.js';
+import { getFluxInfoSummary, clearFluxInfoCache } from './fluxInfoFeed.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('arcaneCodenameService');
@@ -22,21 +21,18 @@ const log = createLogger('arcaneCodenameService');
  * rejected one — held each /api/header request for minutes, and the old `.catch(() => null)`
  * could do nothing about it. Header.svelte already documents net::ERR_NO_BUFFER_SPACE from
  * stalled /api/header fetches stacking up.
+ *
+ * The download itself now lives in fluxInfoFeed.js, shared with the tunnel count (#532).
  */
 export const ARCANE_CODENAME_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const TIMEOUT_MS = 20_000; // the payload is megabytes; 15s was tight even when healthy
-
 let cache = null;   // { codename: string|null, fetchedAt: number }
 let inFlight = null;
 
 async function lookup() {
-    const data = await resilientFetch(API_ENDPOINTS.FLUXINFO, {
-        timeout: TIMEOUT_MS,
-        breakerKey: 'fluxinfo-codename'
-    });
-
-    const node = data?.data?.find(n => n?.flux?.arcaneHumanVersion);
-    return node?.flux?.arcaneHumanVersion || null;
+    // Taking the feed's summary at this TTL lets an hourly tunnel fetch serve the codename
+    // too, instead of a second download.
+    const summary = await getFluxInfoSummary(ARCANE_CODENAME_TTL_MS);
+    return summary.codename;
 }
 
 /**
@@ -67,4 +63,5 @@ export async function getArcaneCodename() {
 export function clearArcaneCodenameCache() {
     cache = null;
     inFlight = null;
+    clearFluxInfoCache();
 }

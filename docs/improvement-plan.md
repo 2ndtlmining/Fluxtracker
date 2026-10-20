@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-19** (v1.25)
+**Last reviewed: 2026-10-20** (v1.26)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -15,6 +15,11 @@ rule links to an issue.
 
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
+
+**Status at 2026-10-20 (v1.26):** open.
+- **Node Distribution:** tunnelled nodes (#532), from FluxOS 8.21's `flux.uplink.tunnel`
+  verdict, recorded daily as a count and a share of the nodes reporting it. Read from the
+  same fluxinfo download as the header's codename, so it adds no fetch.
 
 **Status at 2026-10-19 (v1.25):** merged.
 - **Games:** Team Fortress 2 (#540) is tracked as its own game, with an icon and header

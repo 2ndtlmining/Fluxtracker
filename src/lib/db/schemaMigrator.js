@@ -64,6 +64,12 @@ const FIXED_COLUMNS = [
     // for days that predate the feature.
     { name: 'expired_running_apps', type: 'INTEGER' },
     { name: 'expired_running_instances', type: 'INTEGER' },
+    // Tunnelled nodes (issue #532, migration 033). No DEFAULT: a 0 would read as "no node
+    // was tunnelled" for days that predate the feature.
+    { name: 'node_tunnel_likely', type: 'INTEGER' },
+    { name: 'node_tunnel_none', type: 'INTEGER' },
+    { name: 'node_tunnel_unknown', type: 'INTEGER' },
+    { name: 'node_tunnel_percent', type: 'DOUBLE PRECISION' },
 ];
 
 // ============================================
