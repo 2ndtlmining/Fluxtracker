@@ -194,6 +194,14 @@
         { id: 'locked_collateral_cumulus', label: 'Cumulus Locked (FLUX)', field: 'locked_collateral_cumulus', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_nimbus', label: 'Nimbus Locked (FLUX)', field: 'locked_collateral_nimbus', format: 'flux', dropNulls: true },
         { id: 'locked_collateral_stratus', label: 'Stratus Locked (FLUX)', field: 'locked_collateral_stratus', format: 'flux', dropNulls: true },
+        // Issue #532: FluxOS 8.21's tunnel verdict. Levels, so weekly/monthly average them
+        // (no aggregateAsSum); dropNulls -- days before it was recorded are a gap, never 0.
+        { id: 'node_tunnel_percent', label: 'Tunnelled Nodes (%)', field: 'node_tunnel_percent', format: 'percent', dropNulls: true,
+          description: "Of the nodes on FluxOS 8.21 or later, the share whose traffic likely leaves through a tunnel to a rented server, as each node reports it. A tunnelled node shows the rented server's location, not its own. Recorded daily since October 2026.",
+          emptyMessage: 'Recorded daily since October 2026 -- no readings in this period yet.' },
+        { id: 'node_tunnel_likely', label: 'Tunnelled Nodes', field: 'node_tunnel_likely', format: 'number', dropNulls: true,
+          description: 'Nodes whose traffic likely leaves through a tunnel to a rented server, as each node reports it (FluxOS 8.21 or later). Recorded daily since October 2026.',
+          emptyMessage: 'Recorded daily since October 2026 -- no readings in this period yet.' },
         ...NODE_REWARD_METRICS
       ]
     },

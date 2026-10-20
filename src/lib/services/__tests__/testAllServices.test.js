@@ -12,6 +12,7 @@ vi.mock('../nodeService.js', () => ({ fetchNodeStats: vi.fn() }));
 vi.mock('../cloudService.js', () => ({ fetchCloudStats: vi.fn() }));
 vi.mock('../busiestNodeService.js', () => ({ recordContinentCpu: vi.fn() }));
 vi.mock('../walletService.js', () => ({ refreshUniqueWalletsIfStale: vi.fn() }));
+vi.mock('../tunnelService.js', () => ({ refreshTunnelStatsIfStale: vi.fn() }));
 vi.mock('../appOwnerService.js', () => ({ refreshUniqueAppOwnersIfStale: vi.fn() }));
 vi.mock('../gamingService.js', () => ({ fetchGamingStats: vi.fn() }));
 vi.mock('../cryptoService.js', () => ({ fetchCryptoStats: vi.fn() }));
@@ -29,6 +30,7 @@ vi.mock('../../db/database.js', () => ({
 import { fetchNodeStats } from '../nodeService.js';
 import { fetchCloudStats } from '../cloudService.js';
 import { refreshUniqueWalletsIfStale } from '../walletService.js';
+import { refreshTunnelStatsIfStale } from '../tunnelService.js';
 import { refreshUniqueAppOwnersIfStale } from '../appOwnerService.js';
 import { fetchGamingStats } from '../gamingService.js';
 import { fetchCryptoStats } from '../cryptoService.js';
@@ -49,6 +51,7 @@ beforeEach(() => {
     fetchNodeStats.mockResolvedValue({});
     fetchCloudStats.mockResolvedValue({});
     refreshUniqueWalletsIfStale.mockResolvedValue({});
+    refreshTunnelStatsIfStale.mockResolvedValue({});
     refreshUniqueAppOwnersIfStale.mockResolvedValue({});
     fetchGamingStats.mockResolvedValue({});
     fetchCryptoStats.mockResolvedValue({});
@@ -76,7 +79,7 @@ describe('testAllServices', () => {
         expect(result.allSucceeded).toBe(true);
         expect(result.failed).toEqual([]);
         expect(result.succeeded).toEqual([
-            'nodes', 'wallets', 'appOwners', 'cloud', 'continentCpu', 'gaming', 'crypto', 'wordpress', 'repoSnapshot'
+            'nodes', 'wallets', 'tunnels', 'appOwners', 'cloud', 'continentCpu', 'gaming', 'crypto', 'wordpress', 'repoSnapshot'
         ]);
     });
 

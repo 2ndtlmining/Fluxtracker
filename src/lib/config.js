@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.25';
+export const APP_VERSION = 'v1.26';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -633,7 +633,9 @@ export const METRIC_COLUMNS = [
     ...CONTINENT_CPU_COLUMNS,
     // Private (enterprise) apps among unexpired specs, and their share (issue #424)
     'enterprise_apps', 'enterprise_apps_percent',
-    'expired_running_apps', 'expired_running_instances'
+    'expired_running_apps', 'expired_running_instances',
+    // Nodes behind a tunnel, from FluxOS 8.21's flux.uplink (issue #532)
+    'node_tunnel_likely', 'node_tunnel_none', 'node_tunnel_unknown', 'node_tunnel_percent'
 ];
 
 // ============================================
@@ -670,6 +672,12 @@ export const GAMING_CONFIG = {
 export const WALLET_CONFIG = {
     updateInterval: 60 * 60 * 1000,      // 1 hour
     freshnessThreshold: 2 * 60 * 60 * 1000,
+};
+
+// Issue #532. Hourly, like the wallet count: the fluxinfo payload is ~3.7 MB and the
+// tunnel verdicts barely move within an hour.
+export const TUNNEL_CONFIG = {
+    updateInterval: 60 * 60 * 1000,      // 1 hour
 };
 
 // ============================================

@@ -608,6 +608,10 @@ export async function createDailySnapshot(snapshot) {
         enterprise_apps_percent: snapshot.enterprise_apps_percent ?? null,
         expired_running_apps: snapshot.expired_running_apps ?? null,               // migration 031
         expired_running_instances: snapshot.expired_running_instances ?? null,
+        node_tunnel_likely: snapshot.node_tunnel_likely ?? null,                   // issue #532
+        node_tunnel_none: snapshot.node_tunnel_none ?? null,
+        node_tunnel_unknown: snapshot.node_tunnel_unknown ?? null,
+        node_tunnel_percent: snapshot.node_tunnel_percent ?? null,
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

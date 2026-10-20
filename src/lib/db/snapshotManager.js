@@ -298,6 +298,10 @@ export function buildSnapshotData({
         enterprise_apps_percent: currentMetrics.enterprise_apps_percent ?? null,
         expired_running_apps: currentMetrics.expired_running_apps ?? null,          // migration 031
         expired_running_instances: currentMetrics.expired_running_instances ?? null,
+        node_tunnel_likely: currentMetrics.node_tunnel_likely ?? null,              // issue #532
+        node_tunnel_none: currentMetrics.node_tunnel_none ?? null,
+        node_tunnel_unknown: currentMetrics.node_tunnel_unknown ?? null,
+        node_tunnel_percent: currentMetrics.node_tunnel_percent ?? null,
 
         // WordPress
         wordpress_count: currentMetrics.wordpress_count || 0,

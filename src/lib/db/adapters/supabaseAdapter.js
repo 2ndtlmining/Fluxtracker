@@ -306,6 +306,13 @@ export async function createDailySnapshot(snapshot) {
             expired_running_apps: snapshot.expired_running_apps,
             expired_running_instances: snapshot.expired_running_instances
         } : {}),
+        // Migration 033 (issue #532), same guard.
+        ...(snapshot.node_tunnel_percent != null ? {
+            node_tunnel_likely: snapshot.node_tunnel_likely,
+            node_tunnel_none: snapshot.node_tunnel_none,
+            node_tunnel_unknown: snapshot.node_tunnel_unknown,
+            node_tunnel_percent: snapshot.node_tunnel_percent
+        } : {}),
         decentralization_datacenter_count: snapshot.decentralization_datacenter_count ?? null,
         decentralization_independent_count: snapshot.decentralization_independent_count ?? null,
         decentralization_datacenter_percent: snapshot.decentralization_datacenter_percent ?? null,

@@ -98,4 +98,24 @@ describe('createDailySnapshot column parity (issue #229)', () => {
         expect(stored.expired_running_apps).toBe(0);
         expect(stored.expired_running_instances).toBe(21);
     });
+
+    it('stores the tunnel columns, and leaves them NULL without a reading (migration 033)', async () => {
+        await db.createDailySnapshot({
+            snapshot_date: '2026-10-20', timestamp: Date.now(), daily_revenue: 1, sync_status: 'completed',
+            node_tunnel_likely: 507, node_tunnel_none: 5958, node_tunnel_unknown: 0, node_tunnel_percent: 7.27
+        });
+        await db.createDailySnapshot({
+            snapshot_date: '2026-10-19', timestamp: Date.now(), daily_revenue: 1, sync_status: 'completed'
+        });
+
+        const stored = await db.getSnapshotByDate('2026-10-20');
+        expect(stored.node_tunnel_likely).toBe(507);
+        expect(stored.node_tunnel_none).toBe(5958);
+        expect(stored.node_tunnel_unknown).toBe(0);
+        expect(stored.node_tunnel_percent).toBe(7.27);
+
+        const before = await db.getSnapshotByDate('2026-10-19');
+        expect(before.node_tunnel_percent).toBeNull();
+        expect(before.node_tunnel_likely).toBeNull();
+    });
 });

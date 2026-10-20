@@ -23,6 +23,7 @@ export const SERVICE_COLUMNS = {
     nodes: ['node_cumulus', 'node_nimbus', 'node_stratus', 'node_total',
         'locked_collateral_cumulus', 'locked_collateral_nimbus', 'locked_collateral_stratus', 'locked_collateral'],
     wallets: ['unique_wallets'],
+    tunnels: ['node_tunnel_likely', 'node_tunnel_none', 'node_tunnel_unknown', 'node_tunnel_percent'],
     appOwners: ['unique_app_owners', 'median_days_left', 'enterprise_apps', 'enterprise_apps_percent'],
     cloud: ['total_cpu_cores', 'used_cpu_cores', 'cpu_utilization_percent',
         'total_ram_gb', 'used_ram_gb', 'ram_utilization_percent',

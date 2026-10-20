@@ -1,5 +1,6 @@
 import { fetchNodeStats } from './nodeService.js';
 import { refreshUniqueWalletsIfStale } from './walletService.js';
+import { refreshTunnelStatsIfStale } from './tunnelService.js';
 import { refreshUniqueAppOwnersIfStale } from './appOwnerService.js';
 import { fetchCloudStats } from './cloudService.js';
 import { recordContinentCpu } from './busiestNodeService.js';
@@ -61,6 +62,9 @@ async function testAllServices() {
         // list rather than on its own timer because it writes current_metrics, which is a
         // read-modify-write of one row.
         ['wallets', refreshUniqueWalletsIfStale],
+        // Issue #532. Hourly-gated the same way; shares its fluxinfo download with the
+        // header's codename (fluxInfoFeed.js).
+        ['tunnels', refreshTunnelStatsIfStale],
         // Issue #209. Self-gated to hourly for the same reason, and placed after 'cloud'
         // would be equivalent -- it reads appSpecsCache, which any earlier step may
         // already have warmed, and owns only the cheap block-height call itself.
