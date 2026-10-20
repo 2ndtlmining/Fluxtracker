@@ -10,6 +10,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('axios', () => ({
     default: { get: vi.fn() }
 }));
+// Deployed lists follow stored payments (issue #534): each app deployed today was paid at
+// its registry height.
+vi.mock('../../db/database.js', () => ({
+    getTransactionsByBlockRange: vi.fn(async () => [
+        { app_name: 'app-active', block_height: 294000 },
+        { app_name: 'app-noexpire', block_height: 294800 },
+        { app_name: 'app-expiring', block_height: 294700 }
+    ])
+}));
 
 import axios from 'axios';
 import { getFluxCloudSnapshot, getFluxCloudActivity, dedupeAppsByName } from '../carouselService.js';
@@ -116,6 +125,16 @@ describe('getFluxCloudActivity', () => {
         );
         expect(activity.expiring24h.cached).toBe(true);
         expect(activity.expiring24h.apps.map(a => a.name)).toEqual(['app-expiring']);
+    });
+
+    it('counts spec changes for the daily chart apart from the paid deployed list (#534)', async () => {
+        const { getTransactionsByBlockRange } = await import('../../db/database.js');
+        getTransactionsByBlockRange.mockResolvedValueOnce([{ app_name: 'app-active', block_height: 294000 }]);
+
+        const activity = await getFluxCloudActivity();
+
+        // Three specs changed today; whether any was paid does not change this count.
+        expect(activity.specsChangedToday).toEqual({ cached: true, count: 3 });
     });
 
     // A fetch-failure/re-deployment-collision round trip through getFluxCloudActivity()

@@ -5,6 +5,7 @@ import { resilientFetch } from './resilientFetch.js';
 import { fetchCurrentBlockHeight } from './fluxNetworkData.js';
 import { ensureGlobalSpecsCache, getAllAppSpecs } from './appSpecsCache.js';
 import { getRunningApps, computeDeploymentFill } from './runningAppsProvider.js';
+import { getTransactionsByBlockRange } from '../db/database.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('carouselService');
@@ -111,6 +112,43 @@ export async function getSharedFluxApiData() {
 }
 
 /**
+ * Each app's latest PAID height from stored payment rows (issue #534).
+ *
+ * The revenue sync never stores the 0.02 FLUX spec-change fee (EXCLUDED_TRANSACTIONS), so
+ * every named row here is a registration, renewal or paid extension. Rows with no app name
+ * (FluxDrive storage, a name still resolving) cannot be matched to a spec and are skipped.
+ * Keyed by lower-cased name: Flux app names are case-insensitive.
+ */
+export function latestPaidHeights(payments) {
+    const heights = new Map();
+    for (const row of Array.isArray(payments) ? payments : []) {
+        const name = row?.app_name?.toLowerCase();
+        if (!name || !Number.isFinite(row.block_height)) continue;
+        if (!(heights.get(name) >= row.block_height)) heights.set(name, row.block_height);
+    }
+    return heights;
+}
+
+/**
+ * Apps whose spec changed in the last 2880 blocks: registrations, renewals AND 0.02 FLUX
+ * spec-only updates. This is the daily "New/Updated Today" chart's unit, which has years
+ * of history counted this way; issue #534 moved the header, Apps card and KPI report to
+ * paid deployments, and the chart keeps its own definition (owner, 2026-10-20) so its
+ * series has no break.
+ */
+export async function countSpecsChangedToday() {
+    const BLOCKS_PER_DAY = 2880;
+    const { currentBlockHeight, appsData } = await getSharedFluxApiData();
+    if (!currentBlockHeight) throw new Error('No block height');
+    const names = new Set();
+    for (const app of appsData) {
+        const blockAge = currentBlockHeight - (app.height || 0);
+        if (app.name && blockAge >= 0 && blockAge < BLOCKS_PER_DAY) names.add(app.name.toLowerCase());
+    }
+    return names.size;
+}
+
+/**
  * Fetch latest deployed apps (deployed today)
  */
 export async function fetchLatestDeployedApps() {
@@ -125,12 +163,21 @@ export async function fetchLatestDeployedApps() {
         
         log.info({ currentBlockHeight, totalApps: appsData.length }, 'Deployed apps API data received');
 
-        // Filter apps deployed today (within 2880 blocks = 24 hours at 30s per block)
+        // Apps with a PAYMENT in the last 2880 blocks (24 hours at 30s per block), placed at
+        // that payment's height (issue #534). The spec's own height is its latest message,
+        // and about half of those are 0.02 FLUX spec-only updates the transaction grid never
+        // shows: the header announced them as new deployments the reader then could not find.
+        // Only paid events count now, so the header never lists an app the grid lacks.
         const BLOCKS_PER_DAY = 2880;
-        const deployedToday = appsData.filter(app => {
-            const blockAge = currentBlockHeight - (app.height || 0);
-            return blockAge >= 0 && blockAge < BLOCKS_PER_DAY;
-        });
+        const payments = await getTransactionsByBlockRange(currentBlockHeight - BLOCKS_PER_DAY + 1, currentBlockHeight);
+        const paidHeights = latestPaidHeights(payments);
+        const deployedToday = [];
+        for (const app of appsData) {
+            const paidHeight = paidHeights.get(app.name?.toLowerCase());
+            if (paidHeight === undefined) continue;
+            const blockAge = currentBlockHeight - paidHeight;
+            if (blockAge >= 0 && blockAge < BLOCKS_PER_DAY) deployedToday.push({ app, paidHeight });
+        }
 
         log.info('Apps deployed today: %d', deployedToday.length);
 
@@ -146,14 +193,12 @@ export async function fetchLatestDeployedApps() {
         // it tracks payment events, not deployment events -- see the issue's own history).
         // Name is still the tiebreaker for a stable order among same-block deployments.
         deployedToday.sort((a, b) => {
-            const blockAgeA = a.height ? currentBlockHeight - a.height : Infinity;
-            const blockAgeB = b.height ? currentBlockHeight - b.height : Infinity;
-            if (blockAgeA !== blockAgeB) return blockAgeA - blockAgeB;
-            return (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase());
+            if (a.paidHeight !== b.paidHeight) return b.paidHeight - a.paidHeight;
+            return (a.app.name || '').toLowerCase().localeCompare((b.app.name || '').toLowerCase());
         });
         
         // Format for carousel display
-        const formattedApps = deployedToday.map((app, index) => {
+        const formattedApps = deployedToday.map(({ app, paidHeight }, index) => {
             // Extract specs from compose array if available, otherwise use top-level
             let cpu = app.cpu || 0;
             let ram = app.ram || 0;
@@ -189,8 +234,9 @@ export async function fetchLatestDeployedApps() {
                 ram: ram,
                 hdd: hdd,
                 isEnterprise: isEnterprise,
-                height: app.height,
-                blockAge: currentBlockHeight - app.height,
+                // The payment's height, not the spec's: it is the event the grid shows.
+                height: paidHeight,
+                blockAge: currentBlockHeight - paidHeight,
                 // Subscription length and time left (header TERM row): 1 week vs 1 year is
                 // the context a new deployment otherwise lacks. Null when the spec has no
                 // expire, rather than a guessed default.
@@ -700,8 +746,15 @@ export async function getFluxCloudActivity() {
         (a, b) => (a.blocksUntilExpiry ?? Infinity) < (b.blocksUntilExpiry ?? Infinity)
     );
 
+    // The daily chart's own unit (spec changes, updates included); null when unavailable.
+    const specsChanged = await countSpecsChangedToday().catch(error => {
+        log.warn('Spec-change count unavailable: %s', error.message);
+        return null;
+    });
+
     return {
         deployedToday: { cached: snapshot.appsDeployedToday.cached, apps: deployedToday },
-        expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h }
+        expiring24h: { cached: snapshot.appsExpiring24h.cached, apps: expiring24h },
+        specsChangedToday: { cached: specsChanged != null, count: specsChanged }
     };
 }

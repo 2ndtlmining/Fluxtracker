@@ -324,8 +324,10 @@ export function buildSnapshotData({
         decentralization_datacenter_percent: decentralization?.datacenterPercent ?? null,
 
         // Flux Cloud activity -- see fluxCloudActivity fetch above for the null posture.
-        apps_deployed_today: fluxCloudActivity?.deployedToday.cached
-        ? fluxCloudActivity.deployedToday.apps.length
+        // "New/Updated Today": spec changes, updates included -- not the paid-only deployed
+        // list the header and Apps card show since issue #534, so the series has no break.
+        apps_deployed_today: fluxCloudActivity?.specsChangedToday?.cached
+        ? fluxCloudActivity.specsChangedToday.count
         : null,
         apps_expiring_today: fluxCloudActivity?.expiring24h.cached
         ? fluxCloudActivity.expiring24h.apps.length

@@ -13,9 +13,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('axios', () => ({
     default: { get: vi.fn() }
 }));
+vi.mock('../../db/database.js', () => ({ getTransactionsByBlockRange: vi.fn() }));
 
 import axios from 'axios';
-import { fetchLatestDeployedApps } from '../carouselService.js';
+import { getTransactionsByBlockRange } from '../../db/database.js';
+import { fetchLatestDeployedApps, latestPaidHeights } from '../carouselService.js';
 import { clearBlockHeightCache } from '../fluxNetworkData.js';
 
 const BLOCK_HEIGHT = 300000;
@@ -29,6 +31,8 @@ const REGISTRY = [
     // Same blockAge as another entry, to verify the name tiebreaker.
     { name: 'zeta-tie', height: 299500, instances: 1, cpu: 1, ram: 1024, hdd: 10 }
 ];
+// One paid row per app at its spec height: the case before issue #534 changed anything.
+const PAYMENTS = REGISTRY.map(app => ({ app_name: app.name, block_height: app.height, amount: 20 }));
 
 beforeEach(() => {
     clearBlockHeightCache(); // the shared height cache (#415) must not leak between tests
@@ -38,6 +42,7 @@ beforeEach(() => {
         if (String(url).includes('globalappsspecifications')) return { data: { status: 'success', data: REGISTRY } }; // appSpecsCache checks status (#293)
         throw new Error(`unexpected axios call: ${url}`);
     });
+    getTransactionsByBlockRange.mockResolvedValue(PAYMENTS);
 });
 
 describe('fetchLatestDeployedApps rank order (issue #140)', () => {
@@ -79,5 +84,66 @@ describe('fetchLatestDeployedApps subscription term (header TERM row)', () => {
         const old = deployed.find(a => a.name === 'aaa-oldest');
         expect(old.expireBlocks).toBeNull();
         expect(old.blocksUntilExpiry).toBeNull();
+    });
+});
+
+/**
+ * Issue #534: the header listed an app at its spec's latest height, and about half of those
+ * heights are 0.02 FLUX spec-only updates the transaction grid never stores. A reader saw
+ * "deployed 3 minutes ago" and could not find the app in the grid. Only paid events count now.
+ */
+describe('fetchLatestDeployedApps follows payments, not spec updates (issue #534)', () => {
+    it('drops an app whose only recent message is a spec update with no payment', async () => {
+        getTransactionsByBlockRange.mockResolvedValue(PAYMENTS.filter(p => p.app_name !== 'mid-app'));
+
+        const deployed = await fetchLatestDeployedApps();
+
+        expect(deployed.map(a => a.name)).not.toContain('mid-app');
+        expect(deployed).toHaveLength(3);
+    });
+
+    it('places an updated app at its payment height, not at the later update', async () => {
+        // zzz-newest's spec says 299900 (a 0.02 update); it was paid at 298000.
+        getTransactionsByBlockRange.mockResolvedValue([
+            ...PAYMENTS.filter(p => p.app_name !== 'zzz-newest'),
+            { app_name: 'zzz-newest', block_height: 298000, amount: 20 }
+        ]);
+
+        const deployed = await fetchLatestDeployedApps();
+        const app = deployed.find(a => a.name === 'zzz-newest');
+
+        expect(app.height).toBe(298000);
+        expect(app.blockAge).toBe(BLOCK_HEIGHT - 298000);
+        expect(deployed.at(-1).name).toBe('zzz-newest'); // now the oldest of the four
+    });
+
+    it('asks only for the last day of payments', async () => {
+        await fetchLatestDeployedApps();
+
+        expect(getTransactionsByBlockRange).toHaveBeenCalledWith(BLOCK_HEIGHT - 2880 + 1, BLOCK_HEIGHT);
+    });
+});
+
+describe('latestPaidHeights', () => {
+    it("keeps each app's newest payment, case-insensitively", () => {
+        const heights = latestPaidHeights([
+            { app_name: 'Valheim1', block_height: 100 },
+            { app_name: 'valheim1', block_height: 250 },
+            { app_name: 'valheim1', block_height: 200 }
+        ]);
+
+        expect(heights.get('valheim1')).toBe(250);
+        expect(heights.size).toBe(1);
+    });
+
+    it('skips rows with no app name, such as FluxDrive payments', () => {
+        const heights = latestPaidHeights([
+            { app_name: null, app_type: 'fluxdrive', block_height: 300 },
+            { app_name: '', block_height: 301 },
+            { app_name: 'a', block_height: null }
+        ]);
+
+        expect(heights.size).toBe(0);
+        expect(latestPaidHeights(undefined).size).toBe(0);
     });
 });

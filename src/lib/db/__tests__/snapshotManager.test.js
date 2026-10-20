@@ -182,6 +182,7 @@ describe('snapshotManager', () => {
         getFluxCloudActivity.mockResolvedValue({
             deployedToday: { cached: true, apps: [{ name: 'app-a' }, { name: 'app-b' }] },
             expiring24h: { cached: true, apps: [{ name: 'app-c' }] },
+            specsChangedToday: { cached: true, count: 2 },
         });
     });
 
@@ -640,6 +641,7 @@ describe('snapshotManager', () => {
             getFluxCloudActivity.mockResolvedValue({
                 deployedToday: { cached: true, apps: [{ name: 'app-a' }, { name: 'app-b' }] },
                 expiring24h: { cached: true, apps: [{ name: 'app-c' }] },
+                specsChangedToday: { cached: true, count: 2 },
             });
 
             await takeManualSnapshot();
@@ -649,11 +651,26 @@ describe('snapshotManager', () => {
             expect(snapshotData.apps_expiring_today).toBe(1);
         });
 
+        it('records spec changes for New/Updated Today, not the paid-only deployed list (#534)', async () => {
+            getCurrentMetrics.mockResolvedValue(makeValidMetrics());
+            getFluxCloudActivity.mockResolvedValue({
+                deployedToday: { cached: true, apps: [{ name: 'app-a' }] },
+                expiring24h: { cached: true, apps: [] },
+                specsChangedToday: { cached: true, count: 5 },
+            });
+
+            await takeManualSnapshot();
+
+            const [snapshotData] = createDailySnapshot.mock.calls[0];
+            expect(snapshotData.apps_deployed_today).toBe(5);
+        });
+
         it('writes null (not 0) when the on-demand fetch failed with nothing cached', async () => {
             getCurrentMetrics.mockResolvedValue(makeValidMetrics());
             getFluxCloudActivity.mockResolvedValue({
                 deployedToday: { cached: false, apps: [] },
                 expiring24h: { cached: false, apps: [] },
+                specsChangedToday: { cached: false, count: null },
             });
 
             await takeManualSnapshot();

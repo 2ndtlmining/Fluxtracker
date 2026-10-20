@@ -12,6 +12,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('axios', () => ({
     default: { get: vi.fn() }
 }));
+// The deployed list follows stored payments (issue #534): app-active was paid at its height.
+vi.mock('../../db/database.js', () => ({
+    getTransactionsByBlockRange: vi.fn(async () => [{ app_name: 'app-active', block_height: 294800 }])
+}));
 
 import axios from 'axios';
 import { fetchLatestDeployedApps, fetchExpiringApps } from '../carouselService.js';
