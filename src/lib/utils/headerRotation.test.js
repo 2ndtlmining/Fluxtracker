@@ -103,6 +103,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #547: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('vintagestory1792500000000', 1))).toBe('game:Vintage Story');
     expect(resolveIntroKey(app('homestead', 1, 'runonflux/vintagestory-server-flux:latest'))).toBe('game:Vintage Story');
+    // Issue #549: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('beammp1792600000000', 1))).toBe('game:BeamMP');
+    expect(resolveIntroKey(app('driftnight', 1, 'runonflux/beammp-server-flux:latest'))).toBe('game:BeamMP');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
