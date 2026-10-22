@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { isFluxFiatAddress, isFluxTeamAddress, FLUX_FIAT_ADDRESSES, FLUX_TEAM_ADDRESSES } from '../../config.js';
+import { isFluxFiatAddress, isFluxTeamAddress, FLUX_FIAT_ADDRESSES, FLUX_TEAM_ADDRESSES, EXCLUDED_TRANSACTIONS } from '../../config.js';
 
 /**
  * Revenue attribution by sender address, against a real SQLite DB.
@@ -15,6 +15,7 @@ let db;
 const A = 't1AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const B = 't1BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 const OTHER = 't1ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ';
+const NEW_TEAM = 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A'; // issue #551
 
 /** Same SQL shape the adapter uses. */
 function getRevenueFromAddresses(db, startDate, endDate, addresses) {
@@ -88,6 +89,12 @@ describe('revenue attribution by address list', () => {
         expect(r.revenue).not.toBe(1075); // would include OTHER
     });
 
+    it('counts payments from the #551 address in the team figure', () => {
+        insert(db, [{ txid: 'tx-551', from_address: NEW_TEAM, amount: 13, date: '2026-08-13' }]);
+        const r = getRevenueFromAddresses(db, '2026-08-10', '2026-08-16', FLUX_TEAM_ADDRESSES);
+        expect(r).toEqual({ revenue: 13, payments: 1 });
+    });
+
     it('respects the date range', () => {
         const r = getRevenueFromAddresses(db, '2026-08-10', '2026-08-16', [A]);
         expect(r.revenue).toBe(150); // the 999 on 2026-08-20 is outside
@@ -113,6 +120,18 @@ describe('address list helpers', () => {
         for (const address of FLUX_TEAM_ADDRESSES) {
             expect(isFluxTeamAddress(address), address).toBe(true);
         }
+    });
+
+    it('recognises both known Flux team addresses (#551)', () => {
+        expect(isFluxTeamAddress('t1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY')).toBe(true);
+        expect(isFluxTeamAddress('t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A')).toBe(true);
+    });
+
+    it('labels the spec-change fee sender as team, while still excluding its 0.02 fees (#551)', () => {
+        // The 0.02 FLUX exclusion is keyed on the same address. Adding it to the team list
+        // must not drop that rule: the fees stay unstored, its other payments become Team.
+        expect(EXCLUDED_TRANSACTIONS).toContainEqual({ from_address: NEW_TEAM, amount: 0.02 });
+        expect(isFluxTeamAddress(NEW_TEAM)).toBe(true);
     });
 
     it('does not confuse the two lists', () => {

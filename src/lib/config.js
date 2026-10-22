@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.29';
+export const APP_VERSION = 'v1.30';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -34,6 +34,9 @@ export const DONATION_ADDRESSES = [
 // ============================================
 export const FLUX_TEAM_ADDRESSES = [
     't1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY', // Flux team primary
+    // Issue #551. Also the sender of the 0.02 FLUX spec-change fees EXCLUDED_TRANSACTIONS
+    // drops, so only its other payments are stored and show up as Team.
+    't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     // Add more Flux team addresses here as needed
 ];
 
