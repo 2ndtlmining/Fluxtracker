@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-23** (v1.29)
+**Last reviewed: 2026-10-23** (v1.30)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,12 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-23 (v1.29):** open.
+**Status at 2026-10-23 (v1.30):** open.
+- **Revenue sources:** t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A (#551) joins FLUX_TEAM_ADDRESSES, so
+  its payments carry the TEAM badge and count as Flux team in the KPI, charts and CSV. It
+  also sends the 0.02 FLUX spec-change fees, which stay excluded.
+
+**Status at 2026-10-23 (v1.29):** merged.
 - **Games:** BeamMP (#549) is tracked as its own game, with an icon and header art (a
   head-on crash; the outro tows a wreck away), added before its first deployment from the
   hub's own match rule.

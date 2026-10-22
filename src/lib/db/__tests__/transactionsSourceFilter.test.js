@@ -18,8 +18,10 @@ process.env.DB_PATH = tmpPath;
 process.env.DB_TYPE = 'sqlite';
 
 const adapter = await import('../adapters/sqliteAdapter.js');
+const { resolveSourceAddresses } = await import('../../../routes/api/revenue.js');
 
 const TEAM = 't1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY';
+const TEAM_2 = 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A'; // issue #551
 const FIAT = 't1XktDZ9Z1QiefMYE5nMFohe8VG2c2BD5A5';
 const RANDO = 't1SomeoneElsePaidThisOneThemselves99';
 
@@ -30,7 +32,8 @@ beforeAll(async () => {
         { txid: 'tx-team-2', address: 'addr', from_address: TEAM, amount: 20, amount_usd: 2, block_height: 101, timestamp: 1001, date: '2026-09-02', app_name: 'beta', app_type: 'docker' },
         { txid: 'tx-fiat-1', address: 'addr', from_address: FIAT, amount: 30, amount_usd: 3, block_height: 102, timestamp: 1002, date: '2026-09-03', app_name: 'alpha', app_type: 'git' },
         { txid: 'tx-other-1', address: 'addr', from_address: RANDO, amount: 40, amount_usd: 4, block_height: 103, timestamp: 1003, date: '2026-09-04', app_name: 'gamma', app_type: 'git' },
-        { txid: 'tx-other-2', address: 'addr', from_address: RANDO, amount: 50, amount_usd: 5, block_height: 104, timestamp: 1004, date: '2026-09-05', app_name: 'alpha', app_type: 'git' }
+        { txid: 'tx-other-2', address: 'addr', from_address: RANDO, amount: 50, amount_usd: 5, block_height: 104, timestamp: 1004, date: '2026-09-05', app_name: 'alpha', app_type: 'git' },
+        { txid: 'tx-team-551', address: 'addr', from_address: TEAM_2, amount: 13, amount_usd: 1, block_height: 105, timestamp: 1005, date: '2026-09-06', app_name: 'delta', app_type: 'docker' }
     ]);
 });
 
@@ -43,7 +46,7 @@ const txids = r => r.transactions.map(t => t.txid).sort();
 describe('getTransactionsPaginated address-set filter (issue #159)', () => {
     it('returns everything when no address filter is given (unchanged behaviour)', async () => {
         const r = await adapter.getTransactionsPaginated(1, 50, '', null);
-        expect(r.total).toBe(5);
+        expect(r.total).toBe(6);
     });
 
     it('filters to a single payer set', async () => {
@@ -55,6 +58,11 @@ describe('getTransactionsPaginated address-set filter (issue #159)', () => {
     it('treats multiple sets as OR -- TEAM and FIAT together show both', async () => {
         const r = await adapter.getTransactionsPaginated(1, 50, '', null, [TEAM, FIAT]);
         expect(txids(r)).toEqual(['tx-fiat-1', 'tx-team-1', 'tx-team-2']);
+    });
+
+    it('the TEAM badge filter (FLUX_TEAM_ADDRESSES) returns the #551 address too', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, '', null, resolveSourceAddresses('team'));
+        expect(txids(r)).toEqual(['tx-team-1', 'tx-team-2', 'tx-team-551']);
     });
 
     it('ANDs with the free-text search rather than replacing it', async () => {
@@ -80,7 +88,7 @@ describe('getTransactionsPaginated address-set filter (issue #159)', () => {
 
     it('an empty address list is treated as no filter, not as "match nothing"', async () => {
         const r = await adapter.getTransactionsPaginated(1, 50, '', null, []);
-        expect(r.total).toBe(5);
+        expect(r.total).toBe(6);
     });
 });
 
