@@ -175,6 +175,12 @@ const GAME_ART_BY_NAME = {
   tf2: {
     signature: /_\/ \\_/,
     movingRows: rows => rows.filter(r => /\[==\]|\/  \\|\[\(o\)\]|\.--\./.test(r.text))
+  },
+  // Issue #547: the cabin door (no other scene draws it, and it is in every frame); the
+  // field row in front of it -- seed, sprout, stalk, flattened, snowed -- is what moves.
+  vintagestory: {
+    signature: /\|\[\]\|/,
+    movingRows: rows => rows.filter(r => /\|\[\]\|/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -201,7 +207,8 @@ const UPDATED_DEPLOYED_NAME = {
   theisle: 'theisle1789155733041',
   tmodloader: 'tmodloader1789155733041',
   trucksim: 'eurotrucksimulator21789155733041',
-  tf2: 'teamfortress21789155733041'
+  tf2: 'teamfortress21789155733041',
+  vintagestory: 'vintagestory1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

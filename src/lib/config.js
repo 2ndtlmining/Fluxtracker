@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.27';
+export const APP_VERSION = 'v1.28';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -301,7 +301,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'americantrucksimulator', name: 'Truck Simulator' },
     // Issue #540. The hub's own match rule (runonflux.com/games): teamfortress2<13 digits>,
     // an encrypted spec. Not deployed when added (2026-10-19), so the first one counts.
-    { prefix: 'teamfortress2', name: 'Team Fortress 2' }
+    { prefix: 'teamfortress2', name: 'Team Fortress 2' },
+    // Issue #547. The hub's own match rule (runonflux.com/games): vintagestory<13 digits>,
+    // an encrypted spec. Not deployed when added (2026-10-22), so the first one counts.
+    { prefix: 'vintagestory', name: 'Vintage Story' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -553,6 +556,8 @@ export const TRACKED_GAMES = [
     { name: 'Truck Simulator', dbKey: 'gaming_trucksim' },
     // Issue #540. Counted by app name (encrypted spec) and by the hub's image.
     { name: 'Team Fortress 2', dbKey: 'gaming_tf2' },
+    // Issue #547. Counted by app name (encrypted spec), the hub's image and community images.
+    { name: 'Vintage Story', dbKey: 'gaming_vintagestory' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1021,6 +1026,10 @@ export const CATEGORY_CONFIG = {
                    // Issue #540: Team Fortress 2. The hub's image is tf2-server-flux. Never a
                    // bare 'tf2', which is short enough to turn up inside unrelated names.
                    'tf2-server', 'tf2server', 'teamfortress', 'team-fortress',
+                   // Issue #547: Vintage Story. The hub's image is vintagestory-server-flux and
+                   // the community images (devidian, ich777, ralnoc) are spelled the same way;
+                   // the hyphenated form is the games site's own slug.
+                   'vintagestory', 'vintage-story',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1190,6 +1199,11 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/truckersim-server-flux': 'Truck Simulator',
     // Issue #540: the games hub's own image.
     'runonflux/tf2-server-flux': 'Team Fortress 2',
+    // Issue #547: the games hub's own image, and the community images.
+    'runonflux/vintagestory-server-flux': 'Vintage Story',
+    'devidian/vintagestory': 'Vintage Story',
+    'ich777/vintagestory': 'Vintage Story',
+    'ralnoc/vintagestory': 'Vintage Story',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1260,6 +1274,11 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/truckersim-server-flux': 'Truck Simulator',
     // Issue #540: the games hub's own image.
     'runonflux/tf2-server-flux': 'Team Fortress 2',
+    // Issue #547: the games hub's own image, and the community images.
+    'runonflux/vintagestory-server-flux': 'Vintage Story',
+    'devidian/vintagestory': 'Vintage Story',
+    'ich777/vintagestory': 'Vintage Story',
+    'ralnoc/vintagestory': 'Vintage Story',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
