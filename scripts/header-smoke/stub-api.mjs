@@ -64,7 +64,8 @@ const DEPLOYED_GAME_NAMES = {
   tmodloader: 'tmodloader1789155733041',
   trucksim: 'eurotrucksimulator21789155733041',
   tf2: 'teamfortress21789155733041',
-  vintagestory: 'vintagestory1789155733041'
+  vintagestory: 'vintagestory1789155733041',
+  beammp: 'beammp1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];

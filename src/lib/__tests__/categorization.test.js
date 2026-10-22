@@ -116,6 +116,14 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/story-api:latest')).not.toBe('gaming');
     });
 
+    it('counts the BeamMP hub images as a game, but not the Beam coin or probes (#549)', () => {
+        expect(categorizeImage('runonflux/beammp-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('ich777/beamng-mp-server:latest')).toBe('gaming');
+        expect(categorizeImage('rouhim/beammp-server:latest')).toBe('gaming');
+        expect(categorizeImage('beam105/beam-node:latest')).not.toBe('gaming');
+        expect(categorizeImage('globalping/globalping-probe:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -265,6 +273,17 @@ describe('getCanonicalName', () => {
             'ralnoc/vintagestory:latest'
         ]) {
             expect(getCanonicalName(image)).toBe('Vintage Story');
+        }
+    });
+
+    it("names the games hub's and the community BeamMP images (#549)", () => {
+        for (const image of [
+            'runonflux/beammp-server-flux:latest',
+            'ich777/beamng-mp-server:latest',
+            'rouhim/beammp-server:latest',
+            'ponbus/beammp:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('BeamMP');
         }
     });
 

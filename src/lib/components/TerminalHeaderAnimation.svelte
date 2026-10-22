@@ -125,6 +125,9 @@
     formatVintageStoryFrame, vintageStoryFrameKinds, formatVintageStoryOutro, BATCH17_FRAME_COUNT
   } from '$lib/utils/introArt17.js';
   import {
+    formatBeamMpFrame, beamMpFrameKinds, formatBeamMpOutro, BATCH18_FRAME_COUNT
+  } from '$lib/utils/introArt18.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -264,7 +267,9 @@
     // Issue #540. The 'teamfortress2' prefix and the hub's tf2 image resolve here.
     'Team Fortress 2': { frameCount: BATCH16_FRAME_COUNT, format: formatTf2Frame, kinds: tf2FrameKinds },
     // Issue #547. The 'vintagestory' prefix and the hub's vintagestory image resolve here.
-    'Vintage Story': { frameCount: BATCH17_FRAME_COUNT, format: formatVintageStoryFrame, kinds: vintageStoryFrameKinds }
+    'Vintage Story': { frameCount: BATCH17_FRAME_COUNT, format: formatVintageStoryFrame, kinds: vintageStoryFrameKinds },
+    // Issue #549. The 'beammp' prefix and the hub's beammp/beamng images resolve here.
+    'BeamMP': { frameCount: BATCH18_FRAME_COUNT, format: formatBeamMpFrame, kinds: beamMpFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -318,7 +323,8 @@
     'tModLoader': outro(formatTModLoaderOutro),              // #533
     'Truck Simulator': outro(formatTruckSimOutro),           // #538
     'Team Fortress 2': outro(formatTf2Outro),                // #540
-    'Vintage Story': outro(formatVintageStoryOutro)          // #547
+    'Vintage Story': outro(formatVintageStoryOutro),         // #547
+    'BeamMP': outro(formatBeamMpOutro)                       // #549
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

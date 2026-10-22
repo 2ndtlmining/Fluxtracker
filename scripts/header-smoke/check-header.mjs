@@ -181,6 +181,13 @@ const GAME_ART_BY_NAME = {
   vintagestory: {
     signature: /\|\[\]\|/,
     movingRows: rows => rows.filter(r => /\|\[\]\|/.test(r.text))
+  },
+  // Issue #549: the crash barrier along the road (no other scene draws it, and it is in every
+  // frame); the wheel row above it -- cars closing in, crumpling, a wheel rolling off, the tow
+  // truck -- is what moves.
+  beammp: {
+    signature: /\]=\[\]=\[/,
+    movingRows: rows => rows.filter(r => /'-o|o-'/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -208,7 +215,8 @@ const UPDATED_DEPLOYED_NAME = {
   tmodloader: 'tmodloader1789155733041',
   trucksim: 'eurotrucksimulator21789155733041',
   tf2: 'teamfortress21789155733041',
-  vintagestory: 'vintagestory1789155733041'
+  vintagestory: 'vintagestory1789155733041',
+  beammp: 'beammp1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

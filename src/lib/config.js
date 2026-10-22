@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.28';
+export const APP_VERSION = 'v1.29';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -304,7 +304,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'teamfortress2', name: 'Team Fortress 2' },
     // Issue #547. The hub's own match rule (runonflux.com/games): vintagestory<13 digits>,
     // an encrypted spec. Not deployed when added (2026-10-22), so the first one counts.
-    { prefix: 'vintagestory', name: 'Vintage Story' }
+    { prefix: 'vintagestory', name: 'Vintage Story' },
+    // Issue #549. The hub's own match rule (runonflux.com/games): beammp<13 digits>,
+    // an encrypted spec. Not deployed when added (2026-10-23), so the first one counts.
+    { prefix: 'beammp', name: 'BeamMP' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -558,6 +561,8 @@ export const TRACKED_GAMES = [
     { name: 'Team Fortress 2', dbKey: 'gaming_tf2' },
     // Issue #547. Counted by app name (encrypted spec), the hub's image and community images.
     { name: 'Vintage Story', dbKey: 'gaming_vintagestory' },
+    // Issue #549. Counted by app name (encrypted spec), the hub's image and community images.
+    { name: 'BeamMP', dbKey: 'gaming_beammp' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1030,6 +1035,10 @@ export const CATEGORY_CONFIG = {
                    // the community images (devidian, ich777, ralnoc) are spelled the same way;
                    // the hyphenated form is the games site's own slug.
                    'vintagestory', 'vintage-story',
+                   // Issue #549: BeamMP (BeamNG.drive multiplayer). The hub's image is
+                   // beammp-server-flux and its rule also accepts beamng-mp-server. Never a
+                   // bare 'beam': the Beam coin (beam105) and the probeamericas probes carry it.
+                   'beammp', 'beamng',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1204,6 +1213,12 @@ const DISPLAY_NAME_OVERRIDES = {
     'devidian/vintagestory': 'Vintage Story',
     'ich777/vintagestory': 'Vintage Story',
     'ralnoc/vintagestory': 'Vintage Story',
+    // Issue #549: the games hub's own image, the community image its rule also accepts
+    // (ich777), and the two most pulled community images.
+    'runonflux/beammp-server-flux': 'BeamMP',
+    'ich777/beamng-mp-server': 'BeamMP',
+    'rouhim/beammp-server': 'BeamMP',
+    'ponbus/beammp': 'BeamMP',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1279,6 +1294,12 @@ export const CANONICAL_NAME_OVERRIDES = {
     'devidian/vintagestory': 'Vintage Story',
     'ich777/vintagestory': 'Vintage Story',
     'ralnoc/vintagestory': 'Vintage Story',
+    // Issue #549: the games hub's own image, the community image its rule also accepts
+    // (ich777), and the two most pulled community images.
+    'runonflux/beammp-server-flux': 'BeamMP',
+    'ich777/beamng-mp-server': 'BeamMP',
+    'rouhim/beammp-server': 'BeamMP',
+    'ponbus/beammp': 'BeamMP',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
