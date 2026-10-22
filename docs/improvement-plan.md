@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-20** (v1.27)
+**Last reviewed: 2026-10-22** (v1.28)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,11 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-20 (v1.27):** open.
+**Status at 2026-10-22 (v1.28):** open.
+- **Games:** Vintage Story (#547) is tracked as its own game, with an icon and header art,
+  added before its first deployment from the hub's own match rule.
+
+**Status at 2026-10-20 (v1.27):** merged.
 - **Header:** the deployed list and the "NEW APP DEPLOYED" spotlight count only paid
   deployments (#534): an app appears at the height of its latest payment in the last day.
   0.02 FLUX spec-only updates, which the transaction grid never stores, no longer show as

@@ -50,6 +50,8 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('americantrucksimulator1792300000000')).toBe('Truck Simulator');
         // Issue #540: the hub's shape, not live yet (2026-10-19).
         expect(resolveGameFromAppName('teamfortress21792400000000')).toBe('Team Fortress 2');
+        // Issue #547: the hub's shape, not live yet (2026-10-22).
+        expect(resolveGameFromAppName('vintagestory1792500000000')).toBe('Vintage Story');
     });
 
     it('totals every plan of one game under the canonical name', () => {

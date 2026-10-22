@@ -122,6 +122,9 @@
     formatTf2Frame, tf2FrameKinds, formatTf2Outro, BATCH16_FRAME_COUNT
   } from '$lib/utils/introArt16.js';
   import {
+    formatVintageStoryFrame, vintageStoryFrameKinds, formatVintageStoryOutro, BATCH17_FRAME_COUNT
+  } from '$lib/utils/introArt17.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -259,7 +262,9 @@
     // Issue #538. Both truck simulator prefixes and the hub's truckersim image resolve here.
     'Truck Simulator': { frameCount: BATCH15_FRAME_COUNT, format: formatTruckSimFrame, kinds: truckSimFrameKinds },
     // Issue #540. The 'teamfortress2' prefix and the hub's tf2 image resolve here.
-    'Team Fortress 2': { frameCount: BATCH16_FRAME_COUNT, format: formatTf2Frame, kinds: tf2FrameKinds }
+    'Team Fortress 2': { frameCount: BATCH16_FRAME_COUNT, format: formatTf2Frame, kinds: tf2FrameKinds },
+    // Issue #547. The 'vintagestory' prefix and the hub's vintagestory image resolve here.
+    'Vintage Story': { frameCount: BATCH17_FRAME_COUNT, format: formatVintageStoryFrame, kinds: vintageStoryFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -312,7 +317,8 @@
     'The Isle': outro(formatTheIsleOutro),                   // #535
     'tModLoader': outro(formatTModLoaderOutro),              // #533
     'Truck Simulator': outro(formatTruckSimOutro),           // #538
-    'Team Fortress 2': outro(formatTf2Outro)                 // #540
+    'Team Fortress 2': outro(formatTf2Outro),                // #540
+    'Vintage Story': outro(formatVintageStoryOutro)          // #547
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

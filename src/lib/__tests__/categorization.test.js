@@ -108,6 +108,14 @@ describe('categorizeImage', () => {
         expect(categorizeImage('someone/stf2-api:latest')).not.toBe('gaming');
     });
 
+    it('counts the Vintage Story hub and community images as a game (#547)', () => {
+        expect(categorizeImage('runonflux/vintagestory-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('devidian/vintagestory:latest')).toBe('gaming');
+        expect(categorizeImage('ich777/vintagestory:1.21')).toBe('gaming');
+        expect(categorizeImage('someone/vintage-story:latest')).toBe('gaming');
+        expect(categorizeImage('someone/story-api:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -247,6 +255,17 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's Team Fortress 2 image (#540)", () => {
         expect(getCanonicalName('runonflux/tf2-server-flux:latest')).toBe('Team Fortress 2');
+    });
+
+    it("names the games hub's and the community Vintage Story images (#547)", () => {
+        for (const image of [
+            'runonflux/vintagestory-server-flux:latest',
+            'devidian/vintagestory:latest',
+            'ich777/vintagestory:latest',
+            'ralnoc/vintagestory:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Vintage Story');
+        }
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
