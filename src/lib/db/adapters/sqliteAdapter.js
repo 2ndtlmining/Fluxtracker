@@ -1095,7 +1095,7 @@ export async function getTxidCount() {
 }
 
 // RPC equivalent: get_transactions_paginated
-export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null) {
+export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null, trialAddresses = null) {
     const offset = (page - 1) * limit;
 
     try {
@@ -1106,11 +1106,20 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
         // folded into its either/or, so "team-funded payments for app alpha" is expressible.
         // An empty array means "no filter" rather than "match nothing" -- the UI sends the
         // selected badge set, and no badges selected has to mean show everything.
+        // TRIAL is a registration from a trial address (config.js isFluxTrialPayment), OR-ed
+        // in as another badge in the union.
+        const payerClauses = [];
         if (Array.isArray(fromAddresses) && fromAddresses.length > 0) {
             const placeholders = fromAddresses.map((_, i) => `@fromAddr${i}`);
-            whereClauses.push(`from_address IN (${placeholders.join(', ')})`);
+            payerClauses.push(`from_address IN (${placeholders.join(', ')})`);
             fromAddresses.forEach((addr, i) => { params[`fromAddr${i}`] = addr; });
         }
+        if (Array.isArray(trialAddresses) && trialAddresses.length > 0) {
+            const placeholders = trialAddresses.map((_, i) => `@trialAddr${i}`);
+            payerClauses.push(`(msg_type = 'register' AND from_address IN (${placeholders.join(', ')}))`);
+            trialAddresses.forEach((addr, i) => { params[`trialAddr${i}`] = addr; });
+        }
+        if (payerClauses.length > 0) whereClauses.push(`(${payerClauses.join(' OR ')})`);
 
         if (appName) {
             whereClauses.push('app_name = @appName');

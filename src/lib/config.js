@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.30';
+export const APP_VERSION = 'v1.31';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -39,6 +39,22 @@ export const FLUX_TEAM_ADDRESSES = [
     't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     // Add more Flux team addresses here as needed
 ];
+
+// ============================================
+// FLUX FREE TRIAL (a sub-category of Flux team)
+// ============================================
+// Flux pays the first week of a new deployment (it was the first month before). Those
+// registrations come from this team address with expire = 20160 blocks (7 days at 30s
+// blocks): 94 of 94 checked on chain, each for a different owner. Its updates are not
+// trials, so a payment is a trial only when it is a REGISTRATION from one of these.
+// Still counted as Flux team everywhere; the TRIAL badge just tells the two apart.
+export const FLUX_TRIAL_ADDRESSES = [
+    't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
+];
+
+export function isFluxTrialPayment(tx) {
+    return tx?.msg_type === 'register' && FLUX_TRIAL_ADDRESSES.includes(tx.from_address);
+}
 
 // ============================================
 // FLUX FIAT GATEWAY ADDRESSES

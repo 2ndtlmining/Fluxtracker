@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { appFocus, clearAppFocusParam } from '$lib/stores/appFocus.js';
-  import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress } from '$lib/config.js';
+  import { getApiUrl, isFluxTeamAddress, isFluxFiatAddress, isFluxTrialPayment } from '$lib/config.js';
   import { formatCount, formatNumber } from '$lib/utils/format.js';
   import TxTypeIcon from '$lib/components/TxTypeIcon.svelte';
   import { serialiseSources, toggleSource as nextSources } from '$lib/utils/transactionSources.js';
@@ -28,7 +28,7 @@
   let searchQuery = '';
   let searchTimeout;
 
-  // Active payer filters (issue #159) -- the set of TEAM/FIAT badges toggled on. A Set
+  // Active payer filters (issue #159) -- the set of TEAM/TRIAL/FIAT badges toggled on. A Set
   // rather than a single value because the two are additive: both on means "team OR fiat",
   // which is a different question from either alone. Empty = no filter.
   let activeSources = new Set();
@@ -267,6 +267,15 @@
 
   const isRealAddress = address => address && address !== 'Multiple' && address !== 'Unknown';
 
+  // Which payer badge a row gets. TRIAL is checked first: it is a sub-category of team (a
+  // Flux-paid first week), still team in every total, just coloured apart in the table.
+  function payerKind(tx) {
+    if (isFluxTrialPayment(tx)) return 'trial';
+    if (isFluxTeamAddress(tx.from_address)) return 'team';
+    if (isFluxFiatAddress(tx.from_address)) return 'fiat';
+    return null;
+  }
+
   function formatShortTxid(txid) {
     return txid.substring(0, 8) + '…' + txid.substring(txid.length - 6);
   }
@@ -325,7 +334,7 @@
         appTypeLabel(tx.app_type),
         tx.txid,
         tx.from_address || 'Unknown',
-        isFluxTeamAddress(tx.from_address) ? 'Team' : isFluxFiatAddress(tx.from_address) ? 'Fiat' : '',
+        ({ trial: 'Team (free trial)', team: 'Team', fiat: 'Fiat' })[payerKind(tx)] ?? '',
         tx.app_name || (tx.app_type === 'unregistered' ? 'Unregistered spec' : '-'),
         tx.amount.toFixed(8),
         tx.amount_usd !== null ? tx.amount_usd.toFixed(2) : '-',
@@ -455,6 +464,17 @@
       <button
         type="button"
         class="badge-filter"
+        class:active={activeSources.has('trial')}
+        aria-pressed={activeSources.has('trial')}
+        on:click={() => toggleSource('trial')}
+        title={activeSources.has('trial') ? 'Showing free-trial deployments — click to clear' : 'Show only new deployments whose free first week the Flux team paid'}
+      >
+        <span class="flux-trial-badge">TRIAL</span>
+        <span class="legend-text">free trial, paid by the Flux team</span>
+      </button>
+      <button
+        type="button"
+        class="badge-filter"
         class:active={activeSources.has('fiat')}
         aria-pressed={activeSources.has('fiat')}
         on:click={() => toggleSource('fiat')}
@@ -487,7 +507,7 @@
         </thead>
         <tbody>
           {#each transactions as tx}
-            <tr class:flux-team-row={isFluxTeamAddress(tx.from_address)} class:flux-fiat-row={isFluxFiatAddress(tx.from_address)}>
+            <tr class:flux-trial-row={payerKind(tx) === 'trial'} class:flux-team-row={payerKind(tx) === 'team'} class:flux-fiat-row={payerKind(tx) === 'fiat'}>
               <td class="type-col">
                 <TxTypeIcon type={tx.app_type} />
               </td>
@@ -507,9 +527,11 @@
                 {:else}
                   {formatAddress(tx.from_address)}
                 {/if}
-                {#if isFluxTeamAddress(tx.from_address)}
+                {#if payerKind(tx) === 'trial'}
+                  <span class="flux-trial-badge" title="Free trial: the Flux team paid this new deployment's first week — {tx.from_address}">TRIAL</span>
+                {:else if payerKind(tx) === 'team'}
                   <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
-                {:else if isFluxFiatAddress(tx.from_address)}
+                {:else if payerKind(tx) === 'fiat'}
                   <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
                 {/if}
               </td>
@@ -560,9 +582,11 @@
           <div class="tx-card-line tx-card-meta">
             <span>{formatDate(tx.date)} {formatTime(tx.timestamp)}</span>
             <TxTypeIcon type={tx.app_type} />
-            {#if isFluxTeamAddress(tx.from_address)}
+            {#if payerKind(tx) === 'trial'}
+              <span class="flux-trial-badge" title="Free trial: the Flux team paid this new deployment's first week — {tx.from_address}">TRIAL</span>
+            {:else if payerKind(tx) === 'team'}
               <span class="flux-team-badge" title="Funded by the Flux team — {tx.from_address}">TEAM</span>
-            {:else if isFluxFiatAddress(tx.from_address)}
+            {:else if payerKind(tx) === 'fiat'}
               <span class="flux-fiat-badge" title="Bought through the Flux fiat on-ramp">FIAT</span>
             {/if}
             <a href={getExplorerUrl(tx.txid)} target="_blank" rel="noopener noreferrer" class="txid-link tx-card-txid">{formatShortTxid(tx.txid)}</a>
@@ -1012,6 +1036,32 @@
     white-space: nowrap;
   }
 
+  /* Free trial: a sub-category of team, so the same treatment in pink. */
+  .flux-trial-row {
+    background: rgba(255, 121, 198, 0.06) !important;
+    border-left: 2px solid rgba(255, 121, 198, 0.4);
+  }
+
+  .flux-trial-row:hover {
+    background: rgba(255, 121, 198, 0.12) !important;
+  }
+
+  .flux-trial-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: 700;
+    color: #ff79c6;
+    background: rgba(255, 121, 198, 0.15);
+    border: 1px solid rgba(255, 121, 198, 0.4);
+    border-radius: var(--radius-sm);
+    padding: 0.1rem 0.35rem;
+    margin-left: 0.4rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
   .flux-fiat-row {
     background: rgba(241, 196, 83, 0.06) !important;
     border-left: 2px solid rgba(241, 196, 83, 0.4);
@@ -1037,7 +1087,7 @@
     white-space: nowrap;
   }
 
-  /* Key for the two payer badges. Understated on purpose — a footnote above the table,
+  /* Key for the payer badges. Understated on purpose — a footnote above the table,
      matching the treatment of .self-funded on the revenue card. */
   .badge-legend {
     display: flex;
@@ -1103,7 +1153,8 @@
   .badge-legend .flux-team-badge,
   .badge-filter .flux-team-badge,
   .badge-filter .flux-fiat-badge,
-  .badge-legend .flux-fiat-badge {
+  .badge-legend .flux-fiat-badge,
+  .badge-filter .flux-trial-badge {
     margin-left: 0;
   }
 

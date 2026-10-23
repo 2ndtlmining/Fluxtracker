@@ -1038,7 +1038,7 @@ function isMissingRpcSignature(error) {
     return message.includes('could not find the function') || message.includes('does not exist');
 }
 
-export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null) {
+export async function getTransactionsPaginated(page = 1, limit = 50, search = '', appName = null, fromAddresses = null, trialAddresses = null) {
     const offset = (page - 1) * limit;
 
     // Payer filter (issue #159) -- see migration 011. NULL rather than an empty array when
@@ -1053,10 +1053,23 @@ export async function getTransactionsPaginated(page = 1, limit = 50, search = ''
         p_offset: offset
     };
 
+    // TRIAL badge -- migration 034. Sent only when that badge is on, so a database without
+    // 034 keeps serving TEAM/FIAT; the new argument is what would make the call fail there.
+    const trial = Array.isArray(trialAddresses) && trialAddresses.length > 0 ? trialAddresses : null;
+
     let { data, error } = await supabase.rpc('get_transactions_paginated', {
         ...baseArgs,
-        p_from_addresses: addresses
+        p_from_addresses: addresses,
+        ...(trial ? { p_trial_addresses: trial } : {})
     });
+
+    if (error && trial && isMissingRpcSignature(error)) {
+        // Never fall back to unfiltered rows under an active badge (see below).
+        throw new Error(
+            'Transaction TRIAL filter needs migration 034 (get_transactions_paginated). ' +
+            `Apply supabase/migrations/034_free_trial_filter.sql. Cause: ${error.message}`
+        );
+    }
 
     // Deploy-order resilience. Migration 011 added p_from_addresses; deploying this code
     // against a database that has not had the migration applied yet makes PostgREST report

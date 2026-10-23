@@ -18,7 +18,7 @@ process.env.DB_PATH = tmpPath;
 process.env.DB_TYPE = 'sqlite';
 
 const adapter = await import('../adapters/sqliteAdapter.js');
-const { resolveSourceAddresses } = await import('../../../routes/api/revenue.js');
+const { resolveSourceAddresses, resolveTrialAddresses } = await import('../../../routes/api/revenue.js');
 
 const TEAM = 't1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY';
 const TEAM_2 = 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A'; // issue #551
@@ -101,5 +101,44 @@ describe('getTransactionsPaginated failure', () => {
         } finally {
             db.exec('ALTER TABLE revenue_transactions_hidden RENAME TO revenue_transactions');
         }
+    });
+});
+
+describe('getTransactionsPaginated TRIAL filter', () => {
+    const trialRows = [
+        { txid: 'tx-trial-reg', address: 'addr', from_address: TEAM_2, amount: 29, amount_usd: 3, block_height: 200, timestamp: 2000, date: '2026-10-20', app_name: 'dragonwilds1', app_type: 'docker', msg_type: 'register', expire_blocks: 20160 },
+        { txid: 'tx-trial-upd', address: 'addr', from_address: TEAM_2, amount: 370, amount_usd: 30, block_height: 201, timestamp: 2001, date: '2026-10-20', app_name: 'sweetside', app_type: 'docker', msg_type: 'update', expire_blocks: 125547 },
+        { txid: 'tx-rando-reg', address: 'addr', from_address: RANDO, amount: 14, amount_usd: 1, block_height: 202, timestamp: 2002, date: '2026-10-20', app_name: 'palworld1', app_type: 'docker', msg_type: 'register', expire_blocks: 20160 }
+    ];
+
+    beforeAll(async () => { await adapter.insertTransactionsBatch(trialRows); });
+    afterAll(() => {
+        adapter.getDb().prepare("DELETE FROM revenue_transactions WHERE txid IN ('tx-trial-reg','tx-trial-upd','tx-rando-reg')").run();
+    });
+
+    it('matches only registrations from a trial address', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, '', null, resolveSourceAddresses('trial'), resolveTrialAddresses('trial'));
+        expect(txids(r)).toEqual(['tx-trial-reg']);
+        expect(r.total).toBe(1);
+    });
+
+    it('returns msg_type on each row, which the TRIAL badge reads', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, '', null, null, resolveTrialAddresses('trial'));
+        expect(r.transactions[0].msg_type).toBe('register');
+    });
+
+    it('unions with FIAT like the other badges', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, '', null, resolveSourceAddresses('fiat,trial'), resolveTrialAddresses('fiat,trial'));
+        expect(txids(r)).toEqual(['tx-fiat-1', 'tx-trial-reg']);
+    });
+
+    it('TEAM still includes trials and the trial address updates', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, '', null, resolveSourceAddresses('team'), resolveTrialAddresses('team'));
+        expect(txids(r)).toEqual(['tx-team-1', 'tx-team-2', 'tx-team-551', 'tx-trial-reg', 'tx-trial-upd']);
+    });
+
+    it('ANDs with the search box', async () => {
+        const r = await adapter.getTransactionsPaginated(1, 50, 'sweetside', null, null, resolveTrialAddresses('trial'));
+        expect(r.total).toBe(0);
     });
 });
