@@ -54,6 +54,10 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('vintagestory1792500000000')).toBe('Vintage Story');
         // Issue #549: the hub's shape, not live yet (2026-10-23).
         expect(resolveGameFromAppName('beammp1792600000000')).toBe('BeamMP');
+        // Issue #556: the hub's shape, not live yet (2026-10-24).
+        expect(resolveGameFromAppName('soulmask1792700000000')).toBe('Soulmask');
+        // A hand-named server is not a hub deployment.
+        expect(resolveGameFromAppName('soulmaskserver1')).not.toBe('Soulmask');
     });
 
     it('totals every plan of one game under the canonical name', () => {

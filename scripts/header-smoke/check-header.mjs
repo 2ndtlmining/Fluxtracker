@@ -188,6 +188,12 @@ const GAME_ART_BY_NAME = {
   beammp: {
     signature: /\]=\[\]=\[/,
     movingRows: rows => rows.filter(r => /'-o|o-'/.test(r.text))
+  },
+  // Issue #556: the jungle floor (no other scene draws it, and it is in every frame); the
+  // mask's eye row -- drifting in, settling, igniting, going dark, falling -- is what moves.
+  soulmask: {
+    signature: /\.,;'\.,;'/,
+    movingRows: rows => rows.filter(r => /\|[o*.]\|[o*.]\|/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -216,7 +222,8 @@ const UPDATED_DEPLOYED_NAME = {
   trucksim: 'eurotrucksimulator21789155733041',
   tf2: 'teamfortress21789155733041',
   vintagestory: 'vintagestory1789155733041',
-  beammp: 'beammp1789155733041'
+  beammp: 'beammp1789155733041',
+  soulmask: 'soulmask1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
@@ -303,7 +310,7 @@ const run = async () => {
   const fuseFrames = new Set();
   // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
   // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
-  // that game's art AND the controller fallback (the initial fixture is soulmask, which
+  // that game's art AND the controller fallback (the initial fixture is abioticfactor, which
   // has none). The three games need three runs -- see the note in stub-api.mjs.
   let sawGameArtFrame = false;
   const gameArtMovingRows = new Set();

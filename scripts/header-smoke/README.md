@@ -27,13 +27,13 @@ timing changes) are caught mechanically.
   is longer than the harness's 100s budget, so a full sweep is four runs:
 
   ```bash
-  for g in valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle tmodloader trucksim tf2 vintagestory beammp; do
+  for g in valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle tmodloader trucksim tf2 vintagestory beammp soulmask; do
     DEPLOYED_GAME=$g node scripts/header-smoke/stub-api.mjs &   # restart between runs
     DEPLOYED_GAME=$g node scripts/header-smoke/check-header.mjs
   done
   ```
 
-  The first fixture (soulmask) has no art of its own, so every run also covers the shared
+  The first fixture (abioticfactor) has no art of its own, so every run also covers the shared
   controller fallback.
 - **Now playing** (issue #283): the deployed frame's closing bookend says where the app sits
   in the day (`#1 OF 1 IN 24H` against the stub's one-app lists)

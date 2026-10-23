@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-23** (v1.32)
+**Last reviewed: 2026-10-24** (v1.33)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,13 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-23 (v1.32):** open.
+**Status at 2026-10-24 (v1.33):** open.
+- **Games:** Soulmask (#556) is tracked as its own game, with an icon (a tribal mask) and
+  header art (the mask settles on a tribesman and its eyes ignite; the outro lets them go
+  dark and the mask falls), added before its first deployment from the hub's own match
+  rule. The header smoke's "game without art" fixture moved to Abiotic Factor.
+
+**Status at 2026-10-23 (v1.32):** merged.
 - **Message metadata gap:** a payment whose name came from the global specs cache was stored
   with no msg_type/expire/instances, and nothing filled it but the manual
   backfill-message-metadata endpoint (25% of October's rows; it hid TRIAL badges and
@@ -119,7 +125,7 @@ rule links to an issue.
   (#487: #417); art for Enshrouded, Rust, Windrose, Terraria and a FiveM outro (#488: #418);
   a factory scene for Satisfactory/Factorio and ARK (#491: #419); n8n, SimpleX and
   Nextcloud/ownCloud (#491: #420). Every dedicated-site game now has art; the harness's
-  "game without art" fixture is a Soulmask image.
+  "game without art" fixture is a Soulmask image (an Abiotic Factor image since #556).
 - **KPI:** the *In datacenters* tile became *Ordered vs supplied* (#492: #482). #452 (numbers
   moving, Hetzner twice) was the old per-IP method, fixed by #458, and closed with an explanation.
 
