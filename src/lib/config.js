@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.32';
+export const APP_VERSION = 'v1.33';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -326,7 +326,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'vintagestory', name: 'Vintage Story' },
     // Issue #549. The hub's own match rule (runonflux.com/games): beammp<13 digits>,
     // an encrypted spec. Not deployed when added (2026-10-23), so the first one counts.
-    { prefix: 'beammp', name: 'BeamMP' }
+    { prefix: 'beammp', name: 'BeamMP' },
+    // Issue #556. The hub's own match rule (runonflux.com/games): soulmask<13 digits>,
+    // an encrypted spec. Not deployed when added (2026-10-24), so the first one counts.
+    { prefix: 'soulmask', name: 'Soulmask' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -582,6 +585,8 @@ export const TRACKED_GAMES = [
     { name: 'Vintage Story', dbKey: 'gaming_vintagestory' },
     // Issue #549. Counted by app name (encrypted spec), the hub's image and community images.
     { name: 'BeamMP', dbKey: 'gaming_beammp' },
+    // Issue #556. Counted by app name (encrypted spec), the hub's image and community images.
+    { name: 'Soulmask', dbKey: 'gaming_soulmask' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1238,6 +1243,11 @@ const DISPLAY_NAME_OVERRIDES = {
     'ich777/beamng-mp-server': 'BeamMP',
     'rouhim/beammp-server': 'BeamMP',
     'ponbus/beammp': 'BeamMP',
+    // Issue #556: the games hub's own image, Flux's earlier soulmask-flux image, and the
+    // two community images seen on the network.
+    'runonflux/soulmask-server-flux': 'Soulmask',
+    'runonflux/soulmask-flux': 'Soulmask',
+    'sknnr/soulmask-dedicated-server': 'Soulmask',
     'kagurazakanyaa/soulmask': 'Soulmask',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
@@ -1319,6 +1329,12 @@ export const CANONICAL_NAME_OVERRIDES = {
     'ich777/beamng-mp-server': 'BeamMP',
     'rouhim/beammp-server': 'BeamMP',
     'ponbus/beammp': 'BeamMP',
+    // Issue #556: the games hub's own image, Flux's earlier soulmask-flux image, and the
+    // two community images seen on the network.
+    'runonflux/soulmask-server-flux': 'Soulmask',
+    'runonflux/soulmask-flux': 'Soulmask',
+    'sknnr/soulmask-dedicated-server': 'Soulmask',
+    'kagurazakanyaa/soulmask': 'Soulmask',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

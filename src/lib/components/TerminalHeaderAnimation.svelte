@@ -128,6 +128,9 @@
     formatBeamMpFrame, beamMpFrameKinds, formatBeamMpOutro, BATCH18_FRAME_COUNT
   } from '$lib/utils/introArt18.js';
   import {
+    formatSoulmaskFrame, soulmaskFrameKinds, formatSoulmaskOutro, BATCH19_FRAME_COUNT
+  } from '$lib/utils/introArt19.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -269,7 +272,9 @@
     // Issue #547. The 'vintagestory' prefix and the hub's vintagestory image resolve here.
     'Vintage Story': { frameCount: BATCH17_FRAME_COUNT, format: formatVintageStoryFrame, kinds: vintageStoryFrameKinds },
     // Issue #549. The 'beammp' prefix and the hub's beammp/beamng images resolve here.
-    'BeamMP': { frameCount: BATCH18_FRAME_COUNT, format: formatBeamMpFrame, kinds: beamMpFrameKinds }
+    'BeamMP': { frameCount: BATCH18_FRAME_COUNT, format: formatBeamMpFrame, kinds: beamMpFrameKinds },
+    // Issue #556. The 'soulmask' prefix and the hub's soulmask image resolve here.
+    'Soulmask': { frameCount: BATCH19_FRAME_COUNT, format: formatSoulmaskFrame, kinds: soulmaskFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -324,7 +329,8 @@
     'Truck Simulator': outro(formatTruckSimOutro),           // #538
     'Team Fortress 2': outro(formatTf2Outro),                // #540
     'Vintage Story': outro(formatVintageStoryOutro),         // #547
-    'BeamMP': outro(formatBeamMpOutro)                       // #549
+    'BeamMP': outro(formatBeamMpOutro),                      // #549
+    'Soulmask': outro(formatSoulmaskOutro)                   // #556
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

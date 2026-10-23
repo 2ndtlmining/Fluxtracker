@@ -23,10 +23,11 @@ const HEADER_DELAY_MS = Number(process.env.HEADER_DELAY_MS || 0);
 
 // A game with no art of its own, so every run covers the shared controller fallback. It is
 // recognised by its image (a hand-named app), because every dedicated-site game prefix now
-// has art. Was enshrouded until #418 gave Enshrouded its Flame Altar.
+// has art. Was enshrouded until #418 gave Enshrouded its Flame Altar, then soulmask until
+// #556 gave Soulmask its mask.
 const INITIAL_DEPLOYED = {
-  name: 'soulmaskserver1',
-  repo: 'sknnr/soulmask-dedicated-server:latest',
+  name: 'abioticfactorserver1',
+  repo: 'littlestache/abioticfactorserver:latest',
   instances: 3,
   cpu: 2,
   ram: 4096,
@@ -65,7 +66,8 @@ const DEPLOYED_GAME_NAMES = {
   trucksim: 'eurotrucksimulator21789155733041',
   tf2: 'teamfortress21789155733041',
   vintagestory: 'vintagestory1789155733041',
-  beammp: 'beammp1789155733041'
+  beammp: 'beammp1789155733041',
+  soulmask: 'soulmask1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
@@ -75,7 +77,7 @@ if (!DEPLOYED_GAME_NAME) {
 }
 
 const UPDATED_DEPLOYED = {
-  // A game with art of its own, where the FIRST fixture (soulmask) is a game without
+  // A game with art of its own, where the FIRST fixture (abioticfactor) is a game without
   // any -- so one run covers the per-game intro AND the shared controller fallback.
   //
   // That first fixture used to be palworld, which had no art until it got its own intro.

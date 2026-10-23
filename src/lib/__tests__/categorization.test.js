@@ -124,6 +124,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('globalping/globalping-probe:latest')).not.toBe('gaming');
     });
 
+    it('counts the Soulmask hub and community images as a game (#556)', () => {
+        expect(categorizeImage('runonflux/soulmask-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('sknnr/soulmask-dedicated-server:latest')).toBe('gaming');
+        expect(categorizeImage('kagurazakanyaa/soulmask:latest')).toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -284,6 +290,17 @@ describe('getCanonicalName', () => {
             'ponbus/beammp:latest'
         ]) {
             expect(getCanonicalName(image)).toBe('BeamMP');
+        }
+    });
+
+    it("names the games hub's and the community Soulmask images (#556)", () => {
+        for (const image of [
+            'runonflux/soulmask-server-flux:latest',
+            'runonflux/soulmask-flux:latest',
+            'sknnr/soulmask-dedicated-server:latest',
+            'kagurazakanyaa/soulmask:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Soulmask');
         }
     });
 
