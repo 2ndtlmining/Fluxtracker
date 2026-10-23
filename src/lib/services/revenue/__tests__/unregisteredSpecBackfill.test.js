@@ -27,7 +27,8 @@ vi.mock('../transactionSync.js', () => ({
     UNREGISTERED_APP_TYPE: 'unregistered',
     isUnregisteredSpec: vi.fn(),
     fetchPermanentMessages: vi.fn(),
-    getMessageMetadataIndex: vi.fn()
+    getMessageMetadataIndex: vi.fn(),
+    getPermanentMessagesFetchedAt: vi.fn(() => 0)
 }));
 
 import * as db from '../../../db/database.js';

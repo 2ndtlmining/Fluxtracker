@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-23** (v1.31)
+**Last reviewed: 2026-10-23** (v1.32)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,15 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-23 (v1.31):** open.
+**Status at 2026-10-23 (v1.32):** open.
+- **Message metadata gap:** a payment whose name came from the global specs cache was stored
+  with no msg_type/expire/instances, and nothing filled it but the manual
+  backfill-message-metadata endpoint (25% of October's rows; it hid TRIAL badges and
+  under-counted "new" in the revenue mix). The sync now fetches the payment's message when
+  the name is known but the metadata is not (recent payments only, same negative cache), and
+  each daily permanentmessages dump is applied once to rows still missing it. No migration.
+
+**Status at 2026-10-23 (v1.31):** merged.
 - **Free trial badge:** Flux pays the first week of a new deployment from
   t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A (94 of 94 sampled registrations at expire = 20160 blocks,
   7 days; it was a month before). Those REGISTRATIONS get a pink TRIAL badge and legend filter
