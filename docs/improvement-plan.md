@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-23** (v1.30)
+**Last reviewed: 2026-10-23** (v1.31)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,16 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-23 (v1.30):** open.
+**Status at 2026-10-23 (v1.31):** open.
+- **Free trial badge:** Flux pays the first week of a new deployment from
+  t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A (94 of 94 sampled registrations at expire = 20160 blocks,
+  7 days; it was a month before). Those REGISTRATIONS get a pink TRIAL badge and legend filter
+  in the transaction log, a sub-category of TEAM: still team in every total, and TEAM still
+  shows them. Its updates stay TEAM. **Apply migration 034** (get_transactions_paginated now
+  returns msg_type and takes p_trial_addresses); until then rows show TEAM and only the TRIAL
+  filter errors.
+
+**Status at 2026-10-23 (v1.30):** merged.
 - **Revenue sources:** t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A (#551) joins FLUX_TEAM_ADDRESSES, so
   its payments carry the TEAM badge and count as Flux team in the KPI, charts and CSV. It
   also sends the 0.02 FLUX spec-change fees, which stay excluded.

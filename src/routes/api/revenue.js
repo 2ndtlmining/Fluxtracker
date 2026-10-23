@@ -12,7 +12,7 @@ import {
     getTransactionsPaginated
 } from '../../lib/db/database.js';
 
-import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES } from '../../lib/config.js';
+import { FLUX_TEAM_ADDRESSES, FLUX_FIAT_ADDRESSES, FLUX_TRIAL_ADDRESSES } from '../../lib/config.js';
 import { getToDateRanges, TIMEFRAMES } from '../../lib/kpi/periods.js';
 import { createLogger } from '../../lib/logger.js';
 import { createCache, withDbFallback } from '../../lib/serverHelpers.js';
@@ -45,7 +45,8 @@ export function resolvePageSize(rawLimit) {
 
 // Payer sources the TEAM / FIAT badges filter by (issue #159). Resolved server-side from
 // config rather than letting the client post an address list -- the client naming its own
-// addresses would turn this into an arbitrary from_address query.
+// addresses would turn this into an arbitrary from_address query. TRIAL is not a plain
+// address set; see resolveTrialAddresses.
 const TRANSACTION_SOURCES = {
     team: FLUX_TEAM_ADDRESSES,
     fiat: FLUX_FIAT_ADDRESSES
@@ -67,6 +68,19 @@ export function resolveSourceAddresses(sourceParam) {
     // Deduped: an address listed under two sources must not double-count in the IN clause.
     const unique = [...new Set(addresses)];
     return unique.length > 0 ? unique : null;
+}
+
+/**
+ * The TRIAL badge's addresses when `source` names it, else null. Separate from
+ * resolveSourceAddresses because a trial is not a whole address: it is a REGISTRATION from
+ * one (config.js isFluxTrialPayment), so the adapters match it with its own predicate,
+ * OR-ed with the address set. Trials are a subset of team, so TEAM alone already shows them.
+ * @returns {string[]|null}
+ */
+export function resolveTrialAddresses(sourceParam) {
+    if (!sourceParam) return null;
+    const names = String(sourceParam).split(',').map(s => s.trim().toLowerCase());
+    return names.includes('trial') && FLUX_TRIAL_ADDRESSES.length > 0 ? [...FLUX_TRIAL_ADDRESSES] : null;
 }
 
 /**
@@ -217,8 +231,9 @@ router.get('/transactions/paginated', async (req, res) => {
         const search = req.query.search || '';
         const appName = req.query.appName || null;
         const fromAddresses = resolveSourceAddresses(req.query.source);
+        const trialAddresses = resolveTrialAddresses(req.query.source);
 
-        const result = await getTransactionsPaginated(page, limit, search, appName, fromAddresses);
+        const result = await getTransactionsPaginated(page, limit, search, appName, fromAddresses, trialAddresses);
 
         res.json({
             transactions: result.transactions,
