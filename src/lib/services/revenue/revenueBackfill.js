@@ -20,7 +20,8 @@ import {
     UNREGISTERED_APP_TYPE,
     isUnregisteredSpec,
     fetchPermanentMessages,
-    getMessageMetadataIndex
+    getMessageMetadataIndex,
+    getPermanentMessagesFetchedAt
 } from './transactionSync.js';
 
 const log = createLogger('revenueService');
@@ -39,6 +40,29 @@ const log = createLogger('revenueService');
  */
 export async function backfillMessageMetadata() {
     await fetchPermanentMessages();
+    return applyMessageMetadata();
+}
+
+// The full dump the last automatic catch-up applied (epoch ms). Module state: a restart
+// re-applies once, which is harmless -- only rows still missing metadata are written.
+let metadataAppliedFor = 0;
+
+/**
+ * Automatic form of the back-fill, run after every revenue sync: applies the cached dump to
+ * rows still missing metadata, once per fresh dump (daily, #414), never re-downloading it.
+ * Catches any payment stored before its message reached the cache -- before this, those
+ * stayed NULL until someone ran the admin endpoint by hand.
+ * @returns {Promise<{messages: number, updated: number}|null>} null when there was nothing new
+ */
+export async function catchUpMessageMetadata() {
+    const fetchedAt = getPermanentMessagesFetchedAt();
+    if (!fetchedAt || fetchedAt <= metadataAppliedFor || getMessageMetadataIndex().size === 0) return null;
+    const result = await applyMessageMetadata();
+    metadataAppliedFor = fetchedAt;
+    return result;
+}
+
+async function applyMessageMetadata() {
     const index = getMessageMetadataIndex();
     if (index.size === 0) {
         throw new Error('No permanent messages loaded -- the API did not answer; nothing was changed');
@@ -189,7 +213,7 @@ export async function backfillAppNames(batchSize = 500, recentDays = null, skipF
 
             // Same targeted fallback as the sync path: a recent registration the cached
             // map has not seen yet is resolved on this pass instead of the next hour's.
-            const appName = await resolveAppName(opReturn.value, tx.blocktime);
+            const appName = await resolveAppName(opReturn.value, tx.blocktime, txid);
             if (!appName) {
                 // A spec Flux never accepted: say so instead of leaving a blank name, and
                 // park it like FluxDrive so the auto pass stops re-fetching it. app_name

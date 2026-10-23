@@ -245,3 +245,50 @@ describe('isUnregisteredSpec', () => {
         expect(fullLoads()).toBe(2);
     });
 });
+
+describe('resolveAppName with a payment txid -- message metadata', () => {
+    const TXID = 'a'.repeat(64);
+    const registration = name => ({
+        status: 'success',
+        data: [{ hash: HASH, txid: TXID, type: 'fluxappregister', height: 3060000, appSpecifications: { name, expire: 20160, instances: 2, compose: [] } }]
+    });
+
+    it('fetches the message when the global specs know the name but not the payment', async () => {
+        // The gap behind the missing TRIAL badges: a name from globalappsspecifications
+        // returned early, so the payment was stored with no msg_type.
+        getAppNameByHash.mockReturnValue('dragonwilds1792713503353');
+        resilientFetch.mockResolvedValue(registration('dragonwilds1792713503353'));
+        const { resolveAppName, lookupMessageMetadata } = await loadSync();
+
+        await expect(resolveAppName(HASH, nowSeconds(), TXID)).resolves.toBe('dragonwilds1792713503353');
+        expect(resilientFetch).toHaveBeenCalledTimes(1);
+        expect(lookupMessageMetadata(TXID)).toMatchObject({ msg_type: 'register', expire_blocks: 20160 });
+    });
+
+    it('keeps the known name when the message is not out yet, and backs off', async () => {
+        getAppNameByHash.mockReturnValue('known-app');
+        resilientFetch.mockResolvedValue({ status: 'success', data: [] });
+        const { resolveAppName } = await loadSync();
+
+        await expect(resolveAppName(HASH, nowSeconds(), TXID)).resolves.toBe('known-app');
+        await expect(resolveAppName(HASH, nowSeconds(), TXID)).resolves.toBe('known-app');
+        expect(resilientFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not ask about an old payment -- the daily catch-up covers those', async () => {
+        getAppNameByHash.mockReturnValue('known-app');
+        const { resolveAppName } = await loadSync();
+
+        await expect(resolveAppName(HASH, nowSeconds() - 2 * 86400, TXID)).resolves.toBe('known-app');
+        expect(resilientFetch).not.toHaveBeenCalled();
+    });
+
+    it('costs no request once the payment metadata is cached', async () => {
+        resilientFetch.mockResolvedValue(registration('valheim1'));
+        const { resolveAppName } = await loadSync();
+
+        await resolveAppName(HASH, nowSeconds(), TXID);
+        await resolveAppName(HASH, nowSeconds(), TXID);
+        expect(resilientFetch).toHaveBeenCalledTimes(1);
+    });
+});

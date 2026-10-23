@@ -9,7 +9,7 @@ import {
 import { setRevenueSyncRunning, setRevenueSyncError } from './revenueSyncState.js';
 import { fetchFluxPrice } from '../fluxNetworkData.js';
 import { progressiveSync } from './transactionSync.js';
-import { backfillAppTypes, backfillAppNames } from './revenueBackfill.js';
+import { backfillAppTypes, backfillAppNames, catchUpMessageMetadata } from './revenueBackfill.js';
 import { getToDateRanges } from '../../kpi/periods.js';
 
 const log = createLogger('revenueService');
@@ -153,6 +153,14 @@ async function runRevenueStats() {
 
         // Auto-backfill missing app_type (git/docker) for transactions that have app_name
         await backfillAppTypes();
+
+        // Fill msg_type & co. on rows stored before their message was cached -- once per
+        // daily dump. Never fails the sync: the rows are already stored and counted.
+        try {
+            await catchUpMessageMetadata();
+        } catch (error) {
+            log.warn({ err: error }, 'Message metadata catch-up failed; retried after the next dump');
+        }
 
         // Calculate daily revenue
         const dailyRevenue = await calculateDailyRevenue();

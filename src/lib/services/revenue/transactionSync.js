@@ -367,22 +367,26 @@ export async function fetchPermanentMessageByHash(hash) {
  * @param {?string} hash app spec hash from the transaction's OP_RETURN
  * @param {?number} txTimestamp unix seconds; older than a day skips the targeted call
  */
-export async function resolveAppName(hash, txTimestamp = null) {
+export async function resolveAppName(hash, txTimestamp = null, txid = null) {
     if (!hash) return null;
 
+    // A name alone is not enough when the caller names the payment: the global specs cache
+    // knows a new app's name but not its message, so the payment was stored with no msg_type
+    // and only a manual back-fill ever filled it (a quarter of October's rows, which hid the
+    // TRIAL badge). The targeted query below brings the message, and its metadata, with it.
     const cached = lookupAppName(hash);
-    if (cached) return cached;
+    if (cached && (!txid || lookupMessageMetadata(txid))) return cached;
 
     const ageMs = Number.isFinite(txTimestamp) ? Date.now() - txTimestamp * 1000 : Infinity;
-    if (ageMs > TARGETED_LOOKUP_MAX_TX_AGE_MS) return null;
+    if (ageMs > TARGETED_LOOKUP_MAX_TX_AGE_MS) return cached;
 
     const lastMiss = missedHashes.get(hash);
-    if (lastMiss && Date.now() - lastMiss < MISSED_HASH_RETRY_MS) return null;
+    if (lastMiss && Date.now() - lastMiss < MISSED_HASH_RETRY_MS) return cached;
 
     const name = await fetchPermanentMessageByHash(hash);
     if (!name) {
         missedHashes.set(hash, Date.now());
-        return null;
+        return cached;
     }
 
     missedHashes.delete(hash);
@@ -436,6 +440,11 @@ export function isUnregisteredSpec(hash, txTimestamp) {
 /** Message metadata by payment txid (issue #262); null when no message names it. */
 export function lookupMessageMetadata(txid) {
     return permanentMessagesCache.metaByTxid.get(txid) || null;
+}
+
+/** When the full permanentmessages dump last loaded, epoch ms (0 = never). */
+export function getPermanentMessagesFetchedAt() {
+    return permanentMessagesCache.lastFetched;
 }
 
 /** Every payment the cached messages describe -- the back-fill's source (issue #262). */
@@ -524,7 +533,8 @@ export function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, ap
                     app_name: appName || null,
                     app_type: appType || null,
                     // Issue #262: new app or renewal, enterprise, blocks bought, instances.
-                    // Null when the message is not cached yet; the back-fill catches up.
+                    // Null when the message is not cached yet; the daily catch-up after each
+                    // full dump fills it (catchUpMessageMetadata).
                     msg_type: meta?.msg_type ?? null,
                     enterprise: meta?.enterprise ?? null,
                     expire_blocks: meta?.expire_blocks ?? null,
@@ -668,7 +678,7 @@ export async function progressiveSync() {
                     // leaving the row unnamed until the next hourly cache refresh. A FluxDrive
                     // payment has no name to find -- it carries its type instead.
                     const opReturn = classifyOpReturn(tx);
-                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime, tx.txid) : null;
                     const appType = opReturn.kind === 'fluxdrive'
                         ? FLUXDRIVE_APP_TYPE
                         : (appName ? lookupAppType(appName) : null);
@@ -729,7 +739,7 @@ export async function progressiveSync() {
                         if (!tx.confirmations || tx.confirmations < 8) continue;
 
                         const opReturn = classifyOpReturn(tx);
-                        const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                        const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime, tx.txid) : null;
                         const appType = opReturn.kind === 'fluxdrive'
                             ? FLUXDRIVE_APP_TYPE
                             : (appName ? lookupAppType(appName) : null);
@@ -856,7 +866,7 @@ export async function auditRecentTransactions() {
                     if (!tx || !tx.confirmations || tx.confirmations < 8) continue;
 
                     const opReturn = classifyOpReturn(tx);
-                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime) : null;
+                    const appName = opReturn.kind === 'hash' ? await resolveAppName(opReturn.value, tx.blocktime, tx.txid) : null;
                     const appType = opReturn.kind === 'fluxdrive'
                         ? FLUXDRIVE_APP_TYPE
                         : (appName ? lookupAppType(appName) : null);
