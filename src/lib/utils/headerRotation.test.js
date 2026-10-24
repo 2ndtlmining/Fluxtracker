@@ -109,6 +109,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Issue #556: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('soulmask1792700000000', 1))).toBe('game:Soulmask');
     expect(resolveIntroKey(app('cloudmist', 1, 'runonflux/soulmask-server-flux:latest'))).toBe('game:Soulmask');
+    // Conan Exiles: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('conanexiles1792800000000', 1))).toBe('game:Conan Exiles');
+    expect(resolveIntroKey(app('exiledlands', 1, 'runonflux/conanexiles-server-flux:latest'))).toBe('game:Conan Exiles');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

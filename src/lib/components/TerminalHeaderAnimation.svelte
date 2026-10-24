@@ -131,6 +131,9 @@
     formatSoulmaskFrame, soulmaskFrameKinds, formatSoulmaskOutro, BATCH19_FRAME_COUNT
   } from '$lib/utils/introArt19.js';
   import {
+    formatConanExilesFrame, conanExilesFrameKinds, formatConanExilesOutro, BATCH20_FRAME_COUNT
+  } from '$lib/utils/introArt20.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -274,7 +277,9 @@
     // Issue #549. The 'beammp' prefix and the hub's beammp/beamng images resolve here.
     'BeamMP': { frameCount: BATCH18_FRAME_COUNT, format: formatBeamMpFrame, kinds: beamMpFrameKinds },
     // Issue #556. The 'soulmask' prefix and the hub's soulmask image resolve here.
-    'Soulmask': { frameCount: BATCH19_FRAME_COUNT, format: formatSoulmaskFrame, kinds: soulmaskFrameKinds }
+    'Soulmask': { frameCount: BATCH19_FRAME_COUNT, format: formatSoulmaskFrame, kinds: soulmaskFrameKinds },
+    // The 'conanexiles' prefix and the hub's conanexiles images resolve here.
+    'Conan Exiles': { frameCount: BATCH20_FRAME_COUNT, format: formatConanExilesFrame, kinds: conanExilesFrameKinds }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -330,7 +335,8 @@
     'Team Fortress 2': outro(formatTf2Outro),                // #540
     'Vintage Story': outro(formatVintageStoryOutro),         // #547
     'BeamMP': outro(formatBeamMpOutro),                      // #549
-    'Soulmask': outro(formatSoulmaskOutro)                   // #556
+    'Soulmask': outro(formatSoulmaskOutro),                  // #556
+    'Conan Exiles': outro(formatConanExilesOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

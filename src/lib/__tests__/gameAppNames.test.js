@@ -58,6 +58,9 @@ describe('resolveGameFromAppName', () => {
         expect(resolveGameFromAppName('soulmask1792700000000')).toBe('Soulmask');
         // A hand-named server is not a hub deployment.
         expect(resolveGameFromAppName('soulmaskserver1')).not.toBe('Soulmask');
+        // Conan Exiles: the hub's shape, not live yet (2026-10-25).
+        expect(resolveGameFromAppName('conanexiles1792800000000')).toBe('Conan Exiles');
+        expect(resolveGameFromAppName('conanexilesserver1')).not.toBe('Conan Exiles');
     });
 
     it('totals every plan of one game under the canonical name', () => {
