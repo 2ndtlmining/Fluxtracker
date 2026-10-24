@@ -130,6 +130,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('kagurazakanyaa/soulmask:latest')).toBe('gaming');
     });
 
+    it('counts the Conan Exiles hub and community images as a game, not Conan the package manager', () => {
+        expect(categorizeImage('runonflux/conanexiles-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('alinmear/docker-conanexiles:latest')).toBe('gaming');
+        expect(categorizeImage('conanio/gcc11:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -301,6 +307,15 @@ describe('getCanonicalName', () => {
             'kagurazakanyaa/soulmask:latest'
         ]) {
             expect(getCanonicalName(image)).toBe('Soulmask');
+        }
+    });
+
+    it("names the games hub's and the community Conan Exiles images", () => {
+        for (const image of [
+            'runonflux/conanexiles-server-flux:latest',
+            'alinmear/docker-conanexiles:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Conan Exiles');
         }
     });
 

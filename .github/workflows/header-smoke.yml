@@ -49,7 +49,7 @@ env:
   SMOKE_GAMES: >-
     valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose
     terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle
-    tmodloader trucksim tf2 vintagestory beammp soulmask
+    tmodloader trucksim tf2 vintagestory beammp soulmask conanexiles
   # Run for header-only changes. Chosen so each takes a different path through the
   # component's intro lookup:
   #   valheim     -- an array of variants picked per app name (pickVariant), the original

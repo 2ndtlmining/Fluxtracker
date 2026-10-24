@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.33';
+export const APP_VERSION = 'v1.34';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -329,7 +329,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'beammp', name: 'BeamMP' },
     // Issue #556. The hub's own match rule (runonflux.com/games): soulmask<13 digits>,
     // an encrypted spec. Not deployed when added (2026-10-24), so the first one counts.
-    { prefix: 'soulmask', name: 'Soulmask' }
+    { prefix: 'soulmask', name: 'Soulmask' },
+    // Conan Exiles. The hub's own match rule (runonflux.com/games): conanexiles<13 digits>,
+    // an encrypted spec. Not deployed when added (2026-10-25), so the first one counts.
+    { prefix: 'conanexiles', name: 'Conan Exiles' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -587,6 +590,8 @@ export const TRACKED_GAMES = [
     { name: 'BeamMP', dbKey: 'gaming_beammp' },
     // Issue #556. Counted by app name (encrypted spec), the hub's image and community images.
     { name: 'Soulmask', dbKey: 'gaming_soulmask' },
+    // Counted by app name (encrypted spec), the hub's image and community images.
+    { name: 'Conan Exiles', dbKey: 'gaming_conanexiles' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1063,6 +1068,11 @@ export const CATEGORY_CONFIG = {
                    // beammp-server-flux and its rule also accepts beamng-mp-server. Never a
                    // bare 'beam': the Beam coin (beam105) and the probeamericas probes carry it.
                    'beammp', 'beamng',
+                   // Conan Exiles. The hub's image is conanexiles-server-flux and its rule also
+                   // accepts alinmear/docker-conanexiles; 'conan-exiles' (above) matches
+                   // neither. Never a bare 'conan': the C/C++ package manager's images
+                   // (conanio/*) carry it.
+                   'conanexiles',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1249,6 +1259,10 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/soulmask-flux': 'Soulmask',
     'sknnr/soulmask-dedicated-server': 'Soulmask',
     'kagurazakanyaa/soulmask': 'Soulmask',
+    // Conan Exiles: the games hub's own image and the community image its rule also
+    // accepts (alinmear).
+    'runonflux/conanexiles-server-flux': 'Conan Exiles',
+    'alinmear/docker-conanexiles': 'Conan Exiles',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
@@ -1335,6 +1349,10 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/soulmask-flux': 'Soulmask',
     'sknnr/soulmask-dedicated-server': 'Soulmask',
     'kagurazakanyaa/soulmask': 'Soulmask',
+    // Conan Exiles: the games hub's own image and the community image its rule also
+    // accepts (alinmear).
+    'runonflux/conanexiles-server-flux': 'Conan Exiles',
+    'alinmear/docker-conanexiles': 'Conan Exiles',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
