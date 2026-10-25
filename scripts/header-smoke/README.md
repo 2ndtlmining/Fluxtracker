@@ -27,7 +27,7 @@ timing changes) are caught mechanically.
   is longer than the harness's 100s budget, so a full sweep is four runs:
 
   ```bash
-  for g in valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle tmodloader trucksim tf2 vintagestory beammp soulmask conanexiles; do
+  for g in valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle tmodloader trucksim tf2 vintagestory beammp soulmask conanexiles sonsoftheforest; do
     DEPLOYED_GAME=$g node scripts/header-smoke/stub-api.mjs &   # restart between runs
     DEPLOYED_GAME=$g node scripts/header-smoke/check-header.mjs
   done

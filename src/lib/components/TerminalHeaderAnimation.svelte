@@ -134,6 +134,10 @@
     formatConanExilesFrame, conanExilesFrameKinds, formatConanExilesOutro, BATCH20_FRAME_COUNT
   } from '$lib/utils/introArt20.js';
   import {
+    formatSonsOfTheForestFrame, sonsOfTheForestFrameKinds, formatSonsOfTheForestOutro,
+    BATCH21_FRAME_COUNT
+  } from '$lib/utils/introArt21.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -279,7 +283,11 @@
     // Issue #556. The 'soulmask' prefix and the hub's soulmask image resolve here.
     'Soulmask': { frameCount: BATCH19_FRAME_COUNT, format: formatSoulmaskFrame, kinds: soulmaskFrameKinds },
     // The 'conanexiles' prefix and the hub's conanexiles images resolve here.
-    'Conan Exiles': { frameCount: BATCH20_FRAME_COUNT, format: formatConanExilesFrame, kinds: conanExilesFrameKinds }
+    'Conan Exiles': { frameCount: BATCH20_FRAME_COUNT, format: formatConanExilesFrame, kinds: conanExilesFrameKinds },
+    // The 'sonsoftheforest' prefix and the hub's sotf images resolve here.
+    'Sons of the Forest': {
+      frameCount: BATCH21_FRAME_COUNT, format: formatSonsOfTheForestFrame, kinds: sonsOfTheForestFrameKinds
+    }
   };
 
   // Service art (issue #271) keyed by the `service:<key>` resolveIntroKey() returns. Every
@@ -336,7 +344,8 @@
     'Vintage Story': outro(formatVintageStoryOutro),         // #547
     'BeamMP': outro(formatBeamMpOutro),                      // #549
     'Soulmask': outro(formatSoulmaskOutro),                  // #556
-    'Conan Exiles': outro(formatConanExilesOutro)
+    'Conan Exiles': outro(formatConanExilesOutro),
+    'Sons of the Forest': outro(formatSonsOfTheForestOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

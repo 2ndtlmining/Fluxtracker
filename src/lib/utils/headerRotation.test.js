@@ -112,6 +112,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Conan Exiles: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('conanexiles1792800000000', 1))).toBe('game:Conan Exiles');
     expect(resolveIntroKey(app('exiledlands', 1, 'runonflux/conanexiles-server-flux:latest'))).toBe('game:Conan Exiles');
+    // Sons of the Forest: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('sonsoftheforest1792900000000', 1))).toBe('game:Sons of the Forest');
+    expect(resolveIntroKey(app('siteseven', 1, 'runonflux/sotf-server-flux:latest'))).toBe('game:Sons of the Forest');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
