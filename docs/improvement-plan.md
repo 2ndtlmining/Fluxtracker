@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-25** (v1.34)
+**Last reviewed: 2026-10-26** (v1.35)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,15 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-25 (v1.34):** open.
+**Status at 2026-10-26 (v1.35):** open.
+- **Games:** Sons of the Forest is tracked as its own game, with an icon (Delapouite's
+  forest) and header art (the game's opening: the helicopter spins down and crashes short
+  of the pines, and the survivor crawls out and raises his axe; the outro brings the
+  cannibals out of the trees while he hides in the wreck and they stamp out his fire),
+  added before its first deployment from the hub's own match rule (`^sonsoftheforest`,
+  image `sotf-server-flux`; Docker Hub also has `sons-of-the-forest-flux`).
+
+**Status at 2026-10-25 (v1.34):** merged.
 - **Games:** Conan Exiles is tracked as its own game, with an icon (Delapouite's barbarian)
   and header art (the game's opening: Conan cuts an exile down from a cross in the desert;
   the outro is a sandstorm that buries him), added before its first deployment from the

@@ -136,6 +136,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('conanio/gcc11:latest')).not.toBe('gaming');
     });
 
+    it('counts the Sons of the Forest hub and community images as a game, not any forest', () => {
+        expect(categorizeImage('runonflux/sotf-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('runonflux/sons-of-the-forest-flux:latest')).toBe('gaming');
+        expect(categorizeImage('jammsen/sons-of-the-forest-dedicated-server:latest')).toBe('gaming');
+        expect(categorizeImage('example/random-forest:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -316,6 +323,16 @@ describe('getCanonicalName', () => {
             'alinmear/docker-conanexiles:latest'
         ]) {
             expect(getCanonicalName(image)).toBe('Conan Exiles');
+        }
+    });
+
+    it("names the games hub's and the community Sons of the Forest images", () => {
+        for (const image of [
+            'runonflux/sotf-server-flux:latest',
+            'runonflux/sons-of-the-forest-flux:latest',
+            'jammsen/sons-of-the-forest-dedicated-server:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Sons of the Forest');
         }
     });
 

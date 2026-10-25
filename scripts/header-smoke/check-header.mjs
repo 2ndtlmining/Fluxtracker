@@ -200,6 +200,13 @@ const GAME_ART_BY_NAME = {
   conanexiles: {
     signature: /_\.:'':\./,
     movingRows: rows => rows.filter(r => /=[=\\o\/x|]{3}=/.test(r.text))
+  },
+  // Sons of the Forest: the forest floor (no other scene draws it, and it is in every
+  // frame); the helicopter's cabin -- spinning down, then the wreck, empty or with the
+  // survivor hiding in it -- is what moves.
+  sonsoftheforest: {
+    signature: /,\.\^\.,_/,
+    movingRows: rows => rows.filter(r => /\[[_ox]{2}\]/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -230,7 +237,8 @@ const UPDATED_DEPLOYED_NAME = {
   vintagestory: 'vintagestory1789155733041',
   beammp: 'beammp1789155733041',
   soulmask: 'soulmask1789155733041',
-  conanexiles: 'conanexiles1789155733041'
+  conanexiles: 'conanexiles1789155733041',
+  sonsoftheforest: 'sonsoftheforest1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
