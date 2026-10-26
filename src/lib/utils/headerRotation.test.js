@@ -115,6 +115,9 @@ describe('resolveIntroKey (issue #271)', () => {
     // Sons of the Forest: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('sonsoftheforest1792900000000', 1))).toBe('game:Sons of the Forest');
     expect(resolveIntroKey(app('siteseven', 1, 'runonflux/sotf-server-flux:latest'))).toBe('game:Sons of the Forest');
+    // Counter-Strike 2: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('counterstrike21792900000000', 1))).toBe('game:Counter-Strike 2');
+    expect(resolveIntroKey(app('dustii', 1, 'runonflux/cs2-server-flux:latest'))).toBe('game:Counter-Strike 2');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

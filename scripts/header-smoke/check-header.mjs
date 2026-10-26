@@ -207,6 +207,13 @@ const GAME_ART_BY_NAME = {
   sonsoftheforest: {
     signature: /,\.\^\.,_/,
     movingRows: rows => rows.filter(r => /\[[_ox]{2}\]/.test(r.text))
+  },
+  // Counter-Strike 2: the bombsite's sand (no other scene draws it, and it is in every
+  // frame); the bomb's row -- its light blinking, the players running past it -- is what
+  // moves.
+  counterstrike2: {
+    signature: /_:\._\.:/,
+    movingRows: rows => rows.filter(r => /\[:[*.]\]/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -238,7 +245,8 @@ const UPDATED_DEPLOYED_NAME = {
   beammp: 'beammp1789155733041',
   soulmask: 'soulmask1789155733041',
   conanexiles: 'conanexiles1789155733041',
-  sonsoftheforest: 'sonsoftheforest1789155733041'
+  sonsoftheforest: 'sonsoftheforest1789155733041',
+  counterstrike2: 'counterstrike21789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

@@ -143,6 +143,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/random-forest:latest')).not.toBe('gaming');
     });
 
+    it('counts the Counter-Strike 2 hub and community images as a game, not any cs2', () => {
+        expect(categorizeImage('runonflux/cs2-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('cm2network/cs2:latest')).toBe('gaming');
+        expect(categorizeImage('joedwards32/cs2:latest')).toBe('gaming');
+        expect(categorizeImage('example/ownllmdocs2:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -334,6 +341,18 @@ describe('getCanonicalName', () => {
         ]) {
             expect(getCanonicalName(image)).toBe('Sons of the Forest');
         }
+    });
+
+    it("names the games hub's and the community Counter-Strike 2 images", () => {
+        for (const image of [
+            'runonflux/cs2-server-flux:latest',
+            'cm2network/cs2:latest',
+            'joedwards32/cs2:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Counter-Strike 2');
+        }
+        // Team Fortress 2's image from the same publisher stays Team Fortress 2.
+        expect(getCanonicalName('cm2network/tf2:latest')).not.toBe('Counter-Strike 2');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
