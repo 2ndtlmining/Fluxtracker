@@ -138,6 +138,10 @@
     BATCH21_FRAME_COUNT
   } from '$lib/utils/introArt21.js';
   import {
+    formatCounterStrikeFrame, counterStrikeFrameKinds, formatCounterStrikeOutro,
+    BATCH22_FRAME_COUNT
+  } from '$lib/utils/introArt22.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -287,6 +291,10 @@
     // The 'sonsoftheforest' prefix and the hub's sotf images resolve here.
     'Sons of the Forest': {
       frameCount: BATCH21_FRAME_COUNT, format: formatSonsOfTheForestFrame, kinds: sonsOfTheForestFrameKinds
+    },
+    // The 'counterstrike2' prefix and the hub's cs2 image resolve here.
+    'Counter-Strike 2': {
+      frameCount: BATCH22_FRAME_COUNT, format: formatCounterStrikeFrame, kinds: counterStrikeFrameKinds
     }
   };
 
@@ -345,7 +353,8 @@
     'BeamMP': outro(formatBeamMpOutro),                      // #549
     'Soulmask': outro(formatSoulmaskOutro),                  // #556
     'Conan Exiles': outro(formatConanExilesOutro),
-    'Sons of the Forest': outro(formatSonsOfTheForestOutro)
+    'Sons of the Forest': outro(formatSonsOfTheForestOutro),
+    'Counter-Strike 2': outro(formatCounterStrikeOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

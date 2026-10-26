@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-26** (v1.35)
+**Last reviewed: 2026-10-27** (v1.36)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,15 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-26 (v1.35):** open.
+**Status at 2026-10-27 (v1.36):** open.
+- **Games:** Counter-Strike 2 is tracked as its own game, with an icon (Delapouite's
+  crosshair) and header art (the bomb round: a terrorist runs from the crates to bombsite A
+  and plants the bomb, "BOMB HAS BEEN PLANTED"; the outro is the round running out, a
+  counter-terrorist's defuse comes too late, the bomb goes off and "TERRORISTS WIN"),
+  added before its first deployment from the hub's own match rule (`^counterstrike2`,
+  image `cs2-server-flux`).
+
+**Status at 2026-10-26 (v1.35):** merged.
 - **Games:** Sons of the Forest is tracked as its own game, with an icon (Delapouite's
   forest) and header art (the game's opening: the helicopter spins down and crashes short
   of the pines, and the survivor crawls out and raises his axe; the outro brings the

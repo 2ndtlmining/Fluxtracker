@@ -64,6 +64,9 @@ describe('resolveGameFromAppName', () => {
         // Sons of the Forest: the hub's shape, not live yet (2026-10-26).
         expect(resolveGameFromAppName('sonsoftheforest1792900000000')).toBe('Sons of the Forest');
         expect(resolveGameFromAppName('sonsoftheforestserver1')).not.toBe('Sons of the Forest');
+        // Counter-Strike 2: the hub's shape, not live yet (2026-10-27).
+        expect(resolveGameFromAppName('counterstrike21792900000000')).toBe('Counter-Strike 2');
+        expect(resolveGameFromAppName('counterstrike2server1')).not.toBe('Counter-Strike 2');
     });
 
     it('totals every plan of one game under the canonical name', () => {
