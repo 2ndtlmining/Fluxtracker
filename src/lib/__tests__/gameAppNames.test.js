@@ -67,6 +67,10 @@ describe('resolveGameFromAppName', () => {
         // Counter-Strike 2: the hub's shape, not live yet (2026-10-27).
         expect(resolveGameFromAppName('counterstrike21792900000000')).toBe('Counter-Strike 2');
         expect(resolveGameFromAppName('counterstrike2server1')).not.toBe('Counter-Strike 2');
+        // Abiotic Factor: the hub's shape, no hub deployment yet (2026-10-28). The live
+        // hand-named 'AbioticFactor' is not a hub deployment; its image counts it.
+        expect(resolveGameFromAppName('abioticfactor1792900000000')).toBe('Abiotic Factor');
+        expect(resolveGameFromAppName('AbioticFactor')).not.toBe('Abiotic Factor');
     });
 
     it('totals every plan of one game under the canonical name', () => {

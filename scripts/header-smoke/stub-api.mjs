@@ -24,10 +24,12 @@ const HEADER_DELAY_MS = Number(process.env.HEADER_DELAY_MS || 0);
 // A game with no art of its own, so every run covers the shared controller fallback. It is
 // recognised by its image (a hand-named app), because every dedicated-site game prefix now
 // has art. Was enshrouded until #418 gave Enshrouded its Flame Altar, then soulmask until
-// #556 gave Soulmask its mask.
+// #556 gave Soulmask its mask, then abioticfactor until Abiotic Factor got its lab. Every
+// tracked game now has art, so this is a browser game (HexGL), which the gaming keywords
+// count but which has no scene of its own.
 const INITIAL_DEPLOYED = {
-  name: 'abioticfactorserver1',
-  repo: 'littlestache/abioticfactorserver:latest',
+  name: 'hexgl1',
+  repo: 'littlestache/hexgl:latest',
   instances: 3,
   cpu: 2,
   ram: 4096,
@@ -70,7 +72,8 @@ const DEPLOYED_GAME_NAMES = {
   soulmask: 'soulmask1789155733041',
   conanexiles: 'conanexiles1789155733041',
   sonsoftheforest: 'sonsoftheforest1789155733041',
-  counterstrike2: 'counterstrike21789155733041'
+  counterstrike2: 'counterstrike21789155733041',
+  abioticfactor: 'abioticfactor1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];
@@ -80,7 +83,7 @@ if (!DEPLOYED_GAME_NAME) {
 }
 
 const UPDATED_DEPLOYED = {
-  // A game with art of its own, where the FIRST fixture (abioticfactor) is a game without
+  // A game with art of its own, where the FIRST fixture (hexgl) is a game without
   // any -- so one run covers the per-game intro AND the shared controller fallback.
   //
   // That first fixture used to be palworld, which had no art until it got its own intro.

@@ -214,6 +214,12 @@ const GAME_ART_BY_NAME = {
   counterstrike2: {
     signature: /_:\._\.:/,
     movingRows: rows => rows.filter(r => /\[:[*.]\]/.test(r.text))
+  },
+  // Abiotic Factor: the facility's floor grating (no other scene draws it, and it is in
+  // every frame); the ceiling's lamp -- lit, then the alarm blinking -- is what moves.
+  abioticfactor: {
+    signature: /=:=\|=:=\|/,
+    movingRows: rows => rows.filter(r => /\[[o!*.]\]/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -246,7 +252,8 @@ const UPDATED_DEPLOYED_NAME = {
   soulmask: 'soulmask1789155733041',
   conanexiles: 'conanexiles1789155733041',
   sonsoftheforest: 'sonsoftheforest1789155733041',
-  counterstrike2: 'counterstrike21789155733041'
+  counterstrike2: 'counterstrike21789155733041',
+  abioticfactor: 'abioticfactor1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
@@ -333,7 +340,7 @@ const run = async () => {
   const fuseFrames = new Set();
   // Issue #180/#199: some games have art of their own. The updated deployed fixture is a
   // dedicated-site name for whichever game DEPLOYED_GAME selects, so a single run covers
-  // that game's art AND the controller fallback (the initial fixture is abioticfactor, which
+  // that game's art AND the controller fallback (the initial fixture is hexgl, which
   // has none). The three games need three runs -- see the note in stub-api.mjs.
   let sawGameArtFrame = false;
   const gameArtMovingRows = new Set();
