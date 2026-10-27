@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-27** (v1.36)
+**Last reviewed: 2026-10-28** (v1.37)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,18 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-27 (v1.36):** open.
+**Status at 2026-10-28 (v1.37):** open.
+- **Games:** Abiotic Factor is tracked as its own game, with an icon (Delapouite's
+  hazmat suit) and header art (the experiment: a scientist in a hazmat suit starts the
+  console, the containment ring tears open into a portal under the alarm, something looks
+  out and he raises his crowbar, "CONTAINMENT BREACH"; the outro is the lockdown: it
+  reaches out, he hits the console, a blast shutter seals the ring and the lights go out,
+  "FACILITY LOCKDOWN"), from the hub's own match rule (`^abioticfactor`, image
+  `abioticfactor-server-flux`). The one live app (`AbioticFactor`,
+  `littlestache/abioticfactorserver`) was already counted as gaming but had no column.
+  The header smoke's art-less fixture moves to a browser game (HexGL).
+
+**Status at 2026-10-27 (v1.36):** merged.
 - **Games:** Counter-Strike 2 is tracked as its own game, with an icon (Delapouite's
   crosshair) and header art (the bomb round: a terrorist runs from the crates to bombsite A
   and plants the bomb, "BOMB HAS BEEN PLANTED"; the outro is the round running out, a

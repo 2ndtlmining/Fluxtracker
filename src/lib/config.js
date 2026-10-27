@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.36';
+export const APP_VERSION = 'v1.37';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -340,7 +340,12 @@ export const GAME_APP_PREFIXES = [
     // Counter-Strike 2. The hub's own match rule (runonflux.com/games):
     // counterstrike2<13 digits>, an encrypted spec. Not deployed when added (2026-10-27),
     // so the first one counts.
-    { prefix: 'counterstrike2', name: 'Counter-Strike 2' }
+    { prefix: 'counterstrike2', name: 'Counter-Strike 2' },
+    // Abiotic Factor. The hub's own match rule (runonflux.com/games):
+    // abioticfactor<13 digits>, an encrypted spec. No hub deployment when added
+    // (2026-10-28), so the first one counts. The one live app, a hand-named
+    // 'AbioticFactor', is counted by its image.
+    { prefix: 'abioticfactor', name: 'Abiotic Factor' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -604,6 +609,8 @@ export const TRACKED_GAMES = [
     { name: 'Sons of the Forest', dbKey: 'gaming_sonsoftheforest' },
     // Counted by app name (encrypted spec), the hub's image and community images.
     { name: 'Counter-Strike 2', dbKey: 'gaming_counterstrike2' },
+    // Counted by app name (encrypted spec), the hub's image and the littlestache image.
+    { name: 'Abiotic Factor', dbKey: 'gaming_abioticfactor' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1095,6 +1102,10 @@ export const CATEGORY_CONFIG = {
                    // 'cs2': 'docs2' carries it (a live ownllmdocs2 app).
                    'counterstrike', 'counter-strike', 'cs2-server', 'cm2network/cs2',
                    'joedwards32/cs2',
+                   // Abiotic Factor ('abioticfactor' above). The hub's image is
+                   // abioticfactor-server-flux; community images also spell it
+                   // abiotic-factor. Never a bare 'abiotic'.
+                   'abiotic-factor',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1293,6 +1304,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'runonflux/cs2-server-flux': 'Counter-Strike 2',
     'cm2network/cs2': 'Counter-Strike 2',
     'joedwards32/cs2': 'Counter-Strike 2',
+    // Abiotic Factor: the games hub's image and the one live app's image.
+    'runonflux/abioticfactor-server-flux': 'Abiotic Factor',
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
@@ -1391,6 +1404,9 @@ export const CANONICAL_NAME_OVERRIDES = {
     'runonflux/cs2-server-flux': 'Counter-Strike 2',
     'cm2network/cs2': 'Counter-Strike 2',
     'joedwards32/cs2': 'Counter-Strike 2',
+    // Abiotic Factor: the games hub's image and the one live app's image.
+    'runonflux/abioticfactor-server-flux': 'Abiotic Factor',
+    'littlestache/abioticfactorserver': 'Abiotic Factor',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

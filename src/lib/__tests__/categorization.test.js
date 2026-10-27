@@ -150,6 +150,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/ownllmdocs2:latest')).not.toBe('gaming');
     });
 
+    it('counts the Abiotic Factor hub and community images as a game, not any abiotic', () => {
+        expect(categorizeImage('runonflux/abioticfactor-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('littlestache/abioticfactorserver:latest')).toBe('gaming');
+        expect(categorizeImage('example/abiotic-factor-server:latest')).toBe('gaming');
+        expect(categorizeImage('example/abiotic-soil-lab:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -353,6 +360,15 @@ describe('getCanonicalName', () => {
         }
         // Team Fortress 2's image from the same publisher stays Team Fortress 2.
         expect(getCanonicalName('cm2network/tf2:latest')).not.toBe('Counter-Strike 2');
+    });
+
+    it("names the games hub's and the live Abiotic Factor images", () => {
+        for (const image of [
+            'runonflux/abioticfactor-server-flux:latest',
+            'littlestache/abioticfactorserver:latest'
+        ]) {
+            expect(getCanonicalName(image)).toBe('Abiotic Factor');
+        }
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
