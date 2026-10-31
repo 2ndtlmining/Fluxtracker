@@ -220,6 +220,12 @@ const GAME_ART_BY_NAME = {
   abioticfactor: {
     signature: /=:=\|=:=\|/,
     movingRows: rows => rows.filter(r => /\[[o!*.]\]/.test(r.text))
+  },
+  // SCUM: the island's sand and barbed wire (no other scene draws it, and it is in every
+  // frame); the show's camera drone -- flying in, its recording light blinking -- moves.
+  scum: {
+    signature: /_\.-x-\./,
+    movingRows: rows => rows.filter(r => /<\[[o*.]\]>/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -253,7 +259,8 @@ const UPDATED_DEPLOYED_NAME = {
   conanexiles: 'conanexiles1789155733041',
   sonsoftheforest: 'sonsoftheforest1789155733041',
   counterstrike2: 'counterstrike21789155733041',
-  abioticfactor: 'abioticfactor1789155733041'
+  abioticfactor: 'abioticfactor1789155733041',
+  scum: 'scum1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

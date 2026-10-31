@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-10-28** (v1.37)
+**Last reviewed: 2026-11-01** (v1.38)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,16 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-10-28 (v1.37):** open.
+**Status at 2026-11-01 (v1.38):** open.
+- **Games:** SCUM is tracked as its own game, with an icon (Delapouite's convict) and
+  header art (the prison island: a prisoner washes up on the shore while the show's camera
+  drone flies in, walks to a bunker and prises its hatch open on the loot, "SURVIVE THE
+  ISLAND"; the outro is puppets climbing out of the sea, the prisoner sealing himself in
+  the bunker and the drone's light going out, "END OF TRANSMISSION"), from the hub's own
+  match rule (`^scum`, image `scum-server-flux`). Never a bare `scum`, which `scummvm`
+  contains. No deployment live yet.
+
+**Status at 2026-10-28 (v1.37):** merged.
 - **Games:** Abiotic Factor is tracked as its own game, with an icon (Delapouite's
   hazmat suit) and header art (the experiment: a scientist in a hazmat suit starts the
   console, the containment ring tears open into a portal under the alarm, something looks

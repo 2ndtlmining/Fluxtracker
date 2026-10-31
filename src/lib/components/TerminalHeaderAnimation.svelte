@@ -146,6 +146,9 @@
     BATCH23_FRAME_COUNT
   } from '$lib/utils/introArt23.js';
   import {
+    formatScumFrame, scumFrameKinds, formatScumOutro, BATCH24_FRAME_COUNT
+  } from '$lib/utils/introArt24.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -303,6 +306,10 @@
     // The 'abioticfactor' prefix, the hub's image and the littlestache image resolve here.
     'Abiotic Factor': {
       frameCount: BATCH23_FRAME_COUNT, format: formatAbioticFactorFrame, kinds: abioticFactorFrameKinds
+    },
+    // The 'scum' prefix and the hub's image resolve here.
+    'SCUM': {
+      frameCount: BATCH24_FRAME_COUNT, format: formatScumFrame, kinds: scumFrameKinds
     }
   };
 
@@ -363,7 +370,8 @@
     'Conan Exiles': outro(formatConanExilesOutro),
     'Sons of the Forest': outro(formatSonsOfTheForestOutro),
     'Counter-Strike 2': outro(formatCounterStrikeOutro),
-    'Abiotic Factor': outro(formatAbioticFactorOutro)
+    'Abiotic Factor': outro(formatAbioticFactorOutro),
+    'SCUM': outro(formatScumOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

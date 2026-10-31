@@ -122,6 +122,9 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('abioticfactor1792900000000', 1))).toBe('game:Abiotic Factor');
     expect(resolveIntroKey(app('cascade', 1, 'runonflux/abioticfactor-server-flux:latest'))).toBe('game:Abiotic Factor');
     expect(resolveIntroKey(app('AbioticFactor', 1, 'littlestache/abioticfactorserver:latest'))).toBe('game:Abiotic Factor');
+    // SCUM: an encrypted hub deployment, and the hub's image under any other name.
+    expect(resolveIntroKey(app('scum1793000000000', 1))).toBe('game:SCUM');
+    expect(resolveIntroKey(app('island', 1, 'runonflux/scum-server-flux:latest'))).toBe('game:SCUM');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
