@@ -157,6 +157,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/abiotic-soil-lab:latest')).not.toBe('gaming');
     });
 
+    it('counts the SCUM hub and community images as a game, not ScummVM', () => {
+        expect(categorizeImage('runonflux/scum-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('example/scumserver:latest')).toBe('gaming');
+        expect(categorizeImage('example/scummvm:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -369,6 +375,10 @@ describe('getCanonicalName', () => {
         ]) {
             expect(getCanonicalName(image)).toBe('Abiotic Factor');
         }
+    });
+
+    it("names the games hub's SCUM image", () => {
+        expect(getCanonicalName('runonflux/scum-server-flux:latest')).toBe('SCUM');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

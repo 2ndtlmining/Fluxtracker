@@ -73,7 +73,8 @@ const DEPLOYED_GAME_NAMES = {
   conanexiles: 'conanexiles1789155733041',
   sonsoftheforest: 'sonsoftheforest1789155733041',
   counterstrike2: 'counterstrike21789155733041',
-  abioticfactor: 'abioticfactor1789155733041'
+  abioticfactor: 'abioticfactor1789155733041',
+  scum: 'scum1789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];

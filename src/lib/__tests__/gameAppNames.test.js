@@ -71,6 +71,9 @@ describe('resolveGameFromAppName', () => {
         // hand-named 'AbioticFactor' is not a hub deployment; its image counts it.
         expect(resolveGameFromAppName('abioticfactor1792900000000')).toBe('Abiotic Factor');
         expect(resolveGameFromAppName('AbioticFactor')).not.toBe('Abiotic Factor');
+        // SCUM: the hub's shape, not live yet (2026-11-01). ScummVM is not SCUM.
+        expect(resolveGameFromAppName('scum1793000000000')).toBe('SCUM');
+        expect(resolveGameFromAppName('scummvm1793000000000')).not.toBe('SCUM');
     });
 
     it('totals every plan of one game under the canonical name', () => {
