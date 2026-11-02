@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.38';
+export const APP_VERSION = 'v1.39';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -349,7 +349,11 @@ export const GAME_APP_PREFIXES = [
     // SCUM. The hub's own match rule (runonflux.com/games): scum<13 digits>, an
     // encrypted spec. Not deployed when added (2026-11-01), so the first one counts. The
     // digit anchor keeps a scummvm... name out.
-    { prefix: 'scum', name: 'SCUM' }
+    { prefix: 'scum', name: 'SCUM' },
+    // The Forest. The hub's own match rule (runonflux.com/games): theforest<13 digits>, an
+    // encrypted spec. Not deployed when added (2026-11-03), so the first one counts. The
+    // anchored match keeps a sonsoftheforest... name out.
+    { prefix: 'theforest', name: 'The Forest' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -617,6 +621,8 @@ export const TRACKED_GAMES = [
     { name: 'Abiotic Factor', dbKey: 'gaming_abioticfactor' },
     // Counted by app name (encrypted spec) and the hub's image.
     { name: 'SCUM', dbKey: 'gaming_scum' },
+    // Counted by app name (encrypted spec), the hub's image and the community image.
+    { name: 'The Forest', dbKey: 'gaming_theforest' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1115,6 +1121,10 @@ export const CATEGORY_CONFIG = {
                    // SCUM. The hub's image is scum-server-flux. Never a bare 'scum', which
                    // 'scummvm' contains.
                    'scum-server', 'scumserver',
+                   // The Forest. The hub's image is theforest-server-flux; the common
+                   // community image is jammsen/the-forest-dedicated-server. Never a bare
+                   // 'forest' or 'the-forest': 'sons-of-the-forest' contains both.
+                   'theforest-server', 'jammsen/the-forest',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1318,6 +1328,9 @@ const DISPLAY_NAME_OVERRIDES = {
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     // SCUM: the games hub's image.
     'runonflux/scum-server-flux': 'SCUM',
+    // The Forest: the games hub's image and the community image.
+    'runonflux/theforest-server-flux': 'The Forest',
+    'jammsen/the-forest-dedicated-server': 'The Forest',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
     'pfeiffermax/rust-game-server': 'Rust',
@@ -1420,6 +1433,9 @@ export const CANONICAL_NAME_OVERRIDES = {
     'littlestache/abioticfactorserver': 'Abiotic Factor',
     // SCUM: the games hub's image.
     'runonflux/scum-server-flux': 'SCUM',
+    // The Forest: the games hub's image and the community image.
+    'runonflux/theforest-server-flux': 'The Forest',
+    'jammsen/the-forest-dedicated-server': 'The Forest',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

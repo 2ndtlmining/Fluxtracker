@@ -74,6 +74,10 @@ describe('resolveGameFromAppName', () => {
         // SCUM: the hub's shape, not live yet (2026-11-01). ScummVM is not SCUM.
         expect(resolveGameFromAppName('scum1793000000000')).toBe('SCUM');
         expect(resolveGameFromAppName('scummvm1793000000000')).not.toBe('SCUM');
+        // The Forest: the hub's shape, not live yet (2026-11-03). The live Sons of the
+        // Forest deployment's name contains 'theforest' and stays Sons of the Forest.
+        expect(resolveGameFromAppName('theforest1793500000000')).toBe('The Forest');
+        expect(resolveGameFromAppName('sonsoftheforest1793290672935')).toBe('Sons of the Forest');
     });
 
     it('totals every plan of one game under the canonical name', () => {

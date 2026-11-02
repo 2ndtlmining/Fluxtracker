@@ -226,6 +226,13 @@ const GAME_ART_BY_NAME = {
   scum: {
     signature: /_\.-x-\./,
     movingRows: rows => rows.filter(r => /<\[[o*.]\]>/.test(r.text))
+  },
+  // The Forest: the forest floor (no other scene draws it, and it is in every frame); the
+  // floor row carries the campfire -- cold, flickering, stamped out -- and the figures, so
+  // it changes from frame to frame.
+  theforest: {
+    signature: /_;:_;:_/,
+    movingRows: rows => rows.filter(r => /\)[*^_.]\(/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -260,7 +267,8 @@ const UPDATED_DEPLOYED_NAME = {
   sonsoftheforest: 'sonsoftheforest1789155733041',
   counterstrike2: 'counterstrike21789155733041',
   abioticfactor: 'abioticfactor1789155733041',
-  scum: 'scum1789155733041'
+  scum: 'scum1789155733041',
+  theforest: 'theforest1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

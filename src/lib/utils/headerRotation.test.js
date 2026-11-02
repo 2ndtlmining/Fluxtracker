@@ -125,6 +125,11 @@ describe('resolveIntroKey (issue #271)', () => {
     // SCUM: an encrypted hub deployment, and the hub's image under any other name.
     expect(resolveIntroKey(app('scum1793000000000', 1))).toBe('game:SCUM');
     expect(resolveIntroKey(app('island', 1, 'runonflux/scum-server-flux:latest'))).toBe('game:SCUM');
+    // The Forest: an encrypted hub deployment, the hub's image and the community image.
+    expect(resolveIntroKey(app('theforest1793500000000', 1))).toBe('game:The Forest');
+    expect(resolveIntroKey(app('peninsula', 1, 'runonflux/theforest-server-flux:latest'))).toBe('game:The Forest');
+    expect(resolveIntroKey(app('cave', 1, 'jammsen/the-forest-dedicated-server:latest'))).toBe('game:The Forest');
+    expect(resolveIntroKey(app('sonsoftheforest1793290672935', 1))).toBe('game:Sons of the Forest');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {
