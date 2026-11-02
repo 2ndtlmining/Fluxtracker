@@ -163,6 +163,12 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/scummvm:latest')).not.toBe('gaming');
     });
 
+    it('counts The Forest hub and community images as a game, not Sons of the Forest', () => {
+        expect(categorizeImage('runonflux/theforest-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('jammsen/the-forest-dedicated-server:latest')).toBe('gaming');
+        expect(categorizeImage('example/black-forest-cake:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -379,6 +385,12 @@ describe('getCanonicalName', () => {
 
     it("names the games hub's SCUM image", () => {
         expect(getCanonicalName('runonflux/scum-server-flux:latest')).toBe('SCUM');
+    });
+
+    it("names the games hub's and the community The Forest images, apart from Sons of the Forest", () => {
+        expect(getCanonicalName('runonflux/theforest-server-flux:latest')).toBe('The Forest');
+        expect(getCanonicalName('jammsen/the-forest-dedicated-server:latest')).toBe('The Forest');
+        expect(getCanonicalName('jammsen/sons-of-the-forest-dedicated-server:latest')).toBe('Sons of the Forest');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-11-01** (v1.38)
+**Last reviewed: 2026-11-03** (v1.39)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,16 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-11-01 (v1.38):** open.
+**Status at 2026-11-03 (v1.39):** open.
+- **Games:** The Forest is tracked as its own game, with an icon (Lorc's evil tree) and
+  header art (the first day: by the airliner's tail the survivor fells a pine, builds a log
+  cabin out of it and lights the fire, "FIND TIMMY"; the outro is the last night: a painted
+  cannibal plants a stick effigy, the survivor bars himself in the cabin and the cannibal
+  stamps the fire out, "THE FIRE IS OUT"), from the hub's own match rule (`^theforest`,
+  image `theforest-server-flux`). Never a bare `forest` or `the-forest`, which
+  `sons-of-the-forest` contains. No deployment live yet.
+
+**Status at 2026-11-01 (v1.38):** merged.
 - **Games:** SCUM is tracked as its own game, with an icon (Delapouite's convict) and
   header art (the prison island: a prisoner washes up on the shore while the show's camera
   drone flies in, walks to a bunker and prises its hatch open on the loot, "SURVIVE THE

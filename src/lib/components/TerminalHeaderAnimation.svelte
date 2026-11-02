@@ -149,6 +149,9 @@
     formatScumFrame, scumFrameKinds, formatScumOutro, BATCH24_FRAME_COUNT
   } from '$lib/utils/introArt24.js';
   import {
+    formatTheForestFrame, theForestFrameKinds, formatTheForestOutro, BATCH25_FRAME_COUNT
+  } from '$lib/utils/introArt25.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -310,6 +313,10 @@
     // The 'scum' prefix and the hub's image resolve here.
     'SCUM': {
       frameCount: BATCH24_FRAME_COUNT, format: formatScumFrame, kinds: scumFrameKinds
+    },
+    // The 'theforest' prefix, the hub's image and the jammsen image resolve here.
+    'The Forest': {
+      frameCount: BATCH25_FRAME_COUNT, format: formatTheForestFrame, kinds: theForestFrameKinds
     }
   };
 
@@ -371,7 +378,8 @@
     'Sons of the Forest': outro(formatSonsOfTheForestOutro),
     'Counter-Strike 2': outro(formatCounterStrikeOutro),
     'Abiotic Factor': outro(formatAbioticFactorOutro),
-    'SCUM': outro(formatScumOutro)
+    'SCUM': outro(formatScumOutro),
+    'The Forest': outro(formatTheForestOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
