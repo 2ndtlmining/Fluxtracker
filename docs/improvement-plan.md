@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-11-03** (v1.39)
+**Last reviewed: 2026-11-05** (v1.40)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,15 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-11-03 (v1.39):** open.
+**Status at 2026-11-05 (v1.40):** open.
+- **Games:** Icarus is tracked as its own game, with an icon (Delapouite's Icarus) and header
+  art (the drop: a pod falls from orbit on its retros, the prospector walks out and cuts a
+  piece from an exotic crystal, "PROSPECT ACTIVE"; the outro is the last hour: a storm comes
+  over the ridge, the hatch shuts and the pod lifts off without them, "LEFT BEHIND"), from
+  the hub's own match rule (`^icarus`, image `icarus-server-flux`). Never a bare `icarus`
+  keyword. No deployment live yet.
+
+**Status at 2026-11-03 (v1.39):** merged.
 - **Games:** The Forest is tracked as its own game, with an icon (Lorc's evil tree) and
   header art (the first day: by the airliner's tail the survivor fells a pine, builds a log
   cabin out of it and lights the fire, "FIND TIMMY"; the outro is the last night: a painted

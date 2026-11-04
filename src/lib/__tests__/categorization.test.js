@@ -169,6 +169,14 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/black-forest-cake:latest')).not.toBe('gaming');
     });
 
+    it('counts the Icarus hub and community images as a game, and no other Icarus', () => {
+        expect(categorizeImage('runonflux/icarus-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('mornedhels/icarus-server:latest')).toBe('gaming');
+        expect(categorizeImage('nerodon/icarus-dedicated:latest')).toBe('gaming');
+        expect(categorizeImage('sknnr/icarus-dedicated-server:latest')).toBe('gaming');
+        expect(categorizeImage('example/icarus-verilog:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -391,6 +399,13 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('runonflux/theforest-server-flux:latest')).toBe('The Forest');
         expect(getCanonicalName('jammsen/the-forest-dedicated-server:latest')).toBe('The Forest');
         expect(getCanonicalName('jammsen/sons-of-the-forest-dedicated-server:latest')).toBe('Sons of the Forest');
+    });
+
+    it("names the games hub's and the community Icarus images", () => {
+        expect(getCanonicalName('runonflux/icarus-server-flux:latest')).toBe('Icarus');
+        expect(getCanonicalName('mornedhels/icarus-server:latest')).toBe('Icarus');
+        expect(getCanonicalName('nerodon/icarus-dedicated:latest')).toBe('Icarus');
+        expect(getCanonicalName('sknnr/icarus-dedicated-server:latest')).toBe('Icarus');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {

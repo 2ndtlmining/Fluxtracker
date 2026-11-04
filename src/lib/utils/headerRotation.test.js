@@ -130,6 +130,12 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('peninsula', 1, 'runonflux/theforest-server-flux:latest'))).toBe('game:The Forest');
     expect(resolveIntroKey(app('cave', 1, 'jammsen/the-forest-dedicated-server:latest'))).toBe('game:The Forest');
     expect(resolveIntroKey(app('sonsoftheforest1793290672935', 1))).toBe('game:Sons of the Forest');
+    // Icarus: an encrypted hub deployment, the hub's image and the community images.
+    expect(resolveIntroKey(app('icarus1793700000000', 1))).toBe('game:Icarus');
+    expect(resolveIntroKey(app('frontier', 1, 'runonflux/icarus-server-flux:latest'))).toBe('game:Icarus');
+    expect(resolveIntroKey(app('prospect', 1, 'mornedhels/icarus-server:latest'))).toBe('game:Icarus');
+    expect(resolveIntroKey(app('dropship', 1, 'nerodon/icarus-dedicated:latest'))).toBe('game:Icarus');
+    expect(resolveIntroKey(app('outpost', 1, 'sknnr/icarus-dedicated-server:latest'))).toBe('game:Icarus');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

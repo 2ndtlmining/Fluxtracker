@@ -233,6 +233,12 @@ const GAME_ART_BY_NAME = {
   theforest: {
     signature: /_;:_;:_/,
     movingRows: rows => rows.filter(r => /\)[*^_.]\(/.test(r.text))
+  },
+  // Icarus: the scorched ground (no other scene draws it, and it is in every frame); the
+  // orbital station drifts along the top row, so that row changes from frame to frame.
+  icarus: {
+    signature: /_,~\._,~\./,
+    movingRows: rows => rows.filter(r => /--\[#\]--/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -268,7 +274,8 @@ const UPDATED_DEPLOYED_NAME = {
   counterstrike2: 'counterstrike21789155733041',
   abioticfactor: 'abioticfactor1789155733041',
   scum: 'scum1789155733041',
-  theforest: 'theforest1789155733041'
+  theforest: 'theforest1789155733041',
+  icarus: 'icarus1789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];

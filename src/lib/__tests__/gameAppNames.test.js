@@ -78,6 +78,9 @@ describe('resolveGameFromAppName', () => {
         // Forest deployment's name contains 'theforest' and stays Sons of the Forest.
         expect(resolveGameFromAppName('theforest1793500000000')).toBe('The Forest');
         expect(resolveGameFromAppName('sonsoftheforest1793290672935')).toBe('Sons of the Forest');
+        // Icarus: the hub's shape, not live yet (2026-11-05). The digits are required.
+        expect(resolveGameFromAppName('icarus1793700000000')).toBe('Icarus');
+        expect(resolveGameFromAppName('icarusfinance')).not.toBe('Icarus');
     });
 
     it('totals every plan of one game under the canonical name', () => {

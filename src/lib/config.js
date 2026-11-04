@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.39';
+export const APP_VERSION = 'v1.40';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -353,7 +353,10 @@ export const GAME_APP_PREFIXES = [
     // The Forest. The hub's own match rule (runonflux.com/games): theforest<13 digits>, an
     // encrypted spec. Not deployed when added (2026-11-03), so the first one counts. The
     // anchored match keeps a sonsoftheforest... name out.
-    { prefix: 'theforest', name: 'The Forest' }
+    { prefix: 'theforest', name: 'The Forest' },
+    // Icarus. The hub's own match rule (runonflux.com/games): icarus<13 digits>, an
+    // encrypted spec. Not deployed when added (2026-11-05), so the first one counts.
+    { prefix: 'icarus', name: 'Icarus' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -623,6 +626,8 @@ export const TRACKED_GAMES = [
     { name: 'SCUM', dbKey: 'gaming_scum' },
     // Counted by app name (encrypted spec), the hub's image and the community image.
     { name: 'The Forest', dbKey: 'gaming_theforest' },
+    // Counted by app name (encrypted spec), the hub's image and the community images.
+    { name: 'Icarus', dbKey: 'gaming_icarus' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1125,6 +1130,11 @@ export const CATEGORY_CONFIG = {
                    // community image is jammsen/the-forest-dedicated-server. Never a bare
                    // 'forest' or 'the-forest': 'sons-of-the-forest' contains both.
                    'theforest-server', 'jammsen/the-forest',
+                   // Icarus. The hub's image is icarus-server-flux; the community images
+                   // are mornedhels/icarus-server, nerodon/icarus-dedicated and
+                   // sknnr/icarus-dedicated-server. Never a bare 'icarus', which also names
+                   // the Icarus Verilog simulator and plenty of unrelated projects.
+                   'icarus-server', 'icarus-dedicated',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1331,6 +1341,11 @@ const DISPLAY_NAME_OVERRIDES = {
     // The Forest: the games hub's image and the community image.
     'runonflux/theforest-server-flux': 'The Forest',
     'jammsen/the-forest-dedicated-server': 'The Forest',
+    // Icarus: the games hub's image and the community images.
+    'runonflux/icarus-server-flux': 'Icarus',
+    'mornedhels/icarus-server': 'Icarus',
+    'nerodon/icarus-dedicated': 'Icarus',
+    'sknnr/icarus-dedicated-server': 'Icarus',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
     'pfeiffermax/rust-game-server': 'Rust',
@@ -1436,6 +1451,11 @@ export const CANONICAL_NAME_OVERRIDES = {
     // The Forest: the games hub's image and the community image.
     'runonflux/theforest-server-flux': 'The Forest',
     'jammsen/the-forest-dedicated-server': 'The Forest',
+    // Icarus: the games hub's image and the community images.
+    'runonflux/icarus-server-flux': 'Icarus',
+    'mornedhels/icarus-server': 'Icarus',
+    'nerodon/icarus-dedicated': 'Icarus',
+    'sknnr/icarus-dedicated-server': 'Icarus',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',
