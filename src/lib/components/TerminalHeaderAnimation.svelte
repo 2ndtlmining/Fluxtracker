@@ -152,6 +152,9 @@
     formatTheForestFrame, theForestFrameKinds, formatTheForestOutro, BATCH25_FRAME_COUNT
   } from '$lib/utils/introArt25.js';
   import {
+    formatIcarusFrame, icarusFrameKinds, formatIcarusOutro, BATCH26_FRAME_COUNT
+  } from '$lib/utils/introArt26.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -317,6 +320,10 @@
     // The 'theforest' prefix, the hub's image and the jammsen image resolve here.
     'The Forest': {
       frameCount: BATCH25_FRAME_COUNT, format: formatTheForestFrame, kinds: theForestFrameKinds
+    },
+    // The 'icarus' prefix, the hub's image and the community images resolve here.
+    'Icarus': {
+      frameCount: BATCH26_FRAME_COUNT, format: formatIcarusFrame, kinds: icarusFrameKinds
     }
   };
 
@@ -379,7 +386,8 @@
     'Counter-Strike 2': outro(formatCounterStrikeOutro),
     'Abiotic Factor': outro(formatAbioticFactorOutro),
     'SCUM': outro(formatScumOutro),
-    'The Forest': outro(formatTheForestOutro)
+    'The Forest': outro(formatTheForestOutro),
+    'Icarus': outro(formatIcarusOutro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 
