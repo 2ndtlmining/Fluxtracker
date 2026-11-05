@@ -267,11 +267,11 @@
     // under both canonical names its images resolve to.
     Satisfactory: FACTORY_INTRO,
     Factorio: FACTORY_INTRO,
-    'ARK Survival': ARK_INTRO,
+    'ARK: Survival Evolved': ARK_INTRO,
     'Ark Survival Evolved': ARK_INTRO,
     // Issue #505. Both the '7daystodie' app-name prefix and the 7dtd images resolve here.
     '7 Days to Die': { frameCount: BATCH5_FRAME_COUNT, format: formatSevenDaysFrame, kinds: sevenDaysFrameKinds },
-    // Issue #514. Its own scene, not ARK_INTRO: a different game from 'ARK Survival'.
+    // Issue #514. Its own scene, not ARK_INTRO: a different game from 'ARK: Survival Evolved'.
     'ARK: Survival Ascended': { frameCount: BATCH6_FRAME_COUNT, format: formatArkAscendedFrame, kinds: arkAscendedFrameKinds },
     // Issue #518. The 'hytale' app-name prefix and the hytale-server-docker image resolve here.
     Hytale: { frameCount: BATCH7_FRAME_COUNT, format: formatHytaleFrame, kinds: hytaleFrameKinds },
@@ -364,7 +364,7 @@
     Terraria: outro(formatTerrariaOutro),
     Satisfactory: outro(formatFactoryOutro),        // #419
     Factorio: outro(formatFactoryOutro),
-    'ARK Survival': outro(formatArkOutro),
+    'ARK: Survival Evolved': outro(formatArkOutro),
     'Ark Survival Evolved': outro(formatArkOutro),
     '7 Days to Die': outro(formatSevenDaysOutro),    // #505
     'ARK: Survival Ascended': outro(formatArkAscendedOutro), // #514

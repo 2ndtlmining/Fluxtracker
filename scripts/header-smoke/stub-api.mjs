@@ -57,6 +57,7 @@ const DEPLOYED_GAME_NAMES = {
   terraria: 'terraria1789155733041',
   sevendays: '7daystodie1789155733041',
   ascended: 'arksurvivalascended1789155733041',
+  evolved: 'arksurvivalevolved1789155733041',
   hytale: 'hytale1789155733041',
   reforger: 'armareforger1789155733041',
   garrysmod: 'garrysmod1789155733041',

@@ -57,7 +57,7 @@ describe('ARK: Survival Ascended specifics (#514)', () => {
     expect(arkAscendedFrameKinds()).toEqual(Array(BOOT_LINE_COUNT).fill('deployed'));
   });
 
-  it('is its own scene, not the ARK Survival (Evolved) sauropod', () => {
+  it('is its own scene, not the ARK: Survival Evolved sauropod', () => {
     expect(formatArkAscendedFrame(0)).not.toEqual(formatArkFrame(0));
     expect(formatArkAscendedFrame(0).join('')).not.toContain('/ o)');
   });

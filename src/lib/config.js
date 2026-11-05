@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.40';
+export const APP_VERSION = 'v1.41';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -196,9 +196,13 @@ export const GAMING_REPOS = [
         imageMatch: 'littlestache/terraria'
     },
     {
-        name: 'ARK Survival',
+        name: 'ARK: Survival Evolved',
         dbKey: 'gaming_ark',
-        imageMatch: 'thmhoag/arkserver'
+        imageMatch: [
+            'thmhoag/arkserver',
+            // The games hub's own image.
+            'runonflux/ase-server-flux'
+        ]
     },
     {
         name: 'Windrose',
@@ -283,9 +287,11 @@ export const GAME_APP_PREFIXES = [
     // counted, and in game revenue, if the hub encrypts them.
     { prefix: '7daystodie', name: '7 Days to Die' },
     // Issue #514. The hub names these arksurvivalascended<13 digits> and encrypts the spec,
-    // so this is the only way they are counted. A different game from 'ARK Survival'
-    // (Survival Evolved, thmhoag/arkserver), so it gets its own name, row and column.
+    // so this is the only way they are counted. A different game from 'ARK: Survival Evolved'
+    // (thmhoag/arkserver, ase-server-flux), so it gets its own name, row and column.
     { prefix: 'arksurvivalascended', name: 'ARK: Survival Ascended' },
+    // The hub's own match rule (runonflux.com/games): arksurvivalevolved<13 digits>.
+    { prefix: 'arksurvivalevolved', name: 'ARK: Survival Evolved' },
     // Issue #518. The hub names these hytale<13 digits>. The spec is public today
     // (indifferentbroccoli/hytale-server-docker), so the image path counts them as well; this
     // keeps them counted, and in game revenue, if the hub encrypts them.
@@ -1066,6 +1072,9 @@ export const CATEGORY_CONFIG = {
         label: 'Gaming',
         keywords: ['minecraft', 'palworld', 'enshrouded', 'valheim', 'satisfactory',
                    'ark-survival', 'arkserver', 'rust-server', 'terraria', 'factorio',
+                   // ARK: Survival Evolved's hub image, ase-server-flux. With its owner on
+                   // purpose: a bare 'ase-server' is inside 'database-server' and 'base-server'.
+                   'runonflux/ase-server',
                    // '7dtd' is how the images name it (runonflux/7dtd-server-flux, #505);
                    // '7daystodie' alone never matched any of them.
                    '7daystodie', '7dtd', 'vrising',
@@ -1286,7 +1295,8 @@ const DISPLAY_NAME_OVERRIDES = {
     'wanchain/client-go': 'Wanchain',
     'mysteriumnetwork/myst': 'Mysterium',
     'registry.gitlab.com/thorchain/thornode': 'THORChain',
-    'thmhoag/arkserver': 'ARK Survival',
+    'thmhoag/arkserver': 'ARK: Survival Evolved',
+    'runonflux/ase-server-flux': 'ARK: Survival Evolved',
     'rouhim/arma-reforger-server': 'Arma Reforger',
     // Issue #524: the games hub's own image (Docker Hub, pushed 2026-10).
     'runonflux/garrysmod-server-flux': "Garry's Mod",
@@ -1390,6 +1400,9 @@ export const CANONICAL_NAME_OVERRIDES = {
     // hand-deployed ASA server in the same row.
     'mschnitzer/asa-linux-server': 'ARK: Survival Ascended',
     'acekorneya/asa_server': 'ARK: Survival Ascended',
+    // ARK: Survival Evolved: the games hub's image and the community one, in one row.
+    'runonflux/ase-server-flux': 'ARK: Survival Evolved',
+    'thmhoag/arkserver': 'ARK: Survival Evolved',
     // Issue #518: the hub image and the community ones in one row, not a "Docker Hytale" one.
     'indifferentbroccoli/hytale-server-docker': 'Hytale',
     'deinfreu/hytale-server': 'Hytale',

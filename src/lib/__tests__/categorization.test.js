@@ -169,6 +169,13 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/black-forest-cake:latest')).not.toBe('gaming');
     });
 
+    it('counts the ARK: Survival Evolved hub image as a game, and no other ase-server', () => {
+        expect(categorizeImage('runonflux/ase-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('example/database-server:latest')).not.toBe('gaming');
+        expect(categorizeImage('example/base-server:latest')).not.toBe('gaming');
+        expect(categorizeImage('example/release-server:latest')).not.toBe('gaming');
+    });
+
     it('counts the Icarus hub and community images as a game, and no other Icarus', () => {
         expect(categorizeImage('runonflux/icarus-server-flux:latest')).toBe('gaming');
         expect(categorizeImage('mornedhels/icarus-server:latest')).toBe('gaming');
@@ -276,7 +283,7 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('pfeiffermax/rust-game-server:latest-oxide')).toBe('Rust');
     });
 
-    it('names the ASA images as ARK: Survival Ascended, apart from ARK Survival (#514)', () => {
+    it('names the ASA images as ARK: Survival Ascended, apart from ARK: Survival Evolved (#514)', () => {
         expect(getCanonicalName('mschnitzer/asa-linux-server:latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('acekorneya/asa_server:2_1_latest')).toBe('ARK: Survival Ascended');
         expect(getCanonicalName('thmhoag/arkserver:latest')).not.toBe('ARK: Survival Ascended');
@@ -399,6 +406,11 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('runonflux/theforest-server-flux:latest')).toBe('The Forest');
         expect(getCanonicalName('jammsen/the-forest-dedicated-server:latest')).toBe('The Forest');
         expect(getCanonicalName('jammsen/sons-of-the-forest-dedicated-server:latest')).toBe('Sons of the Forest');
+    });
+
+    it("names the games hub's and the community ARK: Survival Evolved images as one game", () => {
+        expect(getCanonicalName('runonflux/ase-server-flux:latest')).toBe('ARK: Survival Evolved');
+        expect(getCanonicalName('thmhoag/arkserver:latest')).toBe('ARK: Survival Evolved');
     });
 
     it("names the games hub's and the community Icarus images", () => {

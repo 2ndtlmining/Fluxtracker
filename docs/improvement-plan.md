@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-11-05** (v1.40)
+**Last reviewed: 2026-11-06** (v1.41)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,14 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-11-05 (v1.40):** open.
+**Status at 2026-11-06 (v1.41):** open.
+- **Games:** the hub's ARK: Survival Evolved deployments now reach the game's existing row:
+  `^arksurvivalevolved` names and the `runonflux/ase-server-flux` image were counted as nothing
+  until now (four live on 2026-11-06). The row is renamed from 'ARK Survival' to the hub's
+  'ARK: Survival Evolved', and keeps its `gaming_ark` column, T-rex icon and sauropod art. Never a bare
+  `ase-server` keyword (`database-server`).
+
+**Status at 2026-11-05 (v1.40):** merged.
 - **Games:** Icarus is tracked as its own game, with an icon (Delapouite's Icarus) and header
   art (the drop: a pod falls from orbit on its retros, the prospector walks out and cuts a
   piece from an exotic crystal, "PROSPECT ACTIVE"; the outro is the last hour: a storm comes
