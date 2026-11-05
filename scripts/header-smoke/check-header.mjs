@@ -122,6 +122,12 @@ const GAME_ART_BY_NAME = {
     signature: /,o>/,
     movingRows: rows => rows.filter(r => r.text.includes(',o>'))
   },
+  // ARK: Survival Evolved: the jungle floor (no other scene draws it, and it is in every
+  // frame); the pterosaur crosses the top row, so that row changes from frame to frame.
+  evolved: {
+    signature: /_,_\.__/,
+    movingRows: rows => rows.filter(r => r.text.includes('-v-'))
+  },
   // Issue #518: the adventurer's sword arm (no other scene draws it), walking along its row.
   hytale: {
     signature: /\/\|=-/,
@@ -256,6 +262,7 @@ const UPDATED_DEPLOYED_NAME = {
   terraria: 'terraria1789155733041',
   sevendays: '7daystodie1789155733041',
   ascended: 'arksurvivalascended1789155733041',
+  evolved: 'arksurvivalevolved1789155733041',
   hytale: 'hytale1789155733041',
   reforger: 'armareforger1789155733041',
   garrysmod: 'garrysmod1789155733041',

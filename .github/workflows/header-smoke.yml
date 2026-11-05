@@ -48,7 +48,7 @@ env:
   # signatures). Adding a game means adding it here, and nowhere else in this file.
   SMOKE_GAMES: >-
     valheim minecraft dragonwilds palworld zomboid vrising enshrouded rust windrose
-    terraria sevendays ascended hytale reforger garrysmod unturned dst corekeeper theisle
+    terraria sevendays ascended evolved hytale reforger garrysmod unturned dst corekeeper theisle
     tmodloader trucksim tf2 vintagestory beammp soulmask conanexiles sonsoftheforest
     counterstrike2 abioticfactor scum theforest icarus
   # Run for header-only changes. Chosen so each takes a different path through the

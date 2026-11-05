@@ -60,13 +60,16 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('mcbe', 1, 'itzg/minecraft-bedrock-server:latest'))).toBe('game:Minecraft');
     expect(resolveIntroKey(app('t', 1, 'littlestache/terraria:latest'))).toBe('game:Terraria');
     expect(resolveIntroKey(app('s', 1, 'wolveix/satisfactory-server:latest'))).toBe('game:Satisfactory');
-    expect(resolveIntroKey(app('a', 1, 'thmhoag/arkserver:latest'))).toBe('game:ARK Survival');
+    expect(resolveIntroKey(app('a', 1, 'thmhoag/arkserver:latest'))).toBe('game:ARK: Survival Evolved');
+    // A live hub deployment, and the hub's image under any other name, on the same art.
+    expect(resolveIntroKey(app('arksurvivalevolved1793022172443', 2, 'runonflux/ase-server-flux:latest'))).toBe('game:ARK: Survival Evolved');
+    expect(resolveIntroKey(app('tribe', 1, 'runonflux/ase-server-flux:latest'))).toBe('game:ARK: Survival Evolved');
     // Issue #505: the hub's name and Flux's image land on the same art.
     expect(resolveIntroKey(app('7daystodie1790705531162', 2, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
     expect(resolveIntroKey(app('zeds', 1, 'runonflux/7dtd-server-flux:latest'))).toBe('game:7 Days to Die');
     expect(resolveIntroKey(app('zeds', 1, 'vinanrra/7dtd-server:latest'))).toBe('game:7 Days to Die');
     // Issue #514: the hub's encrypted deployments (no image) and a community image, on ASA's
-    // own art -- not the ARK Survival (Evolved) sauropod.
+    // own art -- not the ARK: Survival Evolved sauropod.
     expect(resolveIntroKey(app('arksurvivalascended1791140248911', 1))).toBe('game:ARK: Survival Ascended');
     expect(resolveIntroKey(app('dinos', 1, 'mschnitzer/asa-linux-server:latest'))).toBe('game:ARK: Survival Ascended');
     // Issue #518: a hub deployment and the same image under any other name.

@@ -5,7 +5,7 @@
 // (ROW_KIND_DEPLOYED); the outro is keyed like the intro and plays in orange
 // (outroFrameKinds, applied by the component).
 //
-// Deliberately not the ARK Survival (Evolved) sauropod from introArt3.js: they are two
+// Deliberately not the ARK: Survival Evolved sauropod from introArt3.js: they are two
 // games with two rows on the card, and the header should tell them apart too.
 import { PLAIN_SKY } from './seasons.js';
 import {
