@@ -9,7 +9,7 @@ import {
 import { setRevenueSyncRunning, setRevenueSyncError } from './revenueSyncState.js';
 import { fetchFluxPrice } from '../fluxNetworkData.js';
 import { progressiveSync } from './transactionSync.js';
-import { backfillAppTypes, backfillAppNames, catchUpMessageMetadata } from './revenueBackfill.js';
+import { backfillAppTypes, backfillAppNames, catchUpMessageMetadata, purgeFeePayments } from './revenueBackfill.js';
 import { getToDateRanges } from '../../kpi/periods.js';
 
 const log = createLogger('revenueService');
@@ -139,6 +139,14 @@ async function runRevenueStats() {
 
         // Run progressive sync to import new transactions
         await progressiveSync();
+
+        // Remove spec-update fees stored before they were filtered (issue #567). Never fails
+        // the sync: the next pass tries again.
+        try {
+            await purgeFeePayments();
+        } catch (error) {
+            log.warn({ err: error }, 'Stored fee clean-up failed; retried next sync');
+        }
 
         // Auto-backfill transactions that are still missing app_name.
         // Only looks at the last 30 days — old NULL rows are almost certainly direct

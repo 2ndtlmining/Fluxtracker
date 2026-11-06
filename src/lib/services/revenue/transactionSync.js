@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, TARGET_ADDRESSES, EXCLUDED_TRANSACTIONS, REVENUE_SYNC, resolveGameFromAppName } from '../../config.js';
+import { API_ENDPOINTS, TARGET_ADDRESSES, MIN_PAYMENT_FLUX, REVENUE_SYNC, resolveGameFromAppName } from '../../config.js';
 import { resilientFetch } from '../resilientFetch.js';
 import { ensureGlobalSpecsCache, getAppNameByHash, getAppTypeByName, determineAppType } from '../appSpecsCache.js';
 import { createLogger } from '../../logger.js';
@@ -498,11 +498,8 @@ export function processTransaction(tx, trackedAddresses, fluxPriceUSD = null, ap
                 // vout.value is already in FLUX (no satoshi conversion needed)
                 const amountFlux = parseFloat(vout.value) || 0;
 
-                // Skip excluded transactions (e.g. Flux app spec-change fees)
-                const isExcluded = EXCLUDED_TRANSACTIONS.some(
-                    ex => ex.from_address === fromAddress && Math.abs(ex.amount - amountFlux) < 0.000001
-                );
-                if (isExcluded) continue;
+                // Skip spec-update fees: they are not deployments (issue #567)
+                if (amountFlux < MIN_PAYMENT_FLUX) continue;
 
                 // Skip UTXO change: from_address == receiving address means this is
                 // just unspent change returning to the same wallet, not real revenue

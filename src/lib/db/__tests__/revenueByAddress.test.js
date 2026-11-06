@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
-import { isFluxFiatAddress, isFluxTeamAddress, FLUX_FIAT_ADDRESSES, FLUX_TEAM_ADDRESSES, EXCLUDED_TRANSACTIONS } from '../../config.js';
+import { isFluxFiatAddress, isFluxTeamAddress, FLUX_FIAT_ADDRESSES, FLUX_TEAM_ADDRESSES } from '../../config.js';
 
 /**
  * Revenue attribution by sender address, against a real SQLite DB.
@@ -125,13 +125,6 @@ describe('address list helpers', () => {
     it('recognises both known Flux team addresses (#551)', () => {
         expect(isFluxTeamAddress('t1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY')).toBe(true);
         expect(isFluxTeamAddress('t1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A')).toBe(true);
-    });
-
-    it('labels the spec-change fee sender as team, while still excluding its 0.02 fees (#551)', () => {
-        // The 0.02 FLUX exclusion is keyed on the same address. Adding it to the team list
-        // must not drop that rule: the fees stay unstored, its other payments become Team.
-        expect(EXCLUDED_TRANSACTIONS).toContainEqual({ from_address: NEW_TEAM, amount: 0.02 });
-        expect(isFluxTeamAddress(NEW_TEAM)).toBe(true);
     });
 
     it('does not confuse the two lists', () => {

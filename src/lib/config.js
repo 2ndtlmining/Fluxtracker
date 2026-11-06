@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.41';
+export const APP_VERSION = 'v1.42';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -34,8 +34,8 @@ export const DONATION_ADDRESSES = [
 // ============================================
 export const FLUX_TEAM_ADDRESSES = [
     't1gjUUxBpBeVC1sWwAFrtSsVCbSaFdZx8UY', // Flux team primary
-    // Issue #551. Also the sender of the 0.02 FLUX spec-change fees EXCLUDED_TRANSACTIONS
-    // drops, so only its other payments are stored and show up as Team.
+    // Issue #551. Also the main sender of spec-update fees, which MIN_PAYMENT_FLUX drops, so
+    // only its other payments are stored and show up as Team.
     't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
     // Add more Flux team addresses here as needed
 ];
@@ -720,14 +720,13 @@ export const METRIC_COLUMNS = [
 ];
 
 // ============================================
-// EXCLUDED TRANSACTION PATTERNS
+// MINIMUM STORED PAYMENT
 // ============================================
-export const EXCLUDED_TRANSACTIONS = [
-    {
-        from_address: 't1Mzja9iJcEYeW5B4m4s1tJG8M42odFZ16A',
-        amount: 0.02  // FLUX (app spec-change fee – treated as free for end user)
-    }
-];
+// A payment under this many FLUX is a spec-update fee, not a deployment, whoever sent it
+// (issue #567). Fees run from 0.01 to 0.09 FLUX, so no single wallet or amount identifies them:
+// the rule used to be "exactly 0.02 from t1Mzja...", and 1,070 updates at 0.03 from a new wallet
+// counted as deployments in one day. Of 12,105 updates under this figure, 98.3% added no time.
+export const MIN_PAYMENT_FLUX = 0.1;
 
 // ============================================
 // CLOUD UTILIZATION CONFIG

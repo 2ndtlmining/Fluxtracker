@@ -37,9 +37,12 @@ vi.mock('../transactionSync.js', () => ({
 
 const mockBackfillAppTypes = vi.fn();
 const mockBackfillAppNames = vi.fn();
+const mockPurgeFeePayments = vi.fn();
 vi.mock('../revenueBackfill.js', () => ({
     backfillAppTypes: (...a) => mockBackfillAppTypes(...a),
-    backfillAppNames: (...a) => mockBackfillAppNames(...a)
+    backfillAppNames: (...a) => mockBackfillAppNames(...a),
+    catchUpMessageMetadata: vi.fn(),
+    purgeFeePayments: (...a) => mockPurgeFeePayments(...a)
 }));
 
 import { getRevenueBreakdown, fetchRevenueStats, formatRevenueStats } from '../revenueReporting.js';
@@ -105,6 +108,29 @@ describe('getRevenueBreakdown', () => {
 });
 
 describe('fetchRevenueStats', () => {
+    it('removes stored fees after the sync, before today\'s revenue is worked out (issue #567)', async () => {
+        await fetchRevenueStats();
+
+        const purged = mockPurgeFeePayments.mock.invocationCallOrder[0];
+        expect(mockProgressiveSync.mock.invocationCallOrder[0]).toBeLessThan(purged);
+        expect(purged).toBeLessThan(mockGetRevenueForDateRange.mock.invocationCallOrder[0]);
+    });
+
+    it('does not remove anything when the sync itself failed (issue #567)', async () => {
+        mockProgressiveSync.mockRejectedValueOnce(new Error('sync down'));
+
+        await expect(fetchRevenueStats()).rejects.toThrow('sync down');
+
+        expect(mockPurgeFeePayments).not.toHaveBeenCalled();
+    });
+
+    it('a failed fee removal does not fail the sync (issue #567)', async () => {
+        mockPurgeFeePayments.mockRejectedValueOnce(new Error('timeout'));
+        mockGetRevenueForDateRange.mockResolvedValue(5);
+
+        await expect(fetchRevenueStats()).resolves.toMatchObject({ current_revenue: 5 });
+    });
+
     it('a call during a run joins it instead of starting a second scan (issue #430)', async () => {
         let release;
         mockProgressiveSync.mockImplementation(() => new Promise(r => { release = r; }));

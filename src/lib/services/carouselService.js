@@ -114,8 +114,8 @@ export async function getSharedFluxApiData() {
 /**
  * Each app's latest PAID height from stored payment rows (issue #534).
  *
- * The revenue sync never stores the 0.02 FLUX spec-change fee (EXCLUDED_TRANSACTIONS), so
- * every named row here is a registration, renewal or paid extension. Rows with no app name
+ * The revenue sync never stores a spec-update fee (MIN_PAYMENT_FLUX), so every named row
+ * here is a registration, renewal or paid extension. Rows with no app name
  * (FluxDrive storage, a name still resolving) cannot be matched to a spec and are skipped.
  * Keyed by lower-cased name: Flux app names are case-insensitive.
  */

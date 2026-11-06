@@ -1348,6 +1348,37 @@ export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate,
     return data;
 }
 
+/**
+ * Remove stored payments under `minFlux` (issue #567). The dates are paged first and the
+ * delete asks only for a count, so neither depends on a response under the db-max-rows cap.
+ * @returns {Promise<{deleted: number, dates: string[]}>} the rows removed and the days they fell on
+ */
+export async function deletePaymentsBelow(minFlux) {
+    const PAGE_SIZE = 1000;
+    const dates = new Set();
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+        const { data, error } = await supabase
+            .from('revenue_transactions')
+            .select('date')
+            .lt('amount', minFlux)
+            .order('id', { ascending: true })
+            .range(offset, offset + PAGE_SIZE - 1);
+
+        if (error) throw new Error(`deletePaymentsBelow read failed: ${error.message}`);
+        for (const row of data) dates.add(row.date);
+        if (data.length < PAGE_SIZE) break;
+    }
+    if (dates.size === 0) return { deleted: 0, dates: [] };
+
+    const { count, error } = await supabase
+        .from('revenue_transactions')
+        .delete({ count: 'exact' })
+        .lt('amount', minFlux);
+
+    if (error) throw new Error(`deletePaymentsBelow failed: ${error.message}`);
+    return { deleted: count ?? 0, dates: [...dates] };
+}
+
 export async function deleteOldTransactions(daysToKeep = DATA_RETENTION_DAYS) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
