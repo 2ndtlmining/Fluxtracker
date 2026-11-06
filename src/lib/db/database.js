@@ -89,6 +89,7 @@ export const {
     updateTransactionGameBatch,
     // Revenue Sources in one query (issue #386)
     getDailyRevenueSourcesInRange,
+    deletePaymentsBelow,
     deleteOldTransactions,
     getTransactionsWithNullUsd,
     getOldestTransactionDate,

@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-11-06** (v1.41)
+**Last reviewed: 2026-11-07** (v1.42)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,13 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-11-06 (v1.41):** open.
+**Status at 2026-11-07 (v1.42):** open.
+- **Revenue data:** spec-update fees no longer count as deployments (#567). Payments under 0.1
+  FLUX are not stored, from any wallet; this replaces "exactly 0.02 from one wallet", which let
+  1,070 updates at 0.03 from a new wallet through on 2026-11-06. Each instance removes its own
+  stored fees after its first sync and restates daily_revenue for those days.
+
+**Status at 2026-11-06 (v1.41):** merged.
 - **Games:** the hub's ARK: Survival Evolved deployments now reach the game's existing row:
   `^arksurvivalevolved` names and the `runonflux/ase-server-flux` image were counted as nothing
   until now (four live on 2026-11-06). The row is renamed from 'ARK Survival' to the hub's

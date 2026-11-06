@@ -1564,6 +1564,20 @@ export async function getDailyRevenueUSDFromAddressesInRange(startDate, endDate,
     }
 }
 
+/**
+ * Remove stored payments under `minFlux` (issue #567).
+ * @returns {Promise<{deleted: number, dates: string[]}>} the rows removed and the days they fell on
+ */
+export async function deletePaymentsBelow(minFlux) {
+    const db = getDb();
+    return db.transaction(() => {
+        const dates = db.prepare('SELECT DISTINCT date FROM revenue_transactions WHERE amount < ?')
+            .all(minFlux).map(row => row.date);
+        const { changes } = db.prepare('DELETE FROM revenue_transactions WHERE amount < ?').run(minFlux);
+        return { deleted: changes, dates };
+    })();
+}
+
 export async function deleteOldTransactions(daysToKeep = DATA_RETENTION_DAYS) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);

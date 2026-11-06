@@ -8,8 +8,12 @@ import {
     upsertFailedTxid,
     isFailedTxid,
     updateTransactionMetadataBatch,
-    updateTransactionGameBatch
+    updateTransactionGameBatch,
+    deletePaymentsBelow,
+    getRevenueForDateRange,
+    updateSnapshotRevenue
 } from '../../db/database.js';
+import { MIN_PAYMENT_FLUX } from '../../config.js';
 import {
     ensurePermanentMessagesCache,
     classifyOpReturn,
@@ -25,6 +29,49 @@ import {
 } from './transactionSync.js';
 
 const log = createLogger('revenueService');
+
+// ============================================
+// STORED FEE CLEAN-UP (issue #567)
+// ============================================
+
+// Module state: a restart checks once more, which finds nothing once the fees are gone.
+let feePurgeDone = false;
+let daysToRestate = [];
+
+/**
+ * Remove spec-update fees stored before MIN_PAYMENT_FLUX existed, then restate daily_revenue
+ * for the days they fell on. Runs here rather than from an admin call because the live site is
+ * several SQLite databases behind one domain, and a request only reaches whichever one answers.
+ *
+ * Today is skipped: its snapshot is deliberately partial and is finalised tomorrow (#248). A
+ * day that fails to restate is kept for the next pass, since the delete cannot name it again.
+ *
+ * @returns {Promise<{deleted: number, days: number, failedDays: number}|null>} null once done
+ */
+export async function purgeFeePayments() {
+    if (feePurgeDone) return null;
+
+    const { deleted, dates } = await deletePaymentsBelow(MIN_PAYMENT_FLUX);
+    const today = new Date().toISOString().split('T')[0];
+    const days = [...new Set([...daysToRestate, ...dates])].filter(date => date < today);
+
+    const failed = [];
+    for (const date of days) {
+        try {
+            await updateSnapshotRevenue(date, await getRevenueForDateRange(date, date));
+        } catch (error) {
+            log.warn({ err: error, date }, 'Could not restate revenue for %s; retried next sync', date);
+            failed.push(date);
+        }
+    }
+    daysToRestate = failed;
+    feePurgeDone = failed.length === 0;
+
+    if (deleted > 0) {
+        log.info({ deleted, days: days.length, failedDays: failed.length }, 'Removed %d stored spec-update fees across %d days', deleted, dates.length);
+    }
+    return { deleted, days: days.length, failedDays: failed.length };
+}
 
 // ============================================
 // MESSAGE METADATA BACKFILL (issue #262)
