@@ -1,6 +1,6 @@
 # Fluxtracker — What's Next
 
-**Last reviewed: 2026-11-07** (v1.42)
+**Last reviewed: 2026-11-08** (v1.43)
 
 GitHub issues are the queue. This file is the **order** and the **reasoning** — why an item is
 worth doing and what "done" looks like. If the two disagree, the issues win; re-review this file.
@@ -16,7 +16,15 @@ rule links to an issue.
 **Open (2026-10-15, v1.21):** the Whitepaper v9 pair, #510 (read the spec v9 shape) and #511
 (tripwire for an unrecognised spec version). Both are due before block 3,050,000.
 
-**Status at 2026-11-07 (v1.42):** open.
+**Status at 2026-11-08 (v1.43):** open.
+- **Games:** Killing Floor 2 is tracked as its own game, with an icon (Delapouite's chainsaw)
+  and header art (one wave: a survivor holds the line as clots shamble in, drops the first,
+  and Zed Time slows the last kill, "WAVE CLEARED"; the outro is the last wave: a Fleshpound
+  soaks up the fire, enrages and charges, the gun clicks empty, "SQUAD WIPED"), from the hub's
+  own match rule (`^killingfloor2`, image `killingfloor2-server-flux`) plus the common
+  community images. Never a bare `kf2` keyword (`kf2024/*`). No deployment live yet.
+
+**Status at 2026-11-07 (v1.42):** merged.
 - **Revenue data:** spec-update fees no longer count as deployments (#567). Payments under 0.1
   FLUX are not stored, from any wallet; this replaces "exactly 0.02 from one wallet", which let
   1,070 updates at 0.03 from a new wallet through on 2026-11-06. Each instance removes its own

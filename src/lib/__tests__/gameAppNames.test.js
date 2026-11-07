@@ -84,6 +84,9 @@ describe('resolveGameFromAppName', () => {
         // Icarus: the hub's shape, not live yet (2026-11-05). The digits are required.
         expect(resolveGameFromAppName('icarus1793700000000')).toBe('Icarus');
         expect(resolveGameFromAppName('icarusfinance')).not.toBe('Icarus');
+        // Killing Floor 2: the hub's shape, not live yet (2026-11-08). The digits are required.
+        expect(resolveGameFromAppName('killingfloor21793900000000')).toBe('Killing Floor 2');
+        expect(resolveGameFromAppName('killingfloor2stats')).not.toBe('Killing Floor 2');
     });
 
     it('totals every plan of one game under the canonical name', () => {

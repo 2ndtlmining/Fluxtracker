@@ -139,6 +139,12 @@ describe('resolveIntroKey (issue #271)', () => {
     expect(resolveIntroKey(app('prospect', 1, 'mornedhels/icarus-server:latest'))).toBe('game:Icarus');
     expect(resolveIntroKey(app('dropship', 1, 'nerodon/icarus-dedicated:latest'))).toBe('game:Icarus');
     expect(resolveIntroKey(app('outpost', 1, 'sknnr/icarus-dedicated-server:latest'))).toBe('game:Icarus');
+    // Killing Floor 2: an encrypted hub deployment, the hub's image and the community images.
+    expect(resolveIntroKey(app('killingfloor21793900000000', 1))).toBe('game:Killing Floor 2');
+    expect(resolveIntroKey(app('holdout', 1, 'runonflux/killingfloor2-server-flux:latest'))).toBe('game:Killing Floor 2');
+    expect(resolveIntroKey(app('biotics', 1, 'nicklas2751/killingfloor2-server:latest'))).toBe('game:Killing Floor 2');
+    expect(resolveIntroKey(app('outbreak', 1, 'dwurf/docker-kf2:latest'))).toBe('game:Killing Floor 2');
+    expect(resolveIntroKey(app('burningparis', 1, 'antimodes201/kf2-server:latest'))).toBe('game:Killing Floor 2');
   });
 
   it('resolves n8n, SimpleX and file servers by their real names and images (issue #420)', () => {

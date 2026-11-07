@@ -155,6 +155,9 @@
     formatIcarusFrame, icarusFrameKinds, formatIcarusOutro, BATCH26_FRAME_COUNT
   } from '$lib/utils/introArt26.js';
   import {
+    formatKillingFloor2Frame, killingFloor2FrameKinds, formatKillingFloor2Outro, BATCH27_FRAME_COUNT
+  } from '$lib/utils/introArt27.js';
+  import {
     formatSevenDaysFrame, sevenDaysFrameKinds, formatSevenDaysOutro, BATCH5_FRAME_COUNT
   } from '$lib/utils/introArt5.js';
   import {
@@ -324,6 +327,10 @@
     // The 'icarus' prefix, the hub's image and the community images resolve here.
     'Icarus': {
       frameCount: BATCH26_FRAME_COUNT, format: formatIcarusFrame, kinds: icarusFrameKinds
+    },
+    // The 'killingfloor2' prefix, the hub's image and the community images resolve here.
+    'Killing Floor 2': {
+      frameCount: BATCH27_FRAME_COUNT, format: formatKillingFloor2Frame, kinds: killingFloor2FrameKinds
     }
   };
 
@@ -387,7 +394,8 @@
     'Abiotic Factor': outro(formatAbioticFactorOutro),
     'SCUM': outro(formatScumOutro),
     'The Forest': outro(formatTheForestOutro),
-    'Icarus': outro(formatIcarusOutro)
+    'Icarus': outro(formatIcarusOutro),
+    'Killing Floor 2': outro(formatKillingFloor2Outro)
   };
   const FUSE_OUTRO = { frameCount: FUSE_FRAME_COUNT, format: formatFuseFrame, kinds: fuseFrameKinds };
 

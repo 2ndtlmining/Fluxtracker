@@ -1,6 +1,6 @@
 // Flux Performance Dashboard Configuration
 
-export const APP_VERSION = 'v1.42';
+export const APP_VERSION = 'v1.43';
 
 // ============================================
 // FLUX ADDRESSES TO TRACK
@@ -362,7 +362,10 @@ export const GAME_APP_PREFIXES = [
     { prefix: 'theforest', name: 'The Forest' },
     // Icarus. The hub's own match rule (runonflux.com/games): icarus<13 digits>, an
     // encrypted spec. Not deployed when added (2026-11-05), so the first one counts.
-    { prefix: 'icarus', name: 'Icarus' }
+    { prefix: 'icarus', name: 'Icarus' },
+    // Killing Floor 2. The hub's own match rule (runonflux.com/games): killingfloor2<13
+    // digits>, an encrypted spec. Not deployed when added (2026-11-08), so the first one counts.
+    { prefix: 'killingfloor2', name: 'Killing Floor 2' }
 
     // NOTE: WordPress, Hermes, n8n and OpenClaw are dedicated sites too, but they are not
     // games -- deliberately omitted so the gaming figure means what its label says.
@@ -634,6 +637,8 @@ export const TRACKED_GAMES = [
     { name: 'The Forest', dbKey: 'gaming_theforest' },
     // Counted by app name (encrypted spec), the hub's image and the community images.
     { name: 'Icarus', dbKey: 'gaming_icarus' },
+    // Counted by app name (encrypted spec), the hub's image and the community images.
+    { name: 'Killing Floor 2', dbKey: 'gaming_killingfloor2' },
     // Reaches the breakdown through categorizeImage()'s keyword rule rather than through
     // either explicit list, and still needs somewhere to be stored.
     { name: 'Factorio', dbKey: 'gaming_factorio' }
@@ -1143,6 +1148,11 @@ export const CATEGORY_CONFIG = {
                    // sknnr/icarus-dedicated-server. Never a bare 'icarus', which also names
                    // the Icarus Verilog simulator and plenty of unrelated projects.
                    'icarus-server', 'icarus-dedicated',
+                   // Killing Floor 2. The hub's image is killingfloor2-server-flux; the
+                   // community images include nicklas2751/killingfloor2-server,
+                   // dwurf/docker-kf2, schlabbi/kf2server and antimodes201/kf2-server.
+                   // Never a bare 'kf2': Docker Hub has unrelated kf2024/* images.
+                   'killingfloor2', 'kf2-server', 'kf2server', 'docker-kf2',
                    // Issue #508 (owner, 2026-10-03): browser and web games count as gaming too,
                    // which is what Noxide's list already did -- ~91 of the 119 instances
                    // between the two. Distinctive names stay bare. The littlestache games are
@@ -1355,6 +1365,12 @@ const DISPLAY_NAME_OVERRIDES = {
     'mornedhels/icarus-server': 'Icarus',
     'nerodon/icarus-dedicated': 'Icarus',
     'sknnr/icarus-dedicated-server': 'Icarus',
+    // Killing Floor 2: the games hub's image and the common community images.
+    'runonflux/killingfloor2-server-flux': 'Killing Floor 2',
+    'nicklas2751/killingfloor2-server': 'Killing Floor 2',
+    'dwurf/docker-kf2': 'Killing Floor 2',
+    'schlabbi/kf2server': 'Killing Floor 2',
+    'antimodes201/kf2-server': 'Killing Floor 2',
     'factoriotools/factorio': 'Factorio',
     'littlestache/rust-server': 'Rust',
     'pfeiffermax/rust-game-server': 'Rust',
@@ -1468,6 +1484,12 @@ export const CANONICAL_NAME_OVERRIDES = {
     'mornedhels/icarus-server': 'Icarus',
     'nerodon/icarus-dedicated': 'Icarus',
     'sknnr/icarus-dedicated-server': 'Icarus',
+    // Killing Floor 2: the games hub's image and the common community images.
+    'runonflux/killingfloor2-server-flux': 'Killing Floor 2',
+    'nicklas2751/killingfloor2-server': 'Killing Floor 2',
+    'dwurf/docker-kf2': 'Killing Floor 2',
+    'schlabbi/kf2server': 'Killing Floor 2',
+    'antimodes201/kf2-server': 'Killing Floor 2',
     'streamr/node': 'Streamr',
     'streamr/broker-node': 'Streamr',
     'alephium/explorer': 'Alephium',

@@ -184,6 +184,15 @@ describe('categorizeImage', () => {
         expect(categorizeImage('example/icarus-verilog:latest')).not.toBe('gaming');
     });
 
+    it('counts the Killing Floor 2 hub and community images as a game, and no bare kf2', () => {
+        expect(categorizeImage('runonflux/killingfloor2-server-flux:latest')).toBe('gaming');
+        expect(categorizeImage('nicklas2751/killingfloor2-server:latest')).toBe('gaming');
+        expect(categorizeImage('dwurf/docker-kf2:latest')).toBe('gaming');
+        expect(categorizeImage('schlabbi/kf2server:latest')).toBe('gaming');
+        expect(categorizeImage('antimodes201/kf2-server:latest')).toBe('gaming');
+        expect(categorizeImage('kf2024/hello-world:latest')).not.toBe('gaming');
+    });
+
     it('counts the Arma Reforger community image as a game (#521)', () => {
         expect(categorizeImage('rouhim/arma-reforger-server:latest')).toBe('gaming');
     });
@@ -418,6 +427,16 @@ describe('getCanonicalName', () => {
         expect(getCanonicalName('mornedhels/icarus-server:latest')).toBe('Icarus');
         expect(getCanonicalName('nerodon/icarus-dedicated:latest')).toBe('Icarus');
         expect(getCanonicalName('sknnr/icarus-dedicated-server:latest')).toBe('Icarus');
+    });
+
+    it("names the games hub's and the community Killing Floor 2 images", () => {
+        for (const image of [
+            'runonflux/killingfloor2-server-flux:latest',
+            'nicklas2751/killingfloor2-server:latest',
+            'dwurf/docker-kf2:latest',
+            'schlabbi/kf2server:latest',
+            'antimodes201/kf2-server:latest'
+        ]) expect(getCanonicalName(image)).toBe('Killing Floor 2');
     });
 
     it('names every Hytale image seen on the network as one Hytale row (#518)', () => {
