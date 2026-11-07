@@ -77,7 +77,8 @@ const DEPLOYED_GAME_NAMES = {
   abioticfactor: 'abioticfactor1789155733041',
   scum: 'scum1789155733041',
   theforest: 'theforest1789155733041',
-  icarus: 'icarus1789155733041'
+  icarus: 'icarus1789155733041',
+  killingfloor2: 'killingfloor21789155733041'
 };
 const DEPLOYED_GAME = process.env.DEPLOYED_GAME || 'valheim';
 const DEPLOYED_GAME_NAME = DEPLOYED_GAME_NAMES[DEPLOYED_GAME];

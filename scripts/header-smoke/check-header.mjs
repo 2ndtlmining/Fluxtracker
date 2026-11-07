@@ -245,6 +245,12 @@ const GAME_ART_BY_NAME = {
   icarus: {
     signature: /_,~\._,~\./,
     movingRows: rows => rows.filter(r => /--\[#\]--/.test(r.text))
+  },
+  // Killing Floor 2: the lab floor (no other scene draws it, and it is in every frame); the
+  // Zeds' '@' heads advance across the lab, so their row changes from frame to frame.
+  killingfloor2: {
+    signature: /-=\._-=\._/,
+    movingRows: rows => rows.filter(r => /@/.test(r.text))
   }
 };
 // Must match stub-api.mjs's DEPLOYED_GAME_NAMES -- the freshness check waits for this exact
@@ -282,7 +288,8 @@ const UPDATED_DEPLOYED_NAME = {
   abioticfactor: 'abioticfactor1789155733041',
   scum: 'scum1789155733041',
   theforest: 'theforest1789155733041',
-  icarus: 'icarus1789155733041'
+  icarus: 'icarus1789155733041',
+  killingfloor2: 'killingfloor21789155733041'
 }[DEPLOYED_GAME];
 
 const GAME_ART = GAME_ART_BY_NAME[DEPLOYED_GAME];
